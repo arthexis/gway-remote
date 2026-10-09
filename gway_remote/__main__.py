@@ -117,8 +117,7 @@ def main() -> None:
         try:
             run(args.task, args.repository, args.sha)
         except (ValueError, RuntimeError, subprocess.CalledProcessError, subprocess.TimeoutExpired) as exc:
-            parser.exit(1, f"gway-remote: {exc}
-")
+            parser.exit(1, f"gway-remote: {exc}\n")
 
 
 if __name__ == "__main__":
