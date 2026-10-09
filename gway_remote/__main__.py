@@ -102,7 +102,7 @@ def deploy_lcd_sound(sha: str) -> None:
         subprocess.run(["systemctl", "--user", "daemon-reload"],
                        env=user_systemd_env(), check=True, timeout=20)
         subprocess.run(["systemctl", "--user", "try-restart", "gway-app-observer.service"],
-                       check=True, timeout=30)
+                       env=user_systemd_env(), check=True, timeout=30)
 
 
 def main() -> None:
