@@ -7,7 +7,7 @@ on:
       task:
         type: choice
         required: true
-        options: [system-health, ocpp-csms-deploy]
+        options: [system-health]
 
 permissions:
   contents: read
