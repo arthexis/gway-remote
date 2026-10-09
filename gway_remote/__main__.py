@@ -59,6 +59,16 @@ def run(task: str, repository: str = "", sha: str = "") -> None:
                        cwd=worktree, check=True, timeout=120)
 
 
+def user_systemd_env() -> dict[str, str]:
+    """Locate the persistent user's systemd bus in a non-login runner service."""
+    runtime = Path(f"/run/user/{os.getuid()}")
+    bus = runtime / "bus"
+    if not bus.is_socket():
+        raise RuntimeError(f"User systemd bus unavailable: {bus}")
+    return {**os.environ, "XDG_RUNTIME_DIR": str(runtime),
+            "DBUS_SESSION_BUS_ADDRESS": f"unix:path={bus}"}
+
+
 def deploy_lcd_sound(sha: str) -> None:
     """Deploy only the server-authorized main SHA, never untrusted PR code.
 
@@ -89,7 +99,7 @@ def deploy_lcd_sound(sha: str) -> None:
         subprocess.run(["bash", "scripts/deploy/install.sh", "verify"],
                        cwd=source, check=True, timeout=60)
         # Never switch modes; the installed service definition is shadow-only.
-        subprocess.run(["systemctl", "--user", "daemon-reload"], check=True, timeout=20)
+        subprocess.run(["systemctl", "--user", "daemon-reload"],\n                       env=user_systemd_env(), check=True, timeout=20)
         subprocess.run(["systemctl", "--user", "try-restart", "gway-app-observer.service"],
                        check=True, timeout=30)
 
@@ -105,7 +115,7 @@ def main() -> None:
     if args.command == "run":
         try:
             run(args.task, args.repository, args.sha)
-        except (ValueError, subprocess.CalledProcessError, subprocess.TimeoutExpired) as exc:
+        except (ValueError, RuntimeError, subprocess.CalledProcessError, subprocess.TimeoutExpired) as exc:
             parser.exit(1, f"gway-remote: {exc}\n")
 
 
