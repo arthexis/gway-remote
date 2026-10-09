@@ -1,40 +1,106 @@
 name: Remote workloads
-
 on:
   repository_dispatch:
     types: [system-health, ocpp-simulator]
   workflow_dispatch:
     inputs:
       task:
-        description: Approved workload
-        required: true
         type: choice
-        options:
-          - system-health
+        required: true
+        options: [system-health]
 
 permissions:
   contents: read
 
 concurrency:
-  group: gway-001-remote
+  group: remote-${{ github.event.client_payload.repository || 'local' }}-${{ github.event.client_payload.pr || 'manual' }}
   cancel-in-progress: false
 
 jobs:
-  remote:
-    name: Approved remote workload
-    runs-on: [self-hosted, Linux, ARM64, gway-001]
-    timeout-minutes: 15
-    env:
-      TASK: ${{ github.event_name == 'workflow_dispatch' && inputs.task || github.event.action }}
-      TARGET_REPOSITORY: ${{ github.event.client_payload.repository || '' }}
-      TARGET_SHA: ${{ github.event.client_payload.sha || '' }}
+  authorize:
+    runs-on: ubuntu-latest
+    outputs:
+      task: ${{ steps.verify.outputs.task }}
+      sha: ${{ steps.verify.outputs.sha }}
     steps:
-      - name: Checkout trusted dispatcher code
-        uses: actions/checkout@v4
-        with:
-          persist-credentials: false
-      - name: Run approved task
+      - name: Verify allowed request against GitHub PR metadata
+        id: verify
+        env:
+          TASK: ${{ github.event_name == 'workflow_dispatch' && inputs.task || github.event.action }}
+          REPO: ${{ github.event.client_payload.repository || '' }}
+          SHA: ${{ github.event.client_payload.sha || '' }}
+          PR: ${{ github.event.client_payload.pr || '' }}
+          GH_TOKEN: ${{ github.token }}
         shell: bash
         run: |
           set -euo pipefail
-          python3 -m gway_remote run "$TASK" --repository "$TARGET_REPOSITORY" --sha "$TARGET_SHA"
+          if [[ "$TASK" == system-health && -z "$REPO" && -z "$SHA" && -z "$PR" ]]; then
+            echo "task=system-health" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          [[ "$TASK" == ocpp-simulator && "$REPO" == arthexis/ocpp-csms ]]
+          [[ "$SHA" =~ ^[0-9a-fA-F]{40}$ && "$PR" =~ ^[1-9][0-9]*$ ]]
+          # API response is authoritative, unlike dispatch client_payload.
+          gh api "repos/$REPO/pulls/$PR" > pr.json
+          jq -e --arg sha "$SHA" '
+            .state == "open" and .draft == false and
+            .user.login == "arthexis" and
+            .head.repo.full_name == "arthexis/ocpp-csms" and
+            .head.sha == $sha and
+            ([.labels[].name] | index("simulator") != null)
+          ' pr.json >/dev/null
+          echo "task=ocpp-simulator" >> "$GITHUB_OUTPUT"
+          echo "sha=$SHA" >> "$GITHUB_OUTPUT"
+
+  execute:
+    needs: authorize
+    runs-on: [self-hosted, Linux, ARM64, gway-001]
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Run registered task
+        env:
+          TASK: ${{ needs.authorize.outputs.task }}
+          SHA: ${{ needs.authorize.outputs.sha }}
+        run: |
+          set -euo pipefail
+          if [[ "$TASK" == "system-health" ]]; then
+            python3 -m gway_remote run system-health
+          else
+            python3 -m gway_remote run ocpp-simulator --repository arthexis/ocpp-csms --sha "$SHA"
+          fi
+
+  report:
+    if: always() && github.event_name == 'repository_dispatch' && github.event.action == 'ocpp-simulator'
+    needs: [authorize, execute]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Report verified outcome to originating commit
+        env:
+          GH_TOKEN: ${{ secrets.GWAY_REMOTE_STATUS_TOKEN }}
+          SHA: ${{ needs.authorize.outputs.sha }}
+          AUTH_RESULT: ${{ needs.authorize.result }}
+          JOB_RESULT: ${{ needs.execute.result }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          # Never publish a status to a caller-supplied SHA unless authorization passed.
+          if [[ "$AUTH_RESULT" != success || -z "$SHA" ]]; then
+            echo "::warning::Request denied. No callback attempted."
+            exit 0
+          fi
+          if [[ -z "$GH_TOKEN" ]]; then
+            echo "::error::GWAY_REMOTE_STATUS_TOKEN is not configured"
+            exit 1
+          fi
+          case "$JOB_RESULT" in
+            success) state=success ;;
+            *) state=failure ;;
+          esac
+          gh api -X POST "repos/arthexis/ocpp-csms/statuses/$SHA" \
+            -f state="$state" \
+            -f context="gway-remote/simulator" \
+            -f target_url="$RUN_URL" \
+            -f description="Remote simulator: $JOB_RESULT"
