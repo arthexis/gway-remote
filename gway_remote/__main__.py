@@ -9,7 +9,8 @@ import tempfile
 from pathlib import Path
 
 ALLOWED_REPOSITORY = "arthexis/ocpp-csms"
-TASKS = ("system-health", "ocpp-simulator")
+LCD_REPOSITORY = "arthexis/gway-lcd-sound"
+TASKS = ("system-health", "ocpp-simulator", "lcd-sound-deploy")
 
 
 def validate(task: str, repository: str = "", sha: str = "") -> None:
@@ -19,7 +20,8 @@ def validate(task: str, repository: str = "", sha: str = "") -> None:
         if repository or sha:
             raise ValueError("Health task takes no repository or sha")
         return
-    if repository != ALLOWED_REPOSITORY:
+    expected = LCD_REPOSITORY if task == "lcd-sound-deploy" else ALLOWED_REPOSITORY
+    if repository != expected:
         raise ValueError("Repository not allowed")
     if len(sha) != 40 or not all(c in "0123456789abcdefABCDEF" for c in sha):
         raise ValueError("A 40-character commit SHA is required")
@@ -34,6 +36,10 @@ def run(task: str, repository: str = "", sha: str = "") -> None:
             "system": platform.system(),
             "python": platform.python_version(),
         }, sort_keys=True))
+        return
+
+    if task == "lcd-sound-deploy":
+        deploy_lcd_sound(sha)
         return
 
     # Disposable workspace, no modification to ~/Repos or production services.
@@ -51,6 +57,36 @@ def run(task: str, repository: str = "", sha: str = "") -> None:
                        cwd=worktree, check=True, timeout=360)
         subprocess.run([python, "scripts/pr_simulator_smoke.py"],
                        cwd=worktree, check=True, timeout=120)
+
+
+def deploy_lcd_sound(sha: str) -> None:
+    """Deploy only the server-authorized main SHA, never untrusted PR code.
+
+    Keep the existing observer in shadow mode; do not enable or start it.
+    """
+    import shutil
+    with tempfile.TemporaryDirectory(prefix="lcd-sound-deploy-") as directory:
+        source = Path(directory) / "source"
+        subprocess.run(["git", "clone", "--quiet", "--no-checkout",
+                        "https://github.com/arthexis/gway-lcd-sound.git", str(source)],
+                       check=True, timeout=180)
+        subprocess.run(["git", "-C", str(source), "checkout", "--detach", sha],
+                       check=True, timeout=60)
+        actual = subprocess.check_output(["git", "-C", str(source), "rev-parse", "HEAD"],
+                                         text=True, timeout=20).strip()
+        if actual.lower() != sha.lower():
+            raise ValueError("Checkout SHA mismatch")
+        env = {**os.environ, "PYTHONPATH": str(source / "scripts/gway")}
+        subprocess.run([sys.executable, "-m", "pytest", "-q", "tests/"],
+                       cwd=source, env=env, check=True, timeout=300)
+        subprocess.run(["bash", "scripts/deploy/install.sh", "install", "--no-restart"],
+                       cwd=source, check=True, timeout=120)
+        subprocess.run(["bash", "scripts/deploy/install.sh", "verify"],
+                       cwd=source, check=True, timeout=60)
+        # Never switch modes; the installed service definition is shadow-only.
+        subprocess.run(["systemctl", "--user", "daemon-reload"], check=True, timeout=20)
+        subprocess.run(["systemctl", "--user", "try-restart", "gway-app-observer.service"],
+                       check=True, timeout=30)
 
 
 def main() -> None:
