@@ -1,12 +1,26 @@
 """LCD deployment task allowlist and non-destructive command sequencing."""
 import unittest
-from unittest.mock import patch, call
+from unittest.mock import patch
 
-from gway_remote.__main__ import validate, run
+from gway_remote.__main__ import validate, run, user_systemd_env
 
 
 class LcdDeployTests(unittest.TestCase):
     SHA = "a" * 40
+
+    def test_runner_uses_persistent_user_bus(self):
+        with patch("gway_remote.__main__.os.getuid", return_value=1000), \
+             patch("gway_remote.__main__.Path.is_socket", return_value=True), \
+             patch.dict("gway_remote.__main__.os.environ", {"XDG_RUNTIME_DIR": ""}):
+            env = user_systemd_env()
+        self.assertEqual(env["XDG_RUNTIME_DIR"], "/run/user/1000")
+        self.assertEqual(env["DBUS_SESSION_BUS_ADDRESS"], "unix:path=/run/user/1000/bus")
+
+    def test_missing_user_bus_fails_explicitly(self):
+        with patch("gway_remote.__main__.os.getuid", return_value=1000), \
+             patch("gway_remote.__main__.Path.is_socket", return_value=False):
+            with self.assertRaisesRegex(RuntimeError, "User systemd bus unavailable"):
+                user_systemd_env()
 
     def test_accepts_only_lcd_repository_and_sha(self):
         validate("lcd-sound-deploy", "arthexis/gway-lcd-sound", self.SHA)
