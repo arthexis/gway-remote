@@ -64,7 +64,6 @@ def deploy_lcd_sound(sha: str) -> None:
 
     Keep the existing observer in shadow mode; do not enable or start it.
     """
-    import shutil
     with tempfile.TemporaryDirectory(prefix="lcd-sound-deploy-") as directory:
         source = Path(directory) / "source"
         subprocess.run(["git", "clone", "--quiet", "--no-checkout",
@@ -76,6 +75,12 @@ def deploy_lcd_sound(sha: str) -> None:
                                          text=True, timeout=20).strip()
         if actual.lower() != sha.lower():
             raise ValueError("Checkout SHA mismatch")
+        unit = source / "scripts/deploy/systemd/user/gway-app-observer.service"
+        if unit.exists() and (
+            "ExecStart=%h/.local/bin/gway-app-observer --notification-mode shadow --no-processes"
+            not in unit.read_text(encoding="utf-8")
+        ):
+            raise ValueError("LCD Sound observer unit must remain shadow-only")
         env = {**os.environ, "PYTHONPATH": str(source / "scripts/gway")}
         subprocess.run([sys.executable, "-m", "pytest", "-q", "tests/"],
                        cwd=source, env=env, check=True, timeout=300)
