@@ -1,0 +1,40 @@
+name: Remote workloads
+
+on:
+  repository_dispatch:
+    types: [system-health, ocpp-simulator]
+  workflow_dispatch:
+    inputs:
+      task:
+        description: Approved workload
+        required: true
+        type: choice
+        options:
+          - system-health
+
+permissions:
+  contents: read
+
+concurrency:
+  group: gway-001-remote
+  cancel-in-progress: false
+
+jobs:
+  remote:
+    name: Approved remote workload
+    runs-on: [self-hosted, Linux, ARM64, gway-001]
+    timeout-minutes: 15
+    env:
+      TASK: ${{ github.event_name == 'workflow_dispatch' && inputs.task || github.event.action }}
+      TARGET_REPOSITORY: ${{ github.event.client_payload.repository || '' }}
+      TARGET_SHA: ${{ github.event.client_payload.sha || '' }}
+    steps:
+      - name: Checkout trusted dispatcher code
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Run approved task
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m gway_remote run "$TASK" --repository "$TARGET_REPOSITORY" --sha "$TARGET_SHA"
