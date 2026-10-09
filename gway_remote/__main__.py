@@ -10,7 +10,7 @@ from pathlib import Path
 
 ALLOWED_REPOSITORY = "arthexis/ocpp-csms"
 LCD_REPOSITORY = "arthexis/gway-lcd-sound"
-TASKS = ("system-health", "ocpp-simulator", "lcd-sound-deploy")
+TASKS = ("system-health", "ocpp-simulator", "lcd-sound-deploy", "ocpp-csms-deploy")
 
 
 def validate(task: str, repository: str = "", sha: str = "") -> None:
@@ -41,6 +41,9 @@ def run(task: str, repository: str = "", sha: str = "") -> None:
     if task == "lcd-sound-deploy":
         deploy_lcd_sound(sha)
         return
+    if task == "ocpp-csms-deploy":
+        deploy_csms(sha)
+        return
 
     # Disposable workspace, no modification to ~/Repos or production services.
     with tempfile.TemporaryDirectory(prefix="gway-remote-") as directory:
@@ -57,6 +60,27 @@ def run(task: str, repository: str = "", sha: str = "") -> None:
                        cwd=worktree, check=True, timeout=360)
         subprocess.run([python, "scripts/pr_simulator_smoke.py"],
                        cwd=worktree, check=True, timeout=120)
+
+
+def deploy_csms(sha: str) -> None:
+    """Persistently deploy the approved CSMS main commit via its canonical Ansible wrapper.
+
+    Unlike PR simulator smoke tests, this intentionally updates the appliance.
+    The upstream deployer owns incumbent traffic detection and cutover.
+    """
+    with tempfile.TemporaryDirectory(prefix="csms-deploy-") as directory:
+        source = Path(directory) / "source"
+        subprocess.run(["git", "clone", "--quiet", "--no-checkout",
+                        "https://github.com/arthexis/ocpp-csms.git", str(source)],
+                       check=True, timeout=180)
+        subprocess.run(["git", "-C", str(source), "checkout", "--detach", sha],
+                       check=True, timeout=60)
+        actual = subprocess.check_output(["git", "-C", str(source), "rev-parse", "HEAD"],
+                                         text=True, timeout=20).strip()
+        if actual.lower() != sha.lower():
+            raise ValueError("Checkout SHA mismatch")
+        # Never bypass the canonical deployment safety checks or invoke as root.
+        subprocess.run(["sh", "./deploy.sh"], cwd=source, check=True, timeout=900)
 
 
 def user_systemd_env() -> dict[str, str]:
