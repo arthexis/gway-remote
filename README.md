@@ -10,6 +10,7 @@ The initial job catalog is deliberately narrow:
 
 - `system-health`: read-only environment diagnostics
 - `ocpp-simulator`: isolated OCPP simulator smoke test at a pinned commit from `arthexis/ocpp-csms`
+- `lcd-sound-deploy`: deploy only the verified LCD Sound `main` SHA to Gway-001 after passing its tests; keep observer shadow-only
 - `ocpp-stage`: reserved for a future audited deploy path; **not yet enabled**
 
 No event payload can specify a command, workflow, checkout URL, or host path.
@@ -54,3 +55,11 @@ python3 -m gway_remote run system-health
 2. Implement authenticated cross-repo result delivery and maintain the existing consolidated CI contract.
 3. Switch the `ocpp-csms` runner registration and simulator workflow after end-to-end validation.
 4. Add separate approval and privilege boundaries for staging/deploying to a live appliance.
+
+## LCD Sound deployment
+
+The `arthexis/gway-lcd-sound` main-branch push workflow sends a `lcd-sound-deploy` dispatch using `GWAY_REMOTE_DISPATCH_TOKEN` (Actions: write on this repository). The hosted authorization job verifies the SHA equals the current LCD Sound `main` tip. The Gway-001 runner then checks out that exact SHA in a disposable directory, runs `pytest`, invokes `scripts/deploy/install.sh install --no-restart`, verifies the installation, and restarts only an already-running shadow observer. It never enables the observer or turns on live notifications.
+
+Prerequisites on the runner: user `arthe` (same home and user systemd manager as the installation), `git`, `python3`, `pytest`, and functioning `systemctl --user`. Do not merge the caller workflow until the remote task has been verified. A failed install attempts to restore the previous release; after a successful install, use `bash scripts/deploy/install.sh rollback --no-restart` from the checked-out LCD Sound repository if a runtime regression requires rollback, then restart the shadow service explicitly.
+
+**Note:** The caller's dispatch job confirms submission, not deployment success. Inspect the corresponding Gway Remote Actions run for the final result; do not treat a successful dispatch as a successful installation.
