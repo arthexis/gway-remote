@@ -99,7 +99,8 @@ def deploy_lcd_sound(sha: str) -> None:
         subprocess.run(["bash", "scripts/deploy/install.sh", "verify"],
                        cwd=source, check=True, timeout=60)
         # Never switch modes; the installed service definition is shadow-only.
-        subprocess.run(["systemctl", "--user", "daemon-reload"],\n                       env=user_systemd_env(), check=True, timeout=20)
+        subprocess.run(["systemctl", "--user", "daemon-reload"],
+                       env=user_systemd_env(), check=True, timeout=20)
         subprocess.run(["systemctl", "--user", "try-restart", "gway-app-observer.service"],
                        check=True, timeout=30)
 
@@ -116,7 +117,8 @@ def main() -> None:
         try:
             run(args.task, args.repository, args.sha)
         except (ValueError, RuntimeError, subprocess.CalledProcessError, subprocess.TimeoutExpired) as exc:
-            parser.exit(1, f"gway-remote: {exc}\n")
+            parser.exit(1, f"gway-remote: {exc}
+")
 
 
 if __name__ == "__main__":
