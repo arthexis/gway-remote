@@ -1,6 +1,6 @@
 """LCD deployment task allowlist and non-destructive command sequencing."""
 import unittest
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch
 
 from gway_remote.__main__ import validate, run, user_systemd_env
 
