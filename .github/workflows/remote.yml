@@ -1,13 +1,13 @@
 name: Remote workloads
 on:
   repository_dispatch:
-    types: [system-health, ocpp-simulator, lcd-sound-deploy]
+    types: [system-health, ocpp-simulator, lcd-sound-deploy, ocpp-csms-deploy]
   workflow_dispatch:
     inputs:
       task:
         type: choice
         required: true
-        options: [system-health]
+        options: [system-health, ocpp-csms-deploy]
 
 permissions:
   contents: read
@@ -38,6 +38,14 @@ jobs:
             echo "task=system-health" >> "$GITHUB_OUTPUT"
             exit 0
           fi
+          if [[ "$TASK" == ocpp-csms-deploy ]]; then
+            [[ "$REPO" == arthexis/ocpp-csms && "$SHA" =~ ^[0-9a-fA-F]{40}$ && -z "$PR" ]]
+            MAIN_SHA="$(gh api "repos/$REPO/branches/main" --jq '.commit.sha')"
+            [[ "$SHA" == "$MAIN_SHA" ]]
+            echo "task=ocpp-csms-deploy" >> "$GITHUB_OUTPUT"
+            echo "sha=$SHA" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
           if [[ "$TASK" == lcd-sound-deploy ]]; then
             [[ "$REPO" == arthexis/gway-lcd-sound && "$SHA" =~ ^[0-9a-fA-F]{40}$ ]]
             # Only deploy the current default-branch tip, never a PR or arbitrary SHA.
@@ -64,7 +72,7 @@ jobs:
   execute:
     needs: authorize
     runs-on: [self-hosted, Linux, ARM64, gway-001]
-    timeout-minutes: 15
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
         with:
@@ -79,6 +87,8 @@ jobs:
             python3 -m gway_remote run system-health
           elif [[ "$TASK" == "lcd-sound-deploy" ]]; then
             python3 -m gway_remote run lcd-sound-deploy --repository arthexis/gway-lcd-sound --sha "$SHA"
+          elif [[ "$TASK" == "ocpp-csms-deploy" ]]; then
+            python3 -m gway_remote run ocpp-csms-deploy --repository arthexis/ocpp-csms --sha "$SHA"
           else
             python3 -m gway_remote run ocpp-simulator --repository arthexis/ocpp-csms --sha "$SHA"
           fi
