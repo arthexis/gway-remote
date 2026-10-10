@@ -3,7 +3,7 @@ import unittest
 from datetime import datetime, timezone
 from unittest.mock import patch
 
-from gway_remote.github_state import collect, ci_for_head, last_deployed, main_arrival, report
+from gway_remote.github_state import collect, ci_for_head, main_arrival, report
 from gway_remote.reconcile import TARGETS
 
 
@@ -27,28 +27,19 @@ class TestGitHubState(unittest.TestCase):
     def test_collect_and_report(self):
         states = collect(FakeGitHub())
         self.assertEqual(len(states), len(TARGETS))
-        self.assertEqual(states[0].deployed_sha, "a" * 40)
+        self.assertIsNone(states[0].attempted_sha)
         result = report(FakeGitHub(), datetime(2026, 10, 9, 12, tzinfo=timezone.utc))
-        self.assertEqual(result["decision"], "up-to-date")
-        self.assertEqual(result["deploy"], [])
+        self.assertEqual(result["decision"], "ready")
+        self.assertEqual(len(result["attempt"]), 3)
 
-    def test_missing_deployment_blocks(self):
+    def test_missing_attempt_history_is_eligible(self):
         class Missing(FakeGitHub):
             def get(self, path):
                 if "/deployments?" in path:
                     return []
                 return super().get(path)
         result = report(Missing(), datetime(2026, 10, 9, 12, tzinfo=timezone.utc))
-        self.assertEqual(result["decision"], "blocked")
-
-    def test_foreign_deployment_does_not_count(self):
-        class Foreign(FakeGitHub):
-            def get(self, path):
-                data = super().get(path)
-                if "/deployments?" in path:
-                    data[0]["task"] = "manual"
-                return data
-        self.assertIsNone(last_deployed(Foreign(), TARGETS[0][1]))
+        self.assertEqual(result["decision"], "ready")
 
     def test_no_main_push_evidence_blocks(self):
         class NoRun(FakeGitHub):
