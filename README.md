@@ -63,3 +63,22 @@ The `arthexis/gway-lcd-sound` main-branch push workflow sends a `lcd-sound-deplo
 Prerequisites on the runner: user `arthe` (same home and user systemd manager as the installation), `git`, `python3`, `pytest`, and functioning `systemctl --user`. Do not merge the caller workflow until the remote task has been verified. A failed install attempts to restore the previous release; after a successful install, use `bash scripts/deploy/install.sh rollback --no-restart` from the checked-out LCD Sound repository if a runtime regression requires rollback, then restart the shadow service explicitly.
 
 **Note:** The caller's dispatch job confirms submission, not deployment success. Inspect the corresponding Gway Remote Actions run for the final result; do not treat a successful dispatch as a successful installation.
+
+## Local appliance status
+
+Run `python3 -m gway_remote status` or `python3 -m gway_remote status --json`.
+These commands inspect local installation attempts and read-only health checks.
+They do not require GitHub credentials or modify services.
+
+For a system-wide command, run `sh scripts/install-cli.sh` from a trusted
+checkout. It installs a self-contained Python executable at
+`/usr/local/bin/gway-remote`, using sudo if necessary. Afterwards use
+`gway-remote status` from any working directory.
+
+This is a local command, not a network client. Run it on Gway-001 as the
+same OS user that performs installations, since the journal is under
+`~/.local/state/gway-remote/attempts.json`. Global installation is
+opt-in and does not activate automatic deployments.
+
+Attempted SHA is not evidence of the installed revision. Health is measured
+separately, and interrupted attempts are not automatically retried.
