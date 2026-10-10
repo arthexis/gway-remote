@@ -4,7 +4,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from gway_remote.attempts import read_attempts
-from gway_remote.best_effort import appliance_lock, execute
+from gway_remote.best_effort import appliance_lock, execute, manual_execute
 from gway_remote.reconcile import TARGETS
 
 NOW = datetime(2026, 10, 9, 20, tzinfo=timezone.utc)
@@ -51,12 +51,12 @@ class BestEffortTests(unittest.TestCase):
         self.assertEqual(execute(self.client, NOW, self.installers(), self.path)["decision"], "idle")
         self.assertEqual(len(self.calls), 3)
 
-    def test_failure_does_not_block_next_or_retry(self):
+    def test_failure_stops_batch_without_retry(self):
         execute(self.client, NOW, self.installers(("ocpp-simulator",)), self.path)
-        self.assertEqual(self.calls, [name for name, _ in TARGETS])
+        self.assertEqual(self.calls, ["ocpp-csms", "ocpp-simulator"])
         self.assertEqual(read_attempts(self.path)["ocpp-simulator"]["status"], "failed")
         execute(self.client, NOW, self.installers(), self.path)
-        self.assertEqual(len(self.calls), 3)
+        self.assertEqual(self.calls, ["ocpp-csms", "ocpp-simulator", "gway-lcd-sound"])
 
     def test_crash_before_installer_is_not_retried(self):
         from gway_remote.attempts import mark
@@ -68,6 +68,25 @@ class BestEffortTests(unittest.TestCase):
         with appliance_lock(self.path / "appliance.lock"):
             with self.assertRaisesRegex(RuntimeError, "already active"):
                 execute(self.client, NOW, self.installers(), self.path)
+
+    def test_manual_deploy_marks_queue_and_does_not_repeat(self):
+        name = "ocpp-csms"
+        result = manual_execute(self.client, name, SHA, self.installers()[name], self.path)
+        self.assertEqual(result["status"], "installed")
+        self.assertEqual(read_attempts(self.path)[name]["status"], "installed")
+        self.assertEqual(manual_execute(self.client, name, SHA, self.installers()[name], self.path)["decision"], "idle")
+        execute(self.client, NOW, self.installers(), self.path)
+        self.assertEqual(self.calls.count(name), 1)
+
+    def test_manual_deploy_rejects_non_main_sha(self):
+        with self.assertRaisesRegex(ValueError, "current main"):
+            manual_execute(self.client, "ocpp-csms", "b" * 40, self.installers()["ocpp-csms"], self.path)
+        self.assertEqual(self.calls, [])
+
+    def test_manual_deploy_respects_shared_lock(self):
+        with appliance_lock(self.path / "appliance.lock"):
+            with self.assertRaisesRegex(RuntimeError, "already active"):
+                manual_execute(self.client, "ocpp-csms", SHA, self.installers()["ocpp-csms"], self.path)
 
     def test_new_revision_is_eligible(self):
         execute(self.client, NOW, self.installers(), self.path)
