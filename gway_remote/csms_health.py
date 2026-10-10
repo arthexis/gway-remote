@@ -1,7 +1,4 @@
-"""Read-only CSMS service and storage health; never probes OCPP sockets.
-
-A healthy CSMS does not imply that charging is idle or that deployment is safe.
-"""
+"""Read-only CSMS service and storage diagnostics; no OCPP socket traffic."""
 import json
 from pathlib import Path
 import subprocess
@@ -16,30 +13,44 @@ def _run(argv, timeout=15):
         return None
 
 
-def csms_health(*, runner=_run, executable=None, data_dir=None):
-    """Require active system service and valid read-only CSMS status contract."""
+def csms_probe(*, runner=_run, executable=None, data_dir=None):
+    """Return a diagnostic reason, not just a misleading unhealthy boolean."""
     executable = Path(executable) if executable is not None else Path.home() / ".local/bin/ocpp-csms"
     data_dir = Path(data_dir) if data_dir is not None else Path.home() / "ocpp-csms-data"
-    if not executable.is_file() or not data_dir.is_dir():
-        return False
-    if runner(["systemctl", "is-active", "ocpp-csms.service"]) != "active":
-        return False
+    def result(healthy, reason):
+        return {"healthy": healthy, "reason": reason,
+                "executable": str(executable), "data_dir": str(data_dir)}
+    if not executable.is_file():
+        return result(False, "CLI missing at expected path")
+    if not data_dir.is_dir():
+        return result(False, "data directory missing")
+    service = runner(["systemctl", "is-active", "ocpp-csms.service"])
+    if service != "active":
+        return result(False, "system service not active or unavailable")
     output = runner([str(executable), "--data-dir", str(data_dir), "status", "--json"])
     if output is None:
-        return False
+        return result(False, "CSMS status --json command failed")
     try:
         document = json.loads(output)
     except (TypeError, ValueError):
-        return False
+        return result(False, "CSMS status did not return JSON")
     if not isinstance(document, dict) or document.get("schema") != "ocpp-csms/status/v1":
-        return False
+        return result(False, "CSMS status schema mismatch")
     data = document.get("data")
     if not isinstance(data, dict):
-        return False
+        return result(False, "CSMS status data missing")
     server = data.get("server")
     storage = data.get("storage")
     if not isinstance(server, dict) or not isinstance(storage, dict):
-        return False
-    return (server.get("state") == "running" and
-            storage.get("database") == "ok" and
-            storage.get("transactions") == "ok")
+        return result(False, "CSMS server or storage status missing")
+    if server.get("state") != "running":
+        return result(False, "CSMS server not running")
+    if storage.get("database") != "ok":
+        return result(False, "CSMS database not healthy")
+    if storage.get("transactions") != "ok":
+        return result(False, "CSMS transaction archive not healthy")
+    return result(True, "CSMS service and storage healthy")
+
+
+def csms_health(*, runner=_run, executable=None, data_dir=None):
+    return csms_probe(runner=runner, executable=executable, data_dir=data_dir)["healthy"]
