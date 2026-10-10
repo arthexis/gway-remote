@@ -122,3 +122,25 @@ enabled by these reporting commands.
 ## Automatic polling
 
 The appliance report workflow polls every five minutes on the default branch, but automatic deployment is disabled unless the repository variable `GWAY_REMOTE_AUTO_ENABLED` equals `true`. Keep this unset until field validation. The application enforces the shared 20-minute quiet period and one attempt per revision. Scheduled polling never runs from a PR branch.
+
+## Ansible CLI provisioning (opt-in)
+
+The Ansible role installs only the system-wide `gway-remote` executable
+and verifies its read-only JSON status. It does **not** enable automatic
+deployments, install the three component applications, or restart services.
+
+From the repository checkout, with a trusted inventory containing a
+`gway_remote` host group and a configured SSH connection:
+
+```sh
+ansible-playbook -i /path/to/inventory ansible/playbook.yml
+```
+
+The role defaults to the runner account `arthe` and installation root
+`/opt/gway-remote`. Override `gway_remote_runner_user` if necessary.
+The CLI reads the attempt journal in that account's home directory.
+
+Before activating scheduled deployment, verify the runner account, read-only
+report artifacts, global CLI, cross-repository read token, and live-charge
+protection on Gway-001. Leave `GWAY_REMOTE_AUTO_ENABLED` unset until
+that field validation is complete.
