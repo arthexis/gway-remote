@@ -18,14 +18,14 @@ def status(directory=DEFAULT_DIR, probe=component_health):
     for name, _ in TARGETS:
         entry = attempts.get(name)
         if journal_error:
-            installation, sha, at, error = "unknown", None, None, journal_error
+            installation, sha, at, error, log = "unknown", None, None, journal_error, None
         elif entry is None:
-            installation, sha, at, error = "never-attempted", None, None, None
+            installation, sha, at, error, log = "never-attempted", None, None, None, None
         else:
             raw = entry.get("status")
             installation = ("interrupted" if raw == "started" else raw
                             if raw in ("installed", "failed") else "unknown")
-            sha, at, error = entry.get("sha"), entry.get("at"), entry.get("error")
+            sha, at, error, log = entry.get("sha"), entry.get("at"), entry.get("error"), entry.get("log")
         try:
             result = probe(name)
             health = "healthy" if result is True else "unhealthy" if result is False else "unknown"
@@ -34,7 +34,7 @@ def status(directory=DEFAULT_DIR, probe=component_health):
         components.append({"name": name, "attempted_sha": sha,
                            "attempted_at": at, "installation": installation,
                            "health": health, "installed_sha": None,
-                           "error": error})
+                           "error": error, "log": log})
     return {"schema": "gway-remote/status/v1", "node": platform.node(),
             "checked_at": datetime.now(timezone.utc).isoformat(),
             "components": components}
