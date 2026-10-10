@@ -17,7 +17,7 @@ class FakeGitHub:
                 "status": "completed", "conclusion": "success",
             }]}
         if "/deployments?" in path:
-            return [{"id": 12, "sha": "a" * 40}]
+            return [{"id": 12, "sha": "a" * 40, "environment": "gway-001", "task": "gway-remote/reconciler/v1"}]
         if "/deployments/12/statuses?" in path:
             return [{"state": "success"}]
         raise AssertionError(path)
@@ -40,6 +40,15 @@ class TestGitHubState(unittest.TestCase):
                 return super().get(path)
         result = report(Missing(), datetime(2026, 10, 9, 12, tzinfo=timezone.utc))
         self.assertEqual(result["decision"], "blocked")
+
+    def test_foreign_deployment_does_not_count(self):
+        class Foreign(FakeGitHub):
+            def get(self, path):
+                data = super().get(path)
+                if "/deployments?" in path:
+                    data[0]["task"] = "manual"
+                return data
+        self.assertIsNone(last_deployed(Foreign(), TARGETS[0][1]))
 
     def test_no_main_push_evidence_blocks(self):
         class NoRun(FakeGitHub):
