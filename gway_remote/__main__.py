@@ -162,8 +162,15 @@ def main() -> None:
     execute.add_argument("--sha", default="")
     inspection = subparsers.add_parser("reconcile", help="Read-only appliance deployment report")
     inspection.add_argument("--dry-run", action="store_true", help="Do not deploy (always read-only)")
+    status_parser = subparsers.add_parser("status", help="Inspect local attempts and health")
+    status_parser.add_argument("--json", action="store_true")
     subparsers.add_parser("deploy-batch", help="Run eligible merged revisions once (explicit invocation)")
     args = parser.parse_args()
+    if args.command == "status":
+        from .status import status, format_status
+        result = status()
+        print(json.dumps(result, indent=2, sort_keys=True) if args.json else format_status(result))
+        return
     if args.command == "reconcile":
         from .github_state import GitHub, report
         try:
