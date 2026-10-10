@@ -3,6 +3,7 @@ import json
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from gway_remote.csms_health import csms_health, csms_probe
 
@@ -36,6 +37,12 @@ class HealthTests(unittest.TestCase):
 
     def check(self):
         return csms_health(runner=self.runner, executable=self.exe, data_dir=self.data)
+
+    def test_discovers_cli_on_path(self):
+        with patch("gway_remote.csms_health.shutil.which", return_value=str(self.exe)):
+            result = csms_probe(runner=self.runner, data_dir=self.data)
+        self.assertTrue(result["healthy"])
+        self.assertEqual(result["executable"], str(self.exe))
 
     def test_healthy_even_during_active_charge(self):
         self.assertTrue(self.check())
