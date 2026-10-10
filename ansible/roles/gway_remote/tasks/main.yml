@@ -1,0 +1,4 @@
+---
+- name: Verify local CLI
+  ansible.builtin.command: /usr/local/bin/gway-remote status --json
+  changed_when: false
