@@ -31,7 +31,8 @@ def execute(client, collect, clock, deploy, verify, record, lock_path):
                 raise RuntimeError("deployment snapshot became stale")
             if target not in fresh.targets:
                 raise RuntimeError("target no longer pending")
-            deploy(target.name, target.sha)
+            if verify(target.name, target.sha) is not True:
+                deploy(target.name, target.sha)
             if verify(target.name, target.sha) is not True:
                 raise RuntimeError("installation verification failed: " + target.name)
             record(target.name, target.sha)
