@@ -207,8 +207,9 @@ def main() -> None:
         return
     if args.command == "reconcile":
         from .github_state import GitHub, report
+        from .attempts import attempted_shas
         try:
-            print(json.dumps(report(GitHub()), indent=2, sort_keys=True))
+            print(json.dumps(report(GitHub(), attempts=attempted_shas()), indent=2, sort_keys=True))
         except Exception as exc:
             parser.exit(1, f"gway-remote: reconciliation unavailable: {exc}\n")
         return
