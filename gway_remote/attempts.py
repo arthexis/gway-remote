@@ -56,7 +56,7 @@ def mark(name, sha, status, directory=DEFAULT_DIR, error=None, log=None):
     entries[name] = {"sha": sha.lower(), "status": status,
                      "at": datetime.now(timezone.utc).isoformat(),
                      **({"error": str(error)[:500]} if error else {}),
-                     **({"log": log} if log else {})
+                     **({"log": log} if log else {})}
     _save(directory, entries)
 
 
