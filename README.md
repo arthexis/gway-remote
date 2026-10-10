@@ -63,3 +63,84 @@ The `arthexis/gway-lcd-sound` main-branch push workflow sends a `lcd-sound-deplo
 Prerequisites on the runner: user `arthe` (same home and user systemd manager as the installation), `git`, `python3`, `pytest`, and functioning `systemctl --user`. Do not merge the caller workflow until the remote task has been verified. A failed install attempts to restore the previous release; after a successful install, use `bash scripts/deploy/install.sh rollback --no-restart` from the checked-out LCD Sound repository if a runtime regression requires rollback, then restart the shadow service explicitly.
 
 **Note:** The caller's dispatch job confirms submission, not deployment success. Inspect the corresponding Gway Remote Actions run for the final result; do not treat a successful dispatch as a successful installation.
+
+## Local appliance status
+
+Run `python3 -m gway_remote status` or `python3 -m gway_remote status --json`.
+These commands inspect local installation attempts and read-only health checks.
+They do not require GitHub credentials or modify services.
+
+For a system-wide command, run `sh scripts/install-cli.sh` from a trusted
+checkout. It installs a self-contained Python executable at
+`/usr/local/bin/gway-remote`, using sudo if necessary. Afterwards use
+`gway-remote status` from any working directory.
+
+This is a local command, not a network client. Run it on Gway-001 as the
+same OS user that performs installations, since the journal is under
+`~/.local/state/gway-remote/attempts.json`. Global installation is
+opt-in and does not activate automatic deployments.
+
+Attempted SHA is not evidence of the installed revision. Health is measured
+separately, and interrupted attempts are not automatically retried.
+
+## Installation logs and GitHub Actions artifacts
+
+Best-effort batch installations capture each component's installer stdout and
+stderr in a private file under `~/.local/state/gway-remote/logs/`. The
+journal records the log filename even if installation fails. Inspect logs
+from the same OS account as the deployment runner:
+
+```sh
+gway-remote logs
+gway-remote logs ocpp-csms
+gway-remote logs ocpp-simulator --lines 100
+```
+
+The listing command shows recent log filenames. Add `--lines` to display
+the latest matching log. Output is sanitized for common credential patterns.
+The original private logs can still contain sensitive information; do not
+publish them directly.
+
+The **Appliance report and manual batch** GitHub Actions workflow is opt-in
+and restricted to the repository owner. Select `report` for read-only
+status inspection or explicitly select `deploy` to run the one-shot batch.
+The workflow publishes a Markdown summary and a 14-day artifact containing
+`status.json`, `summary.json`, `summary.md`, and bounded, sanitized
+installation logs. It does not automatically run on a merge or a push.
+
+To produce the same artifact files locally:
+
+```sh
+gway-remote report-bundle --output /tmp/gway-remote-report
+```
+
+Only the most recent journaled log for each component is exported. Export
+redaction is best-effort; review artifacts before sharing outside trusted
+GitHub repository access. No production deployment or automatic trigger is
+enabled by these reporting commands.
+
+## Automatic polling
+
+The appliance report workflow polls every five minutes on the default branch, but automatic deployment is disabled unless the repository variable `GWAY_REMOTE_AUTO_ENABLED` equals `true`. Keep this unset until field validation. The application enforces the shared 20-minute quiet period and one attempt per revision. Scheduled polling never runs from a PR branch.
+
+## Ansible CLI provisioning (opt-in)
+
+The Ansible role installs only the system-wide `gway-remote` executable
+and verifies its read-only JSON status. It does **not** enable automatic
+deployments, install the three component applications, or restart services.
+
+From the repository checkout, with a trusted inventory containing a
+`gway_remote` host group and a configured SSH connection:
+
+```sh
+ansible-playbook -i /path/to/inventory ansible/playbook.yml
+```
+
+The role defaults to the runner account `arthe` and installation root
+`/opt/gway-remote`. Override `gway_remote_runner_user` if necessary.
+The CLI reads the attempt journal in that account's home directory.
+
+Before activating scheduled deployment, verify the runner account, read-only
+report artifacts, global CLI, cross-repository read token, and live-charge
+protection on Gway-001. Leave `GWAY_REMOTE_AUTO_ENABLED` unset until
+that field validation is complete.

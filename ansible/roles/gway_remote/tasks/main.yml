@@ -1,0 +1,51 @@
+---
+- name: Inspect existing CLI
+  ansible.builtin.stat:
+    path: /usr/local/bin/gway-remote
+  register: gway_remote_cli
+
+- name: Create installation directories
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+  loop:
+    - "{{ gway_remote_install_root }}"
+    - "{{ gway_remote_install_root }}/scripts"
+
+- name: Copy application package
+  ansible.builtin.copy:
+    src: "{{ playbook_dir }}/../gway_remote/"
+    dest: "{{ gway_remote_install_root }}/gway_remote/"
+    owner: root
+    group: root
+    mode: preserve
+  register: gway_remote_source
+
+- name: Copy CLI installer
+  ansible.builtin.copy:
+    src: "{{ playbook_dir }}/../scripts/install-cli.sh"
+    dest: "{{ gway_remote_install_root }}/scripts/install-cli.sh"
+    owner: root
+    group: root
+    mode: "0755"
+  register: gway_remote_installer
+
+- name: Install system-wide executable
+  ansible.builtin.command:
+    cmd: "sh {{ gway_remote_install_root }}/scripts/install-cli.sh"
+  when: gway_remote_source.changed or gway_remote_installer.changed or not gway_remote_cli.stat.exists
+
+- name: Verify read-only status JSON as runner user
+  ansible.builtin.command:
+    cmd: /usr/local/bin/gway-remote status --json
+  become_user: "{{ gway_remote_runner_user }}"
+  changed_when: false
+  register: gway_remote_status
+
+- name: Verify status schema
+  ansible.builtin.assert:
+    that:
+      - (gway_remote_status.stdout | from_json).schema == 'gway-remote/status/v1'
