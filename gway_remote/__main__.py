@@ -164,6 +164,7 @@ def main() -> None:
     inspection.add_argument("--dry-run", action="store_true", help="Do not deploy (always read-only)")
     status_parser = subparsers.add_parser("status", help="Inspect local attempts and health")
     status_parser.add_argument("--json", action="store_true")
+    subparsers.add_parser("probe-csms", help="Read-only CSMS health diagnosis")
     logs_parser = subparsers.add_parser("logs", help="Inspect local installation logs")
     logs_parser.add_argument("component", nargs="?", choices=("ocpp-csms", "ocpp-simulator", "gway-lcd-sound"))
     logs_parser.add_argument("--lines", type=int, default=None)
@@ -171,6 +172,10 @@ def main() -> None:
     report_parser.add_argument("--output", required=True)
     subparsers.add_parser("deploy-batch", help="Run eligible merged revisions once (explicit invocation)")
     args = parser.parse_args()
+    if args.command == "probe-csms":
+        from .csms_health import csms_probe
+        print(json.dumps(csms_probe(), indent=2, sort_keys=True))
+        return
     if args.command == "logs":
         from .logs import list_logs, read_log
         try:

@@ -4,7 +4,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from gway_remote.csms_health import csms_health
+from gway_remote.csms_health import csms_health, csms_probe
 
 
 class HealthTests(unittest.TestCase):
@@ -42,6 +42,11 @@ class HealthTests(unittest.TestCase):
         self.assertEqual(self.commands[0], ["systemctl", "is-active", "ocpp-csms.service"])
         self.assertEqual(self.commands[1][-2:], ["status", "--json"])
         self.assertFalse(any("restart" in cmd or "start" in cmd for cmd in self.commands))
+
+    def test_probe_explains_stopped_service(self):
+        result = csms_probe(runner=lambda _: "inactive", executable=self.exe, data_dir=self.data)
+        self.assertFalse(result["healthy"])
+        self.assertIn("service", result["reason"])
 
     def test_stopped_service_fails(self):
         self.assertFalse(csms_health(runner=lambda _: "inactive",
