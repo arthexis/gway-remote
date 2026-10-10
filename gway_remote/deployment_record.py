@@ -15,17 +15,26 @@ def record_deployment(client, name, sha, verify):
     existing = client.get(f"repos/{repo}/deployments?environment=gway-001&per_page=100")
     if not isinstance(existing, list):
         raise RuntimeError("invalid deployment response")
+    pending_id = None
     for deployment in existing:
         if deployment.get("sha", "").lower() != sha:
             continue
         statuses = client.get(f"repos/{repo}/deployments/{deployment['id']}/statuses?per_page=100")
+        if not isinstance(statuses, list):
+            raise RuntimeError("invalid deployment status response")
         if statuses and statuses[0].get("state") == "success":
             return deployment["id"]
-    created = client.post(f"repos/{repo}/deployments", {
-        "ref": sha, "environment": "gway-001",
-        "auto_merge": False, "required_contexts": [],
-    })
-    identifier = created.get("id") if isinstance(created, dict) else None
+        if not statuses or statuses[0].get("state") in ("pending", "queued", "in_progress"):
+            if pending_id is None:
+                pending_id = deployment["id"]
+    if pending_id is None:
+        created = client.post(f"repos/{repo}/deployments", {
+            "ref": sha, "environment": "gway-001",
+            "auto_merge": False, "required_contexts": [],
+        })
+        identifier = created.get("id") if isinstance(created, dict) else None
+    else:
+        identifier = pending_id
     if not isinstance(identifier, int):
         raise RuntimeError("deployment creation returned no ID")
     if verify(name, sha) is not True:
