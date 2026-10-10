@@ -13,7 +13,7 @@ from pathlib import Path
 from .reconcile import TARGETS
 
 VALID_NAMES = frozenset(name for name, _ in TARGETS)
-SHA = re.compile(r"[a-fA-F0-9]{40}\\Z")
+SHA = re.compile(r"[a-fA-F0-9]{40}\Z")
 
 
 def installed_revision(name: str, directory: str | Path) -> str | None:
