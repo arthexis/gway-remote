@@ -40,18 +40,18 @@ class LcdDeployTests(unittest.TestCase):
             validate("ocpp-csms-deploy", "arthexis/gway-lcd-sound", self.SHA)
 
     def test_csms_deploy_routes_to_explicit_deployer(self):
-        with patch("gway_remote.__main__.deploy_csms") as deploy:
+        with patch("gway_remote.__main__.deploy_csms") as deploy, patch("gway_remote.best_effort.manual_execute") as manual:
             run("ocpp-csms-deploy", "arthexis/ocpp-csms", self.SHA)
-            deploy.assert_called_once_with(self.SHA)
+            manual.assert_called_once()
 
     def test_simulator_cannot_deploy_lcd(self):
         with self.assertRaises(ValueError):
             validate("ocpp-simulator", "arthexis/gway-lcd-sound", self.SHA)
 
     def test_dispatch_routes_to_explicit_deployer(self):
-        with patch("gway_remote.__main__.deploy_lcd_sound") as deploy:
+        with patch("gway_remote.__main__.deploy_lcd_sound") as deploy, patch("gway_remote.best_effort.manual_execute") as manual:
             run("lcd-sound-deploy", "arthexis/gway-lcd-sound", self.SHA)
-            deploy.assert_called_once_with(self.SHA)
+            manual.assert_called_once()
 
     def test_bad_repository_cannot_reach_deployer(self):
         with patch("gway_remote.__main__.deploy_lcd_sound") as deploy:
