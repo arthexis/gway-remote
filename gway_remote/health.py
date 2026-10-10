@@ -5,11 +5,11 @@ Revision identity is independently required by verify_installed().
 """
 from __future__ import annotations
 
-import os
 from pathlib import Path
 import subprocess
 
 from .installed import verify_installed
+from .csms_health import csms_health
 
 DEFAULT_STATE = Path.home() / ".local/state/gway-remote/installed"
 
@@ -44,9 +44,7 @@ def component_health(name: str) -> bool:
                 return False
         return _command([str(observer), "--help"])
     if name == "ocpp-csms":
-        # Do not treat an installed CLI as proof that the live CSMS is healthy.
-        # Requires a separately established service and traffic-safe probe.
-        return False
+        return csms_health()
     return False
 
 
