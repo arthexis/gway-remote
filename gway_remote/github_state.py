@@ -83,6 +83,9 @@ def last_deployed(client: GitHub, repository: str):
     """Last successful deployment for the exact gway-001 environment."""
     data = client.get(f"repos/{repository}/deployments?environment=gway-001&per_page=100")
     for deployment in data:
+        if (deployment.get("environment") != "gway-001" or
+                deployment.get("task") != "gway-remote/reconciler/v1"):
+            continue
         statuses = client.get(f"repos/{repository}/deployments/{deployment['id']}/statuses?per_page=100")
         if statuses and statuses[0].get("state") == "success":
             return deployment.get("sha")
