@@ -1,5 +1,7 @@
 name: Appliance report and manual batch
 on:
+  schedule:
+    - cron: '*/5 * * * *'
   workflow_dispatch:
     inputs:
       mode:
@@ -18,7 +20,7 @@ concurrency:
 
 jobs:
   appliance:
-    if: github.actor == 'arthexis'
+    if: (github.event_name == 'schedule' && vars.GWAY_REMOTE_AUTO_ENABLED == 'true') || (github.event_name == 'workflow_dispatch' && github.actor == 'arthexis')
     runs-on: [self-hosted, Linux, ARM64, gway-001]
     timeout-minutes: 60
     steps:
@@ -27,7 +29,7 @@ jobs:
           persist-credentials: false
       - name: Execute explicitly requested batch
         id: batch
-        if: inputs.mode == 'deploy'
+        if: github.event_name == 'schedule' || inputs.mode == 'deploy'
         env:
           GH_TOKEN: ${{ secrets.GWAY_REMOTE_DISPATCH_TOKEN }}
         shell: bash
