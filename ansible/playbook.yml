@@ -1,6 +1,0 @@
----
-- name: Provision Gway Remote CLI
-  hosts: gway_remote
-  become: true
-  roles:
-    - gway_remote
