@@ -55,5 +55,5 @@ jobs:
           retention-days: 14
           if-no-files-found: error
       - name: Preserve deployment failure after uploading artifacts
-        if: steps.batch.outputs.exit_code == '1'
+        if: steps.batch.outputs.exit_code != '0' && steps.batch.outputs.exit_code != ''
         run: exit 1
