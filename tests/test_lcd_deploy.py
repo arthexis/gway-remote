@@ -40,7 +40,7 @@ class LcdDeployTests(unittest.TestCase):
             validate("ocpp-csms-deploy", "arthexis/gway-lcd-sound", self.SHA)
 
     def test_csms_deploy_routes_to_explicit_deployer(self):
-        with patch("gway_remote.__main__.deploy_csms") as deploy, patch("gway_remote.best_effort.manual_execute") as manual:
+        with patch("gway_remote.__main__.deploy_csms") as deploy, patch("gway_remote.best_effort.manual_execute", return_value={"decision": "completed"}) as manual:
             run("ocpp-csms-deploy", "arthexis/ocpp-csms", self.SHA)
             manual.assert_called_once()
 
@@ -49,7 +49,7 @@ class LcdDeployTests(unittest.TestCase):
             validate("ocpp-simulator", "arthexis/gway-lcd-sound", self.SHA)
 
     def test_dispatch_routes_to_explicit_deployer(self):
-        with patch("gway_remote.__main__.deploy_lcd_sound") as deploy, patch("gway_remote.best_effort.manual_execute") as manual:
+        with patch("gway_remote.__main__.deploy_lcd_sound") as deploy, patch("gway_remote.best_effort.manual_execute", return_value={"decision": "completed"}) as manual:
             run("lcd-sound-deploy", "arthexis/gway-lcd-sound", self.SHA)
             manual.assert_called_once()
 
