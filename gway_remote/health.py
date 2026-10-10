@@ -1,14 +1,13 @@
 """Non-mutating appliance health probes.
 
 These checks never start a charger session or change a systemd unit.
-Revision identity is independently required by verify_installed().
+Runtime health is independent of attempted revision.
 """
 from __future__ import annotations
 
 from pathlib import Path
 import subprocess
 
-from .installed import verify_installed
 from .csms_health import csms_health
 
 DEFAULT_STATE = Path.home() / ".local/state/gway-remote/installed"
@@ -48,5 +47,3 @@ def component_health(name: str) -> bool:
     return False
 
 
-def verify_component(name: str, sha: str, directory=DEFAULT_STATE) -> bool:
-    return verify_installed(name, sha, directory, component_health)
