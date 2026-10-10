@@ -33,21 +33,6 @@ class GitHub:
             return json.load(response)
 
 
-    def post(self, path: str, payload: dict):
-        if not self.token:
-            raise RuntimeError("GitHub token required to record deployments")
-        request = Request(
-            "https://api.github.com/" + path.lstrip("/"),
-            data=json.dumps(payload).encode("utf-8"),
-            headers={"Accept": "application/vnd.github+json",
-                     "X-GitHub-Api-Version": "2022-11-28",
-                     "Authorization": "Bearer " + self.token,
-                     "Content-Type": "application/json"},
-            method="POST",
-        )
-        with urlopen(request, timeout=20) as response:
-            return json.load(response)
-
 
 def main_head(client: GitHub, repository: str):
     return client.get(f"repos/{repository}/branches/main")["commit"]["sha"]
