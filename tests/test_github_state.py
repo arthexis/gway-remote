@@ -1,5 +1,10 @@
 """Unittest coverage for the read-only GitHub state adapter."""
 import unittest
+import json
+import tempfile
+from pathlib import Path
+from contextlib import redirect_stdout
+from io import StringIO
 from datetime import datetime, timezone
 from unittest.mock import patch
 
@@ -31,6 +36,31 @@ class TestGitHubState(unittest.TestCase):
         result = report(FakeGitHub(), datetime(2026, 10, 9, 12, tzinfo=timezone.utc))
         self.assertEqual(result["decision"], "ready")
         self.assertEqual(len(result["attempt"]), 3)
+
+    def test_recorded_manual_install_is_not_pending(self):
+        sha = "a" * 40
+        attempts = {"gway-lcd-sound": sha}
+        result = report(FakeGitHub(), datetime(2026, 10, 9, 12, tzinfo=timezone.utc), attempts)
+        lcd = next(target for target in result["targets"] if target["name"] == "gway-lcd-sound")
+        self.assertEqual(lcd["last_attempted"], sha)
+        self.assertNotIn({"name": "gway-lcd-sound", "sha": sha}, result["attempt"])
+        self.assertEqual(len(result["attempt"]), 2)
+
+    def test_cli_reconcile_loads_local_attempt_journal(self):
+        from gway_remote import __main__ as cli
+        from gway_remote.attempts import mark
+        with tempfile.TemporaryDirectory() as directory:
+            mark("gway-lcd-sound", "a" * 40, "installed", directory)
+            output = StringIO()
+            with patch("sys.argv", ["gway-remote", "reconcile"]), \
+                 patch("gway_remote.github_state.GitHub", return_value=FakeGitHub()), \
+                 patch("gway_remote.attempts.attempted_shas", side_effect=lambda: {"gway-lcd-sound": "a" * 40}), \
+                 redirect_stdout(output):
+                cli.main()
+            result = json.loads(output.getvalue())
+            lcd = next(t for t in result["targets"] if t["name"] == "gway-lcd-sound")
+            self.assertEqual(lcd["last_attempted"], "a" * 40)
+            self.assertNotIn("gway-lcd-sound", [t["name"] for t in result["attempt"]])
 
     def test_missing_attempt_history_is_eligible(self):
         class Missing(FakeGitHub):
