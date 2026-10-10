@@ -40,14 +40,15 @@ def run(task: str, repository: str = "", sha: str = "") -> None:
         }, sort_keys=True))
         return
 
-    if task == "lcd-sound-deploy":
-        deploy_lcd_sound(sha)
-        return
-    if task == "ocpp-csms-deploy":
-        deploy_csms(sha)
-        return
-    if task == "ocpp-simulator-deploy":
-        deploy_simulator(sha)
+    if task in ("lcd-sound-deploy", "ocpp-csms-deploy", "ocpp-simulator-deploy"):
+        from .best_effort import appliance_lock
+        installer = {
+            "lcd-sound-deploy": deploy_lcd_sound,
+            "ocpp-csms-deploy": deploy_csms,
+            "ocpp-simulator-deploy": deploy_simulator,
+        }[task]
+        with appliance_lock():
+            installer(sha)
         return
 
     # Disposable workspace, no modification to ~/Repos or production services.
@@ -161,6 +162,7 @@ def main() -> None:
     execute.add_argument("--sha", default="")
     inspection = subparsers.add_parser("reconcile", help="Read-only appliance deployment report")
     inspection.add_argument("--dry-run", action="store_true", help="Do not deploy (always read-only)")
+    subparsers.add_parser("deploy-batch", help="Run eligible merged revisions once (explicit invocation)")
     args = parser.parse_args()
     if args.command == "reconcile":
         from .github_state import GitHub, report
@@ -168,6 +170,22 @@ def main() -> None:
             print(json.dumps(report(GitHub()), indent=2, sort_keys=True))
         except Exception as exc:
             parser.exit(1, f"gway-remote: reconciliation unavailable: {exc}\n")
+        return
+    if args.command == "deploy-batch":
+        from datetime import datetime, timezone
+        from .best_effort import execute
+        from .github_state import GitHub
+        try:
+            result = execute(GitHub(), datetime.now(timezone.utc), {
+                "ocpp-csms": deploy_csms,
+                "ocpp-simulator": deploy_simulator,
+                "gway-lcd-sound": deploy_lcd_sound,
+            })
+            print(json.dumps(result, indent=2, sort_keys=True))
+            if any(item["status"] == "failed" for item in result["results"]):
+                parser.exit(1, "gway-remote: one or more installations failed\\n")
+        except (ValueError, RuntimeError, OSError) as exc:
+            parser.exit(1, f"gway-remote: {exc}\\n")
         return
     if args.command == "run":
         try:
