@@ -46,8 +46,23 @@ class WriterTests(unittest.TestCase):
     def test_resume_after_status_failure(self):
         self.client.deployments = [{"id": 9, "sha": self.sha}]
         record_deployment(self.client, "ocpp-csms", self.sha, lambda *args: True)
+        self.assertEqual(len(self.client.deployments), 1)
+        self.assertEqual(self.client.statuses[9][0]["state"], "success")
+        self.assertEqual(len(self.client.posts), 1)
+
+    def test_resume_pending_record(self):
+        self.client.deployments = [{"id": 8, "sha": self.sha}]
+        self.client.statuses[8] = [{"state": "pending"}]
+        self.assertEqual(record_deployment(
+            self.client, "ocpp-csms", self.sha, lambda *args: True), 8)
+        self.assertEqual(len(self.client.deployments), 1)
+
+    def test_failed_record_requires_new_deployment(self):
+        self.client.deployments = [{"id": 8, "sha": self.sha}]
+        self.client.statuses[8] = [{"state": "failure"}]
+        self.assertEqual(record_deployment(
+            self.client, "ocpp-csms", self.sha, lambda *args: True), 2)
         self.assertEqual(len(self.client.deployments), 2)
-        self.assertEqual(self.client.statuses[2][0]["state"], "success")
 
     def test_invalid_sha(self):
         with self.assertRaises(ValueError):
