@@ -3,6 +3,7 @@ from .installed import SHA
 from .reconcile import TARGETS
 
 REPOS = dict(TARGETS)
+OWNER = "gway-remote/reconciler/v1"
 
 
 def record_deployment(client, name, sha, verify):
@@ -17,7 +18,9 @@ def record_deployment(client, name, sha, verify):
         raise RuntimeError("invalid deployment response")
     pending_id = None
     for deployment in existing:
-        if deployment.get("sha", "").lower() != sha:
+        if (deployment.get("sha", "").lower() != sha or
+                deployment.get("environment") != "gway-001" or
+                deployment.get("task") != OWNER):
             continue
         statuses = client.get(f"repos/{repo}/deployments/{deployment['id']}/statuses?per_page=100")
         if not isinstance(statuses, list):
@@ -31,6 +34,7 @@ def record_deployment(client, name, sha, verify):
         created = client.post(f"repos/{repo}/deployments", {
             "ref": sha, "environment": "gway-001",
             "auto_merge": False, "required_contexts": [],
+            "task": OWNER,
         })
         identifier = created.get("id") if isinstance(created, dict) else None
     else:
