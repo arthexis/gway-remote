@@ -1,0 +1,28 @@
+name: Reconciliation dry run
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - 'gway_remote/reconcile.py'
+      - 'gway_remote/github_state.py'
+      - 'gway_remote/deployment_state.py'
+      - '.github/workflows/reconciliation-dry-run.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  inspect:
+    if: github.event_name == 'workflow_dispatch' || (github.event.pull_request.head.repo.full_name == github.repository && github.actor == 'arthexis')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Inspect appliance state (no writes)
+        env:
+          GH_TOKEN: ${{ secrets.GWAY_REMOTE_DISPATCH_TOKEN }}
+        run: |
+          test -n "$GH_TOKEN" || { echo "::error::Missing deploy token"; exit 1; }
+          python -m gway_remote reconcile --dry-run
