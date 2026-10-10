@@ -164,8 +164,34 @@ def main() -> None:
     inspection.add_argument("--dry-run", action="store_true", help="Do not deploy (always read-only)")
     status_parser = subparsers.add_parser("status", help="Inspect local attempts and health")
     status_parser.add_argument("--json", action="store_true")
+    logs_parser = subparsers.add_parser("logs", help="Inspect local installation logs")
+    logs_parser.add_argument("component", nargs="?", choices=("ocpp-csms", "ocpp-simulator", "gway-lcd-sound"))
+    logs_parser.add_argument("--lines", type=int, default=None)
+    report_parser = subparsers.add_parser("report-bundle", help="Export sanitized artifact report")
+    report_parser.add_argument("--output", required=True)
     subparsers.add_parser("deploy-batch", help="Run eligible merged revisions once (explicit invocation)")
     args = parser.parse_args()
+    if args.command == "logs":
+        from .logs import list_logs, read_log
+        try:
+            if args.lines is None:
+                for item in list_logs(name=args.component):
+                    print(item.name)
+            else:
+                content = read_log(name=args.component, lines=args.lines)
+                if content is None:
+                    parser.exit(1, "gway-remote: no installation logs found\\n")
+                print(content)
+        except (OSError, ValueError) as exc:
+            parser.exit(1, f"gway-remote: {exc}\\n")
+        return
+    if args.command == "report-bundle":
+        from .report_bundle import bundle
+        try:
+            print(bundle(args.output))
+        except (OSError, ValueError) as exc:
+            parser.exit(1, f"gway-remote: report unavailable: {exc}\\n")
+        return
     if args.command == "status":
         from .status import status, format_status
         result = status()
