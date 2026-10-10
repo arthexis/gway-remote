@@ -10,8 +10,8 @@ import json
 import os
 from urllib.request import Request, urlopen
 
-from .reconcile import TARGETS, TargetState, reconcile
-from .deployment_state import bootstrap_audit
+from .reconcile import TARGETS
+from .attempt_policy import Candidate, plan
 
 
 def timestamp(value: str) -> datetime:
@@ -64,42 +64,21 @@ def ci_for_head(client: GitHub, repository: str, sha: str):
     return "success" if all(r.get("conclusion") == "success" for r in runs) else "failure"
 
 
-def last_deployed(client: GitHub, repository: str):
-    """Last successful deployment for the exact gway-001 environment."""
-    data = client.get(f"repos/{repository}/deployments?environment=gway-001&per_page=100")
-    for deployment in data:
-        if (deployment.get("environment") != "gway-001" or
-                deployment.get("task") != "gway-remote/reconciler/v1"):
-            continue
-        statuses = client.get(f"repos/{repository}/deployments/{deployment['id']}/statuses?per_page=100")
-        if statuses and statuses[0].get("state") == "success":
-            return deployment.get("sha")
-    return None
-
-
-def collect(client: GitHub):
+def collect(client, attempts=None):
+    attempts = attempts or {}
     states = []
     for name, repository in TARGETS:
         sha = main_head(client, repository)
-        states.append(TargetState(name, sha, last_deployed(client, repository),
-                                  main_arrival(client, repository, sha),
-                                  ci_for_head(client, repository, sha)))
+        states.append(Candidate(name, sha, main_arrival(client, repository, sha),
+                                ci_for_head(client, repository, sha), attempts.get(name)))
     return tuple(states)
 
 
-def report(client: GitHub, now: datetime | None = None):
-    states = collect(client)
-    plan = reconcile(states, now or datetime.now(timezone.utc))
-    return {
-        "decision": plan.decision.value,
-        "reason": plan.reason,
-        "quiet_until": plan.quiet_until.isoformat() if plan.quiet_until else None,
-        "targets": [{"name": s.name, "desired": s.desired_sha,
-                     "deployed": s.deployed_sha, "ci": s.ci_status,
-                     "main_updated_at": s.main_updated_at.isoformat() if s.main_updated_at else None}
-                    for s in states],
-        "deploy": [{"name": t.name, "sha": t.sha} for t in plan.targets],
-        "bootstrap": [{"name": b.name, "repository": b.repository,
-                       "installed_sha": b.installed_sha, "status": b.status,
-                       "reason": b.reason} for b in bootstrap_audit(states)],
-    }
+def report(client, now=None, attempts=None):
+    states = collect(client, attempts)
+    result = plan(states, now or datetime.now(timezone.utc))
+    return {"decision": result.state, "reason": result.reason,
+            "targets": [{"name": s.name, "desired": s.sha,
+                         "last_attempted": s.attempted_sha, "ci": s.ci}
+                        for s in states],
+            "attempt": [{"name": name, "sha": sha} for name, sha in result.pending]}
