@@ -10,7 +10,8 @@ from pathlib import Path
 
 ALLOWED_REPOSITORY = "arthexis/ocpp-csms"
 LCD_REPOSITORY = "arthexis/gway-lcd-sound"
-TASKS = ("system-health", "ocpp-simulator", "lcd-sound-deploy", "ocpp-csms-deploy")
+SIM_REPOSITORY = "arthexis/ocpp-simulator"
+TASKS = ("system-health", "ocpp-simulator", "lcd-sound-deploy", "ocpp-csms-deploy", "ocpp-simulator-deploy")
 
 
 def validate(task: str, repository: str = "", sha: str = "") -> None:
@@ -20,7 +21,8 @@ def validate(task: str, repository: str = "", sha: str = "") -> None:
         if repository or sha:
             raise ValueError("Health task takes no repository or sha")
         return
-    expected = LCD_REPOSITORY if task == "lcd-sound-deploy" else ALLOWED_REPOSITORY
+    expected = (LCD_REPOSITORY if task == "lcd-sound-deploy" else
+                SIM_REPOSITORY if task == "ocpp-simulator-deploy" else ALLOWED_REPOSITORY)
     if repository != expected:
         raise ValueError("Repository not allowed")
     if len(sha) != 40 or not all(c in "0123456789abcdefABCDEF" for c in sha):
@@ -44,6 +46,9 @@ def run(task: str, repository: str = "", sha: str = "") -> None:
     if task == "ocpp-csms-deploy":
         deploy_csms(sha)
         return
+    if task == "ocpp-simulator-deploy":
+        deploy_simulator(sha)
+        return
 
     # Disposable workspace, no modification to ~/Repos or production services.
     with tempfile.TemporaryDirectory(prefix="gway-remote-") as directory:
@@ -60,6 +65,24 @@ def run(task: str, repository: str = "", sha: str = "") -> None:
                        cwd=worktree, check=True, timeout=360)
         subprocess.run([python, "scripts/pr_simulator_smoke.py"],
                        cwd=worktree, check=True, timeout=120)
+
+
+def deploy_simulator(sha: str) -> None:
+    """Install the approved simulator CLI persistently; never start a session or service."""
+    with tempfile.TemporaryDirectory(prefix="simulator-deploy-") as directory:
+        source = Path(directory) / "source"
+        subprocess.run(["git", "clone", "--quiet", "--no-checkout",
+                        "https://github.com/arthexis/ocpp-simulator.git", str(source)],
+                       check=True, timeout=180)
+        subprocess.run(["git", "-C", str(source), "checkout", "--detach", sha],
+                       check=True, timeout=60)
+        actual = subprocess.check_output(["git", "-C", str(source), "rev-parse", "HEAD"],
+                                         text=True, timeout=20).strip()
+        if actual.lower() != sha.lower():
+            raise ValueError("Simulator checkout SHA mismatch")
+        subprocess.run(["sh", "./deploy.sh"], cwd=source, check=True, timeout=600)
+        subprocess.run([str(Path.home() / ".local/bin/ocpp-simulator"), "--help"],
+                       check=True, timeout=30)
 
 
 def deploy_csms(sha: str) -> None:
