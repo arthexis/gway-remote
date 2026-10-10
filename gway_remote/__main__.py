@@ -159,7 +159,16 @@ def main() -> None:
     execute.add_argument("task", choices=TASKS)
     execute.add_argument("--repository", default="")
     execute.add_argument("--sha", default="")
+    inspection = subparsers.add_parser("reconcile", help="Read-only appliance deployment report")
+    inspection.add_argument("--dry-run", action="store_true", help="Do not deploy (always read-only)")
     args = parser.parse_args()
+    if args.command == "reconcile":
+        from .github_state import GitHub, report
+        try:
+            print(json.dumps(report(GitHub()), indent=2, sort_keys=True))
+        except Exception as exc:
+            parser.exit(1, f"gway-remote: reconciliation unavailable: {exc}\n")
+        return
     if args.command == "run":
         try:
             run(args.task, args.repository, args.sha)
