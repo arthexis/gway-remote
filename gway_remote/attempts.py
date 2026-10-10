@@ -46,7 +46,7 @@ def _save(directory, data):
             os.unlink(filename)
 
 
-def mark(name, sha, status, directory=DEFAULT_DIR, error=None):
+def mark(name, sha, status, directory=DEFAULT_DIR, error=None, log=None):
     if name not in NAMES or status not in ("started", "installed", "failed"):
         raise ValueError("invalid attempt")
     from .reconcile import _SHA
@@ -55,7 +55,8 @@ def mark(name, sha, status, directory=DEFAULT_DIR, error=None):
     entries = read_attempts(directory)
     entries[name] = {"sha": sha.lower(), "status": status,
                      "at": datetime.now(timezone.utc).isoformat(),
-                     **({"error": str(error)[:500]} if error else {})}
+                     **({"error": str(error)[:500]} if error else {}),
+                     **({"log": log} if log else {})
     _save(directory, entries)
 
 
