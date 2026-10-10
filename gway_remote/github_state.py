@@ -9,9 +9,9 @@ from datetime import datetime, timezone
 import json
 import os
 from urllib.request import Request, urlopen
-from urllib.parse import quote
 
 from .reconcile import TARGETS, TargetState, reconcile
+from .deployment_state import bootstrap_audit
 
 
 def timestamp(value: str) -> datetime:
@@ -95,4 +95,7 @@ def report(client: GitHub, now: datetime | None = None):
                      "main_updated_at": s.main_updated_at.isoformat() if s.main_updated_at else None}
                     for s in states],
         "deploy": [{"name": t.name, "sha": t.sha} for t in plan.targets],
+        "bootstrap": [{"name": b.name, "repository": b.repository,
+                       "installed_sha": b.installed_sha, "status": b.status,
+                       "reason": b.reason} for b in bootstrap_audit(states)],
     }
