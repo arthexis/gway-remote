@@ -41,14 +41,17 @@ def run(task: str, repository: str = "", sha: str = "") -> None:
         return
 
     if task in ("lcd-sound-deploy", "ocpp-csms-deploy", "ocpp-simulator-deploy"):
-        from .best_effort import appliance_lock
+        from .best_effort import manual_execute
+        from .github_state import GitHub
         installer = {
             "lcd-sound-deploy": deploy_lcd_sound,
             "ocpp-csms-deploy": deploy_csms,
             "ocpp-simulator-deploy": deploy_simulator,
         }[task]
-        with appliance_lock():
-            installer(sha)
+        name = {"lcd-sound-deploy": "gway-lcd-sound",
+                "ocpp-csms-deploy": "ocpp-csms",
+                "ocpp-simulator-deploy": "ocpp-simulator"}[task]
+        print(json.dumps(manual_execute(GitHub(), name, sha, installer), sort_keys=True))
         return
 
     # Disposable workspace, no modification to ~/Repos or production services.
