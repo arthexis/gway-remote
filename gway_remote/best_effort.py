@@ -6,6 +6,7 @@ from pathlib import Path
 from .attempt_policy import plan
 from .attempts import DEFAULT_DIR, attempted_shas, mark
 from .github_state import collect, main_head
+from .logs import capture_log, log_filename
 from .reconcile import TARGETS
 
 LOCK_PATH = DEFAULT_DIR / "appliance.lock"
@@ -43,22 +44,24 @@ def execute(client, now, installers, directory=DEFAULT_DIR, lock_path=None):
         decision = plan(snapshot, now)
         if decision.state != "ready":
             return {"decision": decision.state, "reason": decision.reason, "results": []}
-        expected = {name: sha for name, sha in decision.pending}
         results = []
         for name, sha in decision.pending:
             if any(main_head(client, repo).lower() != state.sha.lower()
                    for state, (_, repo) in zip(snapshot, TARGETS)):
                 return {"decision": "stale", "reason": "main revision changed",
                         "results": results}
-            # Write BEFORE invoking installer. If killed, status remains started.
-            mark(name, sha, "started", directory)
+            filename = log_filename(name, sha)
+            # Persist before running; an interrupted attempt is never auto-retried.
+            mark(name, sha, "started", directory, log=filename)
             try:
-                installers[name](sha)
+                with capture_log(directory, filename):
+                    installers[name](sha)
             except Exception as exc:
-                mark(name, sha, "failed", directory, error=exc)
+                mark(name, sha, "failed", directory, error=exc, log=filename)
                 results.append({"name": name, "sha": sha, "status": "failed",
-                                "error": str(exc)[:500]})
+                                "log": filename, "error": str(exc)[:500]})
             else:
-                mark(name, sha, "installed", directory)
-                results.append({"name": name, "sha": sha, "status": "installed"})
+                mark(name, sha, "installed", directory, log=filename)
+                results.append({"name": name, "sha": sha, "status": "installed",
+                                "log": filename})
         return {"decision": "completed", "results": results}
