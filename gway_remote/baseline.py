@@ -6,7 +6,6 @@ import shutil
 import subprocess
 import time
 
-from .installed import installed_revision
 from .reconcile import TARGETS
 
 
@@ -41,7 +40,7 @@ def baseline():
     except (OSError, ValueError):
         pass
     for name, _ in TARGETS:
-        data["targets"][name] = {"attested_sha": installed_revision(name, state)}
+        data["targets"][name] = {"health": "not-checked"}
     # Only query service state, never invoke start, restart or reload.
     for unit in ("ocpp-csms.service", "ocpp-discover.service"):
         data["services"][unit] = command(["systemctl", "--user", "is-active", unit])
