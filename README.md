@@ -118,3 +118,7 @@ Only the most recent journaled log for each component is exported. Export
 redaction is best-effort; review artifacts before sharing outside trusted
 GitHub repository access. No production deployment or automatic trigger is
 enabled by these reporting commands.
+
+## Automatic polling
+
+The appliance report workflow polls every five minutes on the default branch, but automatic deployment is disabled unless the repository variable `GWAY_REMOTE_AUTO_ENABLED` equals `true`. Keep this unset until field validation. The application enforces the shared 20-minute quiet period and one attempt per revision. Scheduled polling never runs from a PR branch.
