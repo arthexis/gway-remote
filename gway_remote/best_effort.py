@@ -60,6 +60,7 @@ def execute(client, now, installers, directory=DEFAULT_DIR, lock_path=None):
                 mark(name, sha, "failed", directory, error=exc, log=filename)
                 results.append({"name": name, "sha": sha, "status": "failed",
                                 "log": filename, "error": str(exc)[:500]})
+                break
             else:
                 mark(name, sha, "installed", directory, log=filename)
                 results.append({"name": name, "sha": sha, "status": "installed",
