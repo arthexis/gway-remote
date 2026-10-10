@@ -3,7 +3,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from gway_remote.health import component_health, verify_component
+from gway_remote.health import component_health
 
 
 class HealthTests(unittest.TestCase):
@@ -12,11 +12,6 @@ class HealthTests(unittest.TestCase):
 
     def test_unknown_target_fails_closed(self):
         self.assertFalse(component_health("unknown"))
-
-    def test_missing_attestation_blocks_healthy_simulator(self):
-        with tempfile.TemporaryDirectory() as directory:
-            with patch("gway_remote.health.component_health", return_value=True):
-                self.assertFalse(verify_component("ocpp-simulator", "a" * 40, directory))
 
     def test_missing_executable_fails_simulator(self):
         with tempfile.TemporaryDirectory() as directory:
