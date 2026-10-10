@@ -1,0 +1,57 @@
+name: Appliance report and manual batch
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: Read-only report or explicitly deploy eligible revisions
+        required: true
+        type: choice
+        default: report
+        options: [report, deploy]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: gway-001-appliance-report
+  cancel-in-progress: false
+
+jobs:
+  appliance:
+    if: github.actor == 'arthexis'
+    runs-on: [self-hosted, Linux, ARM64, gway-001]
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Execute explicitly requested batch
+        id: batch
+        if: inputs.mode == 'deploy'
+        env:
+          GH_TOKEN: ${{ secrets.GWAY_REMOTE_DISPATCH_TOKEN }}
+        shell: bash
+        run: |
+          set +e
+          python3 -m gway_remote deploy-batch
+          code=$?
+          echo "exit_code=$code" >> "$GITHUB_OUTPUT"
+          exit 0
+      - name: Export read-only sanitized report
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m gway_remote report-bundle --output "$RUNNER_TEMP/gway-remote-report"
+          cat "$RUNNER_TEMP/gway-remote-report/summary.md" >> "$GITHUB_STEP_SUMMARY"
+      - name: Upload report and bounded sanitized logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: gway-001-report-${{ github.run_id }}
+          path: ${{ runner.temp }}/gway-remote-report/
+          retention-days: 14
+          if-no-files-found: error
+      - name: Preserve deployment failure after uploading artifacts
+        if: inputs.mode == 'deploy' && steps.batch.outputs.exit_code != '0'
+        run: exit 1
