@@ -65,3 +65,34 @@ def execute(client, now, installers, directory=DEFAULT_DIR, lock_path=None):
                 results.append({"name": name, "sha": sha, "status": "installed",
                                 "log": filename})
         return {"decision": "completed", "results": results}
+
+def manual_execute(client, name, sha, installer, directory=DEFAULT_DIR):
+    """Explicit owner deployment: bypass quiet period, not SHA/CI/lock safety.
+
+    Share the automatic attempt journal so a successful manual install is not
+    installed again by the scheduled queue. Failed manual attempts also remain
+    one-shot until a new SHA arrives.
+    """
+    from .github_state import ci_for_head
+    from .reconcile import _SHA
+    if name not in INSTALLERS or not _SHA.fullmatch(sha):
+        raise ValueError("invalid manual deployment target")
+    directory = Path(directory)
+    with appliance_lock(directory / "appliance.lock"):
+        repo = dict(TARGETS)[name]
+        if main_head(client, repo).lower() != sha.lower():
+            raise ValueError("manual SHA must match current main head")
+        if ci_for_head(client, repo, sha) != "success":
+            raise ValueError("manual SHA requires successful main CI")
+        if attempted_shas(directory).get(name, "").lower() == sha.lower():
+            return {"decision": "idle", "reason": "SHA already attempted"}
+        filename = log_filename(name, sha)
+        mark(name, sha, "started", directory, log=filename)
+        try:
+            with capture_log(directory, filename):
+                installer(sha)
+        except Exception as exc:
+            mark(name, sha, "failed", directory, error=exc, log=filename)
+            raise
+        mark(name, sha, "installed", directory, log=filename)
+        return {"decision": "completed", "name": name, "sha": sha, "status": "installed"}
