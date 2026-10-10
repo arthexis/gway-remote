@@ -16,6 +16,7 @@ class TestExecution(unittest.TestCase):
         self.installed = {name: "a" * 40 for name, _ in TARGETS}
         self.desired = {name: "b" * 40 for name, _ in TARGETS}
         self.calls = []
+        self.verified = set()
         self.now = datetime(2026, 10, 9, 12, tzinfo=timezone.utc)
 
     def collect(self, client):
@@ -29,13 +30,14 @@ class TestExecution(unittest.TestCase):
     def execute(self, *, verify=None, deploy=None):
         def default_deploy(name, sha):
             self.calls.append(("deploy", name))
+            self.verified.add(name)
         def record(name, sha):
             self.calls.append(("record", name))
             self.installed[name] = sha
         return execute(
             None, self.collect, lambda: self.now,
             deploy or default_deploy,
-            verify or (lambda name, sha: True),
+            verify or (lambda name, sha: name in self.verified or self.installed[name] == sha),
             record, self.lock,
         )
 
@@ -48,15 +50,13 @@ class TestExecution(unittest.TestCase):
 
     def test_failed_verification_stops_without_record(self):
         with self.assertRaisesRegex(RuntimeError, "verification failed"):
-            self.execute(verify=lambda name, sha: name != "ocpp-simulator")
-        self.assertEqual(self.calls, [
-            ("deploy", "ocpp-csms"), ("record", "ocpp-csms"),
-            ("deploy", "ocpp-simulator"),
-        ])
+            self.execute(verify=lambda name, sha: False)
+        self.assertEqual(self.calls, [("deploy", "ocpp-csms")])
 
     def test_failed_deployment_stops_without_record(self):
         def fail(name, sha):
             self.calls.append(("deploy", name))
+            self.verified.add(name)
             if name == "ocpp-simulator":
                 raise RuntimeError("deploy failed")
         with self.assertRaisesRegex(RuntimeError, "deploy failed"):
@@ -69,6 +69,7 @@ class TestExecution(unittest.TestCase):
     def test_stale_snapshot_stops_before_next_target(self):
         def mutate(name, sha):
             self.calls.append(("deploy", name))
+            self.verified.add(name)
             self.desired["gway-lcd-sound"] = "c" * 40
         with self.assertRaisesRegex(RuntimeError, "stale"):
             self.execute(deploy=mutate)
