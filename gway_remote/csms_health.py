@@ -1,5 +1,6 @@
 """Read-only CSMS service and storage diagnostics; no OCPP socket traffic."""
 import json
+import shutil
 from pathlib import Path
 import subprocess
 
@@ -15,13 +16,13 @@ def _run(argv, timeout=15):
 
 def csms_probe(*, runner=_run, executable=None, data_dir=None):
     """Return a diagnostic reason, not just a misleading unhealthy boolean."""
-    executable = Path(executable) if executable is not None else Path.home() / ".local/bin/ocpp-csms"
+    executable = Path(executable) if executable is not None else Path(shutil.which("ocpp-csms") or str(Path.home() / ".local/bin/ocpp-csms"))
     data_dir = Path(data_dir) if data_dir is not None else Path.home() / "ocpp-csms-data"
     def result(healthy, reason):
         return {"healthy": healthy, "reason": reason,
                 "executable": str(executable), "data_dir": str(data_dir)}
     if not executable.is_file():
-        return result(False, "CLI missing at expected path")
+        return result(False, "CSMS CLI not found on PATH or at fallback path")
     if not data_dir.is_dir():
         return result(False, "data directory missing")
     service = runner(["systemctl", "is-active", "ocpp-csms.service"])
