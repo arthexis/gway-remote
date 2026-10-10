@@ -7,7 +7,7 @@ from .attempts import DEFAULT_DIR
 from .logs import export_log, sanitize
 from .status import status
 
-_VALID_LOG = re.compile(r"[0-9]{8}T[0-9]{12}[0-9]{6}Z-[a-z0-9-]+-[0-9a-f]{12}\.log")
+_VALID_LOG = re.compile(r"[0-9]{8}T[0-9]{12}Z-[a-z0-9-]+-[0-9a-f]{12}\.log")
 
 
 def bundle(destination, directory=DEFAULT_DIR, probe=None):
