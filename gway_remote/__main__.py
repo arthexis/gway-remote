@@ -174,11 +174,11 @@ def main() -> None:
     if args.command == "logs":
         from .logs import list_logs, read_log
         try:
-            if args.lines is None:
-                for item in list_logs(name=args.component):
+            if args.lines is None and args.component is None:
+                for item in list_logs():
                     print(item.name)
             else:
-                content = read_log(name=args.component, lines=args.lines)
+                content = read_log(name=args.component, lines=args.lines or 100)
                 if content is None:
                     parser.exit(1, "gway-remote: no installation logs found\\n")
                 print(content)
