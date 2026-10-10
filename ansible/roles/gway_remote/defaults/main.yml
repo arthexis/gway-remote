@@ -1,0 +1,3 @@
+---
+gway_remote_install_root: /opt/gway-remote
+gway_remote_runner_user: arthe
