@@ -16,7 +16,7 @@ TARGETS = (
     ("ocpp-simulator", "arthexis/ocpp-simulator"),
     ("gway-lcd-sound", "arthexis/gway-lcd-sound"),
 )
-_SHA = re.compile(r"[0-9a-fA-F]{40}\\Z")
+_SHA = re.compile(r"[0-9a-fA-F]{40}")
 _GOOD_CI = "success"
 
 
