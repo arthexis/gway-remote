@@ -175,18 +175,30 @@ def main() -> None:
     report_parser.add_argument("--output", required=True)
     subparsers.add_parser("deploy-batch", help="Run eligible merged revisions once (explicit invocation)")
     worker_parser = subparsers.add_parser("codex", aliases=["codex-worker"], help="Codex worker and task inspection")
-    worker_parser.add_argument("action", choices=("serve", "status", "tasks", "task", "submit", "discover"))
+    worker_parser.add_argument("action", choices=("serve", "status", "tasks", "task", "submit", "discover", "veto", "unveto"))
     worker_parser.add_argument("task_id", nargs="?")
     worker_parser.add_argument("--socket", default=None)
     worker_parser.add_argument("--repo", default=None)
     worker_parser.add_argument("--issue", type=int, default=None)
     worker_parser.add_argument("--kind", default=None)
     worker_parser.add_argument("--priority", default="P2")
+    worker_parser.add_argument("--reason", default=None)
     api_parser = subparsers.add_parser("api", help="Run the opt-in loopback HTTP API")
     api_parser.add_argument("--host", default="127.0.0.1")
     api_parser.add_argument("--port", type=int, default=8765)
     args = parser.parse_args()
     if args.command in ("codex", "codex-worker"):
+        if args.action in ("veto", "unveto"):
+            if not args.task_id or (args.action == "veto" and not args.reason):
+                parser.error("codex veto requires task ID and --reason; unveto requires task ID")
+            from .codex_queue import TaskQueue, default_db
+            try:
+                with TaskQueue(default_db()) as queue:
+                    result = queue.veto(args.task_id, args.reason) if args.action == "veto" else queue.unveto(args.task_id)
+            except ValueError as exc:
+                parser.exit(1, f"gway-remote: {exc}\\n")
+            print(json.dumps(result, indent=2, sort_keys=True))
+            return
         if args.action == "discover":
             if args.task_id or args.repo or args.issue is not None or args.kind:
                 parser.error("codex discover takes no task metadata")
