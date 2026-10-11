@@ -10,12 +10,13 @@ from pathlib import Path
 from datetime import datetime, timezone
 from uuid import uuid4
 
-STATES = ("requested", "queued", "running", "succeeded", "failed", "cancelled", "interrupted")
-TERMINAL = frozenset(("succeeded", "failed", "cancelled", "interrupted"))
+STATES = ("requested", "queued", "running", "succeeded", "failed", "cancelled", "interrupted", "vetoed")
+TERMINAL = frozenset(("succeeded", "failed", "cancelled", "interrupted", "vetoed"))
 TRANSITIONS = {
-    "requested": frozenset(("queued", "cancelled")),
-    "queued": frozenset(("running", "cancelled")),
+    "requested": frozenset(("queued", "cancelled", "vetoed")),
+    "queued": frozenset(("running", "cancelled", "vetoed")),
     "running": frozenset(("succeeded", "failed", "cancelled", "interrupted")),
+    "vetoed": frozenset(("requested",)),
 }
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS tasks (
@@ -23,7 +24,7 @@ CREATE TABLE IF NOT EXISTS tasks (
  kind TEXT NOT NULL,
  repository TEXT NOT NULL,
  issue INTEGER NOT NULL CHECK(issue > 0),
- state TEXT NOT NULL CHECK(state IN ('requested','queued','running','succeeded','failed','cancelled','interrupted')),
+ state TEXT NOT NULL CHECK(state IN ('requested','queued','running','succeeded','failed','cancelled','interrupted','vetoed')),
  created_at TEXT NOT NULL,
  updated_at TEXT NOT NULL,
  detail TEXT NOT NULL DEFAULT '',
@@ -55,6 +56,26 @@ class TaskQueue:
             cols = {row[1] for row in self.db.execute("PRAGMA table_info(tasks)")}
             if "priority" not in cols:
                 self.db.execute("ALTER TABLE tasks ADD COLUMN priority TEXT NOT NULL DEFAULT 'P2'")
+        # SQLite CHECK constraints require rebuilding old tables to add vetoed.
+        if self.db.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='tasks'").fetchone():
+            ddl = self.db.execute("SELECT sql FROM sqlite_master WHERE type='table' AND name='tasks'").fetchone()[0]
+            if "'vetoed'" not in ddl:
+                self.db.execute("BEGIN IMMEDIATE")
+                try:
+                    self.db.execute("ALTER TABLE tasks RENAME TO tasks_previous")
+                    self.db.execute("""CREATE TABLE tasks (
+                        id TEXT PRIMARY KEY, kind TEXT NOT NULL, repository TEXT NOT NULL,
+                        issue INTEGER NOT NULL CHECK(issue > 0),
+                        state TEXT NOT NULL CHECK(state IN
+                        ('requested','queued','running','succeeded','failed','cancelled','interrupted','vetoed')),
+                        created_at TEXT NOT NULL, updated_at TEXT NOT NULL,
+                        detail TEXT NOT NULL DEFAULT '', priority TEXT NOT NULL DEFAULT 'P2')""")
+                    self.db.execute("INSERT INTO tasks SELECT id,kind,repository,issue,state,created_at,updated_at,detail,priority FROM tasks_previous")
+                    self.db.execute("DROP TABLE tasks_previous")
+                    self.db.execute("COMMIT")
+                except Exception:
+                    self.db.execute("ROLLBACK")
+                    raise
         self.db.executescript(SCHEMA)
         if self.path != Path(":memory:"):
             self.path.chmod(0o600)
@@ -119,6 +140,20 @@ class TaskQueue:
         if result.rowcount != 1:
             raise ValueError("task not found or state changed")
         return self.get(task_id)
+
+    def veto(self, task_id: str, reason: str):
+        if not reason.strip():
+            raise ValueError("veto requires a reason")
+        task = self.get(task_id)
+        if not task or task["state"] not in ("requested", "queued"):
+            raise ValueError("only requested or queued tasks may be vetoed")
+        return self.transition(task_id, task["state"], "vetoed", reason)
+
+    def unveto(self, task_id: str):
+        task = self.get(task_id)
+        if not task or task["state"] != "vetoed":
+            raise ValueError("task is not vetoed")
+        return self.transition(task_id, "vetoed", "requested", "Veto explicitly lifted; approval required")
 
     def recover(self):
         """Mark interrupted jobs for review, never automatically retry them."""
