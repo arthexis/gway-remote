@@ -1,4 +1,4 @@
-"""Loopback-only HTTP adapter; not a public HTTPS endpoint."""
+"""Private HTTP adapter; TLS termination belongs to the trusted gateway."""
 import hmac
 import json
 import os
@@ -7,6 +7,7 @@ from ipaddress import ip_address
 
 from . import mobile
 
+WIREGUARD_BIND_ADDRESS = "10.90.0.2"
 MAX_BODY = 8192
 MAX_RESPONSE = 1024 * 1024
 
@@ -90,8 +91,8 @@ def handler_for(token):
 
 
 def serve(host="127.0.0.1", port=8765, token=None):
-    if not ip_address(host).is_loopback:
-        raise ValueError("API must bind to a loopback IP address")
+    if not (ip_address(host).is_loopback or host == WIREGUARD_BIND_ADDRESS):
+        raise ValueError("API must bind to loopback or the configured WireGuard address")
     token = token if token is not None else os.environ.get("GWAY_REMOTE_API_TOKEN")
     with ThreadingHTTPServer((host, port), handler_for(token)) as server:
         server.serve_forever()
