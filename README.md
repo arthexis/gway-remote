@@ -149,7 +149,7 @@ that field validation is complete.
 
 After **Python checks** succeeds for a push to `main`, the **Deploy GWay Remote backend** workflow runs on the `gway-001` self-hosted runner. It verifies that the tested SHA is still the current main tip, runs unit tests again on the appliance, installs the versioned source into the system-wide `/usr/local/bin/gway-remote` zipapp, and verifies the installed CLI status schema. Superseded runs skip installation. The workflow shares the appliance concurrency group so batch deployments do not overlap.
 
-This updates the **GWay Remote CLI/backend package**, not other repositories (CSMS, LCD Sound, or simulator), and does not restart or enable the mobile API service. Existing running Python processes must be restarted separately to load new code. The runner must have permission to install the CLI (including configured noninteractive sudo if required). Failed validation prevents installation; installation or verification failures fail the workflow rather than claiming success.
+This updates the **GWay Remote CLI/backend package**, not other repositories (CSMS, LCD Sound, or simulator), and restarts the existing mobile API user service after installation, using its explicit user-bus context. A bounded authenticated health probe must succeed; otherwise the workflow attempts rollback. The runner must have permission to install the CLI (including configured noninteractive sudo if required). Failed validation prevents installation; installation or verification failures fail the workflow rather than claiming success.
 
 Android APK publishing remains a separate workflow. For changes requiring both server and APK, coordinate readiness via the two workflow outcomes rather than assuming that a successful APK build implies the server has been updated.
 
@@ -165,4 +165,4 @@ The CLI-only deployment in PR #44 is **not** a complete mobile API rollout. Fini
 6. **Coordinate Android publication (PR #43).** Require verified backend compatibility/readiness before publishing an APK that depends on changed API commands. Keep Android version codes monotonic, signing identity stable, and the release immutable. A successful APK build alone is not evidence of backend readiness.
 7. **End-to-end acceptance.** Merge a controlled revision, verify backend SHA and mobile API health on Gway-001, verify the signed GitHub Release and its in-app update metadata, then exercise the phone against the updated API. Document rollback for both sides.
 
-Keep automatic mobile API restart and release gating disabled until steps 1–5 have been validated.
+Automatic restart is implemented in the deployment workflow. It requires a configured GWAY_REMOTE_API_TOKEN Actions secret and a successful on-device deployment check; APK release gating remains a separate concern.
