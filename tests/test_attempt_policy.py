@@ -7,7 +7,7 @@ NOW = datetime(2026, 10, 9, 20, tzinfo=timezone.utc)
 
 
 def candidates(attempted=False):
-    return [Candidate(name, "a" * 40, NOW - timedelta(minutes=21),
+    return [Candidate(name, "a" * 40, NOW - timedelta(minutes=11),
                       "success", "a" * 40 if attempted else None)
             for name, _ in TARGETS]
 
@@ -32,6 +32,15 @@ class AttemptPolicyTests(unittest.TestCase):
         values[2] = Candidate(values[2].name, values[2].sha,
                               NOW - timedelta(minutes=5), "success")
         self.assertEqual(plan(values, NOW).state, "waiting")
+
+    def test_quiet_period_ends_after_ten_minutes(self):
+        values = candidates()
+        values[0] = Candidate(values[0].name, values[0].sha,
+                              NOW - timedelta(minutes=9), "success")
+        self.assertEqual(plan(values, NOW).state, "waiting")
+        values[0] = Candidate(values[0].name, values[0].sha,
+                              NOW - timedelta(minutes=10), "success")
+        self.assertEqual(plan(values, NOW).state, "ready")
 
     def test_ci_failure_blocks(self):
         values = candidates()
