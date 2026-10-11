@@ -55,6 +55,7 @@ def deploy(*, token, install, execute=run, probe=health, executable=EXECUTABLE,
             backup = pathlib.Path(temp) / "previous"
             execute("sudo", "-n", "cp", "-p", str(executable), str(backup))
             execute("sudo", "-n", "chown", f"{os.getuid()}:{os.getgid()}", str(backup))
+            original = executable.stat()
             changed = False
             try:
                 changed = True
@@ -65,7 +66,9 @@ def deploy(*, token, install, execute=run, probe=health, executable=EXECUTABLE,
             except Exception as failure:
                 if changed:
                     try:
-                        execute('sudo', '-n', 'install', '-m', '755', str(backup), str(executable))
+                        execute("sudo", "-n", "install", "-m", format(original.st_mode & 0o7777, "04o"),
+                                str(backup), str(executable))
+                        execute("sudo", "-n", "chown", f"{original.st_uid}:{original.st_gid}", str(executable))
                         systemctl("restart", SERVICE)
                         systemctl("is-active", "--quiet", SERVICE)
                         probe(token)
