@@ -21,12 +21,16 @@ def commands():
                 "sound": {"type": "choice", "choices": list(SOUNDS), "required": True}}},
                {"name": "lcd-message", "read_only": False, "arguments": {
                 "line1": {"type": "string", "max_length": 16, "required": True},
-                "line2": {"type": "string", "max_length": 16, "required": True}}}])
+                "line2": {"type": "string", "max_length": 16, "required": True},
+                "duration_seconds": {"type": "integer", "min": 30, "max": 300, "required": False}}}])
 
 
 def lcd_message(arguments):
-    if not isinstance(arguments, dict) or set(arguments) != {"line1", "line2"}:
+    if not isinstance(arguments, dict) or not {"line1", "line2"} <= set(arguments) or set(arguments) - {"line1", "line2", "duration_seconds"}:
         raise ValueError("invalid_arguments")
+    duration = arguments.get("duration_seconds", 30)
+    if type(duration) is not int or not 30 <= duration <= 300 or duration % 30:
+        raise ValueError("invalid_lcd_duration")
     lines = [arguments["line1"], arguments["line2"]]
     if any(not isinstance(line, str) or len(line) > 16 or
            any(ord(char) < 32 or ord(char) > 126 for char in line) for line in lines):
@@ -36,7 +40,7 @@ def lcd_message(arguments):
     # The existing gway-lcd-sound runner consumes event lockfiles and
     # resumes its normal rotation when this timestamp expires.
     LCD_DIR.mkdir(parents=True, exist_ok=True)
-    expires = (datetime.now(timezone.utc) + timedelta(seconds=30)).isoformat()
+    expires = (datetime.now(timezone.utc) + timedelta(seconds=duration)).isoformat()
     fd, name = tempfile.mkstemp(prefix=".lcd-mobile-", dir=LCD_DIR)
     try:
         with os.fdopen(fd, "w", encoding="ascii") as stream:
@@ -45,7 +49,7 @@ def lcd_message(arguments):
     finally:
         if os.path.exists(name):
             os.unlink(name)
-    return {"queued": True, "duration_seconds": 30}
+    return {"queued": True, "duration_seconds": duration}
 
 
 def sound_play(arguments):
