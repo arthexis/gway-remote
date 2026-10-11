@@ -3,6 +3,7 @@
 No shell, arbitrary CLI arguments, daemon, or remote process execution.
 """
 import fcntl
+import ipaddress
 import math
 import time
 import json
@@ -19,6 +20,16 @@ from .simulator_network import _networks, _on_link
 STATE_DIR = Path.home() / ".local/state/gway-remote/simulator"
 SCENARIOS = {"boot", "charge", "remote", "battery"}
 MAX_OUTPUT = 32768
+
+
+def _permitted_target(host):
+    """Allow only explicit IPv4 loopback or the existing wired-peer targets."""
+    try:
+        if ipaddress.IPv4Address(host).is_loopback:
+            return True
+    except ipaddress.AddressValueError:
+        pass
+    return _on_link(host, _networks()[1])
 
 
 def _identity(pid):
@@ -87,8 +98,8 @@ def start(arguments):
         raise ValueError("invalid_arguments")
     host, port = arguments.get("host"), arguments.get("port", 9000)
     cp, scenario = arguments.get("cp", "SIM001"), arguments.get("scenario", "boot")
-    if not isinstance(host, str) or not _on_link(host, _networks()[1]):
-        raise ValueError("target_must_be_on_wired_subnet")
+    if not isinstance(host, str) or not _permitted_target(host):
+        raise ValueError("target_must_be_on_wired_subnet_or_ipv4_loopback")
     if type(port) is not int or not 1 <= port <= 65535:
         raise ValueError("invalid_port")
     if not isinstance(cp, str) or not 1 <= len(cp) <= 32 or not all(
