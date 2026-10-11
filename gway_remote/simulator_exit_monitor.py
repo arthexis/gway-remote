@@ -10,13 +10,19 @@ import sys
 def main():
     directory = Path(sys.argv[1])
     run_id = sys.argv[2]
-    child = subprocess.Popen(sys.argv[3:], stdin=subprocess.DEVNULL)
+    child = None
+    stopping = False
 
     def terminate(signum, frame):
-        if child.poll() is None:
+        nonlocal stopping
+        stopping = True
+        if child is not None and child.poll() is None:
             child.send_signal(signal.SIGTERM)
 
     signal.signal(signal.SIGTERM, terminate)
+    child = subprocess.Popen(sys.argv[3:], stdin=subprocess.DEVNULL)
+    if stopping and child.poll() is None:
+        child.send_signal(signal.SIGTERM)
     code = child.wait()
     temp = directory / ("exit-" + run_id + ".tmp")
     temp.write_text(json.dumps({"exit_code": code}))
