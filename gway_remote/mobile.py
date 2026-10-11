@@ -12,12 +12,46 @@ LCD_DIR = Path.home() / ".local" / "state" / "lcd-lockfiles"
 LCD_EVENT = "lcd-event-mobile.lck"
 SOUNDS = ("ok", "notice", "attention", "warning", "error", "busy", "critical")
 
+
+CSMS_VIEWS = {
+    "status": ("status",),
+    "chargers": ("chargers",),
+    "charge-points": ("cps",),
+    "transactions": ("txn",),
+    "events": ("events",),
+    "alerts": ("alerts",),
+    "rfid-report": ("rfid", "report"),
+    "report": ("report",),
+}
+
+
+def csms_view(arguments):
+    if not isinstance(arguments, dict) or set(arguments) != {"view"}:
+        raise ValueError("invalid_arguments")
+    view = arguments["view"]
+    if not isinstance(view, str) or view not in CSMS_VIEWS:
+        raise ValueError("invalid_csms_view")
+    executable = __import__("shutil").which("ocpp-csms") or str(Path.home() / ".local/bin/ocpp-csms")
+    if not Path(executable).is_file():
+        raise RuntimeError("csms_cli_not_found")
+    try:
+        completed = subprocess.run(
+            [executable, "--data-dir", str(Path.home() / "ocpp-csms-data"), *CSMS_VIEWS[view]],
+            capture_output=True, text=True, timeout=15, check=False)
+    except (OSError, subprocess.TimeoutExpired):
+        raise RuntimeError("csms_command_failed")
+    if completed.returncode:
+        raise RuntimeError("csms_command_failed")
+    return {"view": view, "output": completed.stdout[:65536], "truncated": len(completed.stdout) > 65536}
+
 OPERATIONS = {"probe-csms": csms_probe, "status": status}
 
 
 def commands():
     return ([{"name": name, "arguments": {}, "read_only": True} for name in OPERATIONS]
-            + [{"name": "sound-play", "read_only": False, "arguments": {
+            + [{"name": "csms-view", "read_only": True, "arguments": {
+                "view": {"type": "choice", "choices": list(CSMS_VIEWS), "required": True}}},
+               {"name": "sound-play", "read_only": False, "arguments": {
                 "sound": {"type": "choice", "choices": list(SOUNDS), "required": True}}},
                {"name": "lcd-message", "read_only": False, "arguments": {
                 "line1": {"type": "string", "max_length": 16, "required": True},
@@ -64,6 +98,8 @@ def sound_play(arguments):
 
 
 def execute(name, arguments):
+    if name == "csms-view":
+        return csms_view(arguments)
     if name == "sound-play":
         return sound_play(arguments)
     if name == "lcd-message":
