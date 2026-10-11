@@ -111,7 +111,7 @@ fun CompanionScreen(store: SecretStore) {
                         }
                     simulatorDiscovery = "Discovered Ethernet peers: ${simulatorPeers.size}"
                 }
-                if (command == "simulator-status") {
+                if (command == "simulator-status" || command == "simulator-start" || command == "simulator-stop") {
                     val data = response.optJSONObject("result")
                     simulatorStatus = "${data?.optString("state") ?: "unknown"} — " +
                         (data?.optString("target") ?: "")
@@ -259,6 +259,9 @@ fun CompanionScreen(store: SecretStore) {
                         }
                     }
                 }
+            }
+            SimulatorControls(simulatorHost, simulatorPort, simulatorStatus, busy) { command, args ->
+                perform("/api/v1/execute", command, args)
             }
         }
         if (busy) LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
