@@ -3,6 +3,7 @@
 No shell, arbitrary CLI arguments, daemon, or remote process execution.
 """
 import fcntl
+import ipaddress
 import math
 import time
 import json
@@ -87,7 +88,14 @@ def start(arguments):
         raise ValueError("invalid_arguments")
     host, port = arguments.get("host"), arguments.get("port", 9000)
     cp, scenario = arguments.get("cp", "SIM001"), arguments.get("scenario", "boot")
-    if not isinstance(host, str) or not _on_link(host, _networks()[1]):
+    # Local CSMS testing is explicitly permitted; other targets stay on eth0.
+    local_target = False
+    if isinstance(host, str):
+        try:
+            local_target = ipaddress.ip_address(host) == ipaddress.IPv4Address("127.0.0.1")
+        except ValueError:
+            pass
+    if not local_target and (not isinstance(host, str) or not _on_link(host, _networks()[1])):
         raise ValueError("target_must_be_on_wired_subnet")
     if type(port) is not int or not 1 <= port <= 65535:
         raise ValueError("invalid_port")
