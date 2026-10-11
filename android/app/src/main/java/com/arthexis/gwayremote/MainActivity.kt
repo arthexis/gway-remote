@@ -39,6 +39,9 @@ fun CompanionScreen(store: SecretStore) {
     var simulatorHost by remember { mutableStateOf("") }
     var simulatorPort by remember { mutableStateOf("9000") }
     var simulatorDiscovery by remember { mutableStateOf("Not checked") }
+    var simulatorPeers by remember { mutableStateOf(listOf<String>()) }
+    var simulatorPeerMenu by remember { mutableStateOf(false) }
+    var simulatorStatus by remember { mutableStateOf("Not checked") }
     var lcdLine1 by remember { mutableStateOf("") }
     var lcdLine2 by remember { mutableStateOf("") }
     var selectedSound by remember { mutableStateOf("notice") }
@@ -99,7 +102,20 @@ fun CompanionScreen(store: SecretStore) {
                             item.optString("name").takeIf { it.isNotBlank() } else null
                     }
                 }
-                if (command == "simulator-discover") simulatorDiscovery = response.optJSONObject("result")?.toString(2) ?: response.toString(2)
+                if (command == "simulator-discover") {
+                    val data = response.optJSONObject("result")
+                    val peers = data?.optJSONArray("peers")
+                    simulatorPeers = if (peers == null) emptyList() else
+                        (0 until peers.length()).mapNotNull { index ->
+                            peers.optJSONObject(index)?.optString("host")?.takeIf { it.isNotBlank() }
+                        }
+                    simulatorDiscovery = "Discovered Ethernet peers: ${simulatorPeers.size}"
+                }
+                if (command == "simulator-status") {
+                    val data = response.optJSONObject("result")
+                    simulatorStatus = "${data?.optString("state") ?: "unknown"} — " +
+                        (data?.optString("target") ?: "")
+                }
                 result = response.toString(2)
             } catch (e: Exception) {
                 result = e.message ?: "Connection failed"
@@ -196,7 +212,26 @@ fun CompanionScreen(store: SecretStore) {
         OutlinedButton(onClick = { simulatorExpanded = !simulatorExpanded }) {
             Text(if (simulatorExpanded) "Ethernet target ▴" else "Ethernet target ▾")
         }
+        LaunchedEffect(simulatorExpanded, endpoint, token) {
+            if (simulatorExpanded && endpoint.isNotBlank() && token.isNotBlank()) {
+                try {
+                    val response = withContext(Dispatchers.IO) {
+                        ApiClient(endpoint.trim(), token).request(
+                            "/api/v1/execute", "simulator-status")
+                    }
+                    val data = response.optJSONObject("result")
+                    simulatorStatus = "${data?.optString("state") ?: "unknown"} — " +
+                        (data?.optString("target") ?: "")
+                } catch (e: Exception) {
+                    simulatorStatus = e.message ?: "Status unavailable"
+                }
+            }
+        }
         if (simulatorExpanded) {
+            Text("Simulation: $simulatorStatus")
+            OutlinedButton(enabled = !busy, onClick = {
+                perform("/api/v1/execute", "simulator-status")
+            }) { Text("Refresh status") }
             OutlinedTextField(simulatorHost, { simulatorHost = it },
                 label = { Text("CSMS IPv4 (blank = discover)") },
                 modifier = Modifier.fillMaxWidth(), singleLine = true)
@@ -209,6 +244,22 @@ fun CompanionScreen(store: SecretStore) {
                     perform("/api/v1/execute", "simulator-discover", args)
                 }) { Text("Discover / check target") }
             Text(simulatorDiscovery, style = MaterialTheme.typography.bodySmall)
+            if (simulatorPeers.isNotEmpty()) {
+                Box {
+                    OutlinedButton(onClick = { simulatorPeerMenu = true }) {
+                        Text("Select discovered target ▾")
+                    }
+                    DropdownMenu(expanded = simulatorPeerMenu,
+                        onDismissRequest = { simulatorPeerMenu = false }) {
+                        simulatorPeers.forEach { peer ->
+                            DropdownMenuItem(text = { Text(peer) }, onClick = {
+                                simulatorHost = peer
+                                simulatorPeerMenu = false
+                            })
+                        }
+                    }
+                }
+            }
         }
         if (busy) LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
         Text("Response", style = MaterialTheme.typography.titleMedium)
