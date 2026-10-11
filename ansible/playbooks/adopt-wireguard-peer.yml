@@ -41,7 +41,7 @@
           - "'[Peer]' not in (wg_conf_raw.content | b64decode)"
           - "'10.90.0.2' not in (wg_conf_raw.content | b64decode)"
         fail_msg: "Existing peers or address references require manual review; no automatic changes."
-      when: not (gway_wg_peer_managed | default(false) | bool)
+      when: "'# BEGIN GWAY-REMOTE MANAGED PEER gway-001' not in (wg_conf_raw.content | b64decode)"
     - name: Add persistent GWay-001 peer (backup original)
       ansible.builtin.blockinfile:
         path: /etc/wireguard/gway.conf
