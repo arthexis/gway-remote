@@ -11,6 +11,8 @@ from pathlib import Path
 import shutil
 import signal
 import subprocess
+import sys
+import uuid
 
 from .simulator_network import _networks, _on_link
 
@@ -58,6 +60,12 @@ def _status():
     result = {"state": state, "pid": run["pid"],
               "scenario": run["scenario"], "target": run["target"]}
     if not active:
+        if run.get("run_id"):
+            try:
+                exit_record = json.loads((STATE_DIR / ("exit-" + run["run_id"] + ".json")).read_text())
+                run["exit_code"] = exit_record["exit_code"]
+            except (OSError, ValueError, KeyError, TypeError):
+                pass
         result["outcome"] = "unknown"
         if run.get("exit_code") is not None:
             result["exit_code"] = run["exit_code"]
@@ -134,15 +142,18 @@ def start(arguments):
     with _lock():
         if _status()["state"] in ("running", "stopping"):
             raise ValueError("simulator_already_running")
+        run_id = uuid.uuid4().hex
         log = STATE_DIR / "output.log"
         with log.open("wb") as output:
-            proc = subprocess.Popen(args, stdin=subprocess.DEVNULL, stdout=output,
+            proc = subprocess.Popen([sys.executable, "-m", "gway_remote.simulator_exit_monitor",
+                                     str(STATE_DIR), run_id, *args],
+                                    stdin=subprocess.DEVNULL, stdout=output,
                                     stderr=subprocess.STDOUT, start_new_session=True,
                                     close_fds=True)
         identity = _identity(proc.pid)
         if identity is None:
             raise RuntimeError("simulator_start_failed")
-        record = {"pid": proc.pid, "identity": identity, "scenario": scenario,
+        record = {"pid": proc.pid, "identity": identity, "run_id": run_id, "scenario": scenario,
                   "target": f"{host}:{port}", "args": args[1:]}
         temp = STATE_DIR / "run.tmp"
         temp.write_text(json.dumps(record))
