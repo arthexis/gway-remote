@@ -1,0 +1,165 @@
+"""Explicit, single-run simulator lifecycle for the mobile API.
+
+No shell, arbitrary CLI arguments, daemon, or remote process execution.
+"""
+import fcntl
+import json
+import os
+from pathlib import Path
+import shutil
+import signal
+import subprocess
+from urllib.parse import urlsplit
+
+from .simulator_network import _networks, _on_link
+
+STATE_DIR = Path.home() / ".local/state/gway-remote/simulator"
+SCENARIOS = {"boot", "charge", "remote", "battery"}
+MAX_OUTPUT = 32768
+
+
+def _identity(pid):
+    try:
+        return Path(f"/proc/{pid}/stat").read_text().rsplit(") ", 1)[1].split()[19]
+    except (OSError, IndexError):
+        return None
+
+
+def _read():
+    try:
+        return json.loads((STATE_DIR / "run.json").read_text())
+    except (OSError, ValueError):
+        return None
+
+
+def _alive(run):
+    if not isinstance(run, dict) or type(run.get("pid")) is not int:
+        return False
+    return _identity(run["pid"]) is not None and _identity(run["pid"]) == run.get("identity")
+
+
+def _lock():
+    STATE_DIR.mkdir(mode=0o700, parents=True, exist_ok=True)
+    os.chmod(STATE_DIR, 0o700)
+    stream = (STATE_DIR / "lock").open("a+")
+    fcntl.flock(stream.fileno(), fcntl.LOCK_EX)
+    return stream
+
+
+def _status():
+    run = _read()
+    if not run:
+        return {"state": "idle"}
+    return {"state": "running" if _alive(run) else "stopped",
+            "pid": run["pid"], "scenario": run["scenario"], "target": run["target"]}
+
+
+def status(arguments):
+    if arguments != {}:
+        raise ValueError("invalid_arguments")
+    with _lock():
+        return _status()
+
+
+def start(arguments):
+    if not isinstance(arguments, dict) or set(arguments) - {
+            "host", "port", "cp", "scenario", "power", "duration", "connector",
+            "rfid", "connectors", "meter_interval", "battery_kwh", "soc", "seed"}:
+        raise ValueError("invalid_arguments")
+    host, port = arguments.get("host"), arguments.get("port", 9000)
+    cp, scenario = arguments.get("cp", "SIM001"), arguments.get("scenario", "boot")
+    if not isinstance(host, str) or not _on_link(host, _networks()[1]):
+        raise ValueError("target_must_be_on_wired_subnet")
+    if type(port) is not int or not 1 <= port <= 65535:
+        raise ValueError("invalid_port")
+    if not isinstance(cp, str) or not 1 <= len(cp) <= 32 or not all(
+            c.isascii() and (c.isalnum() or c in "_-") for c in cp):
+        raise ValueError("invalid_cp")
+    if scenario not in SCENARIOS:
+        raise ValueError("invalid_scenario")
+    executable = shutil.which("ocpp-simulator") or str(Path.home() / ".local/bin/ocpp-simulator")
+    if not Path(executable).is_file():
+        raise RuntimeError("simulator_not_installed")
+    args = [executable, "run", "--cp", cp, "--url", f"ws://{host}:{port}/{cp}"]
+    options = {
+        "power": ("--power", (int, float), 0.1, 100),
+        "duration": ("--duration", int, 1, 86400),
+        "connector": ("--connector", int, 1, 16),
+        "connectors": ("--connectors", int, 1, 16),
+        "meter_interval": ("--meter-interval", int, 1, 3600),
+        "battery_kwh": ("--battery-kwh", (int, float), 1, 300),
+        "soc": ("--soc", (int, float), 0, 100),
+        "seed": ("--seed", int, 0, 2147483647),
+    }
+    permitted = {
+        "boot": set(), "charge": {"power", "duration", "connector", "rfid", "meter_interval"},
+        "remote": {"power", "connectors", "meter_interval"},
+        "battery": {"power", "connectors", "meter_interval", "battery_kwh", "soc", "seed"},
+    }[scenario]
+    if set(arguments) - {"host", "port", "cp", "scenario"} - permitted:
+        raise ValueError("invalid_scenario_parameters")
+    if scenario == "charge":
+        args += ["--connector", str(arguments.get("connector", 1))]
+        args += ["--duration", str(arguments.get("duration", 60))]
+    elif scenario in ("remote", "battery"):
+        args += ["--remote"]
+    for key, (flag, types, minimum, maximum) in options.items():
+        if key not in arguments or (scenario == "charge" and key in ("connector", "duration")):
+            continue
+        value = arguments[key]
+        if isinstance(value, bool) or not isinstance(value, types) or not minimum <= value <= maximum:
+            raise ValueError("invalid_" + key)
+        args += [flag, str(value)]
+    if scenario == "charge":
+        for key, lo, hi in (("connector", 1, 16), ("duration", 1, 86400)):
+            value = arguments.get(key, 1 if key == "connector" else 60)
+            if type(value) is not int or not lo <= value <= hi:
+                raise ValueError("invalid_" + key)
+        rfid = arguments.get("rfid", "SIMTEST")
+        if not isinstance(rfid, str) or not 1 <= len(rfid) <= 20 or not rfid.isascii() or not rfid.isalnum():
+            raise ValueError("invalid_rfid")
+        args += ["--rfid", rfid]
+    with _lock():
+        if _status()["state"] == "running":
+            raise ValueError("simulator_already_running")
+        log = STATE_DIR / "output.log"
+        with log.open("wb") as output:
+            proc = subprocess.Popen(args, stdin=subprocess.DEVNULL, stdout=output,
+                                    stderr=subprocess.STDOUT, start_new_session=True,
+                                    close_fds=True)
+        identity = _identity(proc.pid)
+        if identity is None:
+            raise RuntimeError("simulator_start_failed")
+        record = {"pid": proc.pid, "identity": identity, "scenario": scenario,
+                  "target": f"{host}:{port}", "args": args[1:]}
+        temp = STATE_DIR / "run.tmp"
+        temp.write_text(json.dumps(record))
+        os.replace(temp, STATE_DIR / "run.json")
+        return _status()
+
+
+def stop(arguments):
+    if arguments != {}:
+        raise ValueError("invalid_arguments")
+    with _lock():
+        run = _read()
+        if _alive(run):
+            os.kill(run["pid"], signal.SIGTERM)
+            return {"state": "stopping"}
+        return _status()
+
+
+def results(arguments):
+    if arguments != {}:
+        raise ValueError("invalid_arguments")
+    with _lock():
+        state = _status()
+        try:
+            with (STATE_DIR / "output.log").open("rb") as stream:
+                stream.seek(0, 2)
+                size = stream.tell()
+                stream.seek(max(0, size - MAX_OUTPUT))
+                output = stream.read().decode("utf-8", errors="replace")
+        except OSError:
+            size, output = 0, ""
+        return {**state, "output": output, "truncated": size > MAX_OUTPUT}
