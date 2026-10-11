@@ -12,7 +12,7 @@ class ApiClient(private val endpoint: String, private val token: String) {
         require(token.isNotBlank()) { "Token is required" }
     }
 
-    fun request(path: String, command: String? = null): JSONObject {
+    fun request(path: String, command: String? = null, arguments: JSONObject = JSONObject()): JSONObject {
         val base = URL(endpoint.trimEnd('/') + "/")
         require(base.userInfo == null && base.query == null && base.ref == null)
         val target = URL(base, path.removePrefix("/"))
@@ -28,7 +28,7 @@ class ApiClient(private val endpoint: String, private val token: String) {
                 connection.requestMethod = "POST"
                 connection.doOutput = true
                 connection.setRequestProperty("Content-Type", "application/json")
-                val payload = JSONObject().put("command", command).put("arguments", JSONObject())
+                val payload = JSONObject().put("command", command).put("arguments", arguments)
                 connection.outputStream.use { it.write(payload.toString().toByteArray(Charsets.UTF_8)) }
             }
             val code = connection.responseCode
