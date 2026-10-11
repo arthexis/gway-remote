@@ -33,29 +33,13 @@ class DeploymentWorkflowTests(unittest.TestCase):
 
     def test_missing_secret_fails_closed(self):
         self.assertIn('secrets.GWAY_REMOTE_API_TOKEN', self.workflow)
-        self.assertIn('test -n "${GWAY_REMOTE_API_TOKEN:-}"', self.workflow)
-        self.assertLess(self.workflow.index('test -n "${GWAY_REMOTE_API_TOKEN:-}"'), self.workflow.index('sh scripts/install-cli.sh'))
+        self.assertIn('token=os.environ.get("GWAY_REMOTE_API_TOKEN")', self.workflow)
 
-    def test_user_bus_and_existing_service_only(self):
-        self.assertIn('XDG_RUNTIME_DIR="/run/user/$(id -u)"', self.workflow)
-        self.assertIn('DBUS_SESSION_BUS_ADDRESS="unix:path=$XDG_RUNTIME_DIR/bus"', self.workflow)
-        self.assertIn('test -S "$XDG_RUNTIME_DIR/bus"', self.workflow)
-        self.assertIn('systemctl --user restart gway-remote-mobile-api.service', self.workflow)
-        self.assertNotIn('systemctl enable', self.workflow)
-
-    def test_health_check_is_authenticated_and_bounded(self):
-        self.assertIn('/api/v1/health', self.workflow)
-        self.assertIn('"Authorization": "Bearer " + os.environ["GWAY_REMOTE_API_TOKEN"]', self.workflow)
-        self.assertIn('timeout=2', self.workflow)
-        self.assertIn('range(15)', self.workflow)
-        self.assertIn('{"status": "ok", "api": "gway-remote/v1"}', self.workflow)
-
-    def test_rollback_registered_before_mutation(self):
-        self.assertIn('sudo -n cp -p /usr/local/bin/gway-remote "$BACKUP"', self.workflow)
-        self.assertIn('trap \'restore\' ERR', self.workflow)
-        self.assertLess(self.workflow.index("trap 'restore' ERR"), self.workflow.index('sh scripts/install-cli.sh'))
-        self.assertIn('sudo -n install -m 755 "$BACKUP" /usr/local/bin/gway-remote', self.workflow)
-        self.assertIn('if ! health; then', self.workflow)
+    def test_transactional_deployment_module_is_invoked(self):
+        self.assertIn("from gway_remote.deployment import deploy", self.workflow)
+        self.assertIn("deploy(", self.workflow)
+        self.assertIn('install=lambda: subprocess.run(["sh", "scripts/install-cli.sh"], check=True)', self.workflow)
+        self.assertNotIn("systemctl enable", self.workflow)
 
     def test_one_automatic_deployer(self):
         self.assertNotIn('  push:', self.legacy)
