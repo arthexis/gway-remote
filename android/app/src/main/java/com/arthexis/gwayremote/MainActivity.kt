@@ -5,6 +5,12 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
@@ -23,11 +29,15 @@ import org.json.JSONObject
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        window.statusBarColor = android.graphics.Color.BLACK
+        window.decorView.systemUiVisibility = 0
+        window.setSoftInputMode(android.view.WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE)
         val store = SecretStore(this)
         setContent { MaterialTheme { CompanionScreen(store) } }
     }
 }
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun CompanionScreen(store: SecretStore) {
     var endpoint by remember { mutableStateOf(store.endpoint) }
@@ -37,6 +47,7 @@ fun CompanionScreen(store: SecretStore) {
     var busy by remember { mutableStateOf(false) }
     var lcdLine1 by remember { mutableStateOf("") }
     var lcdLine2 by remember { mutableStateOf("") }
+    var lcdDuration by remember { mutableFloatStateOf(30f) }
     var selectedSound by remember { mutableStateOf("notice") }
     var soundMenuOpen by remember { mutableStateOf(false) }
     var settingsOpen by remember { mutableStateOf(endpoint.isBlank() || token.isBlank()) }
@@ -103,7 +114,7 @@ fun CompanionScreen(store: SecretStore) {
         }
     }
 
-    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(20.dp),
+    Column(Modifier.fillMaxSize().imePadding().verticalScroll(rememberScrollState()).padding(20.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp)) {
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
             Text("GWay Remote", style = MaterialTheme.typography.headlineMedium)
@@ -162,11 +173,22 @@ fun CompanionScreen(store: SecretStore) {
         }, label = { Text("Line 2 (${lcdLine2.length}/16)") },
             keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Characters),
             modifier = Modifier.fillMaxWidth(), singleLine = true)
-        Button(enabled = !busy && (lcdLine1.isNotEmpty() || lcdLine2.isNotEmpty()), onClick = {
-            perform("/api/v1/execute", "lcd-message",
-                JSONObject().put("line1", lcdLine1).put("line2", lcdLine2))
-        }) { Text("Show on LCD (30 seconds)") }
+        Row(Modifier.fillMaxWidth(), verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            Button(enabled = !busy && (lcdLine1.isNotEmpty() || lcdLine2.isNotEmpty()), onClick = {
+                perform("/api/v1/execute", "lcd-message",
+                    JSONObject().put("line1", lcdLine1).put("line2", lcdLine2)
+                        .put("duration_seconds", lcdDuration.toInt()))
+            }) { Text("Show on LCD") }
+            Column(Modifier.weight(1f)) {
+                Text("Duration: ${lcdDuration.toInt() / 60}:${(lcdDuration.toInt() % 60).toString().padStart(2, '0')}")
+                Slider(value = lcdDuration, onValueChange = { lcdDuration = it },
+                    valueRange = 30f..300f, steps = 8)
+            }
+        }
         Text("Manual sound", style = MaterialTheme.typography.titleMedium)
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
         Box {
             OutlinedButton(onClick = { soundMenuOpen = true }) { Text("Sound: $selectedSound ▾") }
             DropdownMenu(expanded = soundMenuOpen, onDismissRequest = { soundMenuOpen = false }) {
@@ -181,14 +203,19 @@ fun CompanionScreen(store: SecretStore) {
         Button(enabled = !busy, onClick = {
             perform("/api/v1/execute", "sound-play", JSONObject().put("sound", selectedSound))
         }) { Text("Play sound") }
+        }
         Text("Available read-only operations", style = MaterialTheme.typography.titleMedium)
+        FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalArrangement = Arrangement.spacedBy(4.dp)) {
         commands.forEach { name ->
             OutlinedButton(enabled = !busy, onClick = { perform("/api/v1/execute", name) }) {
                 Text(name)
             }
         }
+        }
         if (busy) LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
         Text("Response", style = MaterialTheme.typography.titleMedium)
         Text(result)
+        Spacer(Modifier.height(LocalConfiguration.current.screenHeightDp.dp / 2))
     }
 }
