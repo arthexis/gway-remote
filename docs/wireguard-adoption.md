@@ -10,6 +10,16 @@
 4. Confirm the hub has no other peers or legacy management process that would overwrite this configuration.
 5. Set an Ansible inventory group `wireguard_hub` containing only the Lightsail host. Do not commit credentials or real host inventory.
 
+## Simplified registration on Lightsail (recommended)
+
+Once the PR is merged and checked out on Lightsail, run:
+
+```sh
+sh scripts/register-wireguard-peer.sh
+```
+
+The script verifies the existing `gway` interface, prompts for GWay-001's public key and confirmation, and runs the playbook locally against the hub. On GWay-001, get the key with `sudo wg show gway public-key`. Paste **only the public key** into the Lightsail prompt. Requires `ansible-playbook`, `sudo` and `python3` on Lightsail. This wrapper is intentionally hub-local and cannot register a peer on the wrong remote inventory host.
+
 ## Apply
 
 From the repository root, using an inventory you control:
