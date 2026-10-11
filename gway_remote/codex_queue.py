@@ -52,33 +52,45 @@ class TaskQueue:
         self.db = sqlite3.connect(str(self.path), timeout=10, isolation_level=None)
         self.db.row_factory = sqlite3.Row
         self.db.execute("PRAGMA busy_timeout=10000")
-        if self.db.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='tasks'").fetchone():
-            cols = {row[1] for row in self.db.execute("PRAGMA table_info(tasks)")}
-            if "priority" not in cols:
-                self.db.execute("ALTER TABLE tasks ADD COLUMN priority TEXT NOT NULL DEFAULT 'P2'")
-        # SQLite CHECK constraints require rebuilding old tables to add vetoed.
-        if self.db.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='tasks'").fetchone():
-            ddl = self.db.execute("SELECT sql FROM sqlite_master WHERE type='table' AND name='tasks'").fetchone()[0]
-            if "'vetoed'" not in ddl:
-                self.db.execute("BEGIN IMMEDIATE")
-                try:
-                    self.db.execute("ALTER TABLE tasks RENAME TO tasks_previous")
-                    self.db.execute("""CREATE TABLE tasks (
+        # One atomic migration: legacy indexes must be dropped before rebuilding
+        # the table, otherwise SQLite retains their names on the old table.
+        self.db.execute("BEGIN IMMEDIATE")
+        try:
+            existing = self.db.execute(
+                "SELECT sql FROM sqlite_master WHERE type='table' AND name='tasks'"
+            ).fetchone()
+            if existing:
+                columns = {row[1] for row in self.db.execute("PRAGMA table_info(tasks)")}
+                if "priority" not in columns:
+                    self.db.execute("ALTER TABLE tasks ADD COLUMN priority TEXT NOT NULL DEFAULT 'P2'")
+                if "source" not in columns:
+                    self.db.execute("ALTER TABLE tasks ADD COLUMN source TEXT NOT NULL DEFAULT 'manual'")
+                if "'vetoed'" not in existing[0]:
+                    self.db.execute("DROP INDEX IF EXISTS single_running_task")
+                    self.db.execute("DROP INDEX IF EXISTS active_task_identity")
+                    self.db.execute("DROP INDEX IF EXISTS task_order")
+                    self.db.execute("""CREATE TABLE tasks_migrated (
                         id TEXT PRIMARY KEY, kind TEXT NOT NULL, repository TEXT NOT NULL,
                         issue INTEGER NOT NULL CHECK(issue > 0),
                         state TEXT NOT NULL CHECK(state IN
                         ('requested','queued','running','succeeded','failed','cancelled','interrupted','vetoed')),
                         created_at TEXT NOT NULL, updated_at TEXT NOT NULL,
-                        detail TEXT NOT NULL DEFAULT '', priority TEXT NOT NULL DEFAULT 'P2')""")
-                    self.db.execute("INSERT INTO tasks SELECT id,kind,repository,issue,state,created_at,updated_at,detail,priority FROM tasks_previous")
-                    self.db.execute("DROP TABLE tasks_previous")
-                    self.db.execute("COMMIT")
-                except Exception:
-                    self.db.execute("ROLLBACK")
-                    raise
-        self.db.executescript(SCHEMA)
-        if 'source' not in {r[1] for r in self.db.execute('PRAGMA table_info(tasks)')}:
-            self.db.execute("ALTER TABLE tasks ADD COLUMN source TEXT NOT NULL DEFAULT 'manual'")
+                        detail TEXT NOT NULL DEFAULT '', priority TEXT NOT NULL DEFAULT 'P2',
+                        source TEXT NOT NULL DEFAULT 'manual')""")
+                    self.db.execute("""INSERT INTO tasks_migrated
+                        (id,kind,repository,issue,state,created_at,updated_at,detail,priority,source)
+                        SELECT id,kind,repository,issue,state,created_at,updated_at,detail,priority,source
+                        FROM tasks""")
+                    self.db.execute("DROP TABLE tasks")
+                    self.db.execute("ALTER TABLE tasks_migrated RENAME TO tasks")
+            # executescript() implicitly commits, so run statements separately.
+            for statement in SCHEMA.split(";"):
+                if statement.strip():
+                    self.db.execute(statement)
+            self.db.execute("COMMIT")
+        except Exception:
+            self.db.execute("ROLLBACK")
+            raise
         if self.path != Path(":memory:"):
             self.path.chmod(0o600)
 
