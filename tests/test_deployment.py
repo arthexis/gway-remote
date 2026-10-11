@@ -25,6 +25,8 @@ class DeploymentTests(unittest.TestCase):
 
     def execute(self, *args):
         self.commands.append(args)
+        if args[:3] == ("sudo", "-n", "cp"):
+            pathlib.Path(args[-1]).write_bytes(pathlib.Path(args[-2]).read_bytes())
         if args[:3] == ("sudo", "-n", "install"):
             self.executable.write_bytes(pathlib.Path(args[-2]).read_bytes())
         if args[:3] == ("systemctl", "--user", "restart") and self.fail_restart:
@@ -61,6 +63,18 @@ class DeploymentTests(unittest.TestCase):
         (self.root / "bus").unlink()
         with self.assertRaises(RuntimeError):
             self.run_deploy()
+        self.assertEqual(self.calls, [])
+
+    def test_backup_failure_prevents_install(self):
+        def fail_copy(*args):
+            if args[:3] == ("sudo", "-n", "cp"):
+                raise PermissionError("backup denied")
+            self.execute(*args)
+        with self.assertRaisesRegex(PermissionError, "backup denied"):
+            deploy(token="secret", install=self.install, execute=fail_copy,
+                   probe=self.probe, executable=self.executable,
+                   runtime=self.root, backup_dir=self.root)
+        self.assertEqual(self.executable.read_text(), "old")
         self.assertEqual(self.calls, [])
 
     def test_failed_install_rolls_back(self):
