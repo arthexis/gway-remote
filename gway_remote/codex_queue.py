@@ -26,10 +26,12 @@ CREATE TABLE IF NOT EXISTS tasks (
  state TEXT NOT NULL CHECK(state IN ('requested','queued','running','succeeded','failed','cancelled','interrupted')),
  created_at TEXT NOT NULL,
  updated_at TEXT NOT NULL,
- detail TEXT NOT NULL DEFAULT ''
+ detail TEXT NOT NULL DEFAULT '',
+ priority TEXT NOT NULL DEFAULT 'P2'
 );
 CREATE UNIQUE INDEX IF NOT EXISTS single_running_task
  ON tasks(state) WHERE state = 'running';
+CREATE UNIQUE INDEX IF NOT EXISTS active_task_identity ON tasks(repository,issue,kind) WHERE state IN ('requested','queued','running');
 CREATE INDEX IF NOT EXISTS task_order ON tasks(state, created_at, id);
 """
 
@@ -49,6 +51,10 @@ class TaskQueue:
         self.db = sqlite3.connect(str(self.path), timeout=10, isolation_level=None)
         self.db.row_factory = sqlite3.Row
         self.db.execute("PRAGMA busy_timeout=10000")
+        if self.db.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='tasks'").fetchone():
+            cols = {row[1] for row in self.db.execute("PRAGMA table_info(tasks)")}
+            if "priority" not in cols:
+                self.db.execute("ALTER TABLE tasks ADD COLUMN priority TEXT NOT NULL DEFAULT 'P2'")
         self.db.executescript(SCHEMA)
         if self.path != Path(":memory:"):
             self.path.chmod(0o600)
@@ -80,6 +86,21 @@ class TaskQueue:
         self.db.execute("INSERT INTO tasks (id,kind,repository,issue,state,created_at,updated_at)"
                         " VALUES (?,?,?,?,'requested',?,?)",
                         (task_id, kind, repository, issue, timestamp, timestamp))
+        return self.get(task_id)
+
+    def admit(self, kind: str, repository: str, issue: int, priority: str = "P2"):
+        """Local operator admission only; no external issue content is trusted."""
+        from .codex_policy import validate_request
+        data = validate_request(kind, repository, issue, priority)
+        task_id, timestamp = str(uuid4()), now()
+        try:
+            self.db.execute(
+                "INSERT INTO tasks (id,kind,repository,issue,priority,state,created_at,updated_at)"
+                " VALUES (?,?,?,?,?,'requested',?,?)",
+                (task_id, data["kind"], data["repository"], data["issue"],
+                 data["priority"], timestamp, timestamp))
+        except sqlite3.IntegrityError as exc:
+            raise ValueError("an active request already exists for this issue and task kind") from exc
         return self.get(task_id)
 
     def transition(self, task_id: str, expected: str, target: str, detail: str = ""):
