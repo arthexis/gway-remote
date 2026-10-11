@@ -30,3 +30,17 @@ def test_terminal_reject_variants_and_apply_after_stage():
     assert 'counter\\\\s+' in playbook
     restart_block = playbook.split('- name: Restart existing host security firewall', 1)[1].split('- name: Verify live rule exists', 1)[0]
     assert 'when: firewall_edit.changed' not in restart_block
+
+
+def test_lineinfile_patterns_match_actual_host_firewall():
+    import re
+
+    playbook = (ROOT / "deploy/ansible/mobile-api-firewall.yml").read_text()
+    lines = playbook.splitlines()
+    before = next(line.split("'", 2)[1] for line in lines if "insertbefore:" in line)
+    existing = next(line.split("'", 2)[1] for line in lines if "regexp:" in line)
+    assert re.search(before, '        counter reject with icmpx type admin-prohibited')
+    assert re.search(before, '        reject with icmpx admin-prohibited')
+    rule = '        iifname "gway" ip saddr 10.90.0.1 ip daddr 10.90.0.2 tcp dport 8765 accept'
+    assert re.search(existing, rule)
+    assert not re.search(existing, rule.replace("10.90.0.2", "10x90x0x2"))
