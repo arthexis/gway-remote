@@ -144,3 +144,11 @@ Before activating scheduled deployment, verify the runner account, read-only
 report artifacts, global CLI, cross-repository read token, and live-charge
 protection on Gway-001. Leave `GWAY_REMOTE_AUTO_ENABLED` unset until
 that field validation is complete.
+
+## Automatic GWay Remote backend installation
+
+After **Python checks** succeeds for a push to `main`, the **Deploy GWay Remote backend** workflow runs on the `gway-001` self-hosted runner. It verifies that the tested SHA is still the current main tip, runs unit tests again on the appliance, installs the versioned source into the system-wide `/usr/local/bin/gway-remote` zipapp, and verifies the installed CLI status schema. Superseded runs skip installation. The workflow shares the appliance concurrency group so batch deployments do not overlap.
+
+This updates the **GWay Remote CLI/backend package**, not other repositories (CSMS, LCD Sound, or simulator), and does not restart or enable the mobile API service. Existing running Python processes must be restarted separately to load new code. The runner must have permission to install the CLI (including configured noninteractive sudo if required). Failed validation prevents installation; installation or verification failures fail the workflow rather than claiming success.
+
+Android APK publishing remains a separate workflow. For changes requiring both server and APK, coordinate readiness via the two workflow outcomes rather than assuming that a successful APK build implies the server has been updated.
