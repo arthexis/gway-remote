@@ -46,17 +46,14 @@ jobs:
           python3 -m gway_remote --help >/dev/null
       - name: Transactional install, restart and authenticated health
         if: env.skip != 'true'
-        env:
-          GWAY_REMOTE_API_TOKEN: ${{ secrets.GWAY_REMOTE_API_TOKEN }}
         shell: bash
         run: |
           set -euo pipefail
           python3 - <<'PY'
-          import os
           import subprocess
-          from gway_remote.deployment import deploy
+          from gway_remote.deployment import deploy, local_api_token
           deploy(
-              token=os.environ.get("GWAY_REMOTE_API_TOKEN"),
+              token=local_api_token(),
               install=lambda: subprocess.run(["sh", "scripts/install-cli.sh"], check=True),
           )
           PY
