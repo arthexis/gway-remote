@@ -19,7 +19,7 @@ ansible-playbook -i /path/to/inventory.ini ansible/playbooks/adopt-wireguard-pee
   -e "gway_wg_peer_public_key=PUBLIC_KEY_FROM_GWAY_001"
 ```
 
-The playbook preserves the hub's existing interface and private key, backs up its configuration, adds one persistent peer section and applies it to the live interface with `wg set`. It does not restart WireGuard, touch Nginx, alter firewall rules, generate keys or enable new services. It refuses unexpected existing peer sections on the initial run. **Do not use the override variable on initial adoption.** On subsequent idempotent runs, the managed block already exists; use `-e gway_wg_peer_managed=true` only after inspecting that block and confirming it is the one managed by this playbook.
+The playbook preserves the hub's existing interface and private key, backs up its configuration, adds one persistent peer section and applies it to the live interface with `wg set`. It does not restart WireGuard, touch Nginx, alter firewall rules, generate keys or enable new services. It refuses unexpected existing peer sections on the initial run. Subsequent runs recognize the managed block automatically.
 
 ## Verify
 
