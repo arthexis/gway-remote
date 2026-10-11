@@ -202,7 +202,7 @@ fun CompanionScreen(store: SecretStore) {
                 modifier = Modifier.fillMaxWidth(), singleLine = true)
             OutlinedTextField(simulatorPort, { simulatorPort = it },
                 label = { Text("CSMS port") }, modifier = Modifier.fillMaxWidth(), singleLine = true)
-            Button(enabled = !busy && simulatorPort.toIntOrNull() in 1..65535,
+            Button(enabled = !busy && (simulatorPort.toIntOrNull()?.let { it in 1..65535 } == true),
                 onClick = {
                     val args = JSONObject().put("port", simulatorPort.toInt())
                     if (simulatorHost.isNotBlank()) args.put("host", simulatorHost.trim())
