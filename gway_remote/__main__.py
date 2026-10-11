@@ -174,10 +174,19 @@ def main() -> None:
     report_parser = subparsers.add_parser("report-bundle", help="Export sanitized artifact report")
     report_parser.add_argument("--output", required=True)
     subparsers.add_parser("deploy-batch", help="Run eligible merged revisions once (explicit invocation)")
+    worker_parser = subparsers.add_parser("codex-worker", help="Idle Codex worker control")
+    worker_parser.add_argument("action", choices=("serve", "status"))
+    worker_parser.add_argument("--socket", default=None)
     api_parser = subparsers.add_parser("api", help="Run the opt-in loopback HTTP API")
     api_parser.add_argument("--host", default="127.0.0.1")
     api_parser.add_argument("--port", type=int, default=8765)
     args = parser.parse_args()
+    if args.command == "codex-worker":
+        from .codex_worker import main as worker_main
+        argv = [args.action]
+        if args.socket is not None:
+            argv += ["--socket", args.socket]
+        return worker_main(argv)
     if args.command == "api":
         from .api import serve
         try:
