@@ -161,9 +161,8 @@ def start(arguments):
         # Catch immediate argument/configuration failures before claiming success.
         time.sleep(0.15)
         if proc.poll() is not None:
-            record["exit_code"] = proc.returncode
-            temp.write_text(json.dumps(record))
-            os.replace(temp, STATE_DIR / "run.json")
+            # The monitor's exit code is not the simulator's exit code.
+            # Its per-run exit record is the only authoritative outcome.
             return {**_status(), "error": "simulator_exited_early"}
         return _status()
 
