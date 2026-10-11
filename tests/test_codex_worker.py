@@ -1,0 +1,27 @@
+"""Worker foundation tests; never invokes Codex."""
+import json
+import socket
+import threading
+import time
+import unittest
+from unittest.mock import patch
+
+from gway_remote import codex_worker
+
+
+class CodexWorkerTests(unittest.TestCase):
+    def test_status_is_idle_and_never_executes(self):
+        with patch.object(codex_worker, "codex_available", return_value=True):
+            value = codex_worker.status(time.monotonic() - 5)
+        self.assertEqual(value["state"], "idle")
+        self.assertTrue(value["codex_available"])
+        self.assertFalse(value["task_execution_enabled"])
+        self.assertGreaterEqual(value["uptime_seconds"], 5)
+
+    def test_default_socket_uses_runtime_dir(self):
+        with patch.dict("os.environ", {"XDG_RUNTIME_DIR": "/run/user/1000"}):
+            self.assertEqual(str(codex_worker.default_socket()), "/run/user/1000/gway-codex-worker.sock")
+
+
+if __name__ == "__main__":
+    unittest.main()

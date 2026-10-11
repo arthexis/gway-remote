@@ -8,7 +8,9 @@ from gway_remote.health import component_health
 
 class HealthTests(unittest.TestCase):
     def test_csms_never_claims_health_without_service_probe(self):
-        self.assertFalse(component_health("ocpp-csms"))
+        with patch("gway_remote.health.csms_health", return_value=False) as probe:
+            self.assertFalse(component_health("ocpp-csms"))
+            probe.assert_called_once_with()
 
     def test_unknown_target_fails_closed(self):
         self.assertFalse(component_health("unknown"))

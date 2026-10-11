@@ -1,0 +1,18 @@
+[Unit]
+Description=GWAY Remote Codex Worker (idle foundation)
+After=default.target
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/gway-remote codex-worker serve --socket %t/gway-codex-worker.sock
+Restart=on-failure
+RestartSec=5
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=read-only
+Environment=PYTHONDONTWRITEBYTECODE=1
+
+[Install]
+WantedBy=default.target
