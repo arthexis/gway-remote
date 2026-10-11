@@ -65,7 +65,6 @@
           ansible.builtin.copy:
             dest: "{{ gway_remote_firewall_path }}"
             content: "{{ firewall_original.content | b64decode }}"
-            mode: preserve
           when: firewall_edit.changed
 
         - name: Reload original host firewall rules
