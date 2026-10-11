@@ -10,8 +10,8 @@ class MobileLCDTests(unittest.TestCase):
     def test_catalog_declares_two_bounded_lines(self):
         command = next(x for x in mobile.commands() if x["name"] == "lcd-message")
         self.assertFalse(command["read_only"])
-        self.assertEqual(set(command["arguments"]), {"line1", "line2"})
-        self.assertTrue(all(x["max_length"] == 16 for x in command["arguments"].values()))
+        self.assertEqual(set(command["arguments"]), {"line1", "line2", "duration_seconds"})
+        self.assertTrue(all(command["arguments"][name]["max_length"] == 16 for name in ("line1", "line2")))
 
     def test_valid_event_is_written_and_expires(self):
         with tempfile.TemporaryDirectory() as root:
@@ -21,6 +21,15 @@ class MobileLCDTests(unittest.TestCase):
                 lines = (Path(root) / mobile.LCD_EVENT).read_text().splitlines()
                 self.assertEqual(lines[:2], ["1234567890123456", "Hello"])
                 self.assertEqual(len(lines), 3)
+
+    def test_custom_duration_and_invalid_values(self):
+        with tempfile.TemporaryDirectory() as root:
+            with patch.object(mobile, "LCD_DIR", Path(root)):
+                result = mobile.execute("lcd-message", {"line1": "Hello", "line2": "", "duration_seconds": 300})
+                self.assertEqual(result["duration_seconds"], 300)
+                for value in (0, 31, 301, True, "60"):
+                    with self.subTest(value=value), self.assertRaises(ValueError):
+                        mobile.execute("lcd-message", {"line1": "Hello", "line2": "", "duration_seconds": value})
 
     def test_sound_whitelist(self):
         names = next(x for x in mobile.commands() if x["name"] == "sound-play")
