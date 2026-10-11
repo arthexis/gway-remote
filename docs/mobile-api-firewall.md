@@ -10,7 +10,19 @@ iifname "gway" ip saddr 10.90.0.1 ip daddr 10.90.0.2 tcp dport 8765 accept
 
 The playbook checks for the expected table, input chain and a unique terminal reject, inserts the rule before the reject, validates the resulting file using `nft -c -f`, and backs up the original. By default it **only stages the persistent file**; the existing runtime rule continues to work.
 
-Run from a control machine with Ansible installed and SSH/sudo access to GWay-001:
+Run from a control machine with Ansible installed and SSH/sudo access to GWay-001. The shortcut defaults to **staging only**:
+
+```sh
+sh scripts/firewall.sh
+```
+
+To apply explicitly (after ensuring recovery access):
+
+```sh
+sh scripts/firewall.sh --apply
+```
+
+Override the target with `--host` and `--user`. The equivalent direct Ansible invocation is:
 
 ```sh
 ansible-playbook -i 'gway-001,' -u arthe --become deploy/ansible/mobile-api-firewall.yml
