@@ -1,6 +1,7 @@
 package com.arthexis.gwayremote
 
 import android.os.Bundle
+import androidx.compose.ui.platform.LocalContext
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.layout.*
@@ -34,6 +35,43 @@ fun CompanionScreen(store: SecretStore) {
     var busy by remember { mutableStateOf(false) }
     var settingsOpen by remember { mutableStateOf(endpoint.isBlank() || token.isBlank()) }
     val scope = rememberCoroutineScope()
+    val context = LocalContext.current
+    val installedCode = if (android.os.Build.VERSION.SDK_INT >= 33)
+        context.packageManager.getPackageInfo(context.packageName, android.content.pm.PackageManager.PackageInfoFlags.of(0)).longVersionCode
+    else @Suppress("DEPRECATION") context.packageManager.getPackageInfo(context.packageName, 0).longVersionCode
+    var update by remember { mutableStateOf<AvailableUpdate?>(null) }
+    var updateStatus by remember { mutableStateOf("") }
+    var updating by remember { mutableStateOf(false) }
+    var apk by remember { mutableStateOf<java.io.File?>(null) }
+
+    fun checkUpdates() {
+        if (updating) return
+        updating = true
+        updateStatus = "Checking releases…"
+        scope.launch {
+            try {
+                update = withContext(Dispatchers.IO) { AppUpdater.check(installedCode) }
+                updateStatus = if (update == null) "App is up to date" else "Update available: ${update!!.version}"
+            } catch (e: Exception) { updateStatus = e.message ?: "Update check failed" }
+            finally { updating = false }
+        }
+    }
+
+    fun downloadUpdate() {
+        val candidate = update ?: return
+        if (updating) return
+        updating = true
+        updateStatus = "Downloading and verifying…"
+        scope.launch {
+            try {
+                apk = withContext(Dispatchers.IO) { AppUpdater.download(context, candidate) }
+                updateStatus = "Verified; confirm installation in Android"
+                AppUpdater.install(context, apk!!)
+            } catch (e: Exception) { updateStatus = e.message ?: "Update failed" }
+            finally { updating = false }
+        }
+    }
+    LaunchedEffect(Unit) { checkUpdates() }
 
     fun perform(path: String, command: String? = null) {
         if (busy) return
@@ -68,7 +106,25 @@ fun CompanionScreen(store: SecretStore) {
                 Text("⚙", style = MaterialTheme.typography.headlineMedium)
             }
         }
+        if (update != null && !settingsOpen) {
+            Text("Update available: ${update!!.version}")
+            Button(enabled = !updating, onClick = { downloadUpdate() }) { Text("Update app") }
+        }
         if (settingsOpen) {
+            HorizontalDivider()
+            Text("App updates", style = MaterialTheme.typography.titleMedium)
+            Button(enabled = !updating, onClick = { checkUpdates() }) { Text("Check for updates") }
+            if (update != null) {
+                Button(enabled = !updating, onClick = { downloadUpdate() }) { Text("Download update") }
+            }
+            if (apk != null) {
+                OutlinedButton(onClick = {
+                    try { AppUpdater.install(context, apk!!) }
+                    catch (e: Exception) { updateStatus = e.message ?: "Installation failed" }
+                }) { Text("Install downloaded update") }
+            }
+            if (updateStatus.isNotBlank()) Text(updateStatus)
+            HorizontalDivider()
             Text("API settings", style = MaterialTheme.typography.titleMedium)
             OutlinedTextField(endpoint, { endpoint = it }, label = { Text("HTTPS endpoint") },
                 modifier = Modifier.fillMaxWidth(), singleLine = true)
