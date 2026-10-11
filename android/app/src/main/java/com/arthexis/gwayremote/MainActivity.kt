@@ -304,6 +304,20 @@ fun CompanionScreen(store: SecretStore) {
                 if (simulatorTruncated) {
                     Text("Output truncated to last 32 KB", color = MaterialTheme.colorScheme.error)
                 }
+                Text("OCPP activity (best-effort from log)",
+                    style = MaterialTheme.typography.titleSmall)
+                val milestones = remember(simulatorOutput, simulatorTruncated) {
+                    SimulatorActivitySummary.parse(simulatorOutput, simulatorTruncated)
+                }
+                if (milestones.isEmpty()) {
+                    Text("No recognizable OCPP milestones in captured output.")
+                } else {
+                    milestones.forEach { milestone ->
+                        Text("${milestone.label}: ${milestone.evidence}",
+                            style = MaterialTheme.typography.bodySmall)
+                    }
+                }
+                Text("Raw output", style = MaterialTheme.typography.titleSmall)
                 Text(if (simulatorOutput.isEmpty()) "No output captured" else simulatorOutput,
                     style = MaterialTheme.typography.bodySmall,
                     modifier = Modifier.fillMaxWidth().heightIn(max = 320.dp)
