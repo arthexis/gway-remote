@@ -7,6 +7,7 @@ import subprocess
 
 from .csms_health import csms_probe
 from .simulator_network import discover
+from . import simulator_runner
 from .status import status
 
 LCD_DIR = Path.home() / ".local" / "state" / "lcd-lockfiles"
@@ -18,6 +19,8 @@ OPERATIONS = {"probe-csms": csms_probe, "status": status}
 
 def commands():
     return ([{"name": name, "arguments": {}, "read_only": True} for name in OPERATIONS]
+            + [{"name": name, "read_only": name in ("simulator-status", "simulator-results"), "arguments": {}}
+               for name in ("simulator-start", "simulator-stop", "simulator-status", "simulator-results")]
             + [{"name": "simulator-discover", "read_only": True, "arguments": {
                 "host": {"type": "string", "required": False},
                 "port": {"type": "integer", "required": False}}},
@@ -64,6 +67,9 @@ def sound_play(arguments):
 
 
 def execute(name, arguments):
+    if name in ("simulator-start", "simulator-stop", "simulator-status", "simulator-results"):
+        return {"simulator-start": simulator_runner.start, "simulator-stop": simulator_runner.stop,
+                "simulator-status": simulator_runner.status, "simulator-results": simulator_runner.results}[name](arguments)
     if name == "simulator-discover":
         if not isinstance(arguments, dict) or set(arguments) - {"host", "port"}:
             raise ValueError("invalid_arguments")
