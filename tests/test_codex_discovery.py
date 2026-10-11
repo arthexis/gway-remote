@@ -41,11 +41,22 @@ class DiscoveryTests(unittest.TestCase):
                  fetcher=lambda repo, token: iter([issue]))
         self.queue.admit("field-validation", "arthexis/gway-remote", 99)
         result = discover(self.queue, "token", repositories=["arthexis/gway-remote"],
-                          fetcher=lambda repo, token: iter([]))
+                          fetcher=lambda repo, token: iter([]), verifier=lambda repo, issue, token: True)
         self.assertEqual(result["withdrawn"], 1)
         by_issue = {t["issue"]: t["state"] for t in self.queue.list()}
         self.assertEqual(by_issue[37], "cancelled")
         self.assertEqual(by_issue[99], "requested")
+
+    def test_failed_verification_preserves_task(self):
+        issue = {"number": 37, "user": {"id": TRUSTED_CREATOR_ID, "login": "arthexis"}}
+        discover(self.queue, "token", repositories=["arthexis/gway-remote"],
+                 fetcher=lambda repo, token: iter([issue]))
+        def unavailable(*args):
+            raise TimeoutError("GitHub unavailable")
+        result = discover(self.queue, "token", repositories=["arthexis/gway-remote"],
+                          fetcher=lambda repo, token: iter([]), verifier=unavailable)
+        self.assertEqual(result["withdrawn"], 0)
+        self.assertEqual(self.queue.list()[0]["state"], "requested")
 
     def test_repo_allowlist(self):
         with self.assertRaises(ValueError):
