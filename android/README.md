@@ -21,7 +21,7 @@ Tag `android-v0.1.0` (or a later `android-v*` tag) to trigger a **signed** relea
 
 If any secret is missing, the release job fails rather than publishing an unsigned APK. Preserve the signing key securely; Android updates require the same signing identity. Do not put signing credentials in the repository. Download from `https://github.com/arthexis/gway-remote/releases`. A stable URL is available after the first release: `https://github.com/arthexis/gway-remote/releases/latest/download/gway-remote.apk`.
 
-The current versionCode is 3 and versionName is 0.1.2; **increase both for subsequent releases**. No release is created merely by merging this PR.
+The current versionCode is 4 and versionName is 0.1.3; **increase both for subsequent releases**. No release is created merely by merging this PR.
 
 ## Limitations
 
@@ -32,3 +32,11 @@ This initial UI displays structured JSON responses and discovers read-only comma
 The app checks the latest stable GitHub Release on launch and from **gear → Check for updates**. Releases must include a signed `gway-remote.apk`, an asset `sha256:` digest supplied by GitHub, and a release-body line `Android-Version-Code: N` (the Android release workflow now writes this line). The app downloads only the fixed repository's HTTPS release APK, limits size to 100 MiB, verifies SHA-256, and hands the APK to Android's system installer using a private FileProvider URI. Android enforces the signing identity and asks the user to confirm installation. On first use, enable **Install unknown apps** for GWay Remote, then tap **Install downloaded update**. A previous APK installed with a different signing key cannot be upgraded in place.
 
 The update mechanism requires a newly published signed release. PR artifacts and debug builds are not update candidates. Version codes must increase for every release; existing releases without metadata are not supported by the update checker.
+
+## Manual LCD and sound controls
+
+The app provides two separate printable ASCII input fields of at most 16 characters each. The server independently enforces both limits and publishes a 30-second event through the existing `gway-lcd-sound` LCD lockfile runner; normal rotation resumes afterward. The mobile API process must run as the same user as the LCD runner and have write access to `~/.local/state/lcd-lockfiles`. The sound selector offers the existing `ok`, `notice`, `attention`, `warning`, `error`, `busy`, and `critical` sounds via the installed `/usr/local/bin/sound` utility. There is no arbitrary shell execution.
+
+## Consolidated release on merge
+
+Merging this PR to main runs Android tests and attempts to publish one signed release APK as `android-v0.1.3` at GitHub Releases. The signing secrets must be configured, and an existing release with the same version is never overwritten. The updater discovers the signed release using GitHub's release metadata and SHA-256 asset digest. No release is published from PR builds; device testing remains necessary.
