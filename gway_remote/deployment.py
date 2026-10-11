@@ -68,7 +68,7 @@ def deploy(*, token, install, execute=run, probe=health, executable=EXECUTABLE,
             except Exception as failure:
                 if changed:
                     try:
-                        shutil.copy2(backup, executable)
+                        execute('sudo', '-n', 'install', '-m', '755', str(backup), str(executable))
                         systemctl("restart", SERVICE)
                         systemctl("is-active", "--quiet", SERVICE)
                         probe(token)
