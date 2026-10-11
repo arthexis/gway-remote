@@ -23,7 +23,7 @@ class DiscoveryTests(unittest.TestCase):
         ]
         fetch = lambda repo, token: iter(issues)
         result = discover(self.queue, "token", repositories=["arthexis/gway-remote"], fetcher=fetch)
-        self.assertEqual(result, {"imported": 1, "existing": 0, "ignored": 2})
+        self.assertEqual(result, {"imported": 1, "existing": 0, "ignored": 2, "withdrawn": 0})
         self.assertEqual(self.queue.list()[0]["state"], "requested")
         self.assertEqual(discover(self.queue, "token", repositories=["arthexis/gway-remote"], fetcher=fetch)["existing"], 1)
 
@@ -34,6 +34,18 @@ class DiscoveryTests(unittest.TestCase):
         task = self.queue.list()[0]
         self.queue.transition(task["id"], "requested", "cancelled")
         self.assertEqual(discover(self.queue, "token", repositories=["arthexis/gway-remote"], fetcher=fetch)["existing"], 1)
+
+    def test_withdrawal_preserves_manual_and_veto(self):
+        issue = {"number": 37, "user": {"id": TRUSTED_CREATOR_ID, "login": "arthexis"}}
+        discover(self.queue, "token", repositories=["arthexis/gway-remote"],
+                 fetcher=lambda repo, token: iter([issue]))
+        self.queue.admit("field-validation", "arthexis/gway-remote", 99)
+        result = discover(self.queue, "token", repositories=["arthexis/gway-remote"],
+                          fetcher=lambda repo, token: iter([]))
+        self.assertEqual(result["withdrawn"], 1)
+        by_issue = {t["issue"]: t["state"] for t in self.queue.list()}
+        self.assertEqual(by_issue[37], "cancelled")
+        self.assertEqual(by_issue[99], "requested")
 
     def test_repo_allowlist(self):
         with self.assertRaises(ValueError):
