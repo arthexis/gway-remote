@@ -15,6 +15,7 @@ class DeploymentTests(unittest.TestCase):
         self.root = pathlib.Path(self.temp.name)
         self.executable = self.root / "gway-remote"
         self.executable.write_text("old")
+        self.executable.chmod(0o750)
         self.sock = socket.socket(socket.AF_UNIX)
         self.addCleanup(self.sock.close)
         self.sock.bind(str(self.root / "bus"))
@@ -29,6 +30,7 @@ class DeploymentTests(unittest.TestCase):
             pathlib.Path(args[-1]).write_bytes(pathlib.Path(args[-2]).read_bytes())
         if args[:3] == ("sudo", "-n", "install"):
             self.executable.write_bytes(pathlib.Path(args[-2]).read_bytes())
+            self.executable.chmod(int(args[4], 8))
         if args[:3] == ("systemctl", "--user", "restart") and self.fail_restart:
             self.fail_restart = False
             raise RuntimeError("restart failed")
@@ -85,6 +87,8 @@ class DeploymentTests(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, "install failed"):
             self.run_deploy()
         self.assertEqual(self.executable.read_text(), "old")
+        self.assertEqual(self.executable.stat().st_mode & 0o777, 0o750)
+        self.assertTrue(any(c[:3] == ("sudo", "-n", "chown") and c[-1] == str(self.executable) for c in self.commands))
 
     def test_failed_restart_rolls_back(self):
         self.fail_restart = True
