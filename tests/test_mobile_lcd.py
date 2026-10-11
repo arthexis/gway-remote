@@ -22,6 +22,16 @@ class MobileLCDTests(unittest.TestCase):
                 self.assertEqual(lines[:2], ["1234567890123456", "Hello"])
                 self.assertEqual(len(lines), 3)
 
+    def test_sound_whitelist(self):
+        names = next(x for x in mobile.commands() if x["name"] == "sound-play")
+        self.assertEqual(names["arguments"]["sound"]["choices"], list(mobile.SOUNDS))
+        with patch.object(mobile.subprocess, "run") as run:
+            self.assertEqual(mobile.execute("sound-play", {"sound": "notice"}), {"played": "notice"})
+            run.assert_called_once()
+            self.assertEqual(run.call_args.args[0], ["/usr/local/bin/sound", "notice"])
+        with self.assertRaises(ValueError):
+            mobile.execute("sound-play", {"sound": "anything; rm -rf /"})
+
     def test_rejects_bad_messages(self):
         for value in [
             {"line1": "x" * 17, "line2": ""},
