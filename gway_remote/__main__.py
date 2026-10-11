@@ -175,7 +175,7 @@ def main() -> None:
     report_parser.add_argument("--output", required=True)
     subparsers.add_parser("deploy-batch", help="Run eligible merged revisions once (explicit invocation)")
     worker_parser = subparsers.add_parser("codex", aliases=["codex-worker"], help="Codex worker and task inspection")
-    worker_parser.add_argument("action", choices=("serve", "status", "tasks", "task", "submit"))
+    worker_parser.add_argument("action", choices=("serve", "status", "tasks", "task", "submit", "discover"))
     worker_parser.add_argument("task_id", nargs="?")
     worker_parser.add_argument("--socket", default=None)
     worker_parser.add_argument("--repo", default=None)
@@ -187,6 +187,19 @@ def main() -> None:
     api_parser.add_argument("--port", type=int, default=8765)
     args = parser.parse_args()
     if args.command in ("codex", "codex-worker"):
+        if args.action == "discover":
+            if args.task_id or args.repo or args.issue is not None or args.kind:
+                parser.error("codex discover takes no task metadata")
+            import os
+            from .codex_queue import TaskQueue, default_db
+            from .codex_discovery import discover
+            try:
+                with TaskQueue(default_db()) as queue:
+                    result = discover(queue, os.environ.get("GITHUB_TOKEN", ""))
+            except (ValueError, OSError) as exc:
+                parser.exit(1, f"gway-remote: discovery failed: {exc}\\n")
+            print(json.dumps(result, indent=2, sort_keys=True))
+            return
         if args.action == "submit":
             if args.task_id or not args.repo or args.issue is None or not args.kind:
                 parser.error("codex submit requires --repo, --issue and --kind")
