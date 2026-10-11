@@ -22,9 +22,17 @@ class MobileTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             mobile.execute("status", {"unexpected": 1})
 
-    def test_only_loopback_allowed(self):
-        with self.assertRaisesRegex(ValueError, "loopback"):
-            serve("0.0.0.0", 0, "test")
+    def test_rejects_other_bind_addresses(self):
+        for host in ("0.0.0.0", "192.168.1.10", "10.90.0.1", "::"):
+            with self.subTest(host=host), self.assertRaisesRegex(ValueError, "WireGuard"):
+                serve(host, 0, "test")
+
+    def test_loopback_and_wireguard_bind_are_accepted(self):
+        with patch("gway_remote.api.ThreadingHTTPServer", side_effect=RuntimeError("created")) as server:
+            for host in ("127.0.0.1", "10.90.0.2"):
+                with self.subTest(host=host), self.assertRaisesRegex(RuntimeError, "created"):
+                    serve(host, 8765, "test")
+                self.assertEqual(server.call_args.args[0], (host, 8765))
 
 
 class ApiTests(unittest.TestCase):
