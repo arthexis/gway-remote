@@ -47,6 +47,7 @@ fun CompanionScreen(store: SecretStore) {
     var busy by remember { mutableStateOf(false) }
     var lcdLine1 by remember { mutableStateOf("") }
     var lcdLine2 by remember { mutableStateOf("") }
+    var expandedWriteOperation by remember { mutableStateOf<String?>(null) }
     var lcdDuration by remember { mutableFloatStateOf(30f) }
     var selectedSound by remember { mutableStateOf("notice") }
     var soundMenuOpen by remember { mutableStateOf(false) }
@@ -162,7 +163,18 @@ fun CompanionScreen(store: SecretStore) {
             Button(enabled = !busy, onClick = { perform("/api/v1/health") }) { Text("Test") }
             Button(enabled = !busy, onClick = { perform("/api/v1/commands") }) { Text("Commands") }
         }
-        Text("LCD (16 × 2)", style = MaterialTheme.typography.titleMedium)
+        Text("Write operations", style = MaterialTheme.typography.titleMedium)
+        FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            OutlinedButton(onClick = {
+                expandedWriteOperation = if (expandedWriteOperation == "lcd-message") null else "lcd-message"
+            }) { Text(if (expandedWriteOperation == "lcd-message") "LCD message ▴" else "LCD message ▾") }
+            OutlinedButton(onClick = {
+                expandedWriteOperation = if (expandedWriteOperation == "sound-play") null else "sound-play"
+            }) { Text(if (expandedWriteOperation == "sound-play") "Play sound ▴" else "Play sound ▾") }
+        }
+        if (expandedWriteOperation == "lcd-message") {
+            Text("LCD (16 × 2)", style = MaterialTheme.typography.titleSmall)
         OutlinedTextField(lcdLine1, { next ->
             if (next.length <= 16 && next.all { it.code in 32..126 }) lcdLine1 = next
         }, label = { Text("Line 1 (${lcdLine1.length}/16)") },
@@ -186,7 +198,8 @@ fun CompanionScreen(store: SecretStore) {
                     valueRange = 30f..300f, steps = 8)
             }
         }
-        Text("Manual sound", style = MaterialTheme.typography.titleMedium)
+        }
+        if (expandedWriteOperation == "sound-play") {
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp),
             verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
         Box {
@@ -204,7 +217,8 @@ fun CompanionScreen(store: SecretStore) {
             perform("/api/v1/execute", "sound-play", JSONObject().put("sound", selectedSound))
         }) { Text("Play sound") }
         }
-        Text("Available read-only operations", style = MaterialTheme.typography.titleMedium)
+        }
+        Text("Read operations", style = MaterialTheme.typography.titleMedium)
         FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp),
             verticalArrangement = Arrangement.spacedBy(4.dp)) {
         commands.forEach { name ->
