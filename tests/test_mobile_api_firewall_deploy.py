@@ -17,3 +17,16 @@ def test_ansible_firewall_is_opt_in_and_scoped():
     assert "0.0.0.0/0" not in playbook
     assert "ansible.builtin.systemd:" in playbook
     assert "ansible.builtin.service_facts:" not in playbook
+
+
+def test_terminal_reject_variants_and_apply_after_stage():
+    import re
+
+    playbook = (ROOT / "deploy/ansible/mobile-api-firewall.yml").read_text()
+    pattern = r'^\\s*(?:counter\\s+)?reject with icmpx(?:\\s+type)? admin-prohibited\\s*$'
+    assert re.search(pattern, '        counter reject with icmpx type admin-prohibited', re.M)
+    assert re.search(pattern, '        reject with icmpx admin-prohibited', re.M)
+    assert 'insertbefore: ' in playbook
+    assert 'counter\\\\s+' in playbook
+    restart_block = playbook.split('- name: Restart existing host security firewall', 1)[1].split('- name: Verify live rule exists', 1)[0]
+    assert 'when: firewall_edit.changed' not in restart_block
