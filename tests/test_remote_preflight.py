@@ -19,6 +19,6 @@ class RemotePreflightTests(unittest.TestCase):
 
     def test_plan_requires_discovery_before_changes(self):
         doc = (ROOT / "docs/remote-phase-a.md").read_text()
-        for requirement in ("Lightsail", "rollback", "subnet collision",
+        for requirement in ("lightsail", "rollback", "subnet collision",
                             "certificate", "unknown"):
             self.assertIn(requirement, doc.lower())
