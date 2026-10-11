@@ -13,6 +13,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.text.input.KeyboardCapitalization
+import androidx.compose.foundation.text.KeyboardOptions
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -33,6 +35,8 @@ fun CompanionScreen(store: SecretStore) {
     var result by remember { mutableStateOf("Configure HTTPS endpoint and token") }
     var commands by remember { mutableStateOf(listOf<String>()) }
     var busy by remember { mutableStateOf(false) }
+    var lcdLine1 by remember { mutableStateOf("") }
+    var lcdLine2 by remember { mutableStateOf("") }
     var settingsOpen by remember { mutableStateOf(endpoint.isBlank() || token.isBlank()) }
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
@@ -73,13 +77,13 @@ fun CompanionScreen(store: SecretStore) {
     }
     LaunchedEffect(Unit) { checkUpdates() }
 
-    fun perform(path: String, command: String? = null) {
+    fun perform(path: String, command: String? = null, arguments: JSONObject = JSONObject()) {
         if (busy) return
         busy = true
         scope.launch {
             try {
                 val response = withContext(Dispatchers.IO) {
-                    ApiClient(endpoint.trim(), token).request(path, command)
+                    ApiClient(endpoint.trim(), token).request(path, command, arguments)
                 }
                 if (path.endsWith("/commands")) {
                     val entries = response.getJSONArray("commands")
@@ -145,6 +149,21 @@ fun CompanionScreen(store: SecretStore) {
             Button(enabled = !busy, onClick = { perform("/api/v1/health") }) { Text("Test") }
             Button(enabled = !busy, onClick = { perform("/api/v1/commands") }) { Text("Commands") }
         }
+        Text("LCD (16 × 2)", style = MaterialTheme.typography.titleMedium)
+        OutlinedTextField(lcdLine1, { next ->
+            if (next.length <= 16 && next.all { it.code in 32..126 }) lcdLine1 = next
+        }, label = { Text("Line 1 (${lcdLine1.length}/16)") },
+            keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Characters),
+            modifier = Modifier.fillMaxWidth(), singleLine = true)
+        OutlinedTextField(lcdLine2, { next ->
+            if (next.length <= 16 && next.all { it.code in 32..126 }) lcdLine2 = next
+        }, label = { Text("Line 2 (${lcdLine2.length}/16)") },
+            keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Characters),
+            modifier = Modifier.fillMaxWidth(), singleLine = true)
+        Button(enabled = !busy && (lcdLine1.isNotEmpty() || lcdLine2.isNotEmpty()), onClick = {
+            perform("/api/v1/execute", "lcd-message",
+                JSONObject().put("line1", lcdLine1).put("line2", lcdLine2))
+        }) { Text("Show on LCD (30 seconds)") }
         Text("Available read-only operations", style = MaterialTheme.typography.titleMedium)
         commands.forEach { name ->
             OutlinedButton(enabled = !busy, onClick = { perform("/api/v1/execute", name) }) {
