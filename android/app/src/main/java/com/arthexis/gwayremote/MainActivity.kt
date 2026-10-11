@@ -37,6 +37,8 @@ fun CompanionScreen(store: SecretStore) {
     var busy by remember { mutableStateOf(false) }
     var lcdLine1 by remember { mutableStateOf("") }
     var lcdLine2 by remember { mutableStateOf("") }
+    var selectedSound by remember { mutableStateOf("notice") }
+    var soundMenuOpen by remember { mutableStateOf(false) }
     var settingsOpen by remember { mutableStateOf(endpoint.isBlank() || token.isBlank()) }
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
@@ -164,6 +166,21 @@ fun CompanionScreen(store: SecretStore) {
             perform("/api/v1/execute", "lcd-message",
                 JSONObject().put("line1", lcdLine1).put("line2", lcdLine2))
         }) { Text("Show on LCD (30 seconds)") }
+        Text("Manual sound", style = MaterialTheme.typography.titleMedium)
+        Box {
+            OutlinedButton(onClick = { soundMenuOpen = true }) { Text("Sound: $selectedSound ▾") }
+            DropdownMenu(expanded = soundMenuOpen, onDismissRequest = { soundMenuOpen = false }) {
+                listOf("ok", "notice", "attention", "warning", "error", "busy", "critical").forEach { name ->
+                    DropdownMenuItem(text = { Text(name) }, onClick = {
+                        selectedSound = name
+                        soundMenuOpen = false
+                    })
+                }
+            }
+        }
+        Button(enabled = !busy, onClick = {
+            perform("/api/v1/execute", "sound-play", JSONObject().put("sound", selectedSound))
+        }) { Text("Play sound") }
         Text("Available read-only operations", style = MaterialTheme.typography.titleMedium)
         commands.forEach { name ->
             OutlinedButton(enabled = !busy, onClick = { perform("/api/v1/execute", name) }) {
