@@ -12,7 +12,7 @@ if [ "$(id -u)" -eq 0 ]; then
   echo "Run as the regular Ubuntu operator (sudo is invoked only for Ansible)." >&2
   exit 1
 fi
-for cmd in ansible-playbook sudo wg; do
+for cmd in ansible-playbook sudo wg python3; do
   command -v "$cmd" >/dev/null 2>&1 || { echo "Missing dependency: $cmd" >&2; exit 1; }
 done
 sudo wg show "$INTERFACE" public-key >/dev/null || {
@@ -38,8 +38,10 @@ case "$CONFIRM" in y|Y|yes|YES) ;; *) echo "Cancelled."; exit 0 ;; esac
 # Keep the public key out of the process command line and shell history.
 # Ansible reads JSON extra vars from a mode-0600 temporary file.
 TMP=$(mktemp)
-trap 'rm -f "$TMP"' EXIT HUP INT TERM
+INV=$(mktemp)
+trap 'rm -f "$TMP" "$INV"' EXIT HUP INT TERM
+printf '[wireguard_hub]\nlocalhost ansible_connection=local\n' > "$INV"
 python3 -c 'import json,sys; json.dump({"gway_wg_peer_public_key":sys.argv[1]},open(sys.argv[2],"w"))' "$PUBLIC_KEY" "$TMP"
 sudo -v
-ansible-playbook -i 'localhost,' -c local "$PLAYBOOK" -e "@$TMP"
+ansible-playbook -i "$INV" "$PLAYBOOK" -e "@$TMP"
 echo "Peer configured. From GWay-001, initiate traffic to 10.90.0.1 and check latest-handshakes."
