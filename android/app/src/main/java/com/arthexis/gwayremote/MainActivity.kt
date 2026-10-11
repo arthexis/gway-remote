@@ -49,6 +49,8 @@ fun CompanionScreen(store: SecretStore) {
     var simulatorTruncated by remember { mutableStateOf(false) }
     var simulatorResultsLoaded by remember { mutableStateOf(false) }
     var simulatorResultsError by remember { mutableStateOf("") }
+    var simulatorOutcome by remember { mutableStateOf("unknown") }
+    var simulatorExitCode by remember { mutableStateOf("") }
     var lcdLine1 by remember { mutableStateOf("") }
     var lcdLine2 by remember { mutableStateOf("") }
     var selectedSound by remember { mutableStateOf("notice") }
@@ -117,6 +119,8 @@ fun CompanionScreen(store: SecretStore) {
                         simulatorOutput = data.optString("output", "")
                         simulatorTruncated = data.optBoolean("truncated", false)
                         simulatorResultsLoaded = true
+                        simulatorOutcome = data.optString("outcome", "unknown")
+                        simulatorExitCode = if (data.has("exit_code")) data.optInt("exit_code").toString() else ""
                         simulatorResultsError = ""
                         simulatorStatus = "${data.optString("state", "unknown")} — " +
                             data.optString("target", "")
@@ -301,6 +305,13 @@ fun CompanionScreen(store: SecretStore) {
             }
             if (simulatorResultsLoaded) {
                 Text("Process: $simulatorStatus")
+                if (simulatorStatus.startsWith("stopped")) {
+                    Text(when (simulatorOutcome) {
+                        "completed" -> "Completed successfully (exit 0)"
+                        "failed" -> "Failed (exit $simulatorExitCode)"
+                        else -> "Stopped — completion outcome unavailable"
+                    })
+                }
                 if (simulatorTruncated) {
                     Text("Output truncated to last 32 KB", color = MaterialTheme.colorScheme.error)
                 }
