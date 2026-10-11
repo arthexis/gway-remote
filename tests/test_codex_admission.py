@@ -4,7 +4,7 @@ import unittest
 from pathlib import Path
 
 from gway_remote.codex_queue import TaskQueue
-from gway_remote.codex_policy import DEFAULT_PRIORITY, validate_request
+from gway_remote.codex_policy import DEFAULT_PRIORITY, validate_request, verify_issue_creator, TRUSTED_CREATOR_ID
 
 
 class AdmissionTests(unittest.TestCase):
@@ -16,6 +16,20 @@ class AdmissionTests(unittest.TestCase):
     def tearDown(self):
         self.queue.close()
         self.temp.cleanup()
+
+    def test_github_creator_must_match_verified_account(self):
+        issue = {"user": {"id": TRUSTED_CREATOR_ID, "login": "arthexis"}}
+        self.assertTrue(verify_issue_creator(issue, trusted_id=TRUSTED_CREATOR_ID))
+        for author in (
+            {"id": 999, "login": "arthexis"},
+            {"id": TRUSTED_CREATOR_ID, "login": "someone-else"},
+            {"login": "arthexis"},
+            {"id": "780437", "login": "arthexis"},
+        ):
+            with self.subTest(author=author):
+                self.assertFalse(verify_issue_creator({"user": author}, trusted_id=TRUSTED_CREATOR_ID))
+        self.assertFalse(verify_issue_creator({**issue, "pull_request": {}}, trusted_id=TRUSTED_CREATOR_ID))
+        self.assertFalse(verify_issue_creator(issue, trusted_id=0))
 
     def test_default_priority_and_requested_only(self):
         task = self.queue.admit("field-validation", "arthexis/gway-remote", 37)
