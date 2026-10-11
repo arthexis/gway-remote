@@ -10,7 +10,7 @@ iifname "gway" ip saddr 10.90.0.1 ip daddr 10.90.0.2 tcp dport 8765 accept
 
 The playbook checks for the expected table, input chain and a unique terminal reject, inserts the rule before the reject, validates the resulting file using `nft -c -f`, and backs up the original. By default it **only stages the persistent file**; the existing runtime rule continues to work.
 
-Run from a control machine with Ansible installed and SSH/sudo access to GWay-001. The shortcut defaults to **staging only**:
+Run from a control machine with Ansible installed and SSH/sudo access to GWay-001. The shortcut defaults to **staging only** and automatically uses a local Ansible connection on GWay-001 (no SSH-to-self). On a different machine it uses SSH. Override with `--local` or `--remote`:
 
 ```sh
 sh scripts/firewall.sh
