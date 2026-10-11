@@ -142,7 +142,7 @@ def start(arguments):
         # Catch immediate argument/configuration failures before claiming success.
         time.sleep(0.15)
         if proc.poll() is not None:
-            return _status()
+            return {**_status(), "exit_code": proc.returncode, "error": "simulator_exited_early"}
         return _status()
 
 
