@@ -1,0 +1,76 @@
+---
+# Explicitly run against the existing Lightsail hub; never against the Pi.
+- name: Adopt existing GWay-001 peer without restarting WireGuard
+  hosts: wireguard_hub
+  become: true
+  gather_facts: false
+  vars:
+    gway_wg_interface: gway
+    gway_wg_peer_address: 10.90.0.2/32
+  tasks:
+    - name: Require operator-supplied GWay-001 public key
+      ansible.builtin.assert:
+        that:
+          - gway_wg_peer_public_key is defined
+          - gway_wg_peer_public_key is match('^[A-Za-z0-9+/]{43}=$')
+        fail_msg: "Supply gway_wg_peer_public_key (the output of 'sudo wg show gway public-key' on GWay-001)."
+    - name: Verify existing interface is running
+      ansible.builtin.command:
+        argv: [wg, show, "{{ gway_wg_interface }}", public-key]
+      register: wg_hub_public
+      changed_when: false
+    - name: Verify existing persistent configuration
+      ansible.builtin.stat:
+        path: /etc/wireguard/gway.conf
+      register: wg_conf
+    - name: Refuse missing or non-root-owned configuration
+      ansible.builtin.assert:
+        that:
+          - wg_conf.stat.exists
+          - wg_conf.stat.isreg
+          - wg_conf.stat.pw_name == 'root'
+    - name: Read existing persistent configuration without logging secrets
+      ansible.builtin.slurp:
+        src: /etc/wireguard/gway.conf
+      register: wg_conf_raw
+      no_log: true
+    - name: Refuse unknown peer sections or conflicting addresses for manual review
+      ansible.builtin.assert:
+        that:
+          - "'[Interface]' in (wg_conf_raw.content | b64decode)"
+          - "'[Peer]' not in (wg_conf_raw.content | b64decode)"
+          - "'10.90.0.2' not in (wg_conf_raw.content | b64decode)"
+        fail_msg: "Existing peers or address references require manual review; no automatic changes."
+      when: not (gway_wg_peer_managed | default(false) | bool)
+    - name: Add persistent GWay-001 peer (backup original)
+      ansible.builtin.blockinfile:
+        path: /etc/wireguard/gway.conf
+        marker: "# {mark} GWAY-REMOTE MANAGED PEER gway-001"
+        block: |
+          [Peer]
+          PublicKey = {{ gway_wg_peer_public_key }}
+          AllowedIPs = {{ gway_wg_peer_address }}
+        backup: true
+      register: wg_peer_config
+    - name: Add peer to live interface without restart
+      ansible.builtin.command:
+        argv:
+          - wg
+          - set
+          - "{{ gway_wg_interface }}"
+          - peer
+          - "{{ gway_wg_peer_public_key }}"
+          - allowed-ips
+          - "{{ gway_wg_peer_address }}"
+      when: wg_peer_config.changed
+      changed_when: true
+    - name: Inspect registered peer address
+      ansible.builtin.command:
+        argv: [wg, show, "{{ gway_wg_interface }}", allowed-ips]
+      register: wg_peers
+      changed_when: false
+    - name: Assert registered peer is present
+      ansible.builtin.assert:
+        that:
+          - "gway_wg_peer_public_key in wg_peers.stdout"
+          - "gway_wg_peer_address in wg_peers.stdout"
