@@ -8,6 +8,10 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
@@ -26,11 +30,15 @@ import org.json.JSONObject
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        window.statusBarColor = android.graphics.Color.BLACK
+        window.decorView.systemUiVisibility = 0
+        window.setSoftInputMode(android.view.WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE)
         val store = SecretStore(this)
         setContent { MaterialTheme { CompanionScreen(store) } }
     }
 }
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun CompanionScreen(store: SecretStore) {
     var endpoint by remember { mutableStateOf(store.endpoint) }
@@ -51,6 +59,15 @@ fun CompanionScreen(store: SecretStore) {
     var simulatorResultsError by remember { mutableStateOf("") }
     var simulatorOutcome by remember { mutableStateOf("unknown") }
     var simulatorExitCode by remember { mutableStateOf("") }
+    var csmsExpanded by remember { mutableStateOf(false) }
+    var csmsView by remember { mutableStateOf("status") }
+    var csmsMenuOpen by remember { mutableStateOf(false) }
+    var csmsOutput by remember { mutableStateOf("") }
+    var csmsTruncated by remember { mutableStateOf(false) }
+    var csmsHealthy by remember { mutableStateOf<Boolean?>(null) }
+    var csmsReason by remember { mutableStateOf("") }
+    var expandedWriteOperation by remember { mutableStateOf<String?>(null) }
+    var lcdDuration by remember { mutableFloatStateOf(30f) }
     var lcdLine1 by remember { mutableStateOf("") }
     var lcdLine2 by remember { mutableStateOf("") }
     var selectedSound by remember { mutableStateOf("notice") }
@@ -111,6 +128,16 @@ fun CompanionScreen(store: SecretStore) {
                             item.optString("name").takeIf { it.isNotBlank() } else null
                     }
                 }
+                if (command == "probe-csms") {
+                    val data = response.optJSONObject("result")
+                    csmsHealthy = data?.optBoolean("healthy")
+                    csmsReason = data?.optString("reason") ?: "No diagnostic details"
+                }
+                if (command == "csms-view") {
+                    val data = response.optJSONObject("result")
+                    csmsOutput = data?.optString("output") ?: response.toString(2)
+                    csmsTruncated = data?.optBoolean("truncated") ?: false
+                }
                 if (command == "simulator-results") {
                     val data = response.optJSONObject("result")
                     if (data == null) {
@@ -149,7 +176,7 @@ fun CompanionScreen(store: SecretStore) {
         }
     }
 
-    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(20.dp),
+    Column(Modifier.fillMaxSize().imePadding().verticalScroll(rememberScrollState()).padding(20.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp)) {
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
             Text("GWay Remote", style = MaterialTheme.typography.headlineMedium)
@@ -197,7 +224,18 @@ fun CompanionScreen(store: SecretStore) {
             Button(enabled = !busy, onClick = { perform("/api/v1/health") }) { Text("Test") }
             Button(enabled = !busy, onClick = { perform("/api/v1/commands") }) { Text("Commands") }
         }
-        Text("LCD (16 × 2)", style = MaterialTheme.typography.titleMedium)
+        Text("Write operations", style = MaterialTheme.typography.titleMedium)
+        FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            OutlinedButton(onClick = {
+                expandedWriteOperation = if (expandedWriteOperation == "lcd-message") null else "lcd-message"
+            }) { Text(if (expandedWriteOperation == "lcd-message") "LCD message ▴" else "LCD message ▾") }
+            OutlinedButton(onClick = {
+                expandedWriteOperation = if (expandedWriteOperation == "sound-play") null else "sound-play"
+            }) { Text(if (expandedWriteOperation == "sound-play") "Play sound ▴" else "Play sound ▾") }
+        }
+        if (expandedWriteOperation == "lcd-message") {
+            Text("LCD (16 × 2)", style = MaterialTheme.typography.titleSmall)
         OutlinedTextField(lcdLine1, { next ->
             if (next.length <= 16 && next.all { it.code in 32..126 }) lcdLine1 = next
         }, label = { Text("Line 1 (${lcdLine1.length}/16)") },
@@ -208,11 +246,23 @@ fun CompanionScreen(store: SecretStore) {
         }, label = { Text("Line 2 (${lcdLine2.length}/16)") },
             keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Characters),
             modifier = Modifier.fillMaxWidth(), singleLine = true)
-        Button(enabled = !busy && (lcdLine1.isNotEmpty() || lcdLine2.isNotEmpty()), onClick = {
-            perform("/api/v1/execute", "lcd-message",
-                JSONObject().put("line1", lcdLine1).put("line2", lcdLine2))
-        }) { Text("Show on LCD (30 seconds)") }
-        Text("Manual sound", style = MaterialTheme.typography.titleMedium)
+        Row(Modifier.fillMaxWidth(), verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            Button(enabled = !busy && (lcdLine1.isNotEmpty() || lcdLine2.isNotEmpty()), onClick = {
+                perform("/api/v1/execute", "lcd-message",
+                    JSONObject().put("line1", lcdLine1).put("line2", lcdLine2)
+                        .put("duration_seconds", lcdDuration.toInt()))
+            }) { Text("Show on LCD") }
+            Column(Modifier.weight(1f)) {
+                Text("Duration: ${lcdDuration.toInt() / 60}:${(lcdDuration.toInt() % 60).toString().padStart(2, '0')}")
+                Slider(value = lcdDuration, onValueChange = { lcdDuration = it },
+                    valueRange = 30f..300f, steps = 8)
+            }
+        }
+        }
+        if (expandedWriteOperation == "sound-play") {
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
         Box {
             OutlinedButton(onClick = { soundMenuOpen = true }) { Text("Sound: $selectedSound ▾") }
             DropdownMenu(expanded = soundMenuOpen, onDismissRequest = { soundMenuOpen = false }) {
@@ -227,10 +277,51 @@ fun CompanionScreen(store: SecretStore) {
         Button(enabled = !busy, onClick = {
             perform("/api/v1/execute", "sound-play", JSONObject().put("sound", selectedSound))
         }) { Text("Play sound") }
-        Text("Available read-only operations", style = MaterialTheme.typography.titleMedium)
-        commands.forEach { name ->
+        }
+        }
+        Text("Read operations", style = MaterialTheme.typography.titleMedium)
+        FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        commands.filter { it != "probe-csms" && it != "simulator-status" && it != "simulator-results" }.forEach { name ->
             OutlinedButton(enabled = !busy, onClick = { perform("/api/v1/execute", name) }) {
                 Text(name)
+            }
+        }
+        }
+        Text("CSMS", style = MaterialTheme.typography.titleMedium)
+        OutlinedButton(onClick = { csmsExpanded = !csmsExpanded }) {
+            Text(if (csmsExpanded) "CSMS inspection ▴" else "CSMS inspection ▾")
+        }
+        if (csmsExpanded) {
+            Button(enabled = !busy, onClick = { perform("/api/v1/execute", "probe-csms") }) {
+                Text("Refresh CSMS health")
+            }
+            if (csmsHealthy != null) {
+                Text(if (csmsHealthy == true) "● Healthy" else "● Needs attention",
+                    color = if (csmsHealthy == true) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error)
+                Text(csmsReason)
+            }
+            Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Box(Modifier.weight(1f)) {
+                    OutlinedButton(onClick = { csmsMenuOpen = true }) { Text("View: $csmsView ▾") }
+                    DropdownMenu(expanded = csmsMenuOpen, onDismissRequest = { csmsMenuOpen = false }) {
+                        listOf("status", "chargers", "charge-points", "transactions", "events",
+                            "alerts", "rfid-report", "report").forEach { view ->
+                            DropdownMenuItem(text = { Text(view) }, onClick = {
+                                csmsView = view
+                                csmsMenuOpen = false
+                            })
+                        }
+                    }
+                }
+                Button(enabled = !busy, onClick = {
+                    perform("/api/v1/execute", "csms-view", JSONObject().put("view", csmsView))
+                }) { Text("Inspect") }
+            }
+            if (csmsOutput.isNotBlank()) {
+                if (csmsTruncated) Text("Output truncated to 64 KB", color = MaterialTheme.colorScheme.error)
+                Text(csmsOutput, style = MaterialTheme.typography.bodySmall)
             }
         }
         Text("OCPP Simulator", style = MaterialTheme.typography.titleMedium)
@@ -340,5 +431,6 @@ fun CompanionScreen(store: SecretStore) {
         if (busy) LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
         Text("Response", style = MaterialTheme.typography.titleMedium)
         Text(result)
+        Spacer(Modifier.height(LocalConfiguration.current.screenHeightDp.dp / 2))
     }
 }
