@@ -152,3 +152,17 @@ After **Python checks** succeeds for a push to `main`, the **Deploy GWay Remote 
 This updates the **GWay Remote CLI/backend package**, not other repositories (CSMS, LCD Sound, or simulator), and does not restart or enable the mobile API service. Existing running Python processes must be restarted separately to load new code. The runner must have permission to install the CLI (including configured noninteractive sudo if required). Failed validation prevents installation; installation or verification failures fail the workflow rather than claiming success.
 
 Android APK publishing remains a separate workflow. For changes requiring both server and APK, coordinate readiness via the two workflow outcomes rather than assuming that a successful APK build implies the server has been updated.
+
+### Remaining development and verification gates
+
+The CLI-only deployment in PR #44 is **not** a complete mobile API rollout. Finish the following in order before treating a main merge as deployed:
+
+1. **Read-only Gway-001 reconnaissance (local agent).** Identify the real API listener and process/service manager, executable and working directory, OS account, TLS ingress, health endpoint, runner identity, install permissions, and rollback options. Do not create or replace services based on assumptions.
+2. **Define a single deployment owner and source of truth.** Confirm whether the existing systemd unit executes the installed zipapp or a checkout/venv. Avoid a second service, duplicate deployment mechanism, or accidental restart of an unrelated component.
+3. **Preflight and install transaction.** Verify the tested main SHA, required privileges, available disk space, and health baseline. Stage the backend safely, preserve the previous working artifact, and make the switch reversible. Never report success merely because copying files succeeded.
+4. **Controlled API lifecycle.** Only if reconnaissance confirms the correct existing unit, restart or reload it after installation and wait for a bounded authenticated/local health probe. Confirm the process serves the newly deployed revision, not merely that the port responds. On failure, restore the previous artifact and restart it; surface an explicit failed deployment if recovery cannot be verified.
+5. **Test deployment behavior.** Cover no service, insufficient permissions, stale SHA, failing unit, failing health probe, rollback, concurrency with appliance jobs, and idempotent redeploys. Run a Gway-001 dry run before automatic restarts are enabled.
+6. **Coordinate Android publication (PR #43).** Require verified backend compatibility/readiness before publishing an APK that depends on changed API commands. Keep Android version codes monotonic, signing identity stable, and the release immutable. A successful APK build alone is not evidence of backend readiness.
+7. **End-to-end acceptance.** Merge a controlled revision, verify backend SHA and mobile API health on Gway-001, verify the signed GitHub Release and its in-app update metadata, then exercise the phone against the updated API. Document rollback for both sides.
+
+Keep automatic mobile API restart and release gating disabled until steps 1–5 have been validated.
