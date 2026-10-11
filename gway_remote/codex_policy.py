@@ -22,3 +22,24 @@ def validate_request(kind: str, repository: str, issue: int, priority: str = DEF
     if priority not in PRIORITIES:
         raise ValueError("priority must be P0, P1, P2 or P3")
     return {"kind": kind, "repository": repository, "issue": issue, "priority": priority}
+
+# GitHub issue discovery must verify the immutable numeric account ID as well
+# as the login, which may be renamed or reused.
+TRUSTED_CREATOR_LOGIN = "arthexis"
+TRUSTED_CREATOR_ID = None  # Must be pinned from GitHub before discovery is enabled.
+
+
+def verify_issue_creator(issue: dict, *, trusted_id: int, trusted_login: str = TRUSTED_CREATOR_LOGIN) -> bool:
+    """Fail closed unless GitHub's authoritative issue author matches both fields."""
+    if type(trusted_id) is not int or trusted_id <= 0:
+        return False
+    if not isinstance(issue, dict) or "pull_request" in issue:
+        return False
+    author = issue.get("user")
+    return (
+        isinstance(author, dict)
+        and type(author.get("id")) is int
+        and author["id"] == trusted_id
+        and isinstance(author.get("login"), str)
+        and author["login"].casefold() == trusted_login.casefold()
+    )
