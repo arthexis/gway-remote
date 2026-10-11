@@ -6,6 +6,7 @@ import tempfile
 import subprocess
 
 from .csms_health import csms_probe
+from .simulator_network import discover
 from .status import status
 
 LCD_DIR = Path.home() / ".local" / "state" / "lcd-lockfiles"
@@ -17,7 +18,10 @@ OPERATIONS = {"probe-csms": csms_probe, "status": status}
 
 def commands():
     return ([{"name": name, "arguments": {}, "read_only": True} for name in OPERATIONS]
-            + [{"name": "sound-play", "read_only": False, "arguments": {
+            + [{"name": "simulator-discover", "read_only": True, "arguments": {
+                "host": {"type": "string", "required": False},
+                "port": {"type": "integer", "required": False}}},
+               {"name": "sound-play", "read_only": False, "arguments": {
                 "sound": {"type": "choice", "choices": list(SOUNDS), "required": True}}},
                {"name": "lcd-message", "read_only": False, "arguments": {
                 "line1": {"type": "string", "max_length": 16, "required": True},
@@ -60,6 +64,10 @@ def sound_play(arguments):
 
 
 def execute(name, arguments):
+    if name == "simulator-discover":
+        if not isinstance(arguments, dict) or set(arguments) - {"host", "port"}:
+            raise ValueError("invalid_arguments")
+        return discover(**arguments)
     if name == "sound-play":
         return sound_play(arguments)
     if name == "lcd-message":
