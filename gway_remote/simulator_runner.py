@@ -9,7 +9,6 @@ from pathlib import Path
 import shutil
 import signal
 import subprocess
-from urllib.parse import urlsplit
 
 from .simulator_network import _networks, _on_link
 
@@ -77,10 +76,7 @@ def start(arguments):
         raise ValueError("invalid_cp")
     if scenario not in SCENARIOS:
         raise ValueError("invalid_scenario")
-    executable = shutil.which("ocpp-simulator") or str(Path.home() / ".local/bin/ocpp-simulator")
-    if not Path(executable).is_file():
-        raise RuntimeError("simulator_not_installed")
-    args = [executable, "run", "--cp", cp, "--url", f"ws://{host}:{port}/{cp}"]
+    args = ["ocpp-simulator", "run", "--cp", cp, "--url", f"ws://{host}:{port}/{cp}"]
     options = {
         "power": ("--power", (int, float), 0.1, 100),
         "duration": ("--duration", int, 1, 86400),
@@ -119,6 +115,10 @@ def start(arguments):
         if not isinstance(rfid, str) or not 1 <= len(rfid) <= 20 or not rfid.isascii() or not rfid.isalnum():
             raise ValueError("invalid_rfid")
         args += ["--rfid", rfid]
+    executable = shutil.which("ocpp-simulator") or str(Path.home() / ".local/bin/ocpp-simulator")
+    if not Path(executable).is_file():
+        raise RuntimeError("simulator_not_installed")
+    args[0] = executable
     with _lock():
         if _status()["state"] == "running":
             raise ValueError("simulator_already_running")
