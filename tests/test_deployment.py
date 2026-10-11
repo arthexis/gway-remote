@@ -3,9 +3,9 @@ import pathlib
 import socket
 import tempfile
 import unittest
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
-from gway_remote.deployment import deploy, health, SERVICE
+from gway_remote.deployment import deploy, health, local_api_token, SERVICE
 
 
 class DeploymentTests(unittest.TestCase):
@@ -114,6 +114,35 @@ class DeploymentTests(unittest.TestCase):
             deploy(token="secret", install=self.install, execute=broken,
                    probe=self.probe, executable=self.executable,
                    runtime=self.root, backup_dir=self.root)
+
+
+    def test_local_api_token_reads_existing_environment_file(self):
+        env = self.root / "mobile-api.env"
+        env.write_text('# comment\nOTHER=value\nGWAY_REMOTE_API_TOKEN="test-secret"\n')
+        execute = Mock(return_value=Mock(stdout=f"{env} (ignore_errors=no)\n"))
+        self.assertEqual(local_api_token(execute=execute), "test-secret")
+        execute.assert_called_once_with(
+            ["systemctl", "--user", "show", SERVICE, "--property=EnvironmentFiles", "--value"],
+            check=True, capture_output=True, text=True,
+        )
+
+    def test_local_api_token_rejects_ambiguous_environment_files(self):
+        env = self.root / "mobile-api.env"
+        env.write_text("GWAY_REMOTE_API_TOKEN=test-secret\n")
+        for output in ("", f"{env} (ignore_errors=no) {env} (ignore_errors=yes)"):
+            with self.subTest(output=output):
+                with self.assertRaisesRegex(RuntimeError, "Expected one"):
+                    local_api_token(execute=Mock(return_value=Mock(stdout=output)))
+
+    def test_local_api_token_rejects_missing_or_duplicate_tokens(self):
+        env = self.root / "mobile-api.env"
+        execute = Mock(return_value=Mock(stdout=f"{env} (ignore_errors=no)"))
+        for content in ("OTHER=value\n", "GWAY_REMOTE_API_TOKEN=\n",
+                        "GWAY_REMOTE_API_TOKEN=one\nGWAY_REMOTE_API_TOKEN=two\n"):
+            with self.subTest(content=content):
+                env.write_text(content)
+                with self.assertRaisesRegex(RuntimeError, "credential unavailable or ambiguous"):
+                    local_api_token(execute=execute)
 
 
 if __name__ == "__main__":
