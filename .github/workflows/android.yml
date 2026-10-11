@@ -58,7 +58,9 @@ jobs:
         run: gradle :app:assembleRelease --no-daemon
       - name: Stage release asset
         if: github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/android-v')
-        run: cp app/build/outputs/apk/release/app-release.apk "$RUNNER_TEMP/gway-remote.apk"
+        run: |
+          test -s app/build/outputs/apk/release/app-release.apk || { echo "::error::Signed APK missing; check signing configuration"; ls -l app/build/outputs/apk/release/; exit 1; }
+          cp app/build/outputs/apk/release/app-release.apk "$RUNNER_TEMP/gway-remote.apk"
       - name: Write release metadata
         if: github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/android-v')
         run: |
