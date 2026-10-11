@@ -174,10 +174,34 @@ def main() -> None:
     report_parser = subparsers.add_parser("report-bundle", help="Export sanitized artifact report")
     report_parser.add_argument("--output", required=True)
     subparsers.add_parser("deploy-batch", help="Run eligible merged revisions once (explicit invocation)")
+    worker_parser = subparsers.add_parser("codex", aliases=["codex-worker"], help="Codex worker and task inspection")
+    worker_parser.add_argument("action", choices=("serve", "status", "tasks", "task"))
+    worker_parser.add_argument("task_id", nargs="?")
+    worker_parser.add_argument("--socket", default=None)
     api_parser = subparsers.add_parser("api", help="Run the opt-in loopback HTTP API")
     api_parser.add_argument("--host", default="127.0.0.1")
     api_parser.add_argument("--port", type=int, default=8765)
     args = parser.parse_args()
+    if args.command in ("codex", "codex-worker"):
+        if args.action in ("tasks", "task"):
+            from .codex_queue import TaskQueue, default_db
+            if args.action == "task" and not args.task_id:
+                parser.error("codex task requires a task ID")
+            if args.action == "tasks" and args.task_id:
+                parser.error("codex tasks takes no task ID")
+            with TaskQueue(default_db()) as queue:
+                result = queue.list() if args.action == "tasks" else queue.get(args.task_id)
+            if result is None:
+                parser.exit(1, "gway-remote: task not found\\n")
+            print(json.dumps(result, indent=2, sort_keys=True))
+            return
+        if args.task_id:
+            parser.error("task ID is only valid for codex task")
+        from .codex_worker import main as worker_main
+        argv = [args.action]
+        if args.socket is not None:
+            argv += ["--socket", args.socket]
+        return worker_main(argv)
     if args.command == "api":
         from .api import serve
         try:

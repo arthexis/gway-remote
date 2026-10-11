@@ -4,14 +4,16 @@ from pathlib import Path
 import os
 import tempfile
 import subprocess
+import shutil
 
 from .csms_health import csms_probe
+from .simulator_network import discover
+from . import simulator_runner
 from .status import status
 
 LCD_DIR = Path.home() / ".local" / "state" / "lcd-lockfiles"
 LCD_EVENT = "lcd-event-mobile.lck"
 SOUNDS = ("ok", "notice", "attention", "warning", "error", "busy", "critical")
-
 
 CSMS_VIEWS = {
     "status": ("status",),
@@ -31,7 +33,7 @@ def csms_view(arguments):
     view = arguments["view"]
     if not isinstance(view, str) or view not in CSMS_VIEWS:
         raise ValueError("invalid_csms_view")
-    executable = __import__("shutil").which("ocpp-csms") or str(Path.home() / ".local/bin/ocpp-csms")
+    executable = shutil.which("ocpp-csms") or str(Path.home() / ".local/bin/ocpp-csms")
     if not Path(executable).is_file():
         raise RuntimeError("csms_cli_not_found")
     try:
@@ -49,8 +51,13 @@ OPERATIONS = {"probe-csms": csms_probe, "status": status}
 
 def commands():
     return ([{"name": name, "arguments": {}, "read_only": True} for name in OPERATIONS]
+            + [{"name": name, "read_only": name in ("simulator-status", "simulator-results"), "arguments": {}}
+               for name in ("simulator-start", "simulator-stop", "simulator-status", "simulator-results")]
             + [{"name": "csms-view", "read_only": True, "arguments": {
-                "view": {"type": "choice", "choices": list(CSMS_VIEWS), "required": True}}},
+                "view": {"type": "choice", "choices": list(CSMS_VIEWS), "required": True}}}]
+            + [{"name": "simulator-discover", "read_only": True, "arguments": {
+                "host": {"type": "string", "required": False},
+                "port": {"type": "integer", "required": False}}},
                {"name": "sound-play", "read_only": False, "arguments": {
                 "sound": {"type": "choice", "choices": list(SOUNDS), "required": True}}},
                {"name": "lcd-message", "read_only": False, "arguments": {
@@ -100,6 +107,13 @@ def sound_play(arguments):
 def execute(name, arguments):
     if name == "csms-view":
         return csms_view(arguments)
+    if name in ("simulator-start", "simulator-stop", "simulator-status", "simulator-results"):
+        return {"simulator-start": simulator_runner.start, "simulator-stop": simulator_runner.stop,
+                "simulator-status": simulator_runner.status, "simulator-results": simulator_runner.results}[name](arguments)
+    if name == "simulator-discover":
+        if not isinstance(arguments, dict) or set(arguments) - {"host", "port"}:
+            raise ValueError("invalid_arguments")
+        return discover(**arguments)
     if name == "sound-play":
         return sound_play(arguments)
     if name == "lcd-message":
