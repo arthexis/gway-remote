@@ -35,7 +35,7 @@ class MobileLCDTests(unittest.TestCase):
     def test_rejects_bad_messages(self):
         for value in [
             {"line1": "x" * 17, "line2": ""},
-            {"line1": "x\\ny", "line2": ""},
+            {"line1": "x\ny", "line2": ""},
             {"line1": "☃", "line2": ""},
             {"line1": "", "line2": ""},
             {"line1": "only"},
