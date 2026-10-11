@@ -28,7 +28,8 @@ CREATE TABLE IF NOT EXISTS tasks (
  created_at TEXT NOT NULL,
  updated_at TEXT NOT NULL,
  detail TEXT NOT NULL DEFAULT '',
- priority TEXT NOT NULL DEFAULT 'P2'
+ priority TEXT NOT NULL DEFAULT 'P2',
+ source TEXT NOT NULL DEFAULT 'manual'
 );
 CREATE UNIQUE INDEX IF NOT EXISTS single_running_task
  ON tasks(state) WHERE state = 'running';
