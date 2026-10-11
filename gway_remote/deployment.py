@@ -2,6 +2,7 @@
 import json
 import os
 import pathlib
+import re
 import shlex
 import subprocess
 import tempfile
