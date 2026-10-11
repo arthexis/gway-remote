@@ -77,6 +77,8 @@ class TaskQueue:
                     self.db.execute("ROLLBACK")
                     raise
         self.db.executescript(SCHEMA)
+        if 'source' not in {r[1] for r in self.db.execute('PRAGMA table_info(tasks)')}:
+            self.db.execute("ALTER TABLE tasks ADD COLUMN source TEXT NOT NULL DEFAULT 'manual'")
         if self.path != Path(":memory:"):
             self.path.chmod(0o600)
 
@@ -109,10 +111,12 @@ class TaskQueue:
                         (task_id, kind, repository, issue, timestamp, timestamp))
         return self.get(task_id)
 
-    def admit(self, kind: str, repository: str, issue: int, priority: str = "P2"):
+    def admit(self, kind: str, repository: str, issue: int, priority: str = "P2", source: str = "manual"):
         """Local operator admission only; no external issue content is trusted."""
         from .codex_policy import validate_request
         data = validate_request(kind, repository, issue, priority)
+        if source not in ("manual", "github"):
+            raise ValueError("invalid source")
         task_id, timestamp = str(uuid4()), now()
         try:
             self.db.execute(
@@ -122,6 +126,8 @@ class TaskQueue:
                  data["priority"], timestamp, timestamp))
         except sqlite3.IntegrityError as exc:
             raise ValueError("an active request already exists for this issue and task kind") from exc
+        if source == "github":
+            self.db.execute("UPDATE tasks SET source='github' WHERE id=?", (task_id,))
         return self.get(task_id)
 
     def transition(self, task_id: str, expected: str, target: str, detail: str = ""):
