@@ -31,9 +31,9 @@ class DeploymentWorkflowTests(unittest.TestCase):
         self.assertIn('echo "skip=true" >> "$GITHUB_ENV"', self.workflow)
         self.assertGreaterEqual(self.workflow.count("if: env.skip != 'true'"), 3)
 
-    def test_missing_secret_fails_closed(self):
-        self.assertIn('secrets.GWAY_REMOTE_API_TOKEN', self.workflow)
-        self.assertIn('token=os.environ.get("GWAY_REMOTE_API_TOKEN")', self.workflow)
+    def test_local_credential_reused(self):
+        self.assertNotIn('secrets.GWAY_REMOTE_API_TOKEN', self.workflow)
+        self.assertIn("token=local_api_token()", self.workflow)
 
     def test_transactional_deployment_module_is_invoked(self):
         self.assertIn("from gway_remote.deployment import deploy", self.workflow)
