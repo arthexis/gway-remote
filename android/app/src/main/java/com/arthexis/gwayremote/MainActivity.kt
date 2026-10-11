@@ -45,6 +45,12 @@ fun CompanionScreen(store: SecretStore) {
     var result by remember { mutableStateOf("Configure HTTPS endpoint and token") }
     var commands by remember { mutableStateOf(listOf<String>()) }
     var busy by remember { mutableStateOf(false) }
+    var csmsExpanded by remember { mutableStateOf(false) }
+    var csmsView by remember { mutableStateOf("status") }
+    var csmsMenuOpen by remember { mutableStateOf(false) }
+    var csmsOutput by remember { mutableStateOf("") }
+    var csmsHealthy by remember { mutableStateOf<Boolean?>(null) }
+    var csmsReason by remember { mutableStateOf("") }
     var lcdLine1 by remember { mutableStateOf("") }
     var lcdLine2 by remember { mutableStateOf("") }
     var expandedWriteOperation by remember { mutableStateOf<String?>(null) }
@@ -106,6 +112,14 @@ fun CompanionScreen(store: SecretStore) {
                         if (item.optBoolean("read_only") && (item.optJSONObject("arguments")?.length() ?: 0) == 0)
                             item.optString("name").takeIf { it.isNotBlank() } else null
                     }
+                }
+                if (command == "probe-csms") {
+                    val data = response.optJSONObject("result")
+                    csmsHealthy = data?.optBoolean("healthy")
+                    csmsReason = data?.optString("reason") ?: "No diagnostic details"
+                }
+                if (command == "csms-view") {
+                    csmsOutput = response.optJSONObject("result")?.optString("output") ?: response.toString(2)
                 }
                 result = response.toString(2)
             } catch (e: Exception) {
@@ -221,11 +235,46 @@ fun CompanionScreen(store: SecretStore) {
         Text("Read operations", style = MaterialTheme.typography.titleMedium)
         FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp),
             verticalArrangement = Arrangement.spacedBy(4.dp)) {
-        commands.forEach { name ->
+        commands.filter { it != "probe-csms" }.forEach { name ->
             OutlinedButton(enabled = !busy, onClick = { perform("/api/v1/execute", name) }) {
                 Text(name)
             }
         }
+        }
+        Text("CSMS", style = MaterialTheme.typography.titleMedium)
+        OutlinedButton(onClick = { csmsExpanded = !csmsExpanded }) {
+            Text(if (csmsExpanded) "CSMS inspection ▴" else "CSMS inspection ▾")
+        }
+        if (csmsExpanded) {
+            Button(enabled = !busy, onClick = { perform("/api/v1/execute", "probe-csms") }) {
+                Text("Refresh CSMS health")
+            }
+            if (csmsHealthy != null) {
+                Text(if (csmsHealthy == true) "● Healthy" else "● Needs attention",
+                    color = if (csmsHealthy == true) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error)
+                Text(csmsReason)
+            }
+            Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Box(Modifier.weight(1f)) {
+                    OutlinedButton(onClick = { csmsMenuOpen = true }) { Text("View: $csmsView ▾") }
+                    DropdownMenu(expanded = csmsMenuOpen, onDismissRequest = { csmsMenuOpen = false }) {
+                        listOf("status", "chargers", "charge-points", "transactions", "events",
+                            "alerts", "rfid-report", "report").forEach { view ->
+                            DropdownMenuItem(text = { Text(view) }, onClick = {
+                                csmsView = view
+                                csmsMenuOpen = false
+                            })
+                        }
+                    }
+                }
+                Button(enabled = !busy, onClick = {
+                    perform("/api/v1/execute", "csms-view", JSONObject().put("view", csmsView))
+                }) { Text("Inspect") }
+            }
+            if (csmsOutput.isNotBlank()) {
+                Text(csmsOutput, style = MaterialTheme.typography.bodySmall)
+            }
         }
         if (busy) LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
         Text("Response", style = MaterialTheme.typography.titleMedium)
