@@ -9,6 +9,8 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -30,6 +32,7 @@ fun CompanionScreen(store: SecretStore) {
     var result by remember { mutableStateOf("Configure HTTPS endpoint and token") }
     var commands by remember { mutableStateOf(listOf<String>()) }
     var busy by remember { mutableStateOf(false) }
+    var settingsOpen by remember { mutableStateOf(endpoint.isBlank() || token.isBlank()) }
     val scope = rememberCoroutineScope()
 
     fun perform(path: String, command: String? = null) {
@@ -44,7 +47,7 @@ fun CompanionScreen(store: SecretStore) {
                     val entries = response.getJSONArray("commands")
                     commands = (0 until entries.length()).mapNotNull { index ->
                         val item = entries.getJSONObject(index)
-                        if (item.optBoolean("read_only") && item.optJSONObject("arguments")?.length() == 0)
+                        if (item.optBoolean("read_only") && (item.optJSONObject("arguments")?.length() ?: 0) == 0)
                             item.optString("name").takeIf { it.isNotBlank() } else null
                     }
                 }
@@ -58,20 +61,30 @@ fun CompanionScreen(store: SecretStore) {
 
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(20.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        Text("GWay Remote", style = MaterialTheme.typography.headlineMedium)
-        OutlinedTextField(endpoint, { endpoint = it }, label = { Text("HTTPS endpoint") },
-            modifier = Modifier.fillMaxWidth(), singleLine = true)
-        OutlinedTextField(token, { token = it }, label = { Text("Bearer token") },
-            visualTransformation = androidx.compose.ui.text.input.PasswordVisualTransformation(),
-            modifier = Modifier.fillMaxWidth(), singleLine = true)
-        Button(onClick = {
-            try {
-                ApiClient(endpoint.trim(), token)
-                store.endpoint = endpoint.trim()
-                store.token = token
-                result = "Connection settings saved"
-            } catch (e: Exception) { result = e.message ?: "Invalid settings" }
-        }) { Text("Save settings") }
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+            Text("GWay Remote", style = MaterialTheme.typography.headlineMedium)
+            IconButton(onClick = { settingsOpen = !settingsOpen },
+                modifier = Modifier.semantics { contentDescription = "API settings" }) {
+                Text("⚙", style = MaterialTheme.typography.headlineMedium)
+            }
+        }
+        if (settingsOpen) {
+            Text("API settings", style = MaterialTheme.typography.titleMedium)
+            OutlinedTextField(endpoint, { endpoint = it }, label = { Text("HTTPS endpoint") },
+                modifier = Modifier.fillMaxWidth(), singleLine = true)
+            OutlinedTextField(token, { token = it }, label = { Text("Bearer token") },
+                visualTransformation = androidx.compose.ui.text.input.PasswordVisualTransformation(),
+                modifier = Modifier.fillMaxWidth(), singleLine = true)
+            Button(onClick = {
+                try {
+                    ApiClient(endpoint.trim(), token)
+                    store.endpoint = endpoint.trim()
+                    store.token = token
+                    settingsOpen = false
+                    result = "Connection settings saved"
+                } catch (e: Exception) { result = e.message ?: "Invalid settings" }
+            }) { Text("Save settings") }
+        }
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             Button(enabled = !busy, onClick = { perform("/api/v1/health") }) { Text("Test") }
             Button(enabled = !busy, onClick = { perform("/api/v1/commands") }) { Text("Commands") }
