@@ -5,6 +5,7 @@ import os
 import tempfile
 import subprocess
 
+from .benchmark import echo
 from .csms_health import csms_probe
 from .status import status
 
@@ -60,6 +61,8 @@ def sound_play(arguments):
 
 
 def execute(name, arguments):
+    if name == "benchmark-echo":
+        return echo(arguments)
     if name == "sound-play":
         return sound_play(arguments)
     if name == "lcd-message":
