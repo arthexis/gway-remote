@@ -43,7 +43,7 @@ def local_api_token(*, service=SERVICE, execute=subprocess.run):
     )
     # systemctl reports entries as /path/to/file (ignore_errors=no).
     entries = result.stdout.strip()
-    paths = __import__("re").findall(r"(/[^\\s()]+)\\s*\\(ignore_errors=(?:yes|no)\\)", entries)
+    paths = re.findall(r"(/[^\s()]+)\s*\(ignore_errors=(?:yes|no)\)", entries)
     if len(paths) != 1:
         raise RuntimeError("Expected one existing mobile API EnvironmentFile")
     path = pathlib.Path(paths[0])
