@@ -1,0 +1,16 @@
+[Unit]
+Description=GWay Remote mobile API (WireGuard only)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/gway-remote api --host 10.90.0.2 --port 8765
+EnvironmentFile=%h/.config/gway-remote/mobile-api.env
+Restart=on-failure
+RestartSec=5
+NoNewPrivileges=true
+UMask=0077
+
+[Install]
+WantedBy=default.target
