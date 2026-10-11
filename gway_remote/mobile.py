@@ -1,19 +1,52 @@
-"""Explicit, read-only operations available to the mobile HTTP adapter."""
+"""Explicit mobile operations; no arbitrary shell execution."""
+from datetime import datetime, timedelta, timezone
+from pathlib import Path
+import os
+import tempfile
+
 from .csms_health import csms_probe
 from .status import status
 
-OPERATIONS = {
-    "probe-csms": csms_probe,
-    "status": status,
-}
+LCD_DIR = Path.home() / ".local" / "state" / "lcd-lockfiles"
+LCD_EVENT = "lcd-event-mobile.lck"
+
+OPERATIONS = {"probe-csms": csms_probe, "status": status}
 
 
 def commands():
-    return [{"name": name, "arguments": {}, "read_only": True}
-            for name in OPERATIONS]
+    return ([{"name": name, "arguments": {}, "read_only": True} for name in OPERATIONS]
+            + [{"name": "lcd-message", "read_only": False, "arguments": {
+                "line1": {"type": "string", "max_length": 16, "required": True},
+                "line2": {"type": "string", "max_length": 16, "required": True}}}])
+
+
+def lcd_message(arguments):
+    if not isinstance(arguments, dict) or set(arguments) != {"line1", "line2"}:
+        raise ValueError("invalid_arguments")
+    lines = [arguments["line1"], arguments["line2"]]
+    if any(not isinstance(line, str) or len(line) > 16 or
+           any(ord(char) < 32 or ord(char) > 126 for char in line) for line in lines):
+        raise ValueError("lcd_lines_must_be_16_printable_ascii_characters_or_less")
+    if not any(lines):
+        raise ValueError("lcd_message_empty")
+    # The existing gway-lcd-sound runner consumes event lockfiles and
+    # resumes its normal rotation when this timestamp expires.
+    LCD_DIR.mkdir(parents=True, exist_ok=True)
+    expires = (datetime.now(timezone.utc) + timedelta(seconds=30)).isoformat()
+    fd, name = tempfile.mkstemp(prefix=".lcd-mobile-", dir=LCD_DIR)
+    try:
+        with os.fdopen(fd, "w", encoding="ascii") as stream:
+            stream.write(f"{lines[0]}\\n{lines[1]}\\n{expires}\\n")
+        os.replace(name, LCD_DIR / LCD_EVENT)
+    finally:
+        if os.path.exists(name):
+            os.unlink(name)
+    return {"queued": True, "duration_seconds": 30}
 
 
 def execute(name, arguments):
+    if name == "lcd-message":
+        return lcd_message(arguments)
     if not isinstance(name, str) or name not in OPERATIONS:
         raise ValueError("unknown_command")
     if not isinstance(arguments, dict) or arguments:
