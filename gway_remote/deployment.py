@@ -2,7 +2,6 @@
 import json
 import os
 import pathlib
-import shutil
 import subprocess
 import tempfile
 import time
@@ -40,9 +39,6 @@ def deploy(*, token, install, execute=run, probe=health, executable=EXECUTABLE,
     runtime = pathlib.Path(runtime or f"/run/user/{os.getuid()}")
     if not (runtime / "bus").is_socket():
         raise RuntimeError("Systemd user bus unavailable")
-    env = os.environ.copy()
-    env["XDG_RUNTIME_DIR"] = str(runtime)
-    env["DBUS_SESSION_BUS_ADDRESS"] = f"unix:path={runtime}/bus"
     executable = pathlib.Path(executable)
     if not executable.is_file():
         raise RuntimeError("Installed executable is missing")
@@ -52,12 +48,13 @@ def deploy(*, token, install, execute=run, probe=health, executable=EXECUTABLE,
 
     # The caller's environment is used by subprocess commands in the workflow.
     old_runtime = {key: os.environ.get(key) for key in ("XDG_RUNTIME_DIR", "DBUS_SESSION_BUS_ADDRESS")}
-    os.environ.update({key: env[key] for key in old_runtime})
+    os.environ.update({"XDG_RUNTIME_DIR": str(runtime), "DBUS_SESSION_BUS_ADDRESS": f"unix:path={runtime}/bus"})
     try:
         systemctl("is-active", "--quiet", SERVICE)
         with tempfile.TemporaryDirectory(dir=backup_dir) as temp:
             backup = pathlib.Path(temp) / "previous"
-            shutil.copy2(executable, backup)
+            execute("sudo", "-n", "cp", "-p", str(executable), str(backup))
+            execute("sudo", "-n", "chown", f"{os.getuid()}:{os.getgid()}", str(backup))
             changed = False
             try:
                 changed = True
