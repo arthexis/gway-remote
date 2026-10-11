@@ -23,7 +23,7 @@
         that:
           - "'table inet host_security' in (firewall_original.content | b64decode)"
           - "'chain input' in (firewall_original.content | b64decode)"
-          - "(firewall_original.content | b64decode | regex_findall('(?m)^\\s*reject with icmpx admin-prohibited\\s*$') | length) == 1"
+          - "(firewall_original.content | b64decode | regex_findall('(?m)^\\s*(?:counter\\s+)?reject with icmpx(?:\\s+type)? admin-prohibited\\s*$') | length) == 1"
           - "(firewall_original.content | b64decode | regex_findall('(?m)^\\s*' ~ (gway_remote_firewall_rule | regex_escape) ~ '\\s*$') | length) <= 1"
         fail_msg: "Unexpected host-security.nft structure; inspect it before modifying."
 
@@ -31,7 +31,7 @@
       ansible.builtin.lineinfile:
         path: "{{ gway_remote_firewall_path }}"
         line: '        {{ gway_remote_firewall_rule }}'
-        insertbefore: '^\\s*reject with icmpx admin-prohibited\\s*$'
+        insertbefore: '^\\s*(?:counter\\s+)?reject with icmpx(?:\\s+type)? admin-prohibited\\s*$'
         regexp: '^\\s*iifname "gway" ip saddr 10\\.90\\.0\\.1 ip daddr 10\\.90\\.0\\.2 tcp dport 8765 accept\\s*$'
         backup: true
         validate: '/usr/sbin/nft -c -f %s'
@@ -49,7 +49,8 @@
           ansible.builtin.systemd:
             name: "{{ gway_remote_firewall_service }}"
             state: restarted
-          when: firewall_edit.changed
+          # A previous stage-only run may have changed disk but not live rules.
+          # Always activate the persistent definition when --apply is requested.
 
         - name: Verify live rule exists
           ansible.builtin.command: /usr/sbin/nft list chain inet host_security input
