@@ -1,0 +1,15 @@
+[Unit]
+Description=GWay Remote read-only mobile API (loopback)
+After=network.target
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/gway-remote api --host 127.0.0.1 --port 8765
+EnvironmentFile=%h/.config/gway-remote/mobile-api.env
+Restart=on-failure
+RestartSec=5
+NoNewPrivileges=true
+UMask=0077
+
+[Install]
+WantedBy=default.target
