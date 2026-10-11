@@ -48,14 +48,30 @@ jobs:
           test -n "$KEYSTORE" && test -n "$STORE_PASSWORD" && test -n "$KEY_ALIAS" && test -n "$KEY_PASSWORD"
           printf '%s' "$KEYSTORE" | base64 --decode > "$RUNNER_TEMP/gway-release.jks"
           chmod 600 "$RUNNER_TEMP/gway-release.jks"
-      - name: Build signed release APK
+      - name: Build release APK
+        if: github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/android-v')
+        run: gradle :app:assembleRelease --no-daemon
+      - name: Sign and verify release APK
         if: github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/android-v')
         env:
-          GWAY_APK_KEYSTORE: ${{ runner.temp }}/gway-release.jks
           GWAY_APK_STORE_PASSWORD: ${{ secrets.GWAY_APK_STORE_PASSWORD }}
           GWAY_APK_KEY_ALIAS: ${{ secrets.GWAY_APK_KEY_ALIAS }}
           GWAY_APK_KEY_PASSWORD: ${{ secrets.GWAY_APK_KEY_PASSWORD }}
-        run: gradle :app:assembleRelease --no-daemon
+        run: |
+          set -euo pipefail
+          UNSIGNED=app/build/outputs/apk/release/app-release-unsigned.apk
+          SIGNED=app/build/outputs/apk/release/app-release.apk
+          if [[ -s "$UNSIGNED" ]]; then
+            # Gradle produced an unsigned release; sign it explicitly with Android SDK.
+            APKSIGNER="$ANDROID_HOME/build-tools/35.0.0/apksigner"
+            "$APKSIGNER" sign --ks "$RUNNER_TEMP/gway-release.jks" \
+              --ks-key-alias "$GWAY_APK_KEY_ALIAS" \
+              --ks-pass env:GWAY_APK_STORE_PASSWORD \
+              --key-pass env:GWAY_APK_KEY_PASSWORD \
+              --out "$SIGNED" "$UNSIGNED"
+          fi
+          test -s "$SIGNED"
+          "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --verbose "$SIGNED"
       - name: Stage release asset
         if: github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/android-v')
         run: |
