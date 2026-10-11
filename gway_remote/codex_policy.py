@@ -26,7 +26,7 @@ def validate_request(kind: str, repository: str, issue: int, priority: str = DEF
 # GitHub issue discovery must verify the immutable numeric account ID as well
 # as the login, which may be renamed or reused.
 TRUSTED_CREATOR_LOGIN = "arthexis"
-TRUSTED_CREATOR_ID = None  # Must be pinned from GitHub before discovery is enabled.
+TRUSTED_CREATOR_ID = 780437  # Verified GitHub account ID for arthexis.
 
 
 def verify_issue_creator(issue: dict, *, trusted_id: int, trusted_login: str = TRUSTED_CREATOR_LOGIN) -> bool:
