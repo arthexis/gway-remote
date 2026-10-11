@@ -49,7 +49,7 @@ jobs:
           printf '%s' "$KEYSTORE" | base64 --decode > "$RUNNER_TEMP/gway-release.jks"
           chmod 600 "$RUNNER_TEMP/gway-release.jks"
       - name: Build signed release APK
-        if: startsWith(github.ref, 'refs/tags/android-v')
+        if: github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/android-v')
         env:
           GWAY_APK_KEYSTORE: ${{ runner.temp }}/gway-release.jks
           GWAY_APK_STORE_PASSWORD: ${{ secrets.GWAY_APK_STORE_PASSWORD }}
@@ -57,10 +57,10 @@ jobs:
           GWAY_APK_KEY_PASSWORD: ${{ secrets.GWAY_APK_KEY_PASSWORD }}
         run: gradle :app:assembleRelease --no-daemon
       - name: Stage release asset
-        if: startsWith(github.ref, 'refs/tags/android-v')
+        if: github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/android-v')
         run: cp app/build/outputs/apk/release/app-release.apk "$RUNNER_TEMP/gway-remote.apk"
       - name: Write release metadata
-        if: startsWith(github.ref, 'refs/tags/android-v')
+        if: github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/android-v')
         run: |
           CODE=$(sed -n 's/^[[:space:]]*versionCode = \([0-9][0-9]*\).*/\1/p' app/build.gradle.kts | head -1)
           test -n "$CODE"
@@ -78,11 +78,12 @@ jobs:
           fi
           echo "tag=$TAG" >> "$GITHUB_OUTPUT"
       - name: Publish GitHub Release
-        if: startsWith(github.ref, 'refs/tags/android-v')
+        if: github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/android-v')
         env:
           GH_TOKEN: ${{ github.token }}
         working-directory: .
-        run: if gh release view "${{ steps.release.outputs.tag }}" >/dev/null 2>&1; then
+        run: |
+          if gh release view "${{ steps.release.outputs.tag }}" >/dev/null 2>&1; then
             echo "Release already exists; refusing to replace signed APK" >&2
             exit 1
           fi
