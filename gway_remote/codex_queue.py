@@ -174,6 +174,38 @@ class TaskQueue:
             raise ValueError("task is not vetoed")
         return self.transition(task_id, "vetoed", "requested", "Veto explicitly lifted; approval required")
 
+    def approve(self, task_id: str):
+        """Operator-only approval; discovery cannot invoke this."""
+        return self.transition(task_id, "requested", "queued", "Approved by local operator")
+
+    def next(self):
+        """Read-only priority ordering, FIFO within each priority."""
+        row = self.db.execute(
+            "SELECT * FROM tasks WHERE state='queued' "
+            "ORDER BY CASE priority WHEN 'P0' THEN 0 WHEN 'P1' THEN 1 "
+            "WHEN 'P2' THEN 2 ELSE 3 END, created_at, id LIMIT 1"
+        ).fetchone()
+        return dict(row) if row else None
+
+    def claim_next(self):
+        """Atomically claim at most one queued task; never preempt running."""
+        self.db.execute("BEGIN IMMEDIATE")
+        try:
+            if self.db.execute("SELECT 1 FROM tasks WHERE state='running'").fetchone():
+                self.db.execute("COMMIT")
+                return None
+            task = self.next()
+            if task:
+                self.db.execute(
+                    "UPDATE tasks SET state='running', updated_at=? "
+                    "WHERE id=? AND state='queued'", (now(), task["id"])
+                )
+            self.db.execute("COMMIT")
+            return self.get(task["id"]) if task else None
+        except Exception:
+            self.db.execute("ROLLBACK")
+            raise
+
     def recover(self):
         """Mark interrupted jobs for review, never automatically retry them."""
         result = self.db.execute(
