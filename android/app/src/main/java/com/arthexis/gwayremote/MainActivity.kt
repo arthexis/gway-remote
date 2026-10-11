@@ -35,6 +35,10 @@ fun CompanionScreen(store: SecretStore) {
     var result by remember { mutableStateOf("Configure HTTPS endpoint and token") }
     var commands by remember { mutableStateOf(listOf<String>()) }
     var busy by remember { mutableStateOf(false) }
+    var simulatorExpanded by remember { mutableStateOf(false) }
+    var simulatorHost by remember { mutableStateOf("") }
+    var simulatorPort by remember { mutableStateOf("9000") }
+    var simulatorDiscovery by remember { mutableStateOf("Not checked") }
     var lcdLine1 by remember { mutableStateOf("") }
     var lcdLine2 by remember { mutableStateOf("") }
     var selectedSound by remember { mutableStateOf("notice") }
@@ -95,6 +99,7 @@ fun CompanionScreen(store: SecretStore) {
                             item.optString("name").takeIf { it.isNotBlank() } else null
                     }
                 }
+                if (command == "simulator-discover") simulatorDiscovery = response.optJSONObject("result")?.toString(2) ?: response.toString(2)
                 result = response.toString(2)
             } catch (e: Exception) {
                 result = e.message ?: "Connection failed"
@@ -186,6 +191,24 @@ fun CompanionScreen(store: SecretStore) {
             OutlinedButton(enabled = !busy, onClick = { perform("/api/v1/execute", name) }) {
                 Text(name)
             }
+        }
+        Text("OCPP Simulator", style = MaterialTheme.typography.titleMedium)
+        OutlinedButton(onClick = { simulatorExpanded = !simulatorExpanded }) {
+            Text(if (simulatorExpanded) "Ethernet target ▴" else "Ethernet target ▾")
+        }
+        if (simulatorExpanded) {
+            OutlinedTextField(simulatorHost, { simulatorHost = it },
+                label = { Text("CSMS IPv4 (blank = discover)") },
+                modifier = Modifier.fillMaxWidth(), singleLine = true)
+            OutlinedTextField(simulatorPort, { simulatorPort = it },
+                label = { Text("CSMS port") }, modifier = Modifier.fillMaxWidth(), singleLine = true)
+            Button(enabled = !busy && simulatorPort.toIntOrNull() in 1..65535,
+                onClick = {
+                    val args = JSONObject().put("port", simulatorPort.toInt())
+                    if (simulatorHost.isNotBlank()) args.put("host", simulatorHost.trim())
+                    perform("/api/v1/execute", "simulator-discover", args)
+                }) { Text("Discover / check target") }
+            Text(simulatorDiscovery, style = MaterialTheme.typography.bodySmall)
         }
         if (busy) LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
         Text("Response", style = MaterialTheme.typography.titleMedium)
