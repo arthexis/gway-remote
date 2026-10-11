@@ -3,6 +3,8 @@
 No shell, arbitrary CLI arguments, daemon, or remote process execution.
 """
 import fcntl
+import math
+import time
 import json
 import os
 from pathlib import Path
@@ -19,7 +21,8 @@ MAX_OUTPUT = 32768
 
 def _identity(pid):
     try:
-        return Path(f"/proc/{pid}/stat").read_text().rsplit(") ", 1)[1].split()[19]
+        fields = Path(f"/proc/{pid}/stat").read_text().rsplit(") ", 1)[1].split()
+        return fields[19] if fields[0] != "Z" else None
     except (OSError, IndexError):
         return None
 
@@ -34,7 +37,8 @@ def _read():
 def _alive(run):
     if not isinstance(run, dict) or type(run.get("pid")) is not int:
         return False
-    return _identity(run["pid"]) is not None and _identity(run["pid"]) == run.get("identity")
+    identity = _identity(run["pid"])
+    return identity is not None and identity == run.get("identity")
 
 
 def _lock():
@@ -49,7 +53,7 @@ def _status():
     run = _read()
     if not run:
         return {"state": "idle"}
-    return {"state": "running" if _alive(run) else "stopped",
+    return {"state": ("stopping" if run.get("stopping") else "running") if _alive(run) else "stopped",
             "pid": run["pid"], "scenario": run["scenario"], "target": run["target"]}
 
 
@@ -103,7 +107,7 @@ def start(arguments):
         if key not in arguments or (scenario == "charge" and key in ("connector", "duration")):
             continue
         value = arguments[key]
-        if isinstance(value, bool) or not isinstance(value, types) or not minimum <= value <= maximum:
+        if isinstance(value, bool) or not isinstance(value, types) or not math.isfinite(value) or not minimum <= value <= maximum:
             raise ValueError("invalid_" + key)
         args += [flag, str(value)]
     if scenario == "charge":
@@ -135,6 +139,10 @@ def start(arguments):
         temp = STATE_DIR / "run.tmp"
         temp.write_text(json.dumps(record))
         os.replace(temp, STATE_DIR / "run.json")
+        # Catch immediate argument/configuration failures before claiming success.
+        time.sleep(0.15)
+        if proc.poll() is not None:
+            return _status()
         return _status()
 
 
@@ -144,8 +152,20 @@ def stop(arguments):
     with _lock():
         run = _read()
         if _alive(run):
-            os.kill(run["pid"], signal.SIGTERM)
-            return {"state": "stopping"}
+            if run.get("stopping"):
+                return _status()
+            # Verify identity again immediately before signalling.
+            if not _alive(run):
+                return _status()
+            try:
+                os.kill(run["pid"], signal.SIGTERM)
+            except ProcessLookupError:
+                return _status()
+            run["stopping"] = True
+            temp = STATE_DIR / "run.tmp"
+            temp.write_text(json.dumps(run))
+            os.replace(temp, STATE_DIR / "run.json")
+            return _status()
         return _status()
 
 
