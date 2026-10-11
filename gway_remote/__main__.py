@@ -174,7 +174,17 @@ def main() -> None:
     report_parser = subparsers.add_parser("report-bundle", help="Export sanitized artifact report")
     report_parser.add_argument("--output", required=True)
     subparsers.add_parser("deploy-batch", help="Run eligible merged revisions once (explicit invocation)")
+    api_parser = subparsers.add_parser("api", help="Run the opt-in loopback HTTP API")
+    api_parser.add_argument("--host", default="127.0.0.1")
+    api_parser.add_argument("--port", type=int, default=8765)
     args = parser.parse_args()
+    if args.command == "api":
+        from .api import serve
+        try:
+            serve(args.host, args.port)
+        except (ValueError, OSError) as exc:
+            parser.exit(1, f"gway-remote: API unavailable: {exc}\\n")
+        return
     if args.command == "probe-csms":
         from .csms_health import csms_probe
         print(json.dumps(csms_probe(), indent=2, sort_keys=True))
