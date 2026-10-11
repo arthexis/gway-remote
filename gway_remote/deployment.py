@@ -2,6 +2,7 @@
 import json
 import os
 import pathlib
+import shlex
 import subprocess
 import tempfile
 import time
@@ -30,6 +31,37 @@ def health(token, *, attempts=15, pause=time.sleep, request=urllib.request.urlop
         if index + 1 < attempts:
             pause(1)
     raise RuntimeError("Authenticated mobile API health check failed")
+
+
+
+def local_api_token(*, service=SERVICE, execute=subprocess.run):
+    """Read the existing service's EnvironmentFile without logging credentials."""
+    result = execute(
+        ["systemctl", "--user", "show", service, "--property=EnvironmentFiles", "--value"],
+        check=True, capture_output=True, text=True,
+    )
+    # systemctl reports entries as /path/to/file (ignore_errors=no).
+    entries = result.stdout.strip()
+    paths = __import__("re").findall(r"(/[^\\s()]+)\\s*\\(ignore_errors=(?:yes|no)\\)", entries)
+    if len(paths) != 1:
+        raise RuntimeError("Expected one existing mobile API EnvironmentFile")
+    path = pathlib.Path(paths[0])
+    if not path.is_file():
+        raise RuntimeError("Mobile API EnvironmentFile unavailable")
+    values = []
+    for line in path.read_text().splitlines():
+        line = line.strip()
+        if not line or line.startswith("#"):
+            continue
+        parts = shlex.split(line, comments=True)
+        if len(parts) != 1 or "=" not in parts[0]:
+            continue
+        key, value = parts[0].split("=", 1)
+        if key == "GWAY_REMOTE_API_TOKEN":
+            values.append(value)
+    if len(values) != 1 or not values[0]:
+        raise RuntimeError("Existing mobile API credential unavailable or ambiguous")
+    return values[0]
 
 
 def deploy(*, token, install, execute=run, probe=health, executable=EXECUTABLE,
