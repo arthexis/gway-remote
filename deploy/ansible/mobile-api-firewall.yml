@@ -1,0 +1,78 @@
+---
+# Opt-in GWay-001 host firewall integration; does not install another firewall service.
+# Run with: ansible-playbook -i 'gway-001,' -u arthe --become \
+#   deploy/ansible/mobile-api-firewall.yml
+# To activate immediately, add -e gway_remote_apply_firewall=true.
+- name: Persist private mobile API ingress on GWay-001
+  hosts: all
+  become: true
+  gather_facts: false
+  vars:
+    gway_remote_firewall_path: /etc/nftables.d/host-security.nft
+    gway_remote_firewall_service: host-security-firewall.service
+    gway_remote_apply_firewall: false
+    gway_remote_firewall_rule: 'iifname "gway" ip saddr 10.90.0.1 ip daddr 10.90.0.2 tcp dport 8765 accept'
+  tasks:
+    - name: Read existing host firewall definition
+      ansible.builtin.slurp:
+        src: "{{ gway_remote_firewall_path }}"
+      register: firewall_original
+
+    - name: Refuse unknown host firewall layout
+      ansible.builtin.assert:
+        that:
+          - "'table inet host_security' in (firewall_original.content | b64decode)"
+          - "'chain input' in (firewall_original.content | b64decode)"
+          - "(firewall_original.content | b64decode | regex_findall('(?m)^\\s*reject with icmpx admin-prohibited\\s*$') | length) == 1"
+          - "(firewall_original.content | b64decode | regex_findall('(?m)^\\s*' ~ (gway_remote_firewall_rule | regex_escape) ~ '\\s*$') | length) <= 1"
+        fail_msg: "Unexpected host-security.nft structure; inspect it before modifying."
+
+    - name: Persist narrow WireGuard ingress before terminal reject
+      ansible.builtin.lineinfile:
+        path: "{{ gway_remote_firewall_path }}"
+        line: '        {{ gway_remote_firewall_rule }}'
+        insertbefore: '^\\s*reject with icmpx admin-prohibited\\s*$'
+        regexp: '^\\s*iifname "gway" ip saddr 10\\.90\\.0\\.1 ip daddr 10\\.90\\.0\\.2 tcp dport 8765 accept\\s*$'
+        backup: true
+        validate: '/usr/sbin/nft -c -f %s'
+      register: firewall_edit
+
+    - name: Explain staged firewall change
+      ansible.builtin.debug:
+        msg: "Rule is persistent on disk. Live firewall unchanged until explicit apply or service restart."
+      when: firewall_edit.changed and not (gway_remote_apply_firewall | bool)
+
+    - name: Apply through existing firewall owner when explicitly requested
+      when: gway_remote_apply_firewall | bool
+      block:
+        - name: Restart existing host security firewall
+          ansible.builtin.systemd:
+            name: "{{ gway_remote_firewall_service }}"
+            state: restarted
+          when: firewall_edit.changed
+
+        - name: Verify live rule exists
+          ansible.builtin.command: /usr/sbin/nft list chain inet host_security input
+          register: live_input
+          changed_when: false
+
+        - name: Verify only the intended private ingress is installed
+          ansible.builtin.assert:
+            that:
+              - "'iifname \"gway\" ip saddr 10.90.0.1 ip daddr 10.90.0.2 tcp dport 8765 accept' in live_input.stdout"
+      rescue:
+        - name: Restore original firewall file if this run edited it
+          ansible.builtin.copy:
+            dest: "{{ gway_remote_firewall_path }}"
+            content: "{{ firewall_original.content | b64decode }}"
+          when: firewall_edit.changed
+
+        - name: Reload original host firewall rules
+          ansible.builtin.systemd:
+            name: "{{ gway_remote_firewall_service }}"
+            state: restarted
+          when: firewall_edit.changed
+
+        - name: Fail deployment after rollback
+          ansible.builtin.fail:
+            msg: "Firewall apply/verification failed; attempted restoration of original rules."
