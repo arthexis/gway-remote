@@ -15,6 +15,7 @@ import socket
 import subprocess
 import threading
 import time
+import logging
 
 
 def default_socket() -> Path:
@@ -47,6 +48,13 @@ def serve(path: Path) -> None:
         raise RuntimeError(f"Socket path already exists: {path}")
     started = time.monotonic()
     stop = threading.Event()
+    # Polling is enabled only when the worker has an explicitly provisioned
+    # read-only GitHub token. Never log token contents.
+    token = os.environ.get("GITHUB_TOKEN", "")
+    interval = int(os.environ.get("GWAY_CODEX_POLL_SECONDS", "300"))
+    if interval < 60:
+        raise ValueError("poll interval must be at least 60 seconds")
+    next_poll = time.monotonic() if token else float("inf")
 
     def shutdown(_signum, _frame):
         stop.set()
@@ -63,6 +71,15 @@ def serve(path: Path) -> None:
         server.settimeout(0.5)
         try:
             while not stop.is_set():
+                if token and time.monotonic() >= next_poll:
+                    next_poll = time.monotonic() + interval
+                    try:
+                        from .codex_queue import TaskQueue, default_db
+                        from .codex_discovery import discover
+                        with TaskQueue(default_db()) as queue:
+                            discover(queue, token)
+                    except Exception as exc:
+                        logging.warning("Codex discovery failed: %s", type(exc).__name__)
                 try:
                     client, _ = server.accept()
                 except socket.timeout:
