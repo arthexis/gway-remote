@@ -1,6 +1,9 @@
 package com.arthexis.gwayremote
 
 import android.os.Bundle
+import android.content.ClipData
+import android.content.ClipboardManager
+import android.content.Context
 import androidx.compose.ui.platform.LocalContext
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -39,6 +42,15 @@ fun CompanionScreen(store: SecretStore) {
     var simulatorHost by remember { mutableStateOf("") }
     var simulatorPort by remember { mutableStateOf("9000") }
     var simulatorDiscovery by remember { mutableStateOf("Not checked") }
+    var simulatorPeers by remember { mutableStateOf(listOf<String>()) }
+    var simulatorPeerMenu by remember { mutableStateOf(false) }
+    var simulatorStatus by remember { mutableStateOf("Not checked") }
+    var simulatorOutput by remember { mutableStateOf("") }
+    var simulatorTruncated by remember { mutableStateOf(false) }
+    var simulatorResultsLoaded by remember { mutableStateOf(false) }
+    var simulatorResultsError by remember { mutableStateOf("") }
+    var simulatorOutcome by remember { mutableStateOf("unknown") }
+    var simulatorExitCode by remember { mutableStateOf("") }
     var lcdLine1 by remember { mutableStateOf("") }
     var lcdLine2 by remember { mutableStateOf("") }
     var selectedSound by remember { mutableStateOf("notice") }
@@ -99,11 +111,40 @@ fun CompanionScreen(store: SecretStore) {
                             item.optString("name").takeIf { it.isNotBlank() } else null
                     }
                 }
-                if (command == "simulator-discover") simulatorDiscovery = response.optJSONObject("result")?.toString(2) ?: response.toString(2)
+                if (command == "simulator-results") {
+                    val data = response.optJSONObject("result")
+                    if (data == null) {
+                        simulatorResultsError = "Invalid results response"
+                    } else {
+                        simulatorOutput = data.optString("output", "")
+                        simulatorTruncated = data.optBoolean("truncated", false)
+                        simulatorResultsLoaded = true
+                        simulatorOutcome = data.optString("outcome", "unknown")
+                        simulatorExitCode = if (data.has("exit_code")) data.optInt("exit_code").toString() else ""
+                        simulatorResultsError = ""
+                        simulatorStatus = "${data.optString("state", "unknown")} — " +
+                            data.optString("target", "")
+                    }
+                }
+                if (command == "simulator-discover") {
+                    val data = response.optJSONObject("result")
+                    val peers = data?.optJSONArray("peers")
+                    simulatorPeers = if (peers == null) emptyList() else
+                        (0 until peers.length()).mapNotNull { index ->
+                            peers.optJSONObject(index)?.optString("host")?.takeIf { it.isNotBlank() }
+                        }
+                    simulatorDiscovery = "Discovered Ethernet peers: ${simulatorPeers.size}"
+                }
+                if (command == "simulator-status" || command == "simulator-start" || command == "simulator-stop") {
+                    val data = response.optJSONObject("result")
+                    simulatorStatus = "${data?.optString("state") ?: "unknown"} — " +
+                        (data?.optString("target") ?: "")
+                }
                 result = response.toString(2)
             } catch (e: Exception) {
                 result = e.message ?: "Connection failed"
                 if (path.endsWith("/commands")) commands = emptyList()
+                if (command == "simulator-results") simulatorResultsError = e.message ?: "Results unavailable"
             } finally { busy = false }
         }
     }
@@ -196,7 +237,26 @@ fun CompanionScreen(store: SecretStore) {
         OutlinedButton(onClick = { simulatorExpanded = !simulatorExpanded }) {
             Text(if (simulatorExpanded) "Ethernet target ▴" else "Ethernet target ▾")
         }
+        LaunchedEffect(simulatorExpanded, endpoint, token) {
+            if (simulatorExpanded && endpoint.isNotBlank() && token.isNotBlank()) {
+                try {
+                    val response = withContext(Dispatchers.IO) {
+                        ApiClient(endpoint.trim(), token).request(
+                            "/api/v1/execute", "simulator-status")
+                    }
+                    val data = response.optJSONObject("result")
+                    simulatorStatus = "${data?.optString("state") ?: "unknown"} — " +
+                        (data?.optString("target") ?: "")
+                } catch (e: Exception) {
+                    simulatorStatus = e.message ?: "Status unavailable"
+                }
+            }
+        }
         if (simulatorExpanded) {
+            Text("Simulation: $simulatorStatus")
+            OutlinedButton(enabled = !busy, onClick = {
+                perform("/api/v1/execute", "simulator-status")
+            }) { Text("Refresh status") }
             OutlinedTextField(simulatorHost, { simulatorHost = it },
                 label = { Text("CSMS IPv4 (blank = discover)") },
                 modifier = Modifier.fillMaxWidth(), singleLine = true)
@@ -209,6 +269,73 @@ fun CompanionScreen(store: SecretStore) {
                     perform("/api/v1/execute", "simulator-discover", args)
                 }) { Text("Discover / check target") }
             Text(simulatorDiscovery, style = MaterialTheme.typography.bodySmall)
+            if (simulatorPeers.isNotEmpty()) {
+                Box {
+                    OutlinedButton(onClick = { simulatorPeerMenu = true }) {
+                        Text("Select discovered target ▾")
+                    }
+                    DropdownMenu(expanded = simulatorPeerMenu,
+                        onDismissRequest = { simulatorPeerMenu = false }) {
+                        simulatorPeers.forEach { peer ->
+                            DropdownMenuItem(text = { Text(peer) }, onClick = {
+                                simulatorHost = peer
+                                simulatorPeerMenu = false
+                            })
+                        }
+                    }
+                }
+            }
+            SimulatorControls(simulatorHost, simulatorPort, simulatorStatus, busy) { command, args ->
+                perform("/api/v1/execute", command, args)
+            }
+            HorizontalDivider()
+            Text("Simulation results", style = MaterialTheme.typography.titleMedium)
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Button(enabled = !busy, onClick = {
+                    perform("/api/v1/execute", "simulator-results")
+                }) { Text("Refresh results") }
+                OutlinedButton(enabled = simulatorResultsLoaded && simulatorOutput.isNotEmpty(),
+                    onClick = {
+                        val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                        clipboard.setPrimaryClip(ClipData.newPlainText("Simulator output", simulatorOutput))
+                    }) { Text("Copy output") }
+            }
+            if (simulatorResultsError.isNotBlank()) {
+                Text(simulatorResultsError, color = MaterialTheme.colorScheme.error)
+            }
+            if (simulatorResultsLoaded) {
+                Text("Process: $simulatorStatus")
+                if (simulatorStatus.startsWith("stopped")) {
+                    Text(when (simulatorOutcome) {
+                        "completed" -> "Completed successfully (exit 0)"
+                        "failed" -> "Failed (exit $simulatorExitCode)"
+                        else -> "Stopped — completion outcome unavailable"
+                    })
+                }
+                if (simulatorTruncated) {
+                    Text("Output truncated to last 32 KB", color = MaterialTheme.colorScheme.error)
+                }
+                Text("OCPP activity (best-effort from log)",
+                    style = MaterialTheme.typography.titleSmall)
+                val milestones = remember(simulatorOutput, simulatorTruncated) {
+                    SimulatorActivitySummary.parse(simulatorOutput, simulatorTruncated)
+                }
+                if (milestones.isEmpty()) {
+                    Text("No recognizable OCPP milestones in captured output.")
+                } else {
+                    milestones.forEach { milestone ->
+                        Text("${milestone.label}: ${milestone.evidence}",
+                            style = MaterialTheme.typography.bodySmall)
+                    }
+                }
+                Text("Raw output", style = MaterialTheme.typography.titleSmall)
+                Text(if (simulatorOutput.isEmpty()) "No output captured" else simulatorOutput,
+                    style = MaterialTheme.typography.bodySmall,
+                    modifier = Modifier.fillMaxWidth().heightIn(max = 320.dp)
+                        .verticalScroll(rememberScrollState()))
+            } else {
+                Text("Refresh to load captured simulator output.")
+            }
         }
         if (busy) LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
         Text("Response", style = MaterialTheme.typography.titleMedium)

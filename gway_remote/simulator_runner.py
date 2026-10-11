@@ -3,12 +3,16 @@
 No shell, arbitrary CLI arguments, daemon, or remote process execution.
 """
 import fcntl
+import math
+import time
 import json
 import os
 from pathlib import Path
 import shutil
 import signal
 import subprocess
+import sys
+import uuid
 
 from .simulator_network import _networks, _on_link
 
@@ -19,7 +23,8 @@ MAX_OUTPUT = 32768
 
 def _identity(pid):
     try:
-        return Path(f"/proc/{pid}/stat").read_text().rsplit(") ", 1)[1].split()[19]
+        fields = Path(f"/proc/{pid}/stat").read_text().rsplit(") ", 1)[1].split()
+        return fields[19] if fields[0] != "Z" else None
     except (OSError, IndexError):
         return None
 
@@ -34,7 +39,8 @@ def _read():
 def _alive(run):
     if not isinstance(run, dict) or type(run.get("pid")) is not int:
         return False
-    return _identity(run["pid"]) is not None and _identity(run["pid"]) == run.get("identity")
+    identity = _identity(run["pid"])
+    return identity is not None and identity == run.get("identity")
 
 
 def _lock():
@@ -49,8 +55,22 @@ def _status():
     run = _read()
     if not run:
         return {"state": "idle"}
-    return {"state": "running" if _alive(run) else "stopped",
-            "pid": run["pid"], "scenario": run["scenario"], "target": run["target"]}
+    active = _alive(run)
+    state = ("stopping" if run.get("stopping") else "running") if active else "stopped"
+    result = {"state": state, "pid": run["pid"],
+              "scenario": run["scenario"], "target": run["target"]}
+    if not active:
+        if run.get("run_id"):
+            try:
+                exit_record = json.loads((STATE_DIR / ("exit-" + run["run_id"] + ".json")).read_text())
+                run["exit_code"] = exit_record["exit_code"]
+            except (OSError, ValueError, KeyError, TypeError):
+                pass
+        result["outcome"] = "unknown"
+        if run.get("exit_code") is not None:
+            result["exit_code"] = run["exit_code"]
+            result["outcome"] = "completed" if run["exit_code"] == 0 else "failed"
+    return result
 
 
 def status(arguments):
@@ -103,7 +123,7 @@ def start(arguments):
         if key not in arguments or (scenario == "charge" and key in ("connector", "duration")):
             continue
         value = arguments[key]
-        if isinstance(value, bool) or not isinstance(value, types) or not minimum <= value <= maximum:
+        if isinstance(value, bool) or not isinstance(value, types) or not math.isfinite(value) or not minimum <= value <= maximum:
             raise ValueError("invalid_" + key)
         args += [flag, str(value)]
     if scenario == "charge":
@@ -120,21 +140,30 @@ def start(arguments):
         raise RuntimeError("simulator_not_installed")
     args[0] = executable
     with _lock():
-        if _status()["state"] == "running":
+        if _status()["state"] in ("running", "stopping"):
             raise ValueError("simulator_already_running")
+        run_id = uuid.uuid4().hex
         log = STATE_DIR / "output.log"
         with log.open("wb") as output:
-            proc = subprocess.Popen(args, stdin=subprocess.DEVNULL, stdout=output,
+            proc = subprocess.Popen([sys.executable, "-m", "gway_remote.simulator_exit_monitor",
+                                     str(STATE_DIR), run_id, *args],
+                                    stdin=subprocess.DEVNULL, stdout=output,
                                     stderr=subprocess.STDOUT, start_new_session=True,
                                     close_fds=True)
         identity = _identity(proc.pid)
         if identity is None:
             raise RuntimeError("simulator_start_failed")
-        record = {"pid": proc.pid, "identity": identity, "scenario": scenario,
+        record = {"pid": proc.pid, "identity": identity, "run_id": run_id, "scenario": scenario,
                   "target": f"{host}:{port}", "args": args[1:]}
         temp = STATE_DIR / "run.tmp"
         temp.write_text(json.dumps(record))
         os.replace(temp, STATE_DIR / "run.json")
+        # Catch immediate argument/configuration failures before claiming success.
+        time.sleep(0.15)
+        if proc.poll() is not None:
+            # The monitor's exit code is not the simulator's exit code.
+            # Its per-run exit record is the only authoritative outcome.
+            return {**_status(), "error": "simulator_exited_early"}
         return _status()
 
 
@@ -144,8 +173,20 @@ def stop(arguments):
     with _lock():
         run = _read()
         if _alive(run):
-            os.kill(run["pid"], signal.SIGTERM)
-            return {"state": "stopping"}
+            if run.get("stopping"):
+                return _status()
+            # Verify identity again immediately before signalling.
+            if not _alive(run):
+                return _status()
+            try:
+                os.kill(run["pid"], signal.SIGTERM)
+            except ProcessLookupError:
+                return _status()
+            run["stopping"] = True
+            temp = STATE_DIR / "run.tmp"
+            temp.write_text(json.dumps(run))
+            os.replace(temp, STATE_DIR / "run.json")
+            return _status()
         return _status()
 
 
