@@ -16,16 +16,16 @@ android {
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
     val keyStorePath = System.getenv("GWAY_APK_KEYSTORE")
-    val keyAlias = System.getenv("GWAY_APK_KEY_ALIAS")
-    val keyPassword = System.getenv("GWAY_APK_KEY_PASSWORD")
-    val storePassword = System.getenv("GWAY_APK_STORE_PASSWORD")
-    if (listOf(keyStorePath, keyAlias, keyPassword, storePassword).all { !it.isNullOrBlank() }) {
+    val signingAlias = System.getenv("GWAY_APK_KEY_ALIAS")
+    val signingPassword = System.getenv("GWAY_APK_KEY_PASSWORD")
+    val signingStorePassword = System.getenv("GWAY_APK_STORE_PASSWORD")
+    if (listOf(keyStorePath, signingAlias, signingPassword, signingStorePassword).all { !it.isNullOrBlank() }) {
         signingConfigs {
             create("distribution") {
                 storeFile = file(keyStorePath!!)
-                storePassword = storePassword
-                this.keyAlias = keyAlias
-                this.keyPassword = keyPassword
+                storePassword = signingStorePassword
+                keyAlias = signingAlias
+                keyPassword = signingPassword
             }
         }
     }
