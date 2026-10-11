@@ -3,19 +3,23 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 import os
 import tempfile
+import subprocess
 
 from .csms_health import csms_probe
 from .status import status
 
 LCD_DIR = Path.home() / ".local" / "state" / "lcd-lockfiles"
 LCD_EVENT = "lcd-event-mobile.lck"
+SOUNDS = ("ok", "notice", "attention", "warning", "error", "busy", "critical")
 
 OPERATIONS = {"probe-csms": csms_probe, "status": status}
 
 
 def commands():
     return ([{"name": name, "arguments": {}, "read_only": True} for name in OPERATIONS]
-            + [{"name": "lcd-message", "read_only": False, "arguments": {
+            + [{"name": "sound-play", "read_only": False, "arguments": {
+                "sound": {"type": "choice", "choices": list(SOUNDS), "required": True}}},
+               {"name": "lcd-message", "read_only": False, "arguments": {
                 "line1": {"type": "string", "max_length": 16, "required": True},
                 "line2": {"type": "string", "max_length": 16, "required": True}}}])
 
@@ -44,7 +48,20 @@ def lcd_message(arguments):
     return {"queued": True, "duration_seconds": 30}
 
 
+def sound_play(arguments):
+    if not isinstance(arguments, dict) or set(arguments) != {"sound"} or arguments["sound"] not in SOUNDS:
+        raise ValueError("invalid_sound")
+    try:
+        subprocess.run(["/usr/local/bin/sound", arguments["sound"]], check=True,
+                       timeout=8, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    except (OSError, subprocess.CalledProcessError, subprocess.TimeoutExpired):
+        raise RuntimeError("sound_play_failed")
+    return {"played": arguments["sound"]}
+
+
 def execute(name, arguments):
+    if name == "sound-play":
+        return sound_play(arguments)
     if name == "lcd-message":
         return lcd_message(arguments)
     if not isinstance(name, str) or name not in OPERATIONS:
