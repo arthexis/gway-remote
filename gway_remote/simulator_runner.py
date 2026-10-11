@@ -53,8 +53,16 @@ def _status():
     run = _read()
     if not run:
         return {"state": "idle"}
-    return {"state": ("stopping" if run.get("stopping") else "running") if _alive(run) else "stopped",
-            "pid": run["pid"], "scenario": run["scenario"], "target": run["target"]}
+    active = _alive(run)
+    state = ("stopping" if run.get("stopping") else "running") if active else "stopped"
+    result = {"state": state, "pid": run["pid"],
+              "scenario": run["scenario"], "target": run["target"]}
+    if not active:
+        result["outcome"] = "unknown"
+        if run.get("exit_code") is not None:
+            result["exit_code"] = run["exit_code"]
+            result["outcome"] = "completed" if run["exit_code"] == 0 else "failed"
+    return result
 
 
 def status(arguments):
@@ -124,7 +132,7 @@ def start(arguments):
         raise RuntimeError("simulator_not_installed")
     args[0] = executable
     with _lock():
-        if _status()["state"] == "running":
+        if _status()["state"] in ("running", "stopping"):
             raise ValueError("simulator_already_running")
         log = STATE_DIR / "output.log"
         with log.open("wb") as output:
@@ -142,7 +150,10 @@ def start(arguments):
         # Catch immediate argument/configuration failures before claiming success.
         time.sleep(0.15)
         if proc.poll() is not None:
-            return {**_status(), "exit_code": proc.returncode, "error": "simulator_exited_early"}
+            record["exit_code"] = proc.returncode
+            temp.write_text(json.dumps(record))
+            os.replace(temp, STATE_DIR / "run.json")
+            return {**_status(), "error": "simulator_exited_early"}
         return _status()
 
 
