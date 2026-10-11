@@ -4,7 +4,7 @@ from datetime import datetime, timedelta, timezone
 
 from .reconcile import TARGETS
 
-QUIET_PERIOD = timedelta(minutes=20)
+QUIET_PERIOD = timedelta(minutes=10)
 
 
 @dataclass(frozen=True)

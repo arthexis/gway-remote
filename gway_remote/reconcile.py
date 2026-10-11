@@ -10,7 +10,7 @@ from enum import Enum
 import re
 from typing import Sequence
 
-QUIET_PERIOD = timedelta(minutes=20)
+QUIET_PERIOD = timedelta(minutes=10)
 TARGETS = (
     ("ocpp-csms", "arthexis/ocpp-csms"),
     ("ocpp-simulator", "arthexis/ocpp-simulator"),
