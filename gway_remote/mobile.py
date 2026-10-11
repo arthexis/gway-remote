@@ -40,7 +40,7 @@ def lcd_message(arguments):
     fd, name = tempfile.mkstemp(prefix=".lcd-mobile-", dir=LCD_DIR)
     try:
         with os.fdopen(fd, "w", encoding="ascii") as stream:
-            stream.write(f"{lines[0]}\\n{lines[1]}\\n{expires}\\n")
+            stream.write(f"{lines[0]}\n{lines[1]}\n{expires}\n")
         os.replace(name, LCD_DIR / LCD_EVENT)
     finally:
         if os.path.exists(name):
