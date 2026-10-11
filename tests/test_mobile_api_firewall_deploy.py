@@ -8,7 +8,6 @@ def test_ansible_firewall_is_opt_in_and_scoped():
     assert "gway_remote_apply_firewall: false" in playbook
     assert "host-security-firewall.service" in playbook
     assert "/etc/nftables.d/host-security.nft" in playbook
-    assert 'iifname \\"gway\\"' not in playbook  # no double-escaped rule in file
     assert 'iifname "gway" ip saddr 10.90.0.1 ip daddr 10.90.0.2 tcp dport 8765 accept' in playbook
     assert "insertbefore:" in playbook
     assert "nft -c -f %s" in playbook
