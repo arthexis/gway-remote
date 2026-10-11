@@ -175,14 +175,29 @@ def main() -> None:
     report_parser.add_argument("--output", required=True)
     subparsers.add_parser("deploy-batch", help="Run eligible merged revisions once (explicit invocation)")
     worker_parser = subparsers.add_parser("codex", aliases=["codex-worker"], help="Codex worker and task inspection")
-    worker_parser.add_argument("action", choices=("serve", "status", "tasks", "task"))
+    worker_parser.add_argument("action", choices=("serve", "status", "tasks", "task", "submit"))
     worker_parser.add_argument("task_id", nargs="?")
     worker_parser.add_argument("--socket", default=None)
+    worker_parser.add_argument("--repo", default=None)
+    worker_parser.add_argument("--issue", type=int, default=None)
+    worker_parser.add_argument("--kind", default=None)
+    worker_parser.add_argument("--priority", default="P2")
     api_parser = subparsers.add_parser("api", help="Run the opt-in loopback HTTP API")
     api_parser.add_argument("--host", default="127.0.0.1")
     api_parser.add_argument("--port", type=int, default=8765)
     args = parser.parse_args()
     if args.command in ("codex", "codex-worker"):
+        if args.action == "submit":
+            if args.task_id or not args.repo or args.issue is None or not args.kind:
+                parser.error("codex submit requires --repo, --issue and --kind")
+            from .codex_queue import TaskQueue, default_db
+            try:
+                with TaskQueue(default_db()) as queue:
+                    result = queue.admit(args.kind, args.repo, args.issue, args.priority)
+            except ValueError as exc:
+                parser.exit(1, f"gway-remote: admission rejected: {exc}\\n")
+            print(json.dumps(result, indent=2, sort_keys=True))
+            return
         if args.action in ("tasks", "task"):
             from .codex_queue import TaskQueue, default_db
             if args.action == "task" and not args.task_id:
