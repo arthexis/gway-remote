@@ -1,6 +1,9 @@
 package com.arthexis.gwayremote
 
 import android.os.Bundle
+import android.content.ClipData
+import android.content.ClipboardManager
+import android.content.Context
 import androidx.compose.ui.platform.LocalContext
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -42,6 +45,10 @@ fun CompanionScreen(store: SecretStore) {
     var simulatorPeers by remember { mutableStateOf(listOf<String>()) }
     var simulatorPeerMenu by remember { mutableStateOf(false) }
     var simulatorStatus by remember { mutableStateOf("Not checked") }
+    var simulatorOutput by remember { mutableStateOf("") }
+    var simulatorTruncated by remember { mutableStateOf(false) }
+    var simulatorResultsLoaded by remember { mutableStateOf(false) }
+    var simulatorResultsError by remember { mutableStateOf("") }
     var lcdLine1 by remember { mutableStateOf("") }
     var lcdLine2 by remember { mutableStateOf("") }
     var selectedSound by remember { mutableStateOf("notice") }
@@ -102,6 +109,19 @@ fun CompanionScreen(store: SecretStore) {
                             item.optString("name").takeIf { it.isNotBlank() } else null
                     }
                 }
+                if (command == "simulator-results") {
+                    val data = response.optJSONObject("result")
+                    if (data == null) {
+                        simulatorResultsError = "Invalid results response"
+                    } else {
+                        simulatorOutput = data.optString("output", "")
+                        simulatorTruncated = data.optBoolean("truncated", false)
+                        simulatorResultsLoaded = true
+                        simulatorResultsError = ""
+                        simulatorStatus = "${data.optString("state", "unknown")} — " +
+                            data.optString("target", "")
+                    }
+                }
                 if (command == "simulator-discover") {
                     val data = response.optJSONObject("result")
                     val peers = data?.optJSONArray("peers")
@@ -120,6 +140,7 @@ fun CompanionScreen(store: SecretStore) {
             } catch (e: Exception) {
                 result = e.message ?: "Connection failed"
                 if (path.endsWith("/commands")) commands = emptyList()
+                if (command == "simulator-results") simulatorResultsError = e.message ?: "Results unavailable"
             } finally { busy = false }
         }
     }
@@ -262,6 +283,33 @@ fun CompanionScreen(store: SecretStore) {
             }
             SimulatorControls(simulatorHost, simulatorPort, simulatorStatus, busy) { command, args ->
                 perform("/api/v1/execute", command, args)
+            }
+            HorizontalDivider()
+            Text("Simulation results", style = MaterialTheme.typography.titleMedium)
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Button(enabled = !busy, onClick = {
+                    perform("/api/v1/execute", "simulator-results")
+                }) { Text("Refresh results") }
+                OutlinedButton(enabled = simulatorResultsLoaded && simulatorOutput.isNotEmpty(),
+                    onClick = {
+                        val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                        clipboard.setPrimaryClip(ClipData.newPlainText("Simulator output", simulatorOutput))
+                    }) { Text("Copy output") }
+            }
+            if (simulatorResultsError.isNotBlank()) {
+                Text(simulatorResultsError, color = MaterialTheme.colorScheme.error)
+            }
+            if (simulatorResultsLoaded) {
+                Text("Process: $simulatorStatus")
+                if (simulatorTruncated) {
+                    Text("Output truncated to last 32 KB", color = MaterialTheme.colorScheme.error)
+                }
+                Text(if (simulatorOutput.isEmpty()) "No output captured" else simulatorOutput,
+                    style = MaterialTheme.typography.bodySmall,
+                    modifier = Modifier.fillMaxWidth().heightIn(max = 320.dp)
+                        .verticalScroll(rememberScrollState()))
+            } else {
+                Text("Refresh to load captured simulator output.")
             }
         }
         if (busy) LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
