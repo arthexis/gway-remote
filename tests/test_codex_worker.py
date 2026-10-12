@@ -18,6 +18,13 @@ class CodexWorkerTests(unittest.TestCase):
         self.assertTrue(value["task_execution_enabled"])
         self.assertGreaterEqual(value["uptime_seconds"], 5)
 
+    def test_executing_status_exposes_task(self):
+        with patch.object(codex_worker, "codex_available", return_value=True):
+            value = codex_worker.status(time.monotonic(), executing=True, task_id="task-42")
+        self.assertEqual(value["state"], "executing")
+        self.assertEqual(value["active_task_id"], "task-42")
+        self.assertTrue(value["task_execution_enabled"])
+
     def test_default_socket_uses_runtime_dir(self):
         with patch.dict("os.environ", {"XDG_RUNTIME_DIR": "/run/user/1000"}):
             self.assertEqual(str(codex_worker.default_socket()), "/run/user/1000/gway-codex-worker.sock")
