@@ -152,12 +152,14 @@ fun CompanionScreen(store: SecretStore) {
         updating = true
         updateStatus = "Downloading and verifying…"
         scope.launch {
+            var downloaded = false
             try {
                 apk = withContext(Dispatchers.IO) { AppUpdater.download(context, candidate) }
                 updateStatus = "Download verified; ready to install"
-                requestInstall()
+                downloaded = true
             } catch (e: Exception) { updateStatus = e.message ?: "Update failed" }
             finally { updating = false }
+            if (downloaded) requestInstall()
         }
     }
     LaunchedEffect(Unit) { checkUpdates() }
