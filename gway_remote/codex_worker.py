@@ -30,10 +30,11 @@ def codex_available() -> bool:
     return shutil.which("codex") is not None
 
 
-def status(started: float) -> dict:
+def status(started: float, *, executing: bool = False, task_id: str | None = None) -> dict:
     return {
         "service": "gway-codex-worker",
-        "state": "idle",
+        "state": "executing" if executing else "idle",
+        "active_task_id": task_id,
         "uptime_seconds": int(time.monotonic() - started),
         "codex_available": codex_available(),
         "task_execution_enabled": True,
@@ -59,6 +60,25 @@ def serve(path: Path) -> None:
         raise ValueError("poll interval must be at least 60 seconds")
     next_poll = time.monotonic() if token else float("inf")
     next_execution = time.monotonic()
+    execution_lock = threading.Lock()
+    execution_thread: threading.Thread | None = None
+    active_task_id: str | None = None
+
+    def execute_one() -> None:
+        nonlocal active_task_id
+        def on_claim(task_id: str) -> None:
+            nonlocal active_task_id
+            with execution_lock:
+                active_task_id = task_id
+        try:
+            from .codex_executor import run_once
+            run_once(token=token, on_claim=on_claim)
+        except Exception as exc:
+            logging.warning("Codex execution failed: %s", type(exc).__name__)
+        finally:
+            with execution_lock:
+                active_task_id = None
+
 
     def shutdown(_signum, _frame):
         stop.set()
@@ -86,19 +106,26 @@ def serve(path: Path) -> None:
                         logging.warning("Codex discovery failed: %s", type(exc).__name__)
                 if time.monotonic() >= next_execution:
                     next_execution = time.monotonic() + 5
-                    try:
-                        from .codex_executor import run_once
-                        run_once(token=token)
-                    except Exception as exc:
-                        logging.warning("Codex execution failed: %s", type(exc).__name__)
+                    if execution_thread is None or not execution_thread.is_alive():
+                        execution_thread = threading.Thread(
+                            target=execute_one, name="codex-executor", daemon=False
+                        )
+                        execution_thread.start()
                 try:
                     client, _ = server.accept()
                 except socket.timeout:
                     continue
                 with client:
                     client.settimeout(2)
-                    client.sendall((json.dumps(status(started)) + "\n").encode())
+                    with execution_lock:
+                        active = active_task_id
+                    running = execution_thread is not None and execution_thread.is_alive()
+                    client.sendall((json.dumps(status(
+                        started, executing=running, task_id=active
+                    )) + "\n").encode())
         finally:
+            if execution_thread is not None:
+                execution_thread.join()
             path.unlink(missing_ok=True)
 
 
