@@ -1,46 +1,15 @@
-name: Update Gway-001 mobile API
-
+# Legacy updater retained for historical reference. Superseded by deploy-backend.yml.
+# No push trigger or runner job: only the post-CI workflow owns deployment.
+name: Legacy Gway-001 mobile API updater (disabled)
 on:
-  push:
-    branches: [main]
-    paths:
-      - 'gway_remote/**'
-      - 'scripts/install-cli.sh'
-      - '.github/workflows/update-gway-001.yml'
   workflow_dispatch:
 
 permissions:
   contents: read
 
-concurrency:
-  group: gway-001-mobile-api-update
-  cancel-in-progress: false
-
 jobs:
-  update:
-    # Never execute untrusted pull-request code on the appliance.
-    if: github.repository == 'arthexis/gway-remote' && (github.event_name == 'push' || github.actor == 'arthexis')
-    runs-on: [self-hosted, Linux, ARM64, gway-001]
-    timeout-minutes: 10
+  disabled:
+    if: ${{ false }}
+    runs-on: ubuntu-latest
     steps:
-      - name: Check out approved main revision
-        uses: actions/checkout@v4
-        with:
-          ref: main
-          persist-credentials: false
-      - name: Validate backend
-        run: |
-          set -euo pipefail
-          python3 -m unittest discover -s tests -p 'test_mobile*.py'
-      - name: Install standalone executable
-        run: sh scripts/install-cli.sh
-      - name: Restart existing mobile API service
-        run: |
-          set -euo pipefail
-          systemctl --user restart gway-remote-mobile-api.service
-          systemctl --user is-active --quiet gway-remote-mobile-api.service
-      - name: Verify installed commands
-        run: |
-          set -euo pipefail
-          /usr/local/bin/gway-remote api --help >/dev/null
-          echo "Gway-001 mobile API updated"
+      - run: echo "Superseded by Deploy GWay Remote backend"
