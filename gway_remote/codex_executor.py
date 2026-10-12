@@ -6,6 +6,9 @@ import os
 from pathlib import Path
 import re
 import subprocess
+import signal
+import time
+import threading
 import urllib.request
 from typing import Callable
 
@@ -37,11 +40,16 @@ def issue_objective(task: dict, token: str) -> str:
 
 def run_once(*, db: Path | None = None, token: str | None = None,
              repos_root: Path | None = None, work_root: Path | None = None,
-             on_claim: Callable[[str], None] | None = None) -> dict | None:
+             on_claim: Callable[[str], None] | None = None,
+             stop: threading.Event | None = None,
+             timeout_seconds: int | None = None) -> dict | None:
     """Claim one task and run Codex synchronously; never retry interrupted work."""
     token = token if token is not None else os.environ.get("GITHUB_TOKEN", "")
     repos_root = repos_root or Path(os.environ.get("GWAY_CODEX_REPOS_ROOT", str(Path.home() / "Repos")))
     work_root = work_root or Path.home() / ".local/state/gway-remote/codex-worktrees"
+    timeout_seconds = timeout_seconds or int(os.environ.get("GWAY_CODEX_TIMEOUT_SECONDS", "3600"))
+    if timeout_seconds < 1:
+        raise ValueError("Codex timeout must be positive")
     with TaskQueue(db or default_db()) as queue:
         task = queue.claim_next()
         if task is None:
@@ -65,14 +73,38 @@ def run_once(*, db: Path | None = None, token: str | None = None,
             output = work_root / (task_id + ".jsonl")
             final = work_root / (task_id + ".final.txt")
             with output.open("w", encoding="utf-8") as stream:
-                result = subprocess.run(
+                process = subprocess.Popen(
                     ["codex", "exec", "--cd", str(workspace), "--json",
                      "--output-last-message", str(final), objective],
-                    stdout=stream, stderr=subprocess.STDOUT, check=False,
-                    stdin=subprocess.DEVNULL,
+                    stdout=stream, stderr=subprocess.STDOUT,
+                    stdin=subprocess.DEVNULL, start_new_session=True,
                 )
-            detail = f"exit={result.returncode}; transcript={output}; final={final}; workspace={workspace}"
-            state = "succeeded" if result.returncode == 0 else "failed"
+                deadline = time.monotonic() + timeout_seconds
+                reason = None
+                while process.poll() is None:
+                    if stop is not None and stop.is_set():
+                        reason = "cancelled"
+                        break
+                    if time.monotonic() >= deadline:
+                        reason = "timeout"
+                        break
+                    time.sleep(0.2)
+                if reason:
+                    os.killpg(process.pid, signal.SIGTERM)
+                    try:
+                        process.wait(timeout=5)
+                    except subprocess.TimeoutExpired:
+                        os.killpg(process.pid, signal.SIGKILL)
+                        process.wait()
+            detail = f"exit={process.returncode}; transcript={output}; final={final}; workspace={workspace}"
+            if reason == "cancelled":
+                state = "interrupted"
+                detail += "; worker stopped"
+            elif reason == "timeout":
+                state = "failed"
+                detail += "; timed out"
+            else:
+                state = "succeeded" if process.returncode == 0 else "failed"
         except Exception as exc:
             state = "failed"
             detail = f"{type(exc).__name__}: {str(exc)[:400]}"

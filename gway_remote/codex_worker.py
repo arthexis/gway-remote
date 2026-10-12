@@ -72,7 +72,7 @@ def serve(path: Path) -> None:
                 active_task_id = task_id
         try:
             from .codex_executor import run_once
-            run_once(token=token, on_claim=on_claim)
+            run_once(token=token, on_claim=on_claim, stop=stop)
         except Exception as exc:
             logging.warning("Codex execution failed: %s", type(exc).__name__)
         finally:
