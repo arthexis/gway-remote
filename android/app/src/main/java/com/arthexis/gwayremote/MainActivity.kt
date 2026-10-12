@@ -273,6 +273,7 @@ fun CompanionScreen(store: SecretStore) {
                         try { withContext(Dispatchers.IO) { client.request(path, command, args) } }
                         catch (e: Exception) { failures.add("${label}: ${e.message}"); null }
                     fetch("Health", "/api/v1/health")?.let { result = it.toString(2) }
+                    fetch("Quick status", "/api/v1/execute", "status-quick")?.let { result = it.toString(2) }
                     fetch("Commands", "/api/v1/commands")?.let { response ->
                         val entries = response.getJSONArray("commands")
                         commands = (0 until entries.length()).mapNotNull { index ->
