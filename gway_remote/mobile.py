@@ -6,6 +6,7 @@ import tempfile
 import subprocess
 import shutil
 
+from .benchmark import echo
 from .csms_health import csms_probe
 from .simulator_network import discover
 from . import simulator_runner
@@ -51,6 +52,8 @@ OPERATIONS = {"probe-csms": csms_probe, "status": status}
 
 def commands():
     return ([{"name": name, "arguments": {}, "read_only": True} for name in OPERATIONS]
+            + [{"name": "benchmark-echo", "read_only": True, "arguments": {
+                "payload": {"type": "string", "max_length": 4096, "required": True}}}]
             + [{"name": name, "read_only": name in ("simulator-status", "simulator-results"), "arguments": {}}
                for name in ("simulator-start", "simulator-stop", "simulator-status", "simulator-results")]
             + [{"name": "csms-view", "read_only": True, "arguments": {
@@ -105,6 +108,8 @@ def sound_play(arguments):
 
 
 def execute(name, arguments):
+    if name == "benchmark-echo":
+        return echo(arguments)
     if name == "csms-view":
         return csms_view(arguments)
     if name in ("simulator-start", "simulator-stop", "simulator-status", "simulator-results"):
