@@ -9,14 +9,29 @@ permissions:
 
 jobs:
   unit:
+    name: unit / ${{ matrix.group }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        group: [codex, core, deployment, infrastructure, mobile, simulator]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Run subsystem tests with timings
+        run: python -m tests.support.run_tests --group ${{ matrix.group }}
+
+  validation:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
-      - name: Run unit tests
-        run: python -m unittest discover -s tests -v
+      - name: Enforce test layout and discovery
+        run: python -m unittest tests.support.test_architecture -v
       - name: Validate CLI
         run: python -m gway_remote --help
       - name: Validate global CLI installer shell

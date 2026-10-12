@@ -69,7 +69,7 @@ Do not treat skipped or undiscovered tests as successful coverage.
 - **Field validation:** explicit operator-authorized issues, never CI.
 
 Keep the single local discovery command working while organizing tests.
-CI grouping and timing instrumentation belong to TR5, not TR1.
+CI runs one matrix job per subsystem and a separate validation job. Run\n\`python3 -m tests.support.run_tests --group all\` for per-test timings locally;\n\`python3 -m unittest discover -s tests -v\` remains supported.\nStructural checks live in \`tests/support/test_architecture.py\`.
 Changes to the suite must preserve all existing test coverage unless a
 specific obsolete test is removed with a documented replacement.
 
