@@ -1,19 +1,9 @@
-import tempfile
 import unittest
-from pathlib import Path
 from gway_remote.codex_queue import TaskQueue
+from tests.support.sqlite_queue import QueueCase
 
 
-class TaskQueueTests(unittest.TestCase):
-    def setUp(self):
-        self.temp = tempfile.TemporaryDirectory()
-        self.path = Path(self.temp.name) / "tasks.db"
-        self.q = TaskQueue(self.path)
-
-    def tearDown(self):
-        self.q.close()
-        self.temp.cleanup()
-
+class TaskQueueTests(QueueCase):
     def task(self):
         return self.q.request("field-validation", "arthexis/gway-remote", 35)
 
