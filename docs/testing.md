@@ -1,14 +1,17 @@
 # Testing conventions
 
-This repository uses Python 3.11 and the standard-library `unittest` runner.
+This repository uses Python 3.11 and **pytest** in CI. Existing `unittest.TestCase` tests remain supported.
 Tests must be deterministic, hermetic, and runnable without a charger, network,
 root privileges, installed systemd services, or developer credentials.
 
 ## Run tests
 
 ```sh
-python3 -m unittest discover -s tests -v
+python3 -m pip install 'pytest>=8,<10'
+python3 -m pytest tests -v --durations=0 --durations-min=0
 ```
+
+The legacy `python3 -m unittest discover -s tests -v` command remains supported.
 
 Before a structural refactor, record the baseline with:
 
@@ -69,8 +72,7 @@ Do not treat skipped or undiscovered tests as successful coverage.
 - **Field validation:** explicit operator-authorized issues, never CI.
 
 Keep the single local discovery command working while organizing tests.
-CI runs one matrix job per subsystem and a separate validation job. Run\n\`python3 -m tests.support.run_tests --group all\` for per-test timings locally;\n\`python3 -m unittest discover -s tests -v\` remains supported.\nStructural checks live in \`tests/support/test_architecture.py\`.
-Changes to the suite must preserve all existing test coverage unless a
+CI runs pytest in one matrix job per subsystem and in the separate validation job.\nRun `python3 -m pytest tests -v --durations=0 --durations-min=0` for\nper-test timings locally. The optional `python3 -m tests.support.run_tests --group all`\nrunner remains available for unittest-compatible timing output.\nStructural checks live in `tests/support/test_architecture.py`.\nChanges to the suite must preserve all existing test coverage unless a
 specific obsolete test is removed with a documented replacement.
 
 ## Refactor sequence

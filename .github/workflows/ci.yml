@@ -20,8 +20,10 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
+      - name: Install pytest
+        run: python -m pip install 'pytest>=8,<10'
       - name: Run subsystem tests with timings
-        run: python -m tests.support.run_tests --group ${{ matrix.group }}
+        run: python -m pytest tests/${{ matrix.group }} -v --durations=0 --durations-min=0
 
   validation:
     runs-on: ubuntu-latest
@@ -30,8 +32,10 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
-      - name: Enforce test layout and discovery
-        run: python -m unittest tests.support.test_architecture -v
+      - name: Install pytest
+        run: python -m pip install 'pytest>=8,<10'
+      - name: Enforce test layout and discovery with timings
+        run: python -m pytest tests/support/test_architecture.py -v --durations=0 --durations-min=0
       - name: Validate CLI
         run: python -m gway_remote --help
       - name: Validate global CLI installer shell
