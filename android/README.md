@@ -12,7 +12,7 @@ Saved connection fields are hidden by default and can be reopened with the gear 
 
 ## Release distribution
 
-Every push to `main` builds and publishes a **signed** release APK with an automatically increasing version and unique `android-v0.2.<run number>` tag, including backend-only changes. Configure these repository Actions secrets **before tagging**:
+Every push to `main` builds and publishes a **signed** release APK with an automatically increasing version and unique `android-v0.2.<run number>` tag, including backend-only changes. If a newer `main` commit arrives before publication, the stale run refuses to publish and the newer run takes over. Configure these repository Actions secrets **before merging to `main`**:
 
 - `GWAY_APK_KEYSTORE_BASE64`: base64-encoded release JKS file
 - `GWAY_APK_STORE_PASSWORD`
