@@ -6,6 +6,8 @@ import android.content.ClipboardManager
 import android.content.Context
 import androidx.compose.ui.platform.LocalContext
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.layout.FlowRow
@@ -81,7 +83,55 @@ fun CompanionScreen(store: SecretStore) {
     var update by remember { mutableStateOf<AvailableUpdate?>(null) }
     var updateStatus by remember { mutableStateOf("") }
     var updating by remember { mutableStateOf(false) }
-    var apk by remember { mutableStateOf<java.io.File?>(null) }
+    var apk by remember {
+        mutableStateOf(java.io.File(context.cacheDir, "gway-remote-update.apk").takeIf { it.isFile })
+    }
+    var awaitingInstallPermission by remember { mutableStateOf(false) }
+
+    fun launchInstaller() {
+        val candidate = update
+        val file = apk
+        if (candidate == null || file == null) {
+            updateStatus = "No verified update available; download it again"
+            return
+        }
+        if (updating) return
+        updating = true
+        updateStatus = "Checking downloaded APK…"
+        scope.launch {
+            try {
+                withContext(Dispatchers.IO) { AppUpdater.verifyDownloadedApk(context, file, candidate) }
+                AppUpdater.install(context, file)
+                updateStatus = "Android installer requested. Confirm the update in the system dialog."
+            } catch (e: Exception) {
+                updateStatus = "Installation could not start: ${e.message ?: e.javaClass.simpleName}"
+            } finally { updating = false }
+        }
+    }
+
+    val permissionLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.StartActivityForResult()
+    ) {
+        if (awaitingInstallPermission) {
+            awaitingInstallPermission = false
+            if (AppUpdater.canInstall(context)) launchInstaller()
+            else updateStatus = "Installation permission not granted; allow installs from GWay Remote"
+        }
+    }
+
+    fun requestInstall() {
+        if (updating) return
+        if (!AppUpdater.canInstall(context)) {
+            awaitingInstallPermission = true
+            updateStatus = "Grant installation permission, then return to GWay Remote"
+            try {
+                permissionLauncher.launch(AppUpdater.installPermissionIntent(context))
+            } catch (e: Exception) {
+                awaitingInstallPermission = false
+                updateStatus = "Unable to open installation settings: ${e.message}"
+            }
+        } else launchInstaller()
+    }
 
     fun checkUpdates() {
         if (updating) return
@@ -104,8 +154,8 @@ fun CompanionScreen(store: SecretStore) {
         scope.launch {
             try {
                 apk = withContext(Dispatchers.IO) { AppUpdater.download(context, candidate) }
-                updateStatus = "Verified; confirm installation in Android"
-                AppUpdater.install(context, apk!!)
+                updateStatus = "Download verified; ready to install"
+                requestInstall()
             } catch (e: Exception) { updateStatus = e.message ?: "Update failed" }
             finally { updating = false }
         }
@@ -186,9 +236,10 @@ fun CompanionScreen(store: SecretStore) {
             }
         }
         if (update != null && !settingsOpen) {
-            Text("Update available: ${update!!.version}")
+            Text("Update available: ${update!!.version} (code ${update!!.versionCode}); installed code $installedCode")
             Button(enabled = !updating, onClick = { downloadUpdate() }) { Text("Update app") }
         }
+        if (updateStatus.isNotBlank()) Text(updateStatus)
         if (settingsOpen) {
             HorizontalDivider()
             Text("App updates", style = MaterialTheme.typography.titleMedium)
@@ -197,12 +248,10 @@ fun CompanionScreen(store: SecretStore) {
                 Button(enabled = !updating, onClick = { downloadUpdate() }) { Text("Download update") }
             }
             if (apk != null) {
-                OutlinedButton(onClick = {
-                    try { AppUpdater.install(context, apk!!) }
-                    catch (e: Exception) { updateStatus = e.message ?: "Installation failed" }
-                }) { Text("Install downloaded update") }
+                OutlinedButton(enabled = !updating, onClick = { requestInstall() }) {
+                    Text("Install downloaded update")
+                }
             }
-            if (updateStatus.isNotBlank()) Text(updateStatus)
             HorizontalDivider()
             Text("API settings", style = MaterialTheme.typography.titleMedium)
             OutlinedTextField(endpoint, { endpoint = it }, label = { Text("HTTPS endpoint") },
