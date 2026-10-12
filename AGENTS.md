@@ -17,6 +17,7 @@ Developer agents are assigned implementation, refactoring, testing, and PR work.
   explicitly approved.
 - Keep untrusted dispatch payloads constrained to audited operations; do not
   introduce arbitrary shell execution or elevate privileges by default.
+- Follow `docs/testing.md` for test naming, isolation, contracts, and fixture conventions.
 - Run `python3 -m unittest discover -s tests -v` and relevant packaging tests.
 - Separate code readiness, CI success, and physical-device validation in reports.
 - When field validation is required, write an issue with specific commands,
