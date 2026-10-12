@@ -122,8 +122,9 @@ object AppUpdater {
         }
         @Suppress("DEPRECATION")
         val manager = context.packageManager
+        @Suppress("DEPRECATION")
         val flags = if (Build.VERSION.SDK_INT >= 28) PackageManager.GET_SIGNING_CERTIFICATES
-                    else @Suppress("DEPRECATION") PackageManager.GET_SIGNATURES
+                    else PackageManager.GET_SIGNATURES
         @Suppress("DEPRECATION")
         val archive = manager.getPackageArchiveInfo(apk.absolutePath, flags)
         require(archive != null && archive.packageName == context.packageName) {
