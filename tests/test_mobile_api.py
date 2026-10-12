@@ -71,6 +71,8 @@ class ApiTests(unittest.TestCase):
                                         b'{"command":"probe-csms","arguments":{}}')
         self.assertEqual(status, 200)
         self.assertTrue(body["result"]["healthy"])
+        self.assertIsInstance(body["execution_ns"], int)
+        self.assertGreaterEqual(body["execution_ns"], 0)
 
     def test_rejects_unsafe_and_invalid_requests(self):
         for payload in (b'{"command":"run","arguments":{}}',
