@@ -24,7 +24,6 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.foundation.text.KeyboardOptions
-import kotlinx.coroutines.Job
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -85,7 +84,7 @@ fun CompanionScreen(store: SecretStore) {
     var benchmarkRunning by remember { mutableStateOf(false) }
     var benchmarkResult by remember { mutableStateOf<BenchmarkResult?>(null) }
     var benchmarkError by remember { mutableStateOf("") }
-    var benchmarkJob by remember { mutableStateOf<Job?>(null) }
+    val benchmarkStop = remember { java.util.concurrent.atomic.AtomicBoolean(false) }
 
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
@@ -315,16 +314,17 @@ fun CompanionScreen(store: SecretStore) {
                         benchmarkResult = null
                         benchmarkProgress = 0
                         benchmarkRunning = true
+                        benchmarkStop.set(false)
                         val targetEndpoint = endpoint.trim()
                         val targetToken = token
-                        benchmarkJob = scope.launch {
+                        scope.launch {
                             try {
                                 benchmarkResult = BenchmarkRunner { payload, timeout ->
                                     ApiClient(targetEndpoint, targetToken).request(
                                         "/api/v1/execute", "benchmark-echo",
                                         JSONObject().put("payload", payload), timeout
                                     )
-                                }.run(config) { completed, _ -> benchmarkProgress = completed }
+                                }.run(config, { benchmarkStop.get() }) { completed, _ -> benchmarkProgress = completed }
                             } catch (e: Exception) {
                                 benchmarkError = e.message ?: "Benchmark failed"
                             } finally { benchmarkRunning = false }
@@ -333,7 +333,7 @@ fun CompanionScreen(store: SecretStore) {
                         benchmarkError = "Invalid parameters: samples 1–1000, warmup 0–100, timeout 1–30s, payload 0–4096 bytes"
                     }
                 }) { Text("Run benchmark") }
-                OutlinedButton(enabled = benchmarkRunning, onClick = { benchmarkJob?.cancel() }) {
+                OutlinedButton(enabled = benchmarkRunning, onClick = { benchmarkStop.set(true) }) {
                     Text("Cancel")
                 }
             }
