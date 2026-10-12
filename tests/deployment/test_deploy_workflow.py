@@ -3,7 +3,7 @@ import pathlib
 import re
 import unittest
 
-ROOT = pathlib.Path(__file__).resolve().parents[1]
+ROOT = pathlib.Path(__file__).resolve().parents[2]
 DEPLOY = ROOT / ".github/workflows/deploy-backend.yml"
 LEGACY = ROOT / ".github/workflows/update-gway-001.yml"
 
