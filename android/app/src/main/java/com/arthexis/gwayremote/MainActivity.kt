@@ -16,6 +16,11 @@ import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
+import androidx.compose.foundation.background
+import androidx.compose.ui.graphics.Color
+import androidx.core.view.WindowCompat
+import androidx.core.view.WindowInsetsControllerCompat
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
@@ -33,14 +38,15 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         window.statusBarColor = android.graphics.Color.BLACK
-        window.decorView.systemUiVisibility = 0
+        WindowCompat.setDecorFitsSystemWindows(window, false)
+        WindowInsetsControllerCompat(window, window.decorView).isAppearanceLightStatusBars = false
         window.setSoftInputMode(android.view.WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE)
         val store = SecretStore(this)
         setContent { MaterialTheme { CompanionScreen(store) } }
     }
 }
 
-@OptIn(ExperimentalLayoutApi::class)
+@OptIn(ExperimentalLayoutApi::class, ExperimentalMaterial3Api::class)
 @Composable
 fun CompanionScreen(store: SecretStore) {
     var endpoint by remember { mutableStateOf(store.endpoint) }
@@ -48,6 +54,8 @@ fun CompanionScreen(store: SecretStore) {
     var result by remember { mutableStateOf("Configure HTTPS endpoint and token") }
     var commands by remember { mutableStateOf(listOf<String>()) }
     var busy by remember { mutableStateOf(false) }
+    var refreshing by remember { mutableStateOf(false) }
+    var refreshStatus by remember { mutableStateOf("") }
     var simulatorExpanded by remember { mutableStateOf(false) }
     var simulatorHost by remember { mutableStateOf("") }
     var simulatorPort by remember { mutableStateOf("9000") }
@@ -241,7 +249,84 @@ fun CompanionScreen(store: SecretStore) {
         }
     }
 
-    Column(Modifier.fillMaxSize().imePadding().verticalScroll(rememberScrollState()).padding(20.dp),
+    fun refreshAll() {
+        if (refreshing || busy || benchmarkRunning || updating) return
+        refreshing = true
+        refreshStatus = "Refreshing…"
+        val targetEndpoint = endpoint.trim()
+        val targetToken = token
+        val selectedView = csmsView
+        val refreshCsms = csmsExpanded
+        val refreshSimulator = simulatorExpanded
+        val refreshResults = simulatorResultsLoaded
+        scope.launch {
+            val failures = mutableListOf<String>()
+            try {
+                val client = try { ApiClient(targetEndpoint, targetToken) }
+                    catch (e: Exception) {
+                        failures.add("API settings: ${e.message}")
+                        null
+                    }
+                if (client != null) {
+                    suspend fun fetch(label: String, path: String, command: String? = null,
+                                      args: JSONObject = JSONObject()): JSONObject? =
+                        try { withContext(Dispatchers.IO) { client.request(path, command, args) } }
+                        catch (e: Exception) { failures.add("${label}: ${e.message}"); null }
+                    fetch("Health", "/api/v1/health")?.let { result = it.toString(2) }
+                    fetch("Commands", "/api/v1/commands")?.let { response ->
+                        val entries = response.getJSONArray("commands")
+                        commands = (0 until entries.length()).mapNotNull { index ->
+                            val item = entries.getJSONObject(index)
+                            if (item.optBoolean("read_only") &&
+                                (item.optJSONObject("arguments")?.length() ?: 0) == 0)
+                                item.optString("name").takeIf { it.isNotBlank() } else null
+                        }
+                    }
+                    if (refreshCsms) {
+                        fetch("CSMS health", "/api/v1/execute", "probe-csms")?.optJSONObject("result")?.let {
+                            csmsHealthy = it.optBoolean("healthy")
+                            csmsReason = it.optString("reason", "")
+                        }
+                        if (csmsOutput.isNotBlank()) {
+                            fetch("CSMS view", "/api/v1/execute", "csms-view",
+                                JSONObject().put("view", selectedView))?.optJSONObject("result")?.let {
+                                csmsOutput = it.optString("output", "")
+                                csmsTruncated = it.optBoolean("truncated")
+                            }
+                        }
+                    }
+                    if (refreshSimulator) {
+                        fetch("Simulator", "/api/v1/execute", "simulator-status")?.optJSONObject("result")?.let {
+                            simulatorStatus = "${it.optString("state", "unknown")} — ${it.optString("target", "")}"
+                        }
+                        if (refreshResults) {
+                            fetch("Simulator results", "/api/v1/execute", "simulator-results")?.optJSONObject("result")?.let {
+                                simulatorOutput = it.optString("output", "")
+                                simulatorTruncated = it.optBoolean("truncated")
+                                simulatorOutcome = it.optString("outcome", "unknown")
+                                simulatorExitCode = if (it.has("exit_code")) it.optInt("exit_code").toString() else ""
+                                simulatorResultsError = ""
+                            }
+                        }
+                    }
+                }
+                try {
+                    updateStatus = "Checking releases…"
+                    update = withContext(Dispatchers.IO) { AppUpdater.check(installedCode) }
+                    updateStatus = if (update == null) "App is up to date" else "Update available: ${update!!.version}"
+                } catch (e: Exception) {
+                    failures.add("App update: ${e.message}")
+                    updateStatus = "Update check failed: ${e.message}"
+                }
+                refreshStatus = if (failures.isEmpty()) "Refresh completed" else
+                    "Refresh partially failed: ${failures.joinToString("; ")}"
+            } finally { refreshing = false }
+        }
+    }
+
+    PullToRefreshBox(isRefreshing = refreshing, onRefresh = { refreshAll() },
+        modifier = Modifier.fillMaxSize().background(Color.Black).statusBarsPadding().navigationBarsPadding()) {
+    Column(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background).imePadding().verticalScroll(rememberScrollState()).padding(20.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp)) {
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
             Text("GWay Remote", style = MaterialTheme.typography.headlineMedium)
@@ -250,6 +335,7 @@ fun CompanionScreen(store: SecretStore) {
                 Text("⚙", style = MaterialTheme.typography.headlineMedium)
             }
         }
+        if (refreshStatus.isNotBlank()) Text(refreshStatus, style = MaterialTheme.typography.bodySmall)
         if (update != null) {
             Text("Update available: ${update!!.version} (code ${update!!.versionCode}); installed code $installedCode")
             Button(enabled = !updating, onClick = { downloadUpdate() }) { Text("Update app") }
@@ -604,5 +690,6 @@ fun CompanionScreen(store: SecretStore) {
         Text("Response", style = MaterialTheme.typography.titleMedium)
         Text(result)
         Spacer(Modifier.height(LocalConfiguration.current.screenHeightDp.dp / 2))
+    }
     }
 }
