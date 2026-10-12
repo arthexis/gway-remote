@@ -26,7 +26,7 @@ class MobileFirewallDeployTests(unittest.TestCase):
         import re
 
         playbook = (ROOT / "deploy/ansible/mobile-api-firewall.yml").read_text()
-        pattern = r'^\\s*(?:counter\\s+)?reject with icmpx(?:\\s+type)? admin-prohibited\\s*$'
+        pattern = r'^\s*(?:counter\s+)?reject with icmpx(?:\s+type)? admin-prohibited\s*$'
         assert re.search(pattern, '        counter reject with icmpx type admin-prohibited', re.M)
         assert re.search(pattern, '        reject with icmpx admin-prohibited', re.M)
         assert 'insertbefore: ' in playbook
