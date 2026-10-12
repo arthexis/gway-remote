@@ -91,6 +91,18 @@ jobs:
         if: github.ref == 'refs/heads/main'
         id: release
         run: echo "tag=android-v$GWAY_ANDROID_VERSION_NAME" >> "$GITHUB_OUTPUT"
+      - name: Reject stale main release
+        if: github.ref == 'refs/heads/main'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        working-directory: .
+        run: |
+          set -euo pipefail
+          CURRENT_MAIN=$(gh api "repos/$GITHUB_REPOSITORY/branches/main" --jq '.commit.sha')
+          if [[ "$CURRENT_MAIN" != "$GITHUB_SHA" ]]; then
+            echo "::error::Main has advanced; refusing to publish an outdated APK ($GITHUB_SHA vs $CURRENT_MAIN)"
+            exit 1
+          fi
       - name: Publish GitHub Release
         if: github.ref == 'refs/heads/main'
         env:
