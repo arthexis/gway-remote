@@ -49,9 +49,13 @@ jobs:
       - uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.10.2'
+          cache-read-only: ${{ github.event_name == 'pull_request' }}
       - name: Validate and build debug APK (PR)
         if: github.event_name == 'pull_request'
-        run: gradle :app:testDebugUnitTest :app:assembleDebug --no-daemon
+        run: |
+          start=$SECONDS
+          gradle :app:testDebugUnitTest :app:assembleDebug --no-daemon
+          echo "Android PR build: $((SECONDS - start))s" >> "$GITHUB_STEP_SUMMARY"
       - name: Upload debug APK (PR)
         if: github.event_name == 'pull_request'
         uses: actions/upload-artifact@v4
@@ -72,7 +76,10 @@ jobs:
           chmod 600 "$RUNNER_TEMP/gway-release.jks"
       - name: Validate and build release APK (main)
         if: github.ref == 'refs/heads/main'
-        run: gradle :app:testDebugUnitTest :app:assembleRelease --no-daemon
+        run: |
+          start=$SECONDS
+          gradle :app:testDebugUnitTest :app:assembleRelease --no-daemon
+          echo "Android release build: $((SECONDS - start))s" >> "$GITHUB_STEP_SUMMARY"
       - name: Sign and verify release APK
         if: github.ref == 'refs/heads/main'
         env:
