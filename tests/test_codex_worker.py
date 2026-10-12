@@ -10,12 +10,12 @@ from gway_remote import codex_worker
 
 
 class CodexWorkerTests(unittest.TestCase):
-    def test_status_is_idle_and_never_executes(self):
+    def test_status_reports_executor_enabled(self):
         with patch.object(codex_worker, "codex_available", return_value=True):
             value = codex_worker.status(time.monotonic() - 5)
         self.assertEqual(value["state"], "idle")
         self.assertTrue(value["codex_available"])
-        self.assertFalse(value["task_execution_enabled"])
+        self.assertTrue(value["task_execution_enabled"])
         self.assertGreaterEqual(value["uptime_seconds"], 5)
 
     def test_default_socket_uses_runtime_dir(self):
