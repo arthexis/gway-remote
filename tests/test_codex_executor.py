@@ -41,7 +41,7 @@ class ExecutorTests(unittest.TestCase):
                 queue.approve(task["id"])
             class Result:
                 returncode = 0
-            with patch("gway_remote.codex_executor.issue_objective", return_value="objective"), \\
+            with patch("gway_remote.codex_executor.issue_objective", return_value="objective"), \
                  patch("gway_remote.codex_executor.subprocess.run", return_value=Result()) as launch:
                 result = run_once(db=db, token="test", repos_root=root / "Repos",
                                   work_root=root / "work")
