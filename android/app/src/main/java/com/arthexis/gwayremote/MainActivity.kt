@@ -237,23 +237,14 @@ fun CompanionScreen(store: SecretStore) {
                 Text("⚙", style = MaterialTheme.typography.headlineMedium)
             }
         }
-        if (update != null && !settingsOpen) {
+        if (update != null) {
             Text("Update available: ${update!!.version} (code ${update!!.versionCode}); installed code $installedCode")
             Button(enabled = !updating, onClick = { downloadUpdate() }) { Text("Update app") }
         }
-        if (updateStatus.isNotBlank()) Text(updateStatus)
+        if (updateStatus.isNotBlank() && (update != null || !updateStatus.startsWith("App is up to date"))) {
+            Text(updateStatus)
+        }
         if (settingsOpen) {
-            HorizontalDivider()
-            Text("App updates", style = MaterialTheme.typography.titleMedium)
-            Button(enabled = !updating, onClick = { checkUpdates() }) { Text("Check for updates") }
-            if (update != null) {
-                Button(enabled = !updating, onClick = { downloadUpdate() }) { Text("Download update") }
-            }
-            if (apk != null) {
-                OutlinedButton(enabled = !updating, onClick = { requestInstall() }) {
-                    Text("Install downloaded update")
-                }
-            }
             HorizontalDivider()
             Text("API settings", style = MaterialTheme.typography.titleMedium)
             OutlinedTextField(endpoint, { endpoint = it }, label = { Text("HTTPS endpoint") },
