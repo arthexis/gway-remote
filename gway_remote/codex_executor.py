@@ -7,6 +7,7 @@ from pathlib import Path
 import re
 import subprocess
 import urllib.request
+from typing import Callable
 
 from .codex_queue import TaskQueue, default_db
 
@@ -35,7 +36,8 @@ def issue_objective(task: dict, token: str) -> str:
 
 
 def run_once(*, db: Path | None = None, token: str | None = None,
-             repos_root: Path | None = None, work_root: Path | None = None) -> dict | None:
+             repos_root: Path | None = None, work_root: Path | None = None,
+             on_claim: Callable[[str], None] | None = None) -> dict | None:
     """Claim one task and run Codex synchronously; never retry interrupted work."""
     token = token if token is not None else os.environ.get("GITHUB_TOKEN", "")
     repos_root = repos_root or Path(os.environ.get("GWAY_CODEX_REPOS_ROOT", str(Path.home() / "Repos")))
@@ -46,6 +48,8 @@ def run_once(*, db: Path | None = None, token: str | None = None,
             return None
         task_id = task["id"]
         try:
+            if on_claim is not None:
+                on_claim(task_id)
             if not token:
                 raise RuntimeError("GitHub token unavailable")
             objective = issue_objective(task, token)
