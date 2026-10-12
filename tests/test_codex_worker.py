@@ -10,13 +10,20 @@ from gway_remote import codex_worker
 
 
 class CodexWorkerTests(unittest.TestCase):
-    def test_status_is_idle_and_never_executes(self):
+    def test_status_reports_executor_enabled(self):
         with patch.object(codex_worker, "codex_available", return_value=True):
             value = codex_worker.status(time.monotonic() - 5)
         self.assertEqual(value["state"], "idle")
         self.assertTrue(value["codex_available"])
-        self.assertFalse(value["task_execution_enabled"])
+        self.assertTrue(value["task_execution_enabled"])
         self.assertGreaterEqual(value["uptime_seconds"], 5)
+
+    def test_executing_status_exposes_task(self):
+        with patch.object(codex_worker, "codex_available", return_value=True):
+            value = codex_worker.status(time.monotonic(), executing=True, task_id="task-42")
+        self.assertEqual(value["state"], "executing")
+        self.assertEqual(value["active_task_id"], "task-42")
+        self.assertTrue(value["task_execution_enabled"])
 
     def test_default_socket_uses_runtime_dir(self):
         with patch.dict("os.environ", {"XDG_RUNTIME_DIR": "/run/user/1000"}):
