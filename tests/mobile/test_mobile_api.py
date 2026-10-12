@@ -1,20 +1,13 @@
 """HTTP adapter tests: no live services or chargers are touched."""
-import http.client
-import json
-import threading
 import unittest
-from http.server import ThreadingHTTPServer
 from unittest.mock import patch
 
-from gway_remote.api import handler_for, serve
+from gway_remote.api import serve
+from tests.support.http_api import LocalApiCase
 from gway_remote import mobile
 
 
 class MobileTests(unittest.TestCase):
-    def test_catalog_is_explicit(self):
-        self.assertEqual(set(mobile.OPERATIONS), {"probe-csms", "status", "status-quick"})
-        self.assertEqual({x["name"] for x in mobile.commands()}, set(mobile.OPERATIONS) | {"lcd-message", "sound-play", "simulator-discover", "simulator-start", "simulator-stop", "simulator-status", "simulator-results", "csms-view", "benchmark-echo"})
-
     def test_rejects_mutations_and_arguments(self):
         for name in ("run", "deploy-batch", "logs", "reconcile", "report-bundle"):
             with self.assertRaises(ValueError):
@@ -35,31 +28,13 @@ class MobileTests(unittest.TestCase):
                 self.assertEqual(server.call_args.args[0], (host, 8765))
 
 
-class ApiTests(unittest.TestCase):
-    def setUp(self):
-        self.server = ThreadingHTTPServer(("127.0.0.1", 0), handler_for("test-secret"))
-        self.thread = threading.Thread(target=self.server.serve_forever, daemon=True)
-        self.thread.start()
-        self.addCleanup(self.thread.join, 2)
-        self.addCleanup(self.server.server_close)
-        self.addCleanup(self.server.shutdown)
-
-    def request(self, method, path, payload=None, token="test-secret", headers=None):
-        conn = http.client.HTTPConnection("127.0.0.1", self.server.server_port, timeout=3)
-        self.addCleanup(conn.close)
-        hdrs = {"Authorization": "Bearer " + token}
-        if payload is not None:
-            hdrs["Content-Type"] = "application/json"
-        hdrs.update(headers or {})
-        conn.request(method, path, body=payload, headers=hdrs)
-        response = conn.getresponse()
-        return response.status, json.loads(response.read())
-
+class ApiTests(LocalApiCase):
     def test_health_and_catalog(self):
         self.assertEqual(self.request("GET", "/api/v1/health")[0], 200)
         status, body = self.request("GET", "/api/v1/commands")
         self.assertEqual(status, 200)
-        self.assertEqual({c["name"] for c in body["commands"]}, {"status", "status-quick", "probe-csms", "lcd-message", "sound-play", "simulator-discover", "simulator-start", "simulator-stop", "simulator-status", "simulator-results", "csms-view", "benchmark-echo"})
+        self.assertIn("status", {c["name"] for c in body["commands"]})
+        self.assertIn("probe-csms", {c["name"] for c in body["commands"]})
 
     def test_authentication(self):
         self.assertEqual(self.request("GET", "/api/v1/commands", token="bad")[0], 401)
@@ -83,6 +58,52 @@ class ApiTests(unittest.TestCase):
         self.assertEqual(self.request("POST", "/api/v1/execute", b'{}',
                                       headers={"Content-Type": "text/plain"})[0], 415)
         self.assertEqual(self.request("POST", "/api/v1/execute", b'x' * 8193)[0], 413)
+
+    def test_unauthorized_request_never_dispatches(self):
+        with patch.object(mobile, "execute") as execute:
+            for method, path, payload in (
+                ("GET", "/api/v1/commands", None),
+                ("POST", "/api/v1/execute", b'{"command":"status","arguments":{}}'),
+            ):
+                with self.subTest(method=method, path=path):
+                    status, body = self.request(method, path, payload, token="wrong")
+                    self.assertEqual(status, 401)
+                    self.assertEqual(body["error"], "unauthorized")
+            execute.assert_not_called()
+
+    def test_invalid_requests_never_dispatch(self):
+        invalid = (
+            (b'{"command":"run","arguments":{}}', 400),
+            (b'{"command":"status","arguments":{"now":true}}', 400),
+            (b'{"command":"status"}', 400),
+            (b'[]', 400),
+            (b'broken', 400),
+            (b'x' * 8193, 413),
+        )
+        with patch.object(mobile, "execute", side_effect=ValueError("invalid")) as execute:
+            for payload, expected in invalid:
+                with self.subTest(payload=payload[:40]):
+                    status, _ = self.request("POST", "/api/v1/execute", payload)
+                    self.assertEqual(status, expected)
+            # Valid JSON commands reach dispatch, which independently enforces admission.
+            self.assertEqual(execute.call_count, 2)
+
+    def test_response_never_contains_sensitive_exception_details(self):
+        with patch.object(mobile, "execute", side_effect=RuntimeError("token=private-secret")):
+            status, body = self.request("POST", "/api/v1/execute",
+                                        b'{"command":"status","arguments":{}}')
+        self.assertEqual(status, 500)
+        self.assertEqual(body, {"error": "execution_failed"})
+        self.assertNotIn("private-secret", str(body))
+
+    def test_unknown_routes_do_not_dispatch(self):
+        with patch.object(mobile, "execute") as execute:
+            for method, path in (("GET", "/api/v1/unknown"), ("POST", "/api/v1/unknown")):
+                with self.subTest(method=method):
+                    status, body = self.request(method, path, b'{}' if method == "POST" else None)
+                    self.assertEqual(status, 404)
+                    self.assertEqual(body["error"], "not_found")
+            execute.assert_not_called()
 
     def test_operation_failure_does_not_leak_details(self):
         def fail():

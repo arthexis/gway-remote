@@ -2,7 +2,7 @@
 from pathlib import Path
 import unittest
 
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = Path(__file__).resolve().parents[2]
 
 class RemotePreflightTests(unittest.TestCase):
     def test_preflight_is_read_only(self):

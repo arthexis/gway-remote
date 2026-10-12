@@ -9,7 +9,7 @@ from pathlib import Path
 
 class WorkerPackagingTests(unittest.TestCase):
     def test_zipapp_exposes_codex_worker_command(self):
-        root = Path(__file__).resolve().parents[1]
+        root = Path(__file__).resolve().parents[2]
         with tempfile.TemporaryDirectory() as directory:
             temp = Path(directory)
             import shutil
