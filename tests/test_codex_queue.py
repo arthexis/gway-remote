@@ -33,7 +33,8 @@ class TaskQueueTests(unittest.TestCase):
             self.q.transition(tid, "succeeded", "running")
 
     def test_single_slot_across_connections(self):
-        a, b = self.task()["id"], self.task()["id"]
+        a = self.task()["id"]
+        b = self.q.request("field-validation", "arthexis/gway-remote", 36)["id"]
         for tid in (a, b):
             self.q.transition(tid, "requested", "queued")
         with TaskQueue(self.path) as other:
