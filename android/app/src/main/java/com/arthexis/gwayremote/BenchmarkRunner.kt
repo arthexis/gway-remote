@@ -1,12 +1,9 @@
 package com.arthexis.gwayremote
 
 import android.os.SystemClock
-import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
-import kotlin.coroutines.coroutineContext
 import kotlin.math.ceil
 
 data class BenchmarkConfig(val samples: Int = 100, val warmup: Int = 5,
@@ -32,7 +29,7 @@ data class BenchmarkResult(val rttNs: List<Long>, val processingNs: List<Long>,
 class BenchmarkRunner(private val request: (String, Int) -> JSONObject = { payload, timeout ->
     throw UnsupportedOperationException("Provide authenticated request transport")
 }) {
-    suspend fun run(config: BenchmarkConfig, progress: (Int, Int) -> Unit): BenchmarkResult =
+    suspend fun run(config: BenchmarkConfig, shouldStop: () -> Boolean, progress: (Int, Int) -> Unit): BenchmarkResult =
         withContext(Dispatchers.IO) {
             val rtts = mutableListOf<Long>()
             val server = mutableListOf<Long>()
@@ -40,9 +37,8 @@ class BenchmarkRunner(private val request: (String, Int) -> JSONObject = { paylo
             var attempted = 0
             var cancelled = false
             val payload = "x".repeat(config.payloadBytes)
-            try {
-                repeat(config.warmup + config.samples) { index ->
-                    coroutineContext.ensureActive()
+            for (index in 0 until config.warmup + config.samples) {
+                    if (shouldStop()) { cancelled = true; break }
                     val start = SystemClock.elapsedRealtimeNanos()
                     try {
                         val result = request(payload, config.timeoutMs).getJSONObject("result")
@@ -54,8 +50,6 @@ class BenchmarkRunner(private val request: (String, Int) -> JSONObject = { paylo
                             rtts.add(elapsed)
                             server.add(processing)
                         }
-                    } catch (e: CancellationException) {
-                        throw e
                     } catch (e: Exception) {
                         if (index >= config.warmup) failures++
                     }
@@ -63,9 +57,6 @@ class BenchmarkRunner(private val request: (String, Int) -> JSONObject = { paylo
                         attempted++
                         withContext(Dispatchers.Main) { progress(attempted, config.samples) }
                     }
-                }
-            } catch (_: CancellationException) {
-                cancelled = true
             }
             BenchmarkResult(rtts, server, failures, attempted, cancelled)
         }
