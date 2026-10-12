@@ -2,6 +2,7 @@
 import hmac
 import json
 import os
+from time import perf_counter_ns
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from ipaddress import ip_address
 
@@ -78,14 +79,17 @@ def handler_for(token):
                 self.respond(400, {"error": "invalid_request"})
                 return
             try:
+                started_ns = perf_counter_ns()
                 result = mobile.execute(request["command"], request["arguments"])
+                execution_ns = perf_counter_ns() - started_ns
             except ValueError as exc:
                 self.respond(400, {"error": str(exc)})
                 return
             except Exception:
                 self.respond(500, {"error": "execution_failed"})
                 return
-            self.respond(200, {"command": request["command"], "status": "completed", "result": result})
+            self.respond(200, {"command": request["command"], "status": "completed",
+                               "execution_ns": execution_ns, "result": result})
 
     return Handler
 

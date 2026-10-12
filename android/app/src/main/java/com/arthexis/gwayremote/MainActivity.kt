@@ -82,7 +82,9 @@ fun CompanionScreen(store: SecretStore) {
     var benchmarkPayload by remember { mutableStateOf("0") }
     var benchmarkProgress by remember { mutableIntStateOf(0) }
     var benchmarkRunning by remember { mutableStateOf(false) }
-    var benchmarkResult by remember { mutableStateOf<BenchmarkResult?>(null) }
+    var benchmarkReport by remember { mutableStateOf<BenchmarkReport?>(null) }
+    var benchmarkMode by remember { mutableStateOf(BenchmarkMode.BOTH) }
+    var benchmarkLabel by remember { mutableStateOf("Unspecified") }
     var benchmarkError by remember { mutableStateOf("") }
     val benchmarkStop = remember { java.util.concurrent.atomic.AtomicBoolean(false) }
 
@@ -281,7 +283,15 @@ fun CompanionScreen(store: SecretStore) {
             }
         }
         if (benchmarkExpanded) {
-            Text("Authenticated echo · connected node", style = MaterialTheme.typography.bodySmall)
+            Text("Authenticated echo and read-only status · connected node", style = MaterialTheme.typography.bodySmall)
+            Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                for (mode in BenchmarkMode.entries) {
+                    FilterChip(selected = benchmarkMode == mode, onClick = { benchmarkMode = mode },
+                        label = { Text(mode.name.lowercase().replaceFirstChar { it.uppercase() }) })
+                }
+            }
+            OutlinedTextField(benchmarkLabel, { benchmarkLabel = it }, label = { Text("Connection label (AP / LAN / remote)") },
+                modifier = Modifier.fillMaxWidth(), singleLine = true)
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 OutlinedTextField(benchmarkSamples, { benchmarkSamples = it }, label = { Text("Samples") },
                     modifier = Modifier.weight(1f), singleLine = true)
@@ -295,9 +305,9 @@ fun CompanionScreen(store: SecretStore) {
                     modifier = Modifier.weight(1f), singleLine = true)
             }
             if (benchmarkRunning) {
-                Text("Progress: $benchmarkProgress / $benchmarkSamples")
+                Text("Progress: $benchmarkProgress / ${(benchmarkSamples.toIntOrNull() ?: 0) * (if (benchmarkMode == BenchmarkMode.BOTH) 2 else 1)}")
                 LinearProgressIndicator(
-                    progress = { benchmarkProgress.toFloat() / (benchmarkSamples.toIntOrNull()?.coerceAtLeast(1) ?: 1) },
+                    progress = { benchmarkProgress.toFloat() / ((benchmarkSamples.toIntOrNull()?.coerceAtLeast(1) ?: 1) * (if (benchmarkMode == BenchmarkMode.BOTH) 2 else 1)) },
                     modifier = Modifier.fillMaxWidth()
                 )
             }
@@ -311,7 +321,7 @@ fun CompanionScreen(store: SecretStore) {
                             payloadBytes = benchmarkPayload.toInt()
                         )
                         benchmarkError = ""
-                        benchmarkResult = null
+                        benchmarkReport = null
                         benchmarkProgress = 0
                         benchmarkRunning = true
                         benchmarkStop.set(false)
@@ -319,12 +329,26 @@ fun CompanionScreen(store: SecretStore) {
                         val targetToken = token
                         scope.launch {
                             try {
-                                benchmarkResult = BenchmarkRunner { payload, timeout ->
+                                val runner = BenchmarkRunner { command, arguments, timeout ->
                                     ApiClient(targetEndpoint, targetToken).request(
-                                        "/api/v1/execute", "benchmark-echo",
-                                        JSONObject().put("payload", payload), timeout
+                                        "/api/v1/execute", command, arguments, timeout
                                     )
-                                }.run(config, { benchmarkStop.get() }) { completed, _ -> benchmarkProgress = completed }
+                                }
+                                val selected = benchmarkMode
+                                val modes = if (selected == BenchmarkMode.BOTH)
+                                    listOf("benchmark-echo", "status") else
+                                    listOf(if (selected == BenchmarkMode.ECHO) "benchmark-echo" else "status")
+                                val results = mutableListOf<BenchmarkResult>()
+                                for ((index, command) in modes.withIndex()) {
+                                    if (benchmarkStop.get()) break
+                                    results.add(runner.run(config, command, { benchmarkStop.get() }) { completed, _ ->
+                                        benchmarkProgress = index * config.samples + completed
+                                    })
+                                }
+                                benchmarkReport = BenchmarkReport.create(
+                                    benchmarkLabel, java.net.URL(targetEndpoint).host, config, selected,
+                                    results, context.packageManager.getPackageInfo(context.packageName, 0).versionName ?: "unknown"
+                                )
                             } catch (e: Exception) {
                                 benchmarkError = e.message ?: "Benchmark failed"
                             } finally { benchmarkRunning = false }
@@ -338,11 +362,34 @@ fun CompanionScreen(store: SecretStore) {
                 }
             }
             if (benchmarkError.isNotBlank()) Text(benchmarkError)
-            benchmarkResult?.let { report ->
-                Text(if (report.cancelled) "Cancelled · partial results" else "Completed")
-                Text("Samples: ${report.rttNs.size} / ${report.attempted} · failures: ${report.failures}")
-                Text("Phone RTT: ${report.summary(report.rttNs)}")
-                Text("Pi echo processing: ${report.summary(report.processingNs)}")
+            benchmarkReport?.let { report ->
+                Text("Run: ${report.runId}")
+                for (item in report.results) {
+                    Text("${item.command}: ${item.rttNs.size}/${item.attempted} successful · ${item.failures} failures")
+                    Text("Phone RTT: ${item.summary(item.rttNs)}")
+                    if (item.processingNs.isNotEmpty()) Text("Pi echo: ${item.summary(item.processingNs)}")
+                    if (item.executionNs.isNotEmpty()) Text("Pi execution: ${item.summary(item.executionNs)}")
+                }
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    OutlinedButton(onClick = {
+                        val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                        clipboard.setPrimaryClip(ClipData.newPlainText("GWAY benchmark JSON", report.json().toString(2)))
+                    }) { Text("Copy JSON") }
+                    OutlinedButton(onClick = {
+                        val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                        clipboard.setPrimaryClip(ClipData.newPlainText("GWAY benchmark issue report", report.markdown()))
+                        val intent = android.content.Intent(android.content.Intent.ACTION_VIEW,
+                            android.net.Uri.parse("https://github.com/arthexis/gway-remote/issues/32"))
+                        context.startActivity(intent)
+                    }) { Text("Copy report + open issue #32") }
+                    OutlinedButton(onClick = {
+                        val intent = android.content.Intent(android.content.Intent.ACTION_SEND).apply {
+                            type = "text/plain"
+                            putExtra(android.content.Intent.EXTRA_TEXT, report.markdown())
+                        }
+                        context.startActivity(android.content.Intent.createChooser(intent, "Share benchmark"))
+                    }) { Text("Share") }
+                }
             }
         }
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
