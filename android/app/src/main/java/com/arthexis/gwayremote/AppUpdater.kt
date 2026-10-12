@@ -2,6 +2,7 @@ package com.arthexis.gwayremote
 
 import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
 import android.provider.Settings
@@ -120,9 +121,30 @@ object AppUpdater {
             "Downloaded APK checksum changed; download it again"
         }
         @Suppress("DEPRECATION")
-        val archive = context.packageManager.getPackageArchiveInfo(apk.absolutePath, 0)
+        val manager = context.packageManager
+        @Suppress("DEPRECATION")
+        val flags = if (Build.VERSION.SDK_INT >= 28) PackageManager.GET_SIGNING_CERTIFICATES
+                    else PackageManager.GET_SIGNATURES
+        @Suppress("DEPRECATION")
+        val archive = manager.getPackageArchiveInfo(apk.absolutePath, flags)
         require(archive != null && archive.packageName == context.packageName) {
             "Downloaded APK is not a GWay Remote installation package"
+        }
+        @Suppress("DEPRECATION")
+        val installed = manager.getPackageInfo(context.packageName, flags)
+        val sameSigner = if (Build.VERSION.SDK_INT >= 28) {
+            val incoming = archive.signingInfo
+            val current = installed.signingInfo
+            incoming != null && current != null && incoming.signersMatchExactly(current)
+        } else {
+            @Suppress("DEPRECATION")
+            val incoming = archive.signatures?.map { it.toCharsString() }?.toSet()
+            @Suppress("DEPRECATION")
+            val current = installed.signatures?.map { it.toCharsString() }?.toSet()
+            !incoming.isNullOrEmpty() && incoming == current
+        }
+        require(sameSigner) {
+            "APK signing certificate does not match the installed app"
         }
     }
 
