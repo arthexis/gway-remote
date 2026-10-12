@@ -1,10 +1,13 @@
 """Benchmark contract and HTTP integration tests."""
 import json
+import http.client
+import threading
+from http.server import ThreadingHTTPServer
 import pytest
 
 from gway_remote.benchmark import echo, summarize
 from gway_remote.mobile import execute
-from tests.test_mobile_api import ApiTests
+from gway_remote.api import handler_for
 
 
 def test_echo_round_trip():
@@ -37,15 +40,29 @@ def test_invalid_statistics(samples, failures):
 
 
 def test_authenticated_http_echo():
-    case = ApiTests(methodName="test_health_and_catalog")
-    case.setUp()
+    server = ThreadingHTTPServer(("127.0.0.1", 0), handler_for("test-secret"))
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+
+    def request(arguments, token="test-secret"):
+        connection = http.client.HTTPConnection("127.0.0.1", server.server_port, timeout=3)
+        try:
+            payload = json.dumps({"command": "benchmark-echo", "arguments": arguments}).encode()
+            connection.request("POST", "/api/v1/execute", body=payload,
+                               headers={"Authorization": "Bearer " + token,
+                                        "Content-Type": "application/json"})
+            response = connection.getresponse()
+            return response.status, json.loads(response.read())
+        finally:
+            connection.close()
+
     try:
-        payload = json.dumps({"command": "benchmark-echo", "arguments": {"payload": "ping"}}).encode()
-        status, body = case.request("POST", "/api/v1/execute", payload)
+        status, body = request({"payload": "ping"})
         assert status == 200
         assert body["result"]["payload"] == "ping"
-        assert case.request("POST", "/api/v1/execute", payload, token="bad")[0] == 401
-        invalid = json.dumps({"command": "benchmark-echo", "arguments": {"payload": 1}}).encode()
-        assert case.request("POST", "/api/v1/execute", invalid)[0] == 400
+        assert request({"payload": "ping"}, token="bad")[0] == 401
+        assert request({"payload": 1})[0] == 400
     finally:
-        case.doCleanups()
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=2)
