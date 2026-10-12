@@ -175,7 +175,7 @@ def main() -> None:
     report_parser.add_argument("--output", required=True)
     subparsers.add_parser("deploy-batch", help="Run eligible merged revisions once (explicit invocation)")
     worker_parser = subparsers.add_parser("codex", aliases=["codex-worker"], help="Codex worker and task inspection")
-    worker_parser.add_argument("action", choices=("serve", "status", "tasks", "task", "submit", "discover", "veto", "unveto"))
+    worker_parser.add_argument("action", choices=("serve", "status", "tasks", "task", "submit", "discover", "veto", "unveto", "approve", "next"))
     worker_parser.add_argument("task_id", nargs="?")
     worker_parser.add_argument("--socket", default=None)
     worker_parser.add_argument("--repo", default=None)
@@ -188,6 +188,19 @@ def main() -> None:
     api_parser.add_argument("--port", type=int, default=8765)
     args = parser.parse_args()
     if args.command in ("codex", "codex-worker"):
+        if args.action in ("approve", "next"):
+            if args.action == "approve" and not args.task_id:
+                parser.error("codex approve requires task ID")
+            if args.action == "next" and args.task_id:
+                parser.error("codex next takes no task ID")
+            from .codex_queue import TaskQueue, default_db
+            try:
+                with TaskQueue(default_db()) as queue:
+                    result = queue.approve(args.task_id) if args.action == "approve" else queue.next()
+            except ValueError as exc:
+                parser.exit(1, f"gway-remote: {exc}\\n")
+            print(json.dumps(result, indent=2, sort_keys=True))
+            return
         if args.action in ("veto", "unveto"):
             if not args.task_id or (args.action == "veto" and not args.reason):
                 parser.error("codex veto requires task ID and --reason; unveto requires task ID")
