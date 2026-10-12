@@ -13,7 +13,7 @@ from gway_remote import mobile
 class MobileTests(unittest.TestCase):
     def test_catalog_is_explicit(self):
         self.assertEqual(set(mobile.OPERATIONS), {"probe-csms", "status"})
-        self.assertEqual({x["name"] for x in mobile.commands()}, set(mobile.OPERATIONS) | {"lcd-message", "sound-play", "simulator-discover", "simulator-start", "simulator-stop", "simulator-status", "simulator-results", "csms-view"})
+        self.assertEqual({x["name"] for x in mobile.commands()}, set(mobile.OPERATIONS) | {"lcd-message", "sound-play", "simulator-discover", "simulator-start", "simulator-stop", "simulator-status", "simulator-results", "csms-view", "benchmark-echo"})
 
     def test_rejects_mutations_and_arguments(self):
         for name in ("run", "deploy-batch", "logs", "reconcile", "report-bundle"):
