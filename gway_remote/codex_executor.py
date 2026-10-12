@@ -47,7 +47,8 @@ def run_once(*, db: Path | None = None, token: str | None = None,
     token = token if token is not None else os.environ.get("GITHUB_TOKEN", "")
     repos_root = repos_root or Path(os.environ.get("GWAY_CODEX_REPOS_ROOT", str(Path.home() / "Repos")))
     work_root = work_root or Path.home() / ".local/state/gway-remote/codex-worktrees"
-    timeout_seconds = timeout_seconds or int(os.environ.get("GWAY_CODEX_TIMEOUT_SECONDS", "3600"))
+    timeout_seconds = (int(os.environ.get("GWAY_CODEX_TIMEOUT_SECONDS", "3600"))
+                       if timeout_seconds is None else timeout_seconds)
     if timeout_seconds < 1:
         raise ValueError("Codex timeout must be positive")
     with TaskQueue(db or default_db()) as queue:
@@ -90,12 +91,22 @@ def run_once(*, db: Path | None = None, token: str | None = None,
                         break
                     time.sleep(0.2)
                 if reason:
-                    os.killpg(process.pid, signal.SIGTERM)
+                    # A child may exit between poll() and killpg(); that is not
+                    # an executor failure. Always reap the direct child.
+                    try:
+                        os.killpg(process.pid, signal.SIGTERM)
+                    except ProcessLookupError:
+                        pass
                     try:
                         process.wait(timeout=5)
                     except subprocess.TimeoutExpired:
-                        os.killpg(process.pid, signal.SIGKILL)
+                        try:
+                            os.killpg(process.pid, signal.SIGKILL)
+                        except ProcessLookupError:
+                            pass
                         process.wait()
+                else:
+                    process.wait()
             detail = f"exit={process.returncode}; transcript={output}; final={final}; workspace={workspace}"
             if reason == "cancelled":
                 state = "interrupted"

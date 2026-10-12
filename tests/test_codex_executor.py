@@ -39,12 +39,17 @@ class ExecutorTests(unittest.TestCase):
             with TaskQueue(db) as queue:
                 task = queue.admit("field-validation", "arthexis/gway-remote", 41)
                 queue.approve(task["id"])
-            class Result:
+            class Process:
                 returncode = 0
+                def poll(self):
+                    return 0
+                def wait(self, timeout=None):
+                    return 0
             with patch("gway_remote.codex_executor.issue_objective", return_value="objective"), \
-                 patch("gway_remote.codex_executor.subprocess.run", return_value=Result()) as launch:
+                 patch("gway_remote.codex_executor.subprocess.run") as git, \
+                 patch("gway_remote.codex_executor.subprocess.Popen", return_value=Process()) as codex:
                 result = run_once(db=db, token="test", repos_root=root / "Repos",
                                   work_root=root / "work")
             self.assertEqual(result["state"], "succeeded")
-            self.assertEqual(launch.call_count, 2)
-            self.assertEqual(launch.call_args_list[-1].args[0][0:2], ["codex", "exec"])
+            git.assert_called_once()
+            self.assertEqual(codex.call_args.args[0][0:2], ["codex", "exec"])
