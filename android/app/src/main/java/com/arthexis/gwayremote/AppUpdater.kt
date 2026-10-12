@@ -133,11 +133,7 @@ object AppUpdater {
         val intent = Intent(Intent.ACTION_INSTALL_PACKAGE).apply {
             data = uri
             addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK)
-            putExtra(Intent.EXTRA_RETURN_RESULT, true)
             clipData = android.content.ClipData.newUri(context.contentResolver, "GWay Remote update", uri)
-        }
-        require(intent.resolveActivity(context.packageManager) != null) {
-            "Android package installer is unavailable"
         }
         context.startActivity(intent)
     }
