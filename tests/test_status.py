@@ -32,6 +32,24 @@ class StatusTests(unittest.TestCase):
         result = status(self.path, probe=lambda _: None)
         self.assertTrue(all(x["installation"] == "unknown" for x in result["components"]))
 
+    def test_quick_never_claims_runtime_health(self):
+        from unittest.mock import patch
+        with patch("gway_remote.status.quick_component_check", return_value="service-active") as quick:
+            result = status(self.path, probe=lambda _: self.fail("deep probe called"), depth="quick")
+        self.assertEqual(result["depth"], "quick")
+        self.assertEqual(quick.call_count, 3)
+        self.assertTrue(all(c["health"] == "unknown" and
+                            c["evidence"] == "service-active" for c in result["components"]))
+
+    def test_deep_remains_default(self):
+        result = status(self.path, probe=lambda _: True)
+        self.assertEqual(result["depth"], "deep")
+        self.assertTrue(all(c["health"] == "healthy" for c in result["components"]))
+
+    def test_invalid_depth(self):
+        with self.assertRaises(ValueError):
+            status(self.path, depth="invalid")
+
     def test_probe_exception(self):
         def fail(_):
             raise OSError("unavailable")

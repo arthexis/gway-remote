@@ -47,7 +47,8 @@ def csms_view(arguments):
         raise RuntimeError("csms_command_failed")
     return {"view": view, "output": completed.stdout[:65536], "truncated": len(completed.stdout) > 65536}
 
-OPERATIONS = {"probe-csms": csms_probe, "status": status}
+OPERATIONS = {"probe-csms": csms_probe, "status": status,
+              "status-quick": lambda: status(depth="quick")}
 
 
 def commands():
