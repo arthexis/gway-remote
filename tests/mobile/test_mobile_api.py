@@ -59,6 +59,52 @@ class ApiTests(LocalApiCase):
                                       headers={"Content-Type": "text/plain"})[0], 415)
         self.assertEqual(self.request("POST", "/api/v1/execute", b'x' * 8193)[0], 413)
 
+    def test_unauthorized_request_never_dispatches(self):
+        with patch.object(mobile, "execute") as execute:
+            for method, path, payload in (
+                ("GET", "/api/v1/commands", None),
+                ("POST", "/api/v1/execute", b'{"command":"status","arguments":{}}'),
+            ):
+                with self.subTest(method=method, path=path):
+                    status, body = self.request(method, path, payload, token="wrong")
+                    self.assertEqual(status, 401)
+                    self.assertEqual(body["error"], "unauthorized")
+            execute.assert_not_called()
+
+    def test_invalid_requests_never_dispatch(self):
+        invalid = (
+            (b'{"command":"run","arguments":{}}', 400),
+            (b'{"command":"status","arguments":{"now":true}}', 400),
+            (b'{"command":"status"}', 400),
+            (b'[]', 400),
+            (b'broken', 400),
+            (b'x' * 8193, 413),
+        )
+        with patch.object(mobile, "execute", side_effect=ValueError("invalid")) as execute:
+            for payload, expected in invalid:
+                with self.subTest(payload=payload[:40]):
+                    status, _ = self.request("POST", "/api/v1/execute", payload)
+                    self.assertEqual(status, expected)
+            # Valid JSON commands reach dispatch, which independently enforces admission.
+            self.assertEqual(execute.call_count, 2)
+
+    def test_response_never_contains_sensitive_exception_details(self):
+        with patch.object(mobile, "execute", side_effect=RuntimeError("token=private-secret")):
+            status, body = self.request("POST", "/api/v1/execute",
+                                        b'{"command":"status","arguments":{}}')
+        self.assertEqual(status, 500)
+        self.assertEqual(body, {"error": "execution_failed"})
+        self.assertNotIn("private-secret", str(body))
+
+    def test_unknown_routes_do_not_dispatch(self):
+        with patch.object(mobile, "execute") as execute:
+            for method, path in (("GET", "/api/v1/unknown"), ("POST", "/api/v1/unknown")):
+                with self.subTest(method=method):
+                    status, body = self.request(method, path, b'{}' if method == "POST" else None)
+                    self.assertEqual(status, 404)
+                    self.assertEqual(body["error"], "not_found")
+            execute.assert_not_called()
+
     def test_operation_failure_does_not_leak_details(self):
         def fail():
             raise RuntimeError("private secret")
