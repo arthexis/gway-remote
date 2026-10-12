@@ -24,6 +24,7 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.foundation.text.KeyboardOptions
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -75,6 +76,17 @@ fun CompanionScreen(store: SecretStore) {
     var selectedSound by remember { mutableStateOf("notice") }
     var soundMenuOpen by remember { mutableStateOf(false) }
     var settingsOpen by remember { mutableStateOf(endpoint.isBlank() || token.isBlank()) }
+    var benchmarkExpanded by remember { mutableStateOf(false) }
+    var benchmarkSamples by remember { mutableStateOf("100") }
+    var benchmarkWarmup by remember { mutableStateOf("5") }
+    var benchmarkTimeout by remember { mutableStateOf("5") }
+    var benchmarkPayload by remember { mutableStateOf("0") }
+    var benchmarkProgress by remember { mutableIntStateOf(0) }
+    var benchmarkRunning by remember { mutableStateOf(false) }
+    var benchmarkResult by remember { mutableStateOf<BenchmarkResult?>(null) }
+    var benchmarkError by remember { mutableStateOf("") }
+    var benchmarkJob by remember { mutableStateOf<Job?>(null) }
+
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
     val installedCode = if (android.os.Build.VERSION.SDK_INT >= 33)
@@ -261,6 +273,77 @@ fun CompanionScreen(store: SecretStore) {
                     result = "Connection settings saved"
                 } catch (e: Exception) { result = e.message ?: "Invalid settings" }
             }) { Text("Save settings") }
+        }
+        HorizontalDivider()
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+            Text("Benchmark", style = MaterialTheme.typography.titleMedium)
+            TextButton(onClick = { benchmarkExpanded = !benchmarkExpanded }) {
+                Text(if (benchmarkExpanded) "Hide" else "Expand")
+            }
+        }
+        if (benchmarkExpanded) {
+            Text("Authenticated echo · connected node", style = MaterialTheme.typography.bodySmall)
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedTextField(benchmarkSamples, { benchmarkSamples = it }, label = { Text("Samples") },
+                    modifier = Modifier.weight(1f), singleLine = true)
+                OutlinedTextField(benchmarkWarmup, { benchmarkWarmup = it }, label = { Text("Warmup") },
+                    modifier = Modifier.weight(1f), singleLine = true)
+            }
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedTextField(benchmarkTimeout, { benchmarkTimeout = it }, label = { Text("Timeout (s)") },
+                    modifier = Modifier.weight(1f), singleLine = true)
+                OutlinedTextField(benchmarkPayload, { benchmarkPayload = it }, label = { Text("Payload (bytes)") },
+                    modifier = Modifier.weight(1f), singleLine = true)
+            }
+            if (benchmarkRunning) {
+                Text("Progress: $benchmarkProgress / $benchmarkSamples")
+                LinearProgressIndicator(
+                    progress = { benchmarkProgress.toFloat() / (benchmarkSamples.toIntOrNull()?.coerceAtLeast(1) ?: 1) },
+                    modifier = Modifier.fillMaxWidth()
+                )
+            }
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Button(enabled = !benchmarkRunning, onClick = {
+                    try {
+                        val config = BenchmarkConfig(
+                            samples = benchmarkSamples.toInt(),
+                            warmup = benchmarkWarmup.toInt(),
+                            timeoutMs = benchmarkTimeout.toInt() * 1000,
+                            payloadBytes = benchmarkPayload.toInt()
+                        )
+                        benchmarkError = ""
+                        benchmarkResult = null
+                        benchmarkProgress = 0
+                        benchmarkRunning = true
+                        val targetEndpoint = endpoint.trim()
+                        val targetToken = token
+                        benchmarkJob = scope.launch {
+                            try {
+                                benchmarkResult = BenchmarkRunner { payload, timeout ->
+                                    ApiClient(targetEndpoint, targetToken).request(
+                                        "/api/v1/execute", "benchmark-echo",
+                                        JSONObject().put("payload", payload), timeout
+                                    )
+                                }.run(config) { completed, _ -> benchmarkProgress = completed }
+                            } catch (e: Exception) {
+                                benchmarkError = e.message ?: "Benchmark failed"
+                            } finally { benchmarkRunning = false }
+                        }
+                    } catch (e: Exception) {
+                        benchmarkError = "Invalid parameters: samples 1–1000, warmup 0–100, timeout 1–30s, payload 0–4096 bytes"
+                    }
+                }) { Text("Run benchmark") }
+                OutlinedButton(enabled = benchmarkRunning, onClick = { benchmarkJob?.cancel() }) {
+                    Text("Cancel")
+                }
+            }
+            if (benchmarkError.isNotBlank()) Text(benchmarkError)
+            benchmarkResult?.let { report ->
+                Text(if (report.cancelled) "Cancelled · partial results" else "Completed")
+                Text("Samples: ${report.rttNs.size} / ${report.attempted} · failures: ${report.failures}")
+                Text("Phone RTT: ${report.summary(report.rttNs)}")
+                Text("Pi echo processing: ${report.summary(report.processingNs)}")
+            }
         }
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             Button(enabled = !busy, onClick = { perform("/api/v1/health") }) { Text("Test") }
