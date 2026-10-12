@@ -36,7 +36,7 @@ def status(started: float) -> dict:
         "state": "idle",
         "uptime_seconds": int(time.monotonic() - started),
         "codex_available": codex_available(),
-        "task_execution_enabled": False,
+        "task_execution_enabled": True,
     }
 
 
@@ -46,6 +46,9 @@ def serve(path: Path) -> None:
     # displace a running daemon.
     if path.exists() or path.is_symlink():
         raise RuntimeError(f"Socket path already exists: {path}")
+    from .codex_queue import TaskQueue, default_db
+    with TaskQueue(default_db()) as queue:
+        queue.recover()
     started = time.monotonic()
     stop = threading.Event()
     # Polling is enabled only when the worker has an explicitly provisioned
@@ -55,6 +58,7 @@ def serve(path: Path) -> None:
     if interval < 60:
         raise ValueError("poll interval must be at least 60 seconds")
     next_poll = time.monotonic() if token else float("inf")
+    next_execution = time.monotonic()
 
     def shutdown(_signum, _frame):
         stop.set()
@@ -80,6 +84,13 @@ def serve(path: Path) -> None:
                             discover(queue, token)
                     except Exception as exc:
                         logging.warning("Codex discovery failed: %s", type(exc).__name__)
+                if time.monotonic() >= next_execution:
+                    next_execution = time.monotonic() + 5
+                    try:
+                        from .codex_executor import run_once
+                        run_once(token=token)
+                    except Exception as exc:
+                        logging.warning("Codex execution failed: %s", type(exc).__name__)
                 try:
                     client, _ = server.accept()
                 except socket.timeout:

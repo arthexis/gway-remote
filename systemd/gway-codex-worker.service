@@ -1,5 +1,5 @@
 [Unit]
-Description=GWAY Remote Codex Worker (idle foundation)
+Description=GWAY Remote Codex Worker
 After=default.target
 
 [Service]
@@ -10,8 +10,8 @@ RestartSec=5
 UMask=0077
 NoNewPrivileges=true
 PrivateTmp=true
-ProtectSystem=strict
-ProtectHome=read-only
+ProtectSystem=full
+ProtectHome=false
 Environment=PYTHONDONTWRITEBYTECODE=1
 
 [Install]
