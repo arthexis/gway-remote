@@ -271,7 +271,7 @@ fun CompanionScreen(store: SecretStore) {
                     suspend fun fetch(label: String, path: String, command: String? = null,
                                       args: JSONObject = JSONObject()): JSONObject? =
                         try { withContext(Dispatchers.IO) { client.request(path, command, args) } }
-                        catch (e: Exception) { failures.add("$" + "{label}: $" + "{e.message}"); null }
+                        catch (e: Exception) { failures.add("${label}: ${e.message}"); null }
                     fetch("Health", "/api/v1/health")?.let { result = it.toString(2) }
                     fetch("Commands", "/api/v1/commands")?.let { response ->
                         val entries = response.getJSONArray("commands")
