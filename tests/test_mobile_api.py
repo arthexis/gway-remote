@@ -13,7 +13,7 @@ from gway_remote import mobile
 class MobileTests(unittest.TestCase):
     def test_catalog_is_explicit(self):
         self.assertEqual(set(mobile.OPERATIONS), {"probe-csms", "status"})
-        self.assertEqual({x["name"] for x in mobile.commands()}, set(mobile.OPERATIONS) | {"lcd-message", "sound-play", "simulator-discover", "simulator-start", "simulator-stop", "simulator-status", "simulator-results", "csms-view"})
+        self.assertEqual({x["name"] for x in mobile.commands()}, set(mobile.OPERATIONS) | {"lcd-message", "sound-play", "simulator-discover", "simulator-start", "simulator-stop", "simulator-status", "simulator-results", "csms-view", "benchmark-echo"})
 
     def test_rejects_mutations_and_arguments(self):
         for name in ("run", "deploy-batch", "logs", "reconcile", "report-bundle"):
@@ -59,7 +59,7 @@ class ApiTests(unittest.TestCase):
         self.assertEqual(self.request("GET", "/api/v1/health")[0], 200)
         status, body = self.request("GET", "/api/v1/commands")
         self.assertEqual(status, 200)
-        self.assertEqual({c["name"] for c in body["commands"]}, {"status", "probe-csms", "lcd-message", "sound-play", "simulator-discover", "simulator-start", "simulator-stop", "simulator-status", "simulator-results", "csms-view"})
+        self.assertEqual({c["name"] for c in body["commands"]}, {"status", "probe-csms", "lcd-message", "sound-play", "simulator-discover", "simulator-start", "simulator-stop", "simulator-status", "simulator-results", "csms-view", "benchmark-echo"})
 
     def test_authentication(self):
         self.assertEqual(self.request("GET", "/api/v1/commands", token="bad")[0], 401)
