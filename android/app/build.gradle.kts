@@ -11,8 +11,8 @@ android {
         applicationId = "com.arthexis.gwayremote"
         minSdk = 26
         targetSdk = 35
-        versionCode = 4
-        versionName = "0.1.3"
+        versionCode = System.getenv("GWAY_ANDROID_VERSION_CODE")?.toIntOrNull() ?: 4
+        versionName = System.getenv("GWAY_ANDROID_VERSION_NAME") ?: "0.1.3"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
     val keyStorePath = System.getenv("GWAY_APK_KEYSTORE")
@@ -51,5 +51,6 @@ dependencies {
     implementation("androidx.compose.material3:material3")
     implementation("androidx.compose.ui:ui")
     implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.8.7")
+    implementation("androidx.work:work-runtime-ktx:2.9.1")
     testImplementation("junit:junit:4.13.2")
 }

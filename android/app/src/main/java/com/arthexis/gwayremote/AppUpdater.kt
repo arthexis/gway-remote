@@ -1,8 +1,8 @@
 package com.arthexis.gwayremote
 
-import android.content.ActivityNotFoundException
 import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
 import android.provider.Settings
@@ -97,16 +97,65 @@ object AppUpdater {
         }
     }
 
-    fun install(context: Context, apk: File) {
-        if (Build.VERSION.SDK_INT >= 26 && !context.packageManager.canRequestPackageInstalls()) {
-            context.startActivity(Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES,
-                Uri.parse("package:${context.packageName}")))
-            throw IllegalStateException("Allow installs from GWay Remote, then tap Install update again")
+    fun canInstall(context: Context): Boolean =
+        Build.VERSION.SDK_INT < 26 || context.packageManager.canRequestPackageInstalls()
+
+    fun installPermissionIntent(context: Context): Intent =
+        Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES,
+            Uri.parse("package:${context.packageName}"))
+
+    fun verifyDownloadedApk(context: Context, apk: File, update: AvailableUpdate) {
+        require(apk.isFile && apk.canRead()) { "Downloaded APK is missing; download it again" }
+        require(apk.length() == update.size) { "Downloaded APK size changed; download it again" }
+        val digest = MessageDigest.getInstance("SHA-256")
+        apk.inputStream().use { input ->
+            val buffer = ByteArray(32768)
+            while (true) {
+                val n = input.read(buffer)
+                if (n < 0) break
+                digest.update(buffer, 0, n)
+            }
         }
+        val actual = digest.digest().joinToString("") { "%02x".format(it) }
+        require(actual.equals(update.sha256, ignoreCase = true)) {
+            "Downloaded APK checksum changed; download it again"
+        }
+        @Suppress("DEPRECATION")
+        val manager = context.packageManager
+        @Suppress("DEPRECATION")
+        val flags = if (Build.VERSION.SDK_INT >= 28) PackageManager.GET_SIGNING_CERTIFICATES
+                    else PackageManager.GET_SIGNATURES
+        @Suppress("DEPRECATION")
+        val archive = manager.getPackageArchiveInfo(apk.absolutePath, flags)
+        require(archive != null && archive.packageName == context.packageName) {
+            "Downloaded APK is not a GWay Remote installation package"
+        }
+        @Suppress("DEPRECATION")
+        val installed = manager.getPackageInfo(context.packageName, flags)
+        val sameSigner = if (Build.VERSION.SDK_INT >= 28) {
+            val incoming = archive.signingInfo
+            val current = installed.signingInfo
+            incoming != null && current != null && incoming.signersMatchExactly(current)
+        } else {
+            @Suppress("DEPRECATION")
+            val incoming = archive.signatures?.map { it.toCharsString() }?.toSet()
+            @Suppress("DEPRECATION")
+            val current = installed.signatures?.map { it.toCharsString() }?.toSet()
+            !incoming.isNullOrEmpty() && incoming == current
+        }
+        require(sameSigner) {
+            "APK signing certificate does not match the installed app"
+        }
+    }
+
+    fun install(context: Context, apk: File) {
+        check(canInstall(context)) { "Allow installation from GWay Remote in Android settings" }
+        require(apk.isFile && apk.canRead()) { "Downloaded APK is missing; download it again" }
         val uri = FileProvider.getUriForFile(context, "${context.packageName}.updates", apk)
-        val intent = Intent(Intent.ACTION_VIEW).apply {
-            setDataAndType(uri, "application/vnd.android.package-archive")
+        val intent = Intent(Intent.ACTION_INSTALL_PACKAGE).apply {
+            data = uri
             addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK)
+            clipData = android.content.ClipData.newUri(context.contentResolver, "GWay Remote update", uri)
         }
         context.startActivity(intent)
     }

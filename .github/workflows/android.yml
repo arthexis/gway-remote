@@ -4,8 +4,11 @@ on:
     paths: ['android/**', '.github/workflows/android.yml']
   push:
     branches: [main]
-    tags: ['android-v*']
   workflow_dispatch:
+
+concurrency:
+  group: android-publish-main
+  cancel-in-progress: false
 
 permissions:
   contents: write
@@ -13,6 +16,9 @@ permissions:
 jobs:
   build:
     runs-on: ubuntu-latest
+    env:
+      GWAY_ANDROID_VERSION_CODE: ${{ github.run_number }}
+      GWAY_ANDROID_VERSION_NAME: 0.2.${{ github.run_number }}
     defaults:
       run:
         working-directory: android
@@ -22,23 +28,43 @@ jobs:
         with:
           distribution: temurin
           java-version: '17'
-      - uses: android-actions/setup-android@v3
-        with:
-          packages: 'platform-tools platforms;android-35 build-tools;35.0.0'
+      - name: Use preinstalled Android SDK
+        shell: bash
+        run: |
+          set -euo pipefail
+          SDK_ROOT="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-/usr/local/lib/android/sdk}}"
+          test -d "$SDK_ROOT"
+          echo "ANDROID_HOME=$SDK_ROOT" >> "$GITHUB_ENV"
+          echo "ANDROID_SDK_ROOT=$SDK_ROOT" >> "$GITHUB_ENV"
+          SDKMANAGER="$SDK_ROOT/cmdline-tools/latest/bin/sdkmanager"
+          test -x "$SDKMANAGER" || { echo "::error::Preinstalled sdkmanager not found"; exit 1; }
+          echo "Using preinstalled sdkmanager: $SDKMANAGER"
+          "$SDKMANAGER" --version
+          for component in "platforms/android-35/android.jar" "build-tools/35.0.0/apksigner" "platform-tools/adb"; do
+            if [[ ! -e "$SDK_ROOT/$component" ]]; then
+              echo "::error::Required Android SDK component missing: $component"
+              exit 1
+            fi
+          done
       - uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.10.2'
-      - name: Test
-        run: gradle :app:testDebugUnitTest --no-daemon
-      - name: Build debug APK
-        run: gradle :app:assembleDebug --no-daemon
-      - uses: actions/upload-artifact@v4
+          cache-read-only: ${{ github.event_name == 'pull_request' }}
+      - name: Validate and build debug APK (PR)
+        if: github.event_name == 'pull_request'
+        run: |
+          start=$SECONDS
+          gradle :app:testDebugUnitTest :app:assembleDebug --no-daemon
+          echo "Android PR build: $((SECONDS - start))s" >> "$GITHUB_STEP_SUMMARY"
+      - name: Upload debug APK (PR)
+        if: github.event_name == 'pull_request'
+        uses: actions/upload-artifact@v4
         with:
           name: gway-remote-debug-apk
           path: android/app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
       - name: Require release signing secrets
-        if: github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/android-v')
+        if: github.ref == 'refs/heads/main'
         env:
           KEYSTORE: ${{ secrets.GWAY_APK_KEYSTORE_BASE64 }}
           STORE_PASSWORD: ${{ secrets.GWAY_APK_STORE_PASSWORD }}
@@ -48,11 +74,14 @@ jobs:
           test -n "$KEYSTORE" && test -n "$STORE_PASSWORD" && test -n "$KEY_ALIAS" && test -n "$KEY_PASSWORD"
           printf '%s' "$KEYSTORE" | base64 --decode > "$RUNNER_TEMP/gway-release.jks"
           chmod 600 "$RUNNER_TEMP/gway-release.jks"
-      - name: Build release APK
-        if: github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/android-v')
-        run: gradle :app:assembleRelease --no-daemon
+      - name: Validate and build release APK (main)
+        if: github.ref == 'refs/heads/main'
+        run: |
+          start=$SECONDS
+          gradle :app:testDebugUnitTest :app:assembleRelease --no-daemon
+          echo "Android release build: $((SECONDS - start))s" >> "$GITHUB_STEP_SUMMARY"
       - name: Sign and verify release APK
-        if: github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/android-v')
+        if: github.ref == 'refs/heads/main'
         env:
           GWAY_APK_STORE_PASSWORD: ${{ secrets.GWAY_APK_STORE_PASSWORD }}
           GWAY_APK_KEY_ALIAS: ${{ secrets.GWAY_APK_KEY_ALIAS }}
@@ -72,31 +101,79 @@ jobs:
           fi
           test -s "$SIGNED"
           "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --verbose "$SIGNED"
-      - name: Stage release asset
-        if: github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/android-v')
+      - name: Record release signing certificate fingerprint
+        if: github.ref == 'refs/heads/main'
+        run: |
+          set -euo pipefail
+          APK=app/build/outputs/apk/release/app-release.apk
+          APKSIGNER="$ANDROID_HOME/build-tools/35.0.0/apksigner"
+          "$APKSIGNER" verify --verbose --print-certs "$APK" > "$RUNNER_TEMP/apk-signature.txt"
+          grep -E '^Signer #[0-9]+ certificate SHA-256 digest: [0-9a-fA-F]{64}
+        if: github.ref == 'refs/heads/main'
         run: |
           test -s app/build/outputs/apk/release/app-release.apk || { echo "::error::Signed APK missing; check signing configuration"; ls -l app/build/outputs/apk/release/; exit 1; }
           cp app/build/outputs/apk/release/app-release.apk "$RUNNER_TEMP/gway-remote.apk"
       - name: Write release metadata
-        if: github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/android-v')
+        if: github.ref == 'refs/heads/main'
         run: |
-          CODE=$(sed -n 's/^[[:space:]]*versionCode = \([0-9][0-9]*\).*/\1/p' app/build.gradle.kts | head -1)
-          test -n "$CODE"
-          printf 'Android-Version-Code: %s\n' "$CODE" > "$RUNNER_TEMP/android-release-notes.txt"
+          printf 'Android-Version-Code: %s\nSource-Commit: %s\n' "$GWAY_ANDROID_VERSION_CODE" "$GITHUB_SHA" > "$RUNNER_TEMP/android-release-notes.txt"
       - name: Resolve Android release tag
-        if: github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/android-v')
+        if: github.ref == 'refs/heads/main'
         id: release
+        run: echo "tag=android-v$GWAY_ANDROID_VERSION_NAME" >> "$GITHUB_OUTPUT"
+      - name: Reject stale main release
+        if: github.ref == 'refs/heads/main'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        working-directory: .
         run: |
-          VERSION=$(sed -n 's/^[[:space:]]*versionName = "\([^"]*\)".*/\1/p' app/build.gradle.kts | head -1)
-          test -n "$VERSION"
-          TAG="android-v$VERSION"
-          if [[ "$GITHUB_REF" == refs/tags/* && "$GITHUB_REF_NAME" != "$TAG" ]]; then
-            echo "Tag does not match app version" >&2
+          set -euo pipefail
+          CURRENT_MAIN=$(gh api "repos/$GITHUB_REPOSITORY/branches/main" --jq '.commit.sha')
+          if [[ "$CURRENT_MAIN" != "$GITHUB_SHA" ]]; then
+            echo "::error::Main has advanced; refusing to publish an outdated APK ($GITHUB_SHA vs $CURRENT_MAIN)"
             exit 1
           fi
-          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
       - name: Publish GitHub Release
-        if: github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/android-v')
+        if: github.ref == 'refs/heads/main'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        working-directory: .
+        run: |
+          if gh release view "${{ steps.release.outputs.tag }}" >/dev/null 2>&1; then
+            echo "Release already exists; refusing to replace signed APK" >&2
+            exit 1
+          fi
+          gh release create "${{ steps.release.outputs.tag }}" "$RUNNER_TEMP/gway-remote.apk" --target "$GITHUB_SHA" --title "GWay Remote ${{ steps.release.outputs.tag }}" --notes-file "$RUNNER_TEMP/android-release-notes.txt"
+ "$RUNNER_TEMP/apk-signature.txt" > "$RUNNER_TEMP/apk-certificates.txt"
+          test -s "$RUNNER_TEMP/apk-certificates.txt"
+          cat "$RUNNER_TEMP/apk-certificates.txt" >> "$GITHUB_STEP_SUMMARY"
+      - name: Stage release asset
+        if: github.ref == 'refs/heads/main'
+        run: |
+          test -s app/build/outputs/apk/release/app-release.apk || { echo "::error::Signed APK missing; check signing configuration"; ls -l app/build/outputs/apk/release/; exit 1; }
+          cp app/build/outputs/apk/release/app-release.apk "$RUNNER_TEMP/gway-remote.apk"
+      - name: Write release metadata
+        if: github.ref == 'refs/heads/main'
+        run: |
+          printf 'Android-Version-Code: %s\nSource-Commit: %s\n' "$GWAY_ANDROID_VERSION_CODE" "$GITHUB_SHA" > "$RUNNER_TEMP/android-release-notes.txt"
+      - name: Resolve Android release tag
+        if: github.ref == 'refs/heads/main'
+        id: release
+        run: echo "tag=android-v$GWAY_ANDROID_VERSION_NAME" >> "$GITHUB_OUTPUT"
+      - name: Reject stale main release
+        if: github.ref == 'refs/heads/main'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        working-directory: .
+        run: |
+          set -euo pipefail
+          CURRENT_MAIN=$(gh api "repos/$GITHUB_REPOSITORY/branches/main" --jq '.commit.sha')
+          if [[ "$CURRENT_MAIN" != "$GITHUB_SHA" ]]; then
+            echo "::error::Main has advanced; refusing to publish an outdated APK ($GITHUB_SHA vs $CURRENT_MAIN)"
+            exit 1
+          fi
+      - name: Publish GitHub Release
+        if: github.ref == 'refs/heads/main'
         env:
           GH_TOKEN: ${{ github.token }}
         working-directory: .

@@ -47,3 +47,28 @@ def component_health(name: str) -> bool:
     return False
 
 
+
+
+def quick_component_check(name: str):
+    """Return lightweight evidence; quick checks never establish full health."""
+    home = Path.home()
+    if name == "ocpp-simulator":
+        return "executable-present" if (home / ".local/bin/ocpp-simulator").is_file() else "executable-missing"
+    if name == "gway-lcd-sound":
+        prefix = home / ".local/share/gway-lcd-sound/current"
+        observer = home / ".local/bin/gway-app-observer"
+        unit = home / ".config/systemd/user/gway-app-observer.service"
+        if not prefix.is_symlink() or not observer.is_file():
+            return "installation-incomplete"
+        if unit.exists():
+            try:
+                content = unit.read_text(encoding="utf-8")
+            except OSError:
+                return "unit-unreadable"
+            if "--notification-mode shadow" not in content or "--no-processes" not in content:
+                return "unit-configuration-mismatch"
+        return "installation-present"
+    if name == "ocpp-csms":
+        from .csms_health import csms_liveness
+        return csms_liveness()
+    return "unsupported"

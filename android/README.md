@@ -12,7 +12,7 @@ Saved connection fields are hidden by default and can be reopened with the gear 
 
 ## Release distribution
 
-Tag `android-v0.1.0` (or a later `android-v*` tag) to trigger a **signed** release build and publish `gway-remote.apk` on GitHub Releases. Configure these repository Actions secrets **before tagging**:
+Every push to `main` builds and publishes a **signed** release APK with an automatically increasing version and unique `android-v0.2.<run number>` tag, including backend-only changes. If a newer `main` commit arrives before publication, the stale run refuses to publish and the newer run takes over. Configure these repository Actions secrets **before merging to `main`**:
 
 - `GWAY_APK_KEYSTORE_BASE64`: base64-encoded release JKS file
 - `GWAY_APK_STORE_PASSWORD`
@@ -21,7 +21,7 @@ Tag `android-v0.1.0` (or a later `android-v*` tag) to trigger a **signed** relea
 
 If any secret is missing, the release job fails rather than publishing an unsigned APK. Preserve the signing key securely; Android updates require the same signing identity. Do not put signing credentials in the repository. Download from `https://github.com/arthexis/gway-remote/releases`. A stable URL is available after the first release: `https://github.com/arthexis/gway-remote/releases/latest/download/gway-remote.apk`.
 
-The current versionCode is 4 and versionName is 0.1.3; **increase both for subsequent releases**. No release is created merely by merging this PR.
+Local builds default to versionCode 4 and versionName 0.1.3; main CI overrides these with the workflow run number. Signed APK publishing requires configured secrets.
 
 ## Limitations
 
@@ -39,4 +39,4 @@ The app provides two separate printable ASCII input fields of at most 16 charact
 
 ## Consolidated release on merge
 
-Merging this PR to main runs Android tests and attempts to publish one signed release APK as `android-v0.1.3` at GitHub Releases. The signing secrets must be configured, and an existing release with the same version is never overwritten. The updater discovers the signed release using GitHub's release metadata and SHA-256 asset digest. No release is published from PR builds; device testing remains necessary.
+Merging any PR to main runs Android tests and attempts to publish a newly versioned signed release APK. The signing secrets must be configured, and an existing release with the same version is never overwritten. The updater discovers the signed release using GitHub's release metadata and SHA-256 asset digest. No release is published from PR builds; device testing remains necessary.

@@ -27,6 +27,19 @@ class SimulatorRunnerTests(unittest.TestCase):
                 with self.subTest(args=args), self.assertRaises(ValueError):
                     runner.start(args)
 
+    def test_loopback_reaches_executable_check(self):
+        with patch.object(runner, "_networks", side_effect=AssertionError("ethernet lookup")):
+            with patch.object(runner.shutil, "which", return_value=None), patch.object(
+                    runner.Path, "home", return_value=Path("/nonexistent-simulator-test-home")):
+                with self.assertRaisesRegex(RuntimeError, "simulator_not_installed"):
+                    runner.start({"host": "127.0.0.1"})
+
+    def test_other_loopback_not_implicitly_allowed(self):
+        with patch.object(runner, "_networks", return_value=([], [
+                __import__("ipaddress").ip_network("192.168.50.0/24")])):
+            with self.assertRaisesRegex(ValueError, "target_must_be_on_wired_subnet"):
+                runner.start({"host": "127.0.0.2"})
+
     def test_catalog_has_lifecycle_operations(self):
         names = {entry["name"] for entry in mobile.commands()}
         self.assertTrue({"simulator-start", "simulator-stop", "simulator-status",

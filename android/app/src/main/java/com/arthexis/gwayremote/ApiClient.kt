@@ -12,14 +12,14 @@ class ApiClient(private val endpoint: String, private val token: String) {
         require(token.isNotBlank()) { "Token is required" }
     }
 
-    fun request(path: String, command: String? = null, arguments: JSONObject = JSONObject()): JSONObject {
+    fun request(path: String, command: String? = null, arguments: JSONObject = JSONObject(), timeoutMs: Int = 10000): JSONObject {
         val base = URL(endpoint.trimEnd('/') + "/")
         require(base.userInfo == null && base.query == null && base.ref == null)
         val target = URL(base, path.removePrefix("/"))
         require(target.host.equals(base.host, ignoreCase = true) && target.protocol == "https")
         val connection = target.openConnection() as HttpURLConnection
-        connection.connectTimeout = 5000
-        connection.readTimeout = 10000
+        connection.connectTimeout = timeoutMs
+        connection.readTimeout = timeoutMs
         connection.instanceFollowRedirects = false
         connection.setRequestProperty("Authorization", "Bearer $token")
         connection.setRequestProperty("Accept", "application/json")

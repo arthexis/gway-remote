@@ -55,3 +55,12 @@ def csms_probe(*, runner=_run, executable=None, data_dir=None):
 
 def csms_health(*, runner=_run, executable=None, data_dir=None):
     return csms_probe(runner=runner, executable=executable, data_dir=data_dir)["healthy"]
+
+
+def csms_liveness():
+    """Cheap evidence of service liveness, not full storage health."""
+    executable = Path(shutil.which("ocpp-csms") or str(Path.home() / ".local/bin/ocpp-csms"))
+    if not executable.is_file() or not (Path.home() / "ocpp-csms-data").is_dir():
+        return "installation-incomplete"
+    state = _run(["systemctl", "is-active", "ocpp-csms.service"], timeout=2)
+    return "service-active" if state == "active" else "service-inactive"

@@ -1,20 +1,29 @@
 """Read-only appliance installation and runtime health report."""
 from datetime import datetime, timezone
 import platform
+import logging
+from time import perf_counter_ns
+
+_LOG = logging.getLogger(__name__)
 
 from .attempts import DEFAULT_DIR, read_attempts
-from .health import component_health
+from .health import component_health, quick_component_check
 from .reconcile import TARGETS
 
-def status(directory=DEFAULT_DIR, probe=component_health):
+def status(directory=DEFAULT_DIR, probe=component_health, *, depth="deep"):
+    if depth not in ("deep", "quick"):
+        raise ValueError("invalid_status_depth")
     """Never deploy, restart services, or infer installed SHA from an attempt."""
+    started_ns = perf_counter_ns()
     try:
         attempts = read_attempts(directory)
         journal_error = None
     except (OSError, ValueError, UnicodeError, TypeError) as exc:
         attempts = {}
         journal_error = str(exc)
+    journal_ms = (perf_counter_ns() - started_ns) / 1_000_000
     components = []
+    probe_durations = {}
     for name, _ in TARGETS:
         entry = attempts.get(name)
         if journal_error:
@@ -26,16 +35,27 @@ def status(directory=DEFAULT_DIR, probe=component_health):
             installation = ("interrupted" if raw == "started" else raw
                             if raw in ("installed", "failed") else "unknown")
             sha, at, error, log = entry.get("sha"), entry.get("at"), entry.get("error"), entry.get("log")
+        probe_start_ns = perf_counter_ns()
+        evidence = None
         try:
-            result = probe(name)
-            health = "healthy" if result is True else "unhealthy" if result is False else "unknown"
+            if depth == "quick":
+                evidence = quick_component_check(name)
+                health = "unknown"
+            else:
+                result = probe(name)
+                health = "healthy" if result is True else "unhealthy" if result is False else "unknown"
         except Exception:
             health = "unknown"
-        components.append({"name": name, "attempted_sha": sha,
+        finally:
+            probe_durations[name] = round((perf_counter_ns() - probe_start_ns) / 1_000_000, 2)
+        components.append({"name": name, "evidence": evidence, "attempted_sha": sha,
                            "attempted_at": at, "installation": installation,
                            "health": health, "installed_sha": None,
                            "error": error, "log": log})
-    return {"schema": "gway-remote/status/v1", "node": platform.node(),
+    total_ms = round((perf_counter_ns() - started_ns) / 1_000_000, 2)
+    _LOG.info("status timing total_ms=%.2f journal_ms=%.2f probe_ms=%s",
+              total_ms, journal_ms, probe_durations)
+    return {"schema": "gway-remote/status/v1", "depth": depth, "node": platform.node(),
             "checked_at": datetime.now(timezone.utc).isoformat(),
             "components": components}
 

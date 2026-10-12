@@ -4,7 +4,9 @@ from pathlib import Path
 import os
 import tempfile
 import subprocess
+import shutil
 
+from .benchmark import echo
 from .csms_health import csms_probe
 from .simulator_network import discover
 from . import simulator_runner
@@ -14,13 +16,49 @@ LCD_DIR = Path.home() / ".local" / "state" / "lcd-lockfiles"
 LCD_EVENT = "lcd-event-mobile.lck"
 SOUNDS = ("ok", "notice", "attention", "warning", "error", "busy", "critical")
 
-OPERATIONS = {"probe-csms": csms_probe, "status": status}
+CSMS_VIEWS = {
+    "status": ("status",),
+    "chargers": ("chargers",),
+    "charge-points": ("cps",),
+    "transactions": ("txn",),
+    "events": ("events",),
+    "alerts": ("alerts",),
+    "rfid-report": ("rfid", "report"),
+    "report": ("report",),
+}
+
+
+def csms_view(arguments):
+    if not isinstance(arguments, dict) or set(arguments) != {"view"}:
+        raise ValueError("invalid_arguments")
+    view = arguments["view"]
+    if not isinstance(view, str) or view not in CSMS_VIEWS:
+        raise ValueError("invalid_csms_view")
+    executable = shutil.which("ocpp-csms") or str(Path.home() / ".local/bin/ocpp-csms")
+    if not Path(executable).is_file():
+        raise RuntimeError("csms_cli_not_found")
+    try:
+        completed = subprocess.run(
+            [executable, "--data-dir", str(Path.home() / "ocpp-csms-data"), *CSMS_VIEWS[view]],
+            capture_output=True, text=True, timeout=15, check=False)
+    except (OSError, subprocess.TimeoutExpired):
+        raise RuntimeError("csms_command_failed")
+    if completed.returncode:
+        raise RuntimeError("csms_command_failed")
+    return {"view": view, "output": completed.stdout[:65536], "truncated": len(completed.stdout) > 65536}
+
+OPERATIONS = {"probe-csms": csms_probe, "status": status,
+              "status-quick": lambda: status(depth="quick")}
 
 
 def commands():
     return ([{"name": name, "arguments": {}, "read_only": True} for name in OPERATIONS]
+            + [{"name": "benchmark-echo", "read_only": True, "arguments": {
+                "payload": {"type": "string", "max_length": 4096, "required": True}}}]
             + [{"name": name, "read_only": name in ("simulator-status", "simulator-results"), "arguments": {}}
                for name in ("simulator-start", "simulator-stop", "simulator-status", "simulator-results")]
+            + [{"name": "csms-view", "read_only": True, "arguments": {
+                "view": {"type": "choice", "choices": list(CSMS_VIEWS), "required": True}}}]
             + [{"name": "simulator-discover", "read_only": True, "arguments": {
                 "host": {"type": "string", "required": False},
                 "port": {"type": "integer", "required": False}}},
@@ -28,12 +66,16 @@ def commands():
                 "sound": {"type": "choice", "choices": list(SOUNDS), "required": True}}},
                {"name": "lcd-message", "read_only": False, "arguments": {
                 "line1": {"type": "string", "max_length": 16, "required": True},
-                "line2": {"type": "string", "max_length": 16, "required": True}}}])
+                "line2": {"type": "string", "max_length": 16, "required": True},
+                "duration_seconds": {"type": "integer", "min": 30, "max": 300, "required": False}}}])
 
 
 def lcd_message(arguments):
-    if not isinstance(arguments, dict) or set(arguments) != {"line1", "line2"}:
+    if not isinstance(arguments, dict) or not {"line1", "line2"} <= set(arguments) or set(arguments) - {"line1", "line2", "duration_seconds"}:
         raise ValueError("invalid_arguments")
+    duration = arguments.get("duration_seconds", 30)
+    if type(duration) is not int or not 30 <= duration <= 300 or duration % 30:
+        raise ValueError("invalid_lcd_duration")
     lines = [arguments["line1"], arguments["line2"]]
     if any(not isinstance(line, str) or len(line) > 16 or
            any(ord(char) < 32 or ord(char) > 126 for char in line) for line in lines):
@@ -43,7 +85,7 @@ def lcd_message(arguments):
     # The existing gway-lcd-sound runner consumes event lockfiles and
     # resumes its normal rotation when this timestamp expires.
     LCD_DIR.mkdir(parents=True, exist_ok=True)
-    expires = (datetime.now(timezone.utc) + timedelta(seconds=30)).isoformat()
+    expires = (datetime.now(timezone.utc) + timedelta(seconds=duration)).isoformat()
     fd, name = tempfile.mkstemp(prefix=".lcd-mobile-", dir=LCD_DIR)
     try:
         with os.fdopen(fd, "w", encoding="ascii") as stream:
@@ -52,7 +94,7 @@ def lcd_message(arguments):
     finally:
         if os.path.exists(name):
             os.unlink(name)
-    return {"queued": True, "duration_seconds": 30}
+    return {"queued": True, "duration_seconds": duration}
 
 
 def sound_play(arguments):
@@ -67,6 +109,10 @@ def sound_play(arguments):
 
 
 def execute(name, arguments):
+    if name == "benchmark-echo":
+        return echo(arguments)
+    if name == "csms-view":
+        return csms_view(arguments)
     if name in ("simulator-start", "simulator-stop", "simulator-status", "simulator-results"):
         return {"simulator-start": simulator_runner.start, "simulator-stop": simulator_runner.stop,
                 "simulator-status": simulator_runner.status, "simulator-results": simulator_runner.results}[name](arguments)
