@@ -41,6 +41,8 @@ class MainActivity : ComponentActivity() {
         WindowCompat.setDecorFitsSystemWindows(window, false)
         WindowInsetsControllerCompat(window, window.decorView).isAppearanceLightStatusBars = false
         window.setSoftInputMode(android.view.WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE)
+        UpdateNotifications.createChannel(this)
+        UpdateNotifications.schedule(this)
         val store = SecretStore(this)
         setContent { MaterialTheme { CompanionScreen(store) } }
     }
@@ -98,6 +100,16 @@ fun CompanionScreen(store: SecretStore) {
 
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
+    val notificationPermissionLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { /* Background checks continue; alerts require permission. */ }
+    LaunchedEffect(Unit) {
+        if (android.os.Build.VERSION.SDK_INT >= 33 &&
+            androidx.core.content.ContextCompat.checkSelfPermission(
+                context, android.Manifest.permission.POST_NOTIFICATIONS
+            ) != android.content.pm.PackageManager.PERMISSION_GRANTED
+        ) notificationPermissionLauncher.launch(android.Manifest.permission.POST_NOTIFICATIONS)
+    }
     val installedCode = if (android.os.Build.VERSION.SDK_INT >= 33)
         context.packageManager.getPackageInfo(context.packageName, android.content.pm.PackageManager.PackageInfoFlags.of(0)).longVersionCode
     else @Suppress("DEPRECATION") context.packageManager.getPackageInfo(context.packageName, 0).longVersionCode
