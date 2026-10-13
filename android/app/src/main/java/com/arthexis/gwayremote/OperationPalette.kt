@@ -50,6 +50,17 @@ fun OperationPalette(
                     panel.output?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
                     if (spec.policy == ExecutionPolicy.AUTO_READ) {
                         TextButton(onClick = { onRefresh(panel.id) }, enabled = !panel.loading) { Text("Refresh") }
+                    } else if (panel.id == "simulator-discover") {
+                        val host = panel.inputs["host"].orEmpty()
+                        val port = panel.inputs["port"] ?: "9000"
+                        OutlinedTextField(host, { onInput(panel.id, "host", it) },
+                            label = { Text("Ethernet target (optional)") }, singleLine = true)
+                        OutlinedTextField(port, { onInput(panel.id, "port", it) },
+                            label = { Text("CSMS port") }, singleLine = true)
+                        Button(
+                            enabled = !panel.loading && port.toIntOrNull()?.let { it in 1..65535 } == true,
+                            onClick = { onExecute(panel.id, mapOf("host" to host, "port" to port)) }
+                        ) { Text("Discover / check target") }
                     } else if (panel.id == "benchmark") {
                         benchmarkContent()
                     } else if (panel.id == "simulator-start" || panel.id == "simulator-stop") {
