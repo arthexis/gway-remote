@@ -46,33 +46,6 @@ fun OperationPalette(
                     panel.output?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
                     if (spec.policy == ExecutionPolicy.AUTO_READ) {
                         TextButton(onClick = { onRefresh(panel.id) }, enabled = !panel.loading) { Text("Refresh") }
-                    } else if (panel.id == "simulator-start" || panel.id == "simulator-stop") {
-                        val host = panel.inputs["host"].orEmpty()
-                        val port = panel.inputs["port"].orEmpty().ifEmpty { "9000" }
-                        var confirm by remember(panel.id) { mutableStateOf(false) }
-                        OutlinedTextField(host, { onInput(panel.id, "host", it) },
-                            label = { Text("Target host (optional)") }, singleLine = true)
-                        OutlinedTextField(port, { onInput(panel.id, "port", it) },
-                            label = { Text("CSMS port (1–65535)") }, singleLine = true)
-                        val valid = port.toIntOrNull()?.let { it in 1..65535 } == true
-                        Button(enabled = !panel.loading && valid,
-                            onClick = { confirm = true }) {
-                            Text(if (panel.id == "simulator-start") "Start simulator" else "Stop simulator")
-                        }
-                        if (confirm) AlertDialog(
-                            onDismissRequest = { confirm = false },
-                            title = { Text("Confirm simulator command") },
-                            text = { Text("Send ${spec.label.lowercase()} to ${host.ifBlank { "the selected target" }}:$port?") },
-                            confirmButton = {
-                                TextButton(onClick = {
-                                    confirm = false
-                                    if (valid) onExecute(panel.id, panel.inputs + ("port" to port))
-                                }) { Text("Execute") }
-                            },
-                            dismissButton = {
-                                TextButton(onClick = { confirm = false }) { Text("Cancel") }
-                            }
-                        )
                     } else if (panel.id == "csms-view") {
                         val views = listOf("status", "chargers", "charge-points", "transactions",
                             "events", "alerts", "rfid-report", "report")
