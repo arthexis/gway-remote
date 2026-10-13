@@ -7,6 +7,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import org.json.JSONObject
 
 /**
  * UI-3: presentation only. UI-4 will migrate full parameterized
@@ -21,7 +22,9 @@ fun OperationPalette(
     onMove: (String, Int) -> Unit,
     onRefresh: (String) -> Unit,
     onInput: (String, String, String) -> Unit,
-    onExecute: (String, Map<String, String>) -> Unit
+    onExecute: (String, Map<String, String>) -> Unit,
+    simulatorStatus: String,
+    onSimulatorCommand: (String, JSONObject) -> Unit
 ) {
     var filter by remember { mutableStateOf("") }
     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -46,6 +49,41 @@ fun OperationPalette(
                     panel.output?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
                     if (spec.policy == ExecutionPolicy.AUTO_READ) {
                         TextButton(onClick = { onRefresh(panel.id) }, enabled = !panel.loading) { Text("Refresh") }
+                    } else if (panel.id == "simulator-start" || panel.id == "simulator-stop") {
+                        val host = panel.inputs["host"].orEmpty()
+                        val port = panel.inputs["port"] ?: "9000"
+                        var pending by remember(panel.id) { mutableStateOf<Pair<String, JSONObject>?>(null) }
+                        if (panel.id == "simulator-start") {
+                            OutlinedTextField(host, { onInput(panel.id, "host", it) },
+                                label = { Text("Ethernet target host") }, singleLine = true)
+                            OutlinedTextField(port, { onInput(panel.id, "port", it) },
+                                label = { Text("CSMS port") }, singleLine = true)
+                            // Reuse the original validated scenarios and payload builder;
+                            // avoid duplicating its charging parameter contract.
+                            SimulatorControls(host, port, simulatorStatus, panel.loading) { command, args ->
+                                pending = command to args
+                            }
+                        } else {
+                            Text("Simulator: $simulatorStatus")
+                            Button(enabled = !panel.loading && simulatorStatus.startsWith("running"),
+                                onClick = { pending = "simulator-stop" to JSONObject() }) {
+                                Text("Stop simulation")
+                            }
+                        }
+                        pending?.let { (command, args) ->
+                            AlertDialog(onDismissRequest = { pending = null },
+                                title = { Text("Confirm simulator operation") },
+                                text = { Text("Execute $command on the configured simulator?") },
+                                confirmButton = {
+                                    TextButton(onClick = {
+                                        pending = null
+                                        onSimulatorCommand(command, args)
+                                    }) { Text("Execute") }
+                                },
+                                dismissButton = {
+                                    TextButton(onClick = { pending = null }) { Text("Cancel") }
+                                })
+                        }
                     } else if (panel.id == "csms-view") {
                         val views = listOf("status", "chargers", "charge-points", "transactions",
                             "events", "alerts", "rfid-report", "report")
