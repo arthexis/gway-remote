@@ -21,10 +21,21 @@ class LegacyParityTests(unittest.TestCase):
 
     def test_unmigrated_controls_stay_available(self):
         activity = ACTIVITY.read_text()
-        for marker in ('Text("Read operations"', 'Text("CSMS"',
+        for marker in ('Text("CSMS"',
                        'Text("OCPP Simulator"', 'SimulatorControls(',
                        'Text("Response"', 'Update app'):
             self.assertIn(marker, activity)
+
+    def test_read_commands_migrated_without_losing_dynamic_reads(self):
+        activity = ACTIVITY.read_text()
+        registry = (ROOT / "android/app/src/main/java/com/arthexis/gwayremote/OperationRegistry.kt").read_text()
+        self.assertNotIn('Text("Read operations"', activity)
+        for operation in ('"api-health"', '"api-commands"'):
+            self.assertIn(operation, registry)
+        self.assertIn('"api-health" -> "/api/v1/health"', activity)
+        self.assertIn('"api-commands" -> "/api/v1/commands"', activity)
+        self.assertIn('unmatchedCommands = commands.filter { it !in panelCommands }', activity)
+        self.assertIn('Text("Additional server read commands"', activity)
 
 
 if __name__ == "__main__":
