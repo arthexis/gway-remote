@@ -93,7 +93,17 @@ def handler_for(token):
             except Exception:
                 self.respond(500, {"error": "execution_failed"})
                 return
-            self.respond(200, {"command": request["command"], "status": "completed",
+            operation_status = "completed"
+            if request["command"] == "agent-issue":
+                # The transport finished, NOT the Codex invocation.
+                dispatch_state = (result.get("data", {}).get("state")
+                                  if isinstance(result, dict) else None)
+                operation_status = {
+                    "requested": "requested",
+                    "already_requested": "already_requested",
+                    "launch_unconfirmed": "unknown",
+                }.get(dispatch_state, "unknown")
+            self.respond(200, {"command": request["command"], "status": operation_status,
                                "execution_ns": execution_ns, "result": result})
 
     return Handler
