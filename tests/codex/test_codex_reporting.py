@@ -37,6 +37,40 @@ class ReportingTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             diagnostic_body(reason="success")
 
+    def test_idempotent_attempt_key_and_remote_comment_check(self):
+        with tempfile.TemporaryDirectory() as root:
+            with ReportOutbox(Path(root) / "reports.sqlite") as outbox:
+                first = outbox.enqueue("arthexis/gway-remote", 41,
+                                       "Interrupted", report_key="attempt-1")
+                second = outbox.enqueue("arthexis/gway-remote", 41,
+                                        "Interrupted", report_key="attempt-1")
+                self.assertEqual(first, second)
+                self.assertEqual(len(outbox.pending()), 1)
+                calls = []
+                def already_sent(request, timeout):
+                    calls.append(request.get_method())
+                    return Response([{"body": "<!-- gway-remote-report:attempt-1 -->"}])
+                self.assertEqual(outbox.deliver("token", opener=already_sent), 1)
+                self.assertEqual(calls, ["GET"])
+                self.assertFalse(outbox.pending())
+
+    def test_missing_marker_posts_once(self):
+        with tempfile.TemporaryDirectory() as root:
+            with ReportOutbox(Path(root) / "reports.sqlite") as outbox:
+                outbox.enqueue("arthexis/gway-remote", 41,
+                               "Interrupted", report_key="attempt-2")
+                calls = []
+                def deliver(request, timeout):
+                    calls.append(request.get_method())
+                    if request.get_method() == "GET":
+                        return Response([])
+                    body = json.loads(request.data)["body"]
+                    self.assertIn("gway-remote-report:attempt-2", body)
+                    return Response({"id": 51})
+                self.assertEqual(outbox.deliver("token", opener=deliver), 1)
+                self.assertEqual(calls, ["GET", "POST"])
+                self.assertFalse(outbox.pending())
+
     def test_failed_delivery_stays_durable_then_retries(self):
         with tempfile.TemporaryDirectory() as root:
             db = Path(root) / "outbox.sqlite"
