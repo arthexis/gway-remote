@@ -585,7 +585,7 @@ fun CompanionScreen(store: SecretStore) {
             }
         )
         HorizontalDivider()
-        Text("Existing controls", style = MaterialTheme.typography.titleSmall)
+        Text("Legacy controls pending parity", style = MaterialTheme.typography.titleSmall)
         if (refreshStatus.isNotBlank()) Text(refreshStatus, style = MaterialTheme.typography.bodySmall)
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
             TextButton(onClick = {
@@ -670,61 +670,6 @@ fun CompanionScreen(store: SecretStore) {
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             Button(enabled = !busy, onClick = { perform("/api/v1/health") }) { Text("Test") }
             Button(enabled = !busy, onClick = { perform("/api/v1/commands") }) { Text("Commands") }
-        }
-        Text("Write operations", style = MaterialTheme.typography.titleMedium)
-        FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp),
-            verticalArrangement = Arrangement.spacedBy(4.dp)) {
-            OutlinedButton(onClick = {
-                expandedWriteOperation = if (expandedWriteOperation == "lcd-message") null else "lcd-message"
-            }) { Text(if (expandedWriteOperation == "lcd-message") "LCD message ▴" else "LCD message ▾") }
-            OutlinedButton(onClick = {
-                expandedWriteOperation = if (expandedWriteOperation == "sound-play") null else "sound-play"
-            }) { Text(if (expandedWriteOperation == "sound-play") "Play sound ▴" else "Play sound ▾") }
-        }
-        if (expandedWriteOperation == "lcd-message") {
-            Text("LCD (16 × 2)", style = MaterialTheme.typography.titleSmall)
-        OutlinedTextField(lcdLine1, { next ->
-            if (next.length <= 16 && next.all { it.code in 32..126 }) lcdLine1 = next
-        }, label = { Text("Line 1 (${lcdLine1.length}/16)") },
-            keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Characters),
-            modifier = Modifier.fillMaxWidth(), singleLine = true)
-        OutlinedTextField(lcdLine2, { next ->
-            if (next.length <= 16 && next.all { it.code in 32..126 }) lcdLine2 = next
-        }, label = { Text("Line 2 (${lcdLine2.length}/16)") },
-            keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Characters),
-            modifier = Modifier.fillMaxWidth(), singleLine = true)
-        Row(Modifier.fillMaxWidth(), verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            Button(enabled = !busy && (lcdLine1.isNotEmpty() || lcdLine2.isNotEmpty()), onClick = {
-                perform("/api/v1/execute", "lcd-message",
-                    JSONObject().put("line1", lcdLine1).put("line2", lcdLine2)
-                        .put("duration_seconds", lcdDuration.toInt()))
-            }) { Text("Show on LCD") }
-            Column(Modifier.weight(1f)) {
-                Text("Duration: ${lcdDuration.toInt() / 60}:${(lcdDuration.toInt() % 60).toString().padStart(2, '0')}")
-                Slider(value = lcdDuration, onValueChange = { lcdDuration = it },
-                    valueRange = 30f..300f, steps = 8)
-            }
-        }
-        }
-        if (expandedWriteOperation == "sound-play") {
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp),
-            verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
-        Box {
-            OutlinedButton(onClick = { soundMenuOpen = true }) { Text("Sound: $selectedSound ▾") }
-            DropdownMenu(expanded = soundMenuOpen, onDismissRequest = { soundMenuOpen = false }) {
-                listOf("ok", "notice", "attention", "warning", "error", "busy", "critical").forEach { name ->
-                    DropdownMenuItem(text = { Text(name) }, onClick = {
-                        selectedSound = name
-                        soundMenuOpen = false
-                    })
-                }
-            }
-        }
-        Button(enabled = !busy, onClick = {
-            perform("/api/v1/execute", "sound-play", JSONObject().put("sound", selectedSound))
-        }) { Text("Play sound") }
-        }
         }
         Text("Read operations", style = MaterialTheme.typography.titleMedium)
         FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp),
