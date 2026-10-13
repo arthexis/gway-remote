@@ -8,6 +8,7 @@ import shutil
 
 from .benchmark import echo
 from .codex_views import list_tasks, task_detail
+from .codex_issue_views import list_assignments
 from .csms_health import csms_probe
 from .simulator_network import discover
 from . import simulator_runner
@@ -54,7 +55,8 @@ OPERATIONS = {"probe-csms": csms_probe, "status": status,
 
 def commands():
     return ([{"name": name, "arguments": {}, "read_only": True} for name in OPERATIONS]
-            + [{"name": "codex-tasks", "read_only": True, "arguments": {}},
+            + [{"name": "codex-issues", "read_only": True, "arguments": {}},
+                {"name": "codex-tasks", "read_only": True, "arguments": {}},
                 {"name": "codex-task", "read_only": True, "arguments": {
                     "task_id": {"type": "string", "required": True}}}]
             + [{"name": "benchmark-echo", "read_only": True, "arguments": {
@@ -125,6 +127,10 @@ def codex_mobile(name, arguments):
 
 
 def execute(name, arguments):
+    if name == "codex-issues":
+        if not isinstance(arguments, dict) or arguments:
+            raise ValueError("invalid_arguments")
+        return list_assignments()
     if name in ("codex-tasks", "codex-task"):
         return codex_mobile(name, arguments)
     if name == "benchmark-echo":
