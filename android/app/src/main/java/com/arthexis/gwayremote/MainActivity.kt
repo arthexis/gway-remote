@@ -385,6 +385,119 @@ fun CompanionScreen(store: SecretStore) {
         }
     }
 
+    val benchmarkPanelContent: @Composable () -> Unit = {
+        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text("Authenticated echo and read-only status · connected node", style = MaterialTheme.typography.bodySmall)
+            Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                for (mode in BenchmarkMode.entries) {
+                    FilterChip(selected = benchmarkMode == mode, onClick = { benchmarkMode = mode },
+                        label = { Text(mode.name.lowercase().replaceFirstChar { it.uppercase() }) })
+                }
+            }
+            OutlinedTextField(benchmarkLabel, { benchmarkLabel = it }, label = { Text("Connection label (AP / LAN / remote)") },
+                modifier = Modifier.fillMaxWidth(), singleLine = true)
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedTextField(benchmarkSamples, { benchmarkSamples = it }, label = { Text("Samples") },
+                    modifier = Modifier.weight(1f), singleLine = true)
+                OutlinedTextField(benchmarkWarmup, { benchmarkWarmup = it }, label = { Text("Warmup") },
+                    modifier = Modifier.weight(1f), singleLine = true)
+            }
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedTextField(benchmarkTimeout, { benchmarkTimeout = it }, label = { Text("Timeout (s)") },
+                    modifier = Modifier.weight(1f), singleLine = true)
+                OutlinedTextField(benchmarkPayload, { benchmarkPayload = it }, label = { Text("Payload (bytes)") },
+                    modifier = Modifier.weight(1f), singleLine = true)
+            }
+            if (benchmarkRunning) {
+                Text("Progress: $benchmarkProgress / ${(benchmarkSamples.toIntOrNull() ?: 0) * (if (benchmarkMode == BenchmarkMode.BOTH) 2 else 1)}")
+                LinearProgressIndicator(
+                    progress = { benchmarkProgress.toFloat() / ((benchmarkSamples.toIntOrNull()?.coerceAtLeast(1) ?: 1) * (if (benchmarkMode == BenchmarkMode.BOTH) 2 else 1)) },
+                    modifier = Modifier.fillMaxWidth()
+                )
+            }
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Button(enabled = !benchmarkRunning, onClick = {
+                    try {
+                        val config = BenchmarkConfig(
+                            samples = benchmarkSamples.toInt(),
+                            warmup = benchmarkWarmup.toInt(),
+                            timeoutMs = benchmarkTimeout.toInt() * 1000,
+                            payloadBytes = benchmarkPayload.toInt()
+                        )
+                        benchmarkError = ""
+                        benchmarkReport = null
+                        benchmarkProgress = 0
+                        benchmarkRunning = true
+                        benchmarkStop.set(false)
+                        val targetEndpoint = endpoint.trim()
+                        val targetToken = token
+                        scope.launch {
+                            try {
+                                val runner = BenchmarkRunner { command, arguments, timeout ->
+                                    ApiClient(targetEndpoint, targetToken).request(
+                                        "/api/v1/execute", command, arguments, timeout
+                                    )
+                                }
+                                val selected = benchmarkMode
+                                val modes = if (selected == BenchmarkMode.BOTH)
+                                    listOf("benchmark-echo", "status") else
+                                    listOf(if (selected == BenchmarkMode.ECHO) "benchmark-echo" else "status")
+                                val results = mutableListOf<BenchmarkResult>()
+                                for ((index, command) in modes.withIndex()) {
+                                    if (benchmarkStop.get()) break
+                                    results.add(runner.run(config, command, { benchmarkStop.get() }) { completed, _ ->
+                                        benchmarkProgress = index * config.samples + completed
+                                    })
+                                }
+                                benchmarkReport = BenchmarkReport.create(
+                                    benchmarkLabel, java.net.URL(targetEndpoint).host, config, selected,
+                                    results, context.packageManager.getPackageInfo(context.packageName, 0).versionName ?: "unknown"
+                                )
+                            } catch (e: Exception) {
+                                benchmarkError = e.message ?: "Benchmark failed"
+                            } finally { benchmarkRunning = false }
+                        }
+                    } catch (e: Exception) {
+                        benchmarkError = "Invalid parameters: samples 1–1000, warmup 0–100, timeout 1–30s, payload 0–4096 bytes"
+                    }
+                }) { Text("Run benchmark") }
+                OutlinedButton(enabled = benchmarkRunning, onClick = { benchmarkStop.set(true) }) {
+                    Text("Cancel")
+                }
+            }
+            if (benchmarkError.isNotBlank()) Text(benchmarkError)
+            benchmarkReport?.let { report ->
+                Text("Run: ${report.runId}")
+                for (item in report.results) {
+                    Text("${item.command}: ${item.rttNs.size}/${item.attempted} successful · ${item.failures} failures")
+                    Text("Phone RTT: ${item.summary(item.rttNs)}")
+                    if (item.processingNs.isNotEmpty()) Text("Pi echo: ${item.summary(item.processingNs)}")
+                    if (item.executionNs.isNotEmpty()) Text("Pi execution: ${item.summary(item.executionNs)}")
+                }
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    OutlinedButton(onClick = {
+                        val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                        clipboard.setPrimaryClip(ClipData.newPlainText("GWAY benchmark JSON", report.json().toString(2)))
+                    }) { Text("Copy JSON") }
+                    OutlinedButton(onClick = {
+                        val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                        clipboard.setPrimaryClip(ClipData.newPlainText("GWAY benchmark issue report", report.markdown()))
+                        val intent = android.content.Intent(android.content.Intent.ACTION_VIEW,
+                            android.net.Uri.parse("https://github.com/arthexis/gway-remote/issues/32"))
+                        context.startActivity(intent)
+                    }) { Text("Copy report + open issue #32") }
+                    OutlinedButton(onClick = {
+                        val intent = android.content.Intent(android.content.Intent.ACTION_SEND).apply {
+                            type = "text/plain"
+                            putExtra(android.content.Intent.EXTRA_TEXT, report.markdown())
+                        }
+                        context.startActivity(android.content.Intent.createChooser(intent, "Share benchmark"))
+                    }) { Text("Share") }
+                }
+            }
+        }
+    }
+
     PullToRefreshBox(isRefreshing = refreshing, onRefresh = { refreshAll() },
         modifier = Modifier.fillMaxSize().background(Color.Black).statusBarsPadding().navigationBarsPadding()) {
     Column(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background).imePadding().verticalScroll(rememberScrollState()).padding(20.dp),
@@ -406,6 +519,7 @@ fun CompanionScreen(store: SecretStore) {
             onClose = { id -> panelState = panelState.close(id) },
             onMove = { id, index -> panelState = panelState.move(id, index) },
             onRefresh = { id -> runPanelRead(id) },
+            benchmarkContent = benchmarkPanelContent,
             simulatorStatus = simulatorStatus,
             onSimulatorCommand = { command, args ->
                 val operationId = if (command == "simulator-stop") "simulator-stop" else "simulator-start"
@@ -553,122 +667,6 @@ fun CompanionScreen(store: SecretStore) {
             }) { Text("Save settings") }
         }
         HorizontalDivider()
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-            Text("Benchmark", style = MaterialTheme.typography.titleMedium)
-            TextButton(onClick = { benchmarkExpanded = !benchmarkExpanded }) {
-                Text(if (benchmarkExpanded) "Hide" else "Expand")
-            }
-        }
-        if (benchmarkExpanded) {
-            Text("Authenticated echo and read-only status · connected node", style = MaterialTheme.typography.bodySmall)
-            Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                for (mode in BenchmarkMode.entries) {
-                    FilterChip(selected = benchmarkMode == mode, onClick = { benchmarkMode = mode },
-                        label = { Text(mode.name.lowercase().replaceFirstChar { it.uppercase() }) })
-                }
-            }
-            OutlinedTextField(benchmarkLabel, { benchmarkLabel = it }, label = { Text("Connection label (AP / LAN / remote)") },
-                modifier = Modifier.fillMaxWidth(), singleLine = true)
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                OutlinedTextField(benchmarkSamples, { benchmarkSamples = it }, label = { Text("Samples") },
-                    modifier = Modifier.weight(1f), singleLine = true)
-                OutlinedTextField(benchmarkWarmup, { benchmarkWarmup = it }, label = { Text("Warmup") },
-                    modifier = Modifier.weight(1f), singleLine = true)
-            }
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                OutlinedTextField(benchmarkTimeout, { benchmarkTimeout = it }, label = { Text("Timeout (s)") },
-                    modifier = Modifier.weight(1f), singleLine = true)
-                OutlinedTextField(benchmarkPayload, { benchmarkPayload = it }, label = { Text("Payload (bytes)") },
-                    modifier = Modifier.weight(1f), singleLine = true)
-            }
-            if (benchmarkRunning) {
-                Text("Progress: $benchmarkProgress / ${(benchmarkSamples.toIntOrNull() ?: 0) * (if (benchmarkMode == BenchmarkMode.BOTH) 2 else 1)}")
-                LinearProgressIndicator(
-                    progress = { benchmarkProgress.toFloat() / ((benchmarkSamples.toIntOrNull()?.coerceAtLeast(1) ?: 1) * (if (benchmarkMode == BenchmarkMode.BOTH) 2 else 1)) },
-                    modifier = Modifier.fillMaxWidth()
-                )
-            }
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Button(enabled = !benchmarkRunning, onClick = {
-                    try {
-                        val config = BenchmarkConfig(
-                            samples = benchmarkSamples.toInt(),
-                            warmup = benchmarkWarmup.toInt(),
-                            timeoutMs = benchmarkTimeout.toInt() * 1000,
-                            payloadBytes = benchmarkPayload.toInt()
-                        )
-                        benchmarkError = ""
-                        benchmarkReport = null
-                        benchmarkProgress = 0
-                        benchmarkRunning = true
-                        benchmarkStop.set(false)
-                        val targetEndpoint = endpoint.trim()
-                        val targetToken = token
-                        scope.launch {
-                            try {
-                                val runner = BenchmarkRunner { command, arguments, timeout ->
-                                    ApiClient(targetEndpoint, targetToken).request(
-                                        "/api/v1/execute", command, arguments, timeout
-                                    )
-                                }
-                                val selected = benchmarkMode
-                                val modes = if (selected == BenchmarkMode.BOTH)
-                                    listOf("benchmark-echo", "status") else
-                                    listOf(if (selected == BenchmarkMode.ECHO) "benchmark-echo" else "status")
-                                val results = mutableListOf<BenchmarkResult>()
-                                for ((index, command) in modes.withIndex()) {
-                                    if (benchmarkStop.get()) break
-                                    results.add(runner.run(config, command, { benchmarkStop.get() }) { completed, _ ->
-                                        benchmarkProgress = index * config.samples + completed
-                                    })
-                                }
-                                benchmarkReport = BenchmarkReport.create(
-                                    benchmarkLabel, java.net.URL(targetEndpoint).host, config, selected,
-                                    results, context.packageManager.getPackageInfo(context.packageName, 0).versionName ?: "unknown"
-                                )
-                            } catch (e: Exception) {
-                                benchmarkError = e.message ?: "Benchmark failed"
-                            } finally { benchmarkRunning = false }
-                        }
-                    } catch (e: Exception) {
-                        benchmarkError = "Invalid parameters: samples 1–1000, warmup 0–100, timeout 1–30s, payload 0–4096 bytes"
-                    }
-                }) { Text("Run benchmark") }
-                OutlinedButton(enabled = benchmarkRunning, onClick = { benchmarkStop.set(true) }) {
-                    Text("Cancel")
-                }
-            }
-            if (benchmarkError.isNotBlank()) Text(benchmarkError)
-            benchmarkReport?.let { report ->
-                Text("Run: ${report.runId}")
-                for (item in report.results) {
-                    Text("${item.command}: ${item.rttNs.size}/${item.attempted} successful · ${item.failures} failures")
-                    Text("Phone RTT: ${item.summary(item.rttNs)}")
-                    if (item.processingNs.isNotEmpty()) Text("Pi echo: ${item.summary(item.processingNs)}")
-                    if (item.executionNs.isNotEmpty()) Text("Pi execution: ${item.summary(item.executionNs)}")
-                }
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    OutlinedButton(onClick = {
-                        val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-                        clipboard.setPrimaryClip(ClipData.newPlainText("GWAY benchmark JSON", report.json().toString(2)))
-                    }) { Text("Copy JSON") }
-                    OutlinedButton(onClick = {
-                        val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-                        clipboard.setPrimaryClip(ClipData.newPlainText("GWAY benchmark issue report", report.markdown()))
-                        val intent = android.content.Intent(android.content.Intent.ACTION_VIEW,
-                            android.net.Uri.parse("https://github.com/arthexis/gway-remote/issues/32"))
-                        context.startActivity(intent)
-                    }) { Text("Copy report + open issue #32") }
-                    OutlinedButton(onClick = {
-                        val intent = android.content.Intent(android.content.Intent.ACTION_SEND).apply {
-                            type = "text/plain"
-                            putExtra(android.content.Intent.EXTRA_TEXT, report.markdown())
-                        }
-                        context.startActivity(android.content.Intent.createChooser(intent, "Share benchmark"))
-                    }) { Text("Share") }
-                }
-            }
-        }
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             Button(enabled = !busy, onClick = { perform("/api/v1/health") }) { Text("Test") }
             Button(enabled = !busy, onClick = { perform("/api/v1/commands") }) { Text("Commands") }
