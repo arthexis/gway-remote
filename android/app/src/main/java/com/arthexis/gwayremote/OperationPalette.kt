@@ -60,7 +60,7 @@ fun OperationPalette(
                             label = { Text("Duration (30–300 seconds)") }, singleLine = true)
                         Button(
                             enabled = !panel.loading && (line1.isNotEmpty() || line2.isNotEmpty()) &&
-                                (duration.toIntOrNull() in 30..300),
+                                (duration.toIntOrNull()?.let { it in 30..300 } == true),
                             onClick = { onExecute(panel.id, panel.inputs + ("duration" to duration)) }
                         ) { Text("Show on LCD") }
                     } else if (panel.id == "sound") {
