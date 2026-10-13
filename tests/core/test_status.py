@@ -1,3 +1,4 @@
+from gway_remote.reconcile import TARGETS
 import tempfile
 import unittest
 from pathlib import Path
@@ -17,7 +18,7 @@ class StatusTests(unittest.TestCase):
         from unittest.mock import patch
         with patch("gway_remote.status.installed_revision", return_value=None):
             result = status(self.path, probe=lambda _: True)
-        self.assertEqual(len(result["components"]), 3)
+        self.assertEqual(len(result["components"]), len(TARGETS))
         self.assertTrue(all(x["installation"] == "never-attempted" for x in result["components"]))
         self.assertTrue(all(x["installed_sha"] is None for x in result["components"]))
 
@@ -28,7 +29,7 @@ class StatusTests(unittest.TestCase):
             mark(name, "a" * 40, outcome, self.path)
         result = status(self.path, probe=lambda _: False)
         self.assertEqual([x["installation"] for x in result["components"]],
-                         ["installed", "failed", "interrupted"])
+                         ["installed", "failed", "interrupted", "never-attempted"])
         self.assertIn("ocpp-csms", format_status(result))
 
     def test_bad_journal(self):
@@ -41,7 +42,7 @@ class StatusTests(unittest.TestCase):
         with patch("gway_remote.status.quick_component_check", return_value="service-active") as quick:
             result = status(self.path, probe=lambda _: self.fail("deep probe called"), depth="quick")
         self.assertEqual(result["depth"], "quick")
-        self.assertEqual(quick.call_count, 3)
+        self.assertEqual(quick.call_count, len(TARGETS))
         self.assertTrue(all(c["health"] == "unknown" and
                             c["evidence"] == "service-active" for c in result["components"]))
 

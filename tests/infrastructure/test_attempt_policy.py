@@ -16,7 +16,7 @@ class AttemptPolicyTests(unittest.TestCase):
     def test_first_attempt_without_bootstrap(self):
         result = plan(candidates(), NOW)
         self.assertEqual(result.state, "ready")
-        self.assertEqual(len(result.pending), 3)
+        self.assertEqual(len(result.pending), len(TARGETS))
 
     def test_no_retries_for_attempted_sha(self):
         self.assertEqual(plan(candidates(True), NOW).state, "idle")

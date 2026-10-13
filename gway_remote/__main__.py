@@ -11,7 +11,8 @@ from pathlib import Path
 ALLOWED_REPOSITORY = "arthexis/ocpp-csms"
 LCD_REPOSITORY = "arthexis/gway-lcd-sound"
 SIM_REPOSITORY = "arthexis/ocpp-simulator"
-TASKS = ("system-health", "ocpp-simulator", "lcd-sound-deploy", "ocpp-csms-deploy", "ocpp-simulator-deploy")
+AGENT_REPOSITORY = "arthexis/gway-agent-ops"
+TASKS = ("system-health", "ocpp-simulator", "lcd-sound-deploy", "ocpp-csms-deploy", "ocpp-simulator-deploy", "agent-ops-deploy")
 
 
 def validate(task: str, repository: str = "", sha: str = "") -> None:
@@ -21,8 +22,9 @@ def validate(task: str, repository: str = "", sha: str = "") -> None:
         if repository or sha:
             raise ValueError("Health task takes no repository or sha")
         return
-    expected = (LCD_REPOSITORY if task == "lcd-sound-deploy" else
-                SIM_REPOSITORY if task == "ocpp-simulator-deploy" else ALLOWED_REPOSITORY)
+    expected = {"lcd-sound-deploy": LCD_REPOSITORY,
+                "ocpp-simulator-deploy": SIM_REPOSITORY,
+                "agent-ops-deploy": AGENT_REPOSITORY}.get(task, ALLOWED_REPOSITORY)
     if repository != expected:
         raise ValueError("Repository not allowed")
     if len(sha) != 40 or not all(c in "0123456789abcdefABCDEF" for c in sha):
@@ -40,17 +42,19 @@ def run(task: str, repository: str = "", sha: str = "") -> None:
         }, sort_keys=True))
         return
 
-    if task in ("lcd-sound-deploy", "ocpp-csms-deploy", "ocpp-simulator-deploy"):
+    if task in ("lcd-sound-deploy", "ocpp-csms-deploy", "ocpp-simulator-deploy", "agent-ops-deploy"):
         from .best_effort import manual_execute
         from .github_state import GitHub
         installer = {
             "lcd-sound-deploy": deploy_lcd_sound,
             "ocpp-csms-deploy": deploy_csms,
             "ocpp-simulator-deploy": deploy_simulator,
+            "agent-ops-deploy": deploy_agent_ops,
         }[task]
         name = {"lcd-sound-deploy": "gway-lcd-sound",
                 "ocpp-csms-deploy": "ocpp-csms",
-                "ocpp-simulator-deploy": "ocpp-simulator"}[task]
+                "ocpp-simulator-deploy": "ocpp-simulator",
+                "agent-ops-deploy": "gway-agent-ops"}[task]
         print(json.dumps(manual_execute(GitHub(), name, sha, installer), sort_keys=True))
         return
 
@@ -108,6 +112,53 @@ def deploy_csms(sha: str) -> None:
             raise ValueError("Checkout SHA mismatch")
         # Never bypass the canonical deployment safety checks or invoke as root.
         subprocess.run(["sh", "./deploy.sh"], cwd=source, check=True, timeout=900)
+
+
+def deploy_agent_ops(sha: str) -> None:
+    """Install a pinned Agent Ops CLI without running Codex or adopting credentials."""
+    with tempfile.TemporaryDirectory(prefix="agent-ops-deploy-") as directory:
+        source = Path(directory) / "source"
+        subprocess.run(["git", "clone", "--quiet", "--no-checkout",
+                        "https://github.com/arthexis/gway-agent-ops.git", str(source)],
+                       check=True, timeout=180)
+        subprocess.run(["git", "-C", str(source), "checkout", "--detach", sha],
+                       check=True, timeout=60)
+        actual = subprocess.check_output(["git", "-C", str(source), "rev-parse", "HEAD"],
+                                         text=True, timeout=20).strip()
+        if actual.lower() != sha.lower():
+            raise ValueError("Agent Ops checkout SHA mismatch")
+        # Keep installed releases independent of the operator's CODEX_HOME.
+        prefix = Path.home() / ".local/share/gway-agent-ops"
+        releases = prefix / "releases"
+        destination = releases / sha.lower()
+        bin_dir = Path.home() / ".local/bin"
+        entry = bin_dir / "agent"
+        if not destination.exists():
+            releases.mkdir(parents=True, exist_ok=True)
+            # Build in the final location: pip console scripts embed the venv
+            # interpreter's absolute path, so renaming a venv is unsafe.
+            try:
+                subprocess.run([sys.executable, "-m", "venv", str(destination)],
+                               check=True, timeout=90)
+                subprocess.run([str(destination / "bin/pip"), "install", "--no-deps", str(source)],
+                               check=True, timeout=300)
+                subprocess.run([str(destination / "bin/agent"), "--help"], check=True, timeout=30)
+            except Exception:
+                import shutil
+                shutil.rmtree(destination, ignore_errors=True)
+                raise
+        else:
+            subprocess.run([str(destination / "bin/agent"), "--help"], check=True, timeout=30)
+        bin_dir.mkdir(parents=True, exist_ok=True)
+        # Atomic update: the existing CLI remains in place until the replacement is ready.
+        import uuid
+        temporary = bin_dir / (".agent-" + uuid.uuid4().hex)
+        try:
+            temporary.symlink_to(destination / "bin/agent")
+            os.replace(temporary, entry)
+        finally:
+            temporary.unlink(missing_ok=True)
+        # Deliberately do not run agent adopt, Codex, or issue execution here.
 
 
 def user_systemd_env() -> dict[str, str]:
@@ -169,7 +220,7 @@ def main() -> None:
     status_parser.add_argument("--json", action="store_true")
     subparsers.add_parser("probe-csms", help="Read-only CSMS health diagnosis")
     logs_parser = subparsers.add_parser("logs", help="Inspect local installation logs")
-    logs_parser.add_argument("component", nargs="?", choices=("ocpp-csms", "ocpp-simulator", "gway-lcd-sound"))
+    logs_parser.add_argument("component", nargs="?", choices=("ocpp-csms", "ocpp-simulator", "gway-lcd-sound", "gway-agent-ops"))
     logs_parser.add_argument("--lines", type=int, default=None)
     report_parser = subparsers.add_parser("report-bundle", help="Export sanitized artifact report")
     report_parser.add_argument("--output", required=True)
@@ -313,6 +364,7 @@ def main() -> None:
                 "ocpp-csms": deploy_csms,
                 "ocpp-simulator": deploy_simulator,
                 "gway-lcd-sound": deploy_lcd_sound,
+                "gway-agent-ops": deploy_agent_ops,
             }, bypass_quiet=args.now, retry_failed=args.retry_failed)
             print(json.dumps(result, indent=2, sort_keys=True))
             if args.now and result["decision"] in ("waiting", "blocked", "stale", "idle"):

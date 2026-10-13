@@ -183,3 +183,7 @@ SHA** (read independently from a versioned release symlink when available).
 Unknown means the current installed revision cannot be verified, notably for
 the simulator. Do not infer the installed revision from an attempt, even if
 that attempt is marked installed.
+
+## Agent Ops appliance deployment
+
+The appliance batch includes `arthexis/gway-agent-ops` as a fourth trusted repository. Manual `Appliance Deploy` calls `deploy-batch --now` and can install a green, merged Agent Ops main revision. The installer verifies the exact Git SHA, creates an isolated versioned Python environment under `~/.local/share/gway-agent-ops/releases/`, checks `agent --help`, and atomically updates `~/.local/bin/agent`. It does **not** adopt Codex credentials, execute GitHub issues, or start a daemon. `--now` bypasses only the quiet period, not SHA/CI verification or one-attempt policy. A separate Remote-to-Agent Ops interface and field verification are required before the mobile surface can assign the LCD Sound test issue.
