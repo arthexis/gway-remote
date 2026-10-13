@@ -67,6 +67,18 @@ fun OperationPalette(
                     if (panel.id == "agent-ops") {
                         AgentOpsPanel(panel.output, agentSendLoading, agentSendResult, agentSendError, onAgentSend, onAgentCopyPrompt,
                             agentObserveLoading, agentObserveResult, agentObserveError, onAgentObserve)
+                    } else if (panel.id == "prompt-agent") {
+                        val repository = panel.inputs["repository"].orEmpty()
+                        val prompt = panel.inputs["prompt"].orEmpty()
+                        OutlinedTextField(repository, { onInput(panel.id, "repository", it) },
+                            label = { Text("Repository OWNER/REPO") }, singleLine = true,
+                            modifier = Modifier.fillMaxWidth())
+                        OutlinedTextField(prompt, { onInput(panel.id, "prompt", it) },
+                            label = { Text("Instructions") }, minLines = 4,
+                            modifier = Modifier.fillMaxWidth())
+                        Text("Sending is unavailable until Agent Ops durable free-form admission and observation are verified.",
+                            style = MaterialTheme.typography.bodySmall)
+                        Button(enabled = false, onClick = {}) { Text("Send") }
                     } else if (panel.id == "tasks") {
                         TaskHistoryPanel(panel.output, onInspectTask)
                     } else if (panel.id == "task-detail") {
