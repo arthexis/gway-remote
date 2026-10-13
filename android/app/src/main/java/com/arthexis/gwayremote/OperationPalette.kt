@@ -5,6 +5,8 @@ import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.ui.platform.LocalContext
+import android.content.Context
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import org.json.JSONObject
@@ -31,7 +33,11 @@ fun OperationPalette(
     agentSendLoading: Boolean,
     agentSendResult: String?,
     agentSendError: String?,
-    onAgentSend: (String, String) -> Unit
+    onAgentSend: (String, String) -> Unit,
+    agentObserveLoading: Boolean,
+    agentObserveResult: String?,
+    agentObserveError: String?,
+    onAgentObserve: (String, String) -> Unit
 ) {
     var filter by remember { mutableStateOf("") }
     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -54,7 +60,8 @@ fun OperationPalette(
                     if (panel.loading) LinearProgressIndicator(Modifier.fillMaxWidth())
                     panel.error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
                     if (panel.id == "agent-ops") {
-                        AgentOpsPanel(panel.output, agentSendLoading, agentSendResult, agentSendError, onAgentSend)
+                        AgentOpsPanel(panel.output, agentSendLoading, agentSendResult, agentSendError, onAgentSend,
+                            agentObserveLoading, agentObserveResult, agentObserveError, onAgentObserve)
                     } else if (panel.id == "tasks") {
                         TaskHistoryPanel(panel.output, onInspectTask)
                     } else if (panel.id == "task-detail") {
@@ -371,30 +378,48 @@ private fun AgentOpsPanel(
     sending: Boolean,
     sendResult: String?,
     sendError: String?,
-    onSend: (String, String) -> Unit
+    onSend: (String, String) -> Unit,
+    observing: Boolean,
+    observation: String?,
+    observationError: String?,
+    onObserve: (String, String) -> Unit
 ) {
-    var selectedRef by remember { mutableStateOf("") }
-    var attempted by remember { mutableStateOf<Pair<String, String>?>(null) }
+    val context = LocalContext.current
+    val prefs = remember(context) { context.getSharedPreferences("agent-ops-submission", Context.MODE_PRIVATE) }
+    var selectedRef by remember { mutableStateOf(prefs.getString("ref", "").orEmpty()) }
+    var attemptedRef by remember { mutableStateOf(prefs.getString("ref", "").orEmpty()) }
+    var attemptedAt by remember { mutableStateOf(prefs.getString("at", "").orEmpty()) }
+    val attempted = if (attemptedRef.isNotBlank() && attemptedAt.isNotBlank()) attemptedRef to attemptedAt else null
     val referencePattern = remember { Regex("[A-Za-z0-9][A-Za-z0-9_.-]{0,99}/[A-Za-z0-9][A-Za-z0-9_.-]{0,99}#[1-9][0-9]*") }
-    OutlinedTextField(selectedRef, { selectedRef = it; attempted = null },
+    OutlinedTextField(selectedRef, { selectedRef = it },
         label = { Text("GitHub issue OWNER/REPO#N") }, singleLine = true)
     val valid = referencePattern.matches(selectedRef)
     Button(enabled = valid && !sending, onClick = {
         val timestamp = java.time.Instant.now().truncatedTo(java.time.temporal.ChronoUnit.SECONDS).toString()
-        attempted = selectedRef to timestamp
+        attemptedRef = selectedRef
+        attemptedAt = timestamp
+        prefs.edit().putString("ref", selectedRef).putString("at", timestamp).apply()
         onSend(selectedRef, timestamp)
     }) { Text("Send issue") }
     if (sending) LinearProgressIndicator(Modifier.fillMaxWidth())
     if (sendError != null) {
         Text("Submission not confirmed: $sendError", color = MaterialTheme.colorScheme.error)
-        val pending = attempted
-        if (pending != null) {
-            TextButton(enabled = !sending, onClick = { onSend(pending.first, pending.second) }) {
+    }
+    if (attempted != null) {
+        Text("Last requested: ${attempted.first} · ${attempted.second}", style = MaterialTheme.typography.bodySmall)
+        TextButton(enabled = !observing && !sending, onClick = {
+            onObserve(attempted.first, attempted.second)
+        }) { Text("Check submission") }
+        if (sendError != null) {
+            TextButton(enabled = !sending, onClick = { onSend(attempted.first, attempted.second) }) {
                 Text("Retry same submission")
             }
         }
     }
-    if (sendResult != null) Text("Agent response: $sendResult", style = MaterialTheme.typography.bodySmall)
+    if (observing) LinearProgressIndicator(Modifier.fillMaxWidth())
+    if (observationError != null) Text("Observation unavailable: $observationError")
+    if (observation != null) Text("Observation: $observation", style = MaterialTheme.typography.bodySmall)
+    if (sendResult != null) Text("Request response: $sendResult", style = MaterialTheme.typography.bodySmall)
 
     if (output == null) return
     val data = remember(output) {
@@ -419,7 +444,7 @@ private fun AgentOpsPanel(
                     Text("#${issue.optString("number", "?")} ${issue.optString("title", "Untitled issue")}")
                     val issueRef = "${issue.optString("repository") }#${issue.optInt("number")}"
                     if (referencePattern.matches(issueRef)) {
-                        TextButton(onClick = { selectedRef = issueRef; attempted = null }) { Text("Select for Send") }
+                        TextButton(onClick = { selectedRef = issueRef }) { Text("Select for Send") }
                     }
                     Text("${issue.optString("repository", "")} · ${agentIssueState(issue)} · ${issue.optInt("comments", 0)} comments",
                         style = MaterialTheme.typography.bodySmall)
