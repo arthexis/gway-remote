@@ -17,7 +17,8 @@ SCHEMA = """CREATE TABLE IF NOT EXISTS pending_reports (
  issue INTEGER NOT NULL,
  body TEXT NOT NULL,
  created_at TEXT NOT NULL,
- delivered_at TEXT
+ delivered_at TEXT,
+ report_key TEXT UNIQUE
 )"""
 
 
@@ -64,6 +65,11 @@ class ReportOutbox:
         self.db = sqlite3.connect(str(path), isolation_level=None)
         self.db.row_factory = sqlite3.Row
         self.db.execute(SCHEMA)
+        columns = {row[1] for row in self.db.execute("PRAGMA table_info(pending_reports)")}
+        if "report_key" not in columns:
+            self.db.execute("ALTER TABLE pending_reports ADD COLUMN report_key TEXT")
+        if self.path != Path(":memory:"):
+            self.path.chmod(0o600)
 
     def __enter__(self):
         return self
@@ -71,13 +77,14 @@ class ReportOutbox:
     def __exit__(self, *_):
         self.db.close()
 
-    def enqueue(self, repository: str, issue: int, body: str) -> int:
+    def enqueue(self, repository: str, issue: int, body: str, *, report_key: str | None = None) -> int:
         if not repository or type(issue) is not int or issue < 1 or not body:
             raise ValueError("invalid diagnostic")
-        cursor = self.db.execute(
-            "INSERT INTO pending_reports(repository,issue,body,created_at) VALUES (?,?,?,?)",
-            (repository, issue, body, datetime.now(timezone.utc).isoformat()))
-        return cursor.lastrowid
+        self.db.execute(
+            "INSERT OR IGNORE INTO pending_reports(repository,issue,body,created_at,report_key) VALUES (?,?,?,?,?)",
+            (repository, issue, body, datetime.now(timezone.utc).isoformat(), report_key))
+        row = self.db.execute("SELECT id FROM pending_reports WHERE report_key=?", (report_key,)).fetchone() if report_key else None
+        return row["id"] if row else self.db.execute("SELECT last_insert_rowid()").fetchone()[0]
 
     def pending(self) -> list[dict]:
         return [dict(row) for row in self.db.execute(
@@ -89,8 +96,31 @@ class ReportOutbox:
             return 0
         sent = 0
         for row in self.pending():
+            # A stable marker makes delivery recoverable after POST succeeds but
+            # before the local acknowledgement is committed.
+            marker = f"<!-- gway-remote-report:{row['report_key']} -->" if row["report_key"] else ""
+            if marker:
+                check_url = (f"https://api.github.com/repos/{row['repository']}/issues/"
+                             f"{row['issue']}/comments?per_page=100")
+                try:
+                    check = Request(check_url, headers={
+                        "Authorization": f"Bearer {token}",
+                        "Accept": "application/vnd.github+json",
+                        "User-Agent": "gway-remote-codex-worker"})
+                    with opener(check, timeout=20) as response:
+                        existing = json.load(response)
+                    if not isinstance(existing, list):
+                        break
+                    if any(isinstance(item, dict) and marker in item.get("body", "")
+                           for item in existing):
+                        self.db.execute("UPDATE pending_reports SET delivered_at=? WHERE id=?",
+                                        (datetime.now(timezone.utc).isoformat(), row["id"]))
+                        sent += 1
+                        continue
+                except (OSError, ValueError, TypeError):
+                    break
             url = f"https://api.github.com/repos/{row['repository']}/issues/{row['issue']}/comments"
-            request = Request(url, data=json.dumps({"body": row["body"]}).encode(),
+            request = Request(url, data=json.dumps({"body": row["body"] + ("\\n\\n" + marker if marker else "")}).encode(),
                               headers={"Authorization": f"Bearer {token}",
                                        "Accept": "application/vnd.github+json",
                                        "Content-Type": "application/json",
