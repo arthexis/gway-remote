@@ -5,7 +5,7 @@ from pathlib import Path
 
 class WorkflowSafetyTests(unittest.TestCase):
     def test_scheduled_workflow_requires_explicit_opt_in(self):
-        source = Path(".github/workflows/appliance-report.yml").read_text()
+        source = Path(".github/workflows/appliance-deploy.yml").read_text()
         self.assertIn("schedule:", source)
         self.assertIn("vars.GWAY_REMOTE_AUTO_ENABLED == 'true'", source)
         self.assertIn("github.event_name == 'schedule'", source)
