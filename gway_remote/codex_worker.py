@@ -59,6 +59,7 @@ def serve(path: Path) -> None:
     if interval < 60:
         raise ValueError("poll interval must be at least 60 seconds")
     next_poll = time.monotonic() if token else float("inf")
+    next_report_retry = time.monotonic()
     next_execution = time.monotonic()
     execution_lock = threading.Lock()
     execution_thread: threading.Thread | None = None
@@ -95,6 +96,16 @@ def serve(path: Path) -> None:
         server.settimeout(0.5)
         try:
             while not stop.is_set():
+                if token and time.monotonic() >= next_report_retry:
+                    next_report_retry = time.monotonic() + interval
+                    try:
+                        from .codex_reporting import ReportOutbox
+                        from .codex_queue import default_db
+                        with ReportOutbox(default_db().with_suffix(".reports.sqlite")) as outbox:
+                            outbox.deliver(token)
+                    except Exception as exc:
+                        logging.warning("Codex issue reporting retry failed: %s",
+                                        type(exc).__name__)
                 if token and time.monotonic() >= next_poll:
                     next_poll = time.monotonic() + interval
                     try:
