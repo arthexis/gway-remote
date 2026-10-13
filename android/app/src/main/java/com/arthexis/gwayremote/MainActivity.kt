@@ -53,6 +53,7 @@ class MainActivity : ComponentActivity() {
 @OptIn(ExperimentalLayoutApi::class, ExperimentalMaterial3Api::class)
 @Composable
 fun CompanionScreen(store: SecretStore) {
+    val agentUiContext = LocalContext.current
     var panelState by remember { mutableStateOf(OperationPanelState()) }
     var agentSendLoading by remember { mutableStateOf(false) }
     var agentSendResult by remember { mutableStateOf<String?>(null) }
@@ -497,6 +498,26 @@ fun CompanionScreen(store: SecretStore) {
                         } finally {
                             agentObserveLoading = false
                         }
+                    }
+                }
+            },
+            onAgentCopyPrompt = { ref ->
+                val targetEndpoint = endpoint.trim()
+                val targetToken = token
+                scope.launch {
+                    try {
+                        val response = withContext(Dispatchers.IO) {
+                            ApiClient(targetEndpoint, targetToken).request(
+                                "/api/v1/execute", "agent-preview", JSONObject().put("ref", ref))
+                        }
+                        val prompt = response.optJSONObject("result")?.optJSONObject("data")
+                            ?.optString("prompt", "").orEmpty()
+                        if (prompt.isBlank()) throw IllegalStateException("Prompt preview unavailable")
+                        val clipboard = agentUiContext.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                        clipboard.setPrimaryClip(ClipData.newPlainText("Agent issue prompt", prompt))
+                        agentSendResult = "Prompt copied for $ref; no issue was submitted."
+                    } catch (e: Exception) {
+                        agentSendError = e.message ?: "Prompt preview unavailable"
                     }
                 }
             },
