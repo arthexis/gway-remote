@@ -384,7 +384,16 @@ fun CompanionScreen(store: SecretStore) {
                         path, spec.command
                     )
                 }
+                val stillCurrent = panelState.panels.any {
+                    it.id == id && it.loading && it.revision == revision
+                }
                 panelState = panelState.complete(id, revision, response.toString(2))
+                if (id == "simulator-status" && stillCurrent) {
+                    val detail = response.optJSONObject("result")
+                    simulatorStatus = if (detail == null) "unknown" else
+                        "${detail.optString("state", "unknown")} — " +
+                            detail.optString("target", "")
+                }
             } catch (e: Exception) {
                 panelState = panelState.fail(id, revision, e.message ?: "Connection failed")
             }
