@@ -561,9 +561,6 @@ fun CompanionScreen(store: SecretStore) {
                                 ApiClient(targetEndpoint, targetToken).request(
                                     "/api/v1/execute", command, args)
                             }
-                            val stillCurrent = panelState.panels.any {
-                                it.id == id && it.loading && it.revision == revision
-                            }
                             panelState = panelState.complete(id, revision, response.toString(2))
                         } catch (e: Exception) {
                             panelState = panelState.fail(id, revision, e.message ?: "Execution failed")
