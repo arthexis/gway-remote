@@ -408,9 +408,10 @@ fun CompanionScreen(store: SecretStore) {
             onRefresh = { id -> runPanelRead(id) },
             simulatorStatus = simulatorStatus,
             onSimulatorCommand = { command, args ->
-                val id = if (command == "simulator-stop") "simulator-stop" else "simulator-start"
+                val operationId = if (command == "simulator-stop") "simulator-stop" else "simulator-start"
+                val id = if (panelState.panels.any { it.id == operationId }) operationId else "simulator-start"
                 if (command in setOf("simulator-start", "simulator-stop") &&
-                    PanelExecution.canRun(id, true, true, true) &&
+                    PanelExecution.canRun(operationId, true, true, true) &&
                     panelState.panels.any { it.id == id && !it.loading }) {
                     panelState = panelState.start(id)
                     val revision = panelState.panels.first { it.id == id }.revision
