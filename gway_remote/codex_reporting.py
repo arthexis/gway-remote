@@ -100,19 +100,31 @@ class ReportOutbox:
             # before the local acknowledgement is committed.
             marker = f"<!-- gway-remote-report:{row['report_key']} -->" if row["report_key"] else ""
             if marker:
-                check_url = (f"https://api.github.com/repos/{row['repository']}/issues/"
-                             f"{row['issue']}/comments?per_page=100")
                 try:
-                    check = Request(check_url, headers={
-                        "Authorization": f"Bearer {token}",
-                        "Accept": "application/vnd.github+json",
-                        "User-Agent": "gway-remote-codex-worker"})
-                    with opener(check, timeout=20) as response:
-                        existing = json.load(response)
-                    if not isinstance(existing, list):
+                    found = False
+                    # Scan all pages; checking only the newest 100 would
+                    # duplicate a report on heavily discussed issues.
+                    for page in range(1, 101):
+                        check_url = (f"https://api.github.com/repos/{row['repository']}/issues/"
+                                     f"{row['issue']}/comments?per_page=100&page={page}")
+                        check = Request(check_url, headers={
+                            "Authorization": f"Bearer {token}",
+                            "Accept": "application/vnd.github+json",
+                            "User-Agent": "gway-remote-codex-worker"})
+                        with opener(check, timeout=20) as response:
+                            existing = json.load(response)
+                        if not isinstance(existing, list):
+                            raise ValueError("invalid GitHub comment listing")
+                        if any(isinstance(item, dict) and marker in item.get("body", "")
+                               for item in existing):
+                            found = True
+                            break
+                        if len(existing) < 100:
+                            break
+                    else:
+                        # Do not POST if duplicate detection was incomplete.
                         break
-                    if any(isinstance(item, dict) and marker in item.get("body", "")
-                           for item in existing):
+                    if found:
                         self.db.execute("UPDATE pending_reports SET delivered_at=? WHERE id=?",
                                         (datetime.now(timezone.utc).isoformat(), row["id"]))
                         sent += 1
