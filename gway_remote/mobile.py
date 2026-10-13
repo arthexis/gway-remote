@@ -7,6 +7,7 @@ import subprocess
 import shutil
 
 from .benchmark import echo
+from . import agent_ops_adapter
 from .codex_views import list_tasks, task_detail
 from .codex_issue_views import list_assignments
 from .csms_health import csms_probe
@@ -55,6 +56,8 @@ OPERATIONS = {"probe-csms": csms_probe, "status": status,
 
 def commands():
     return ([{"name": name, "arguments": {}, "read_only": True} for name in OPERATIONS]
+            + [{"name": "agent-issues", "read_only": True, "arguments": {}},
+                {"name": "agent-status", "read_only": True, "arguments": {}}]
             + [{"name": "codex-issues", "read_only": True, "arguments": {}},
                 {"name": "codex-tasks", "read_only": True, "arguments": {}},
                 {"name": "codex-task", "read_only": True, "arguments": {
@@ -127,6 +130,10 @@ def codex_mobile(name, arguments):
 
 
 def execute(name, arguments):
+    if name == "agent-issues":
+        return agent_ops_adapter.issues(arguments)
+    if name == "agent-status":
+        return agent_ops_adapter.status(arguments)
     if name == "codex-issues":
         if not isinstance(arguments, dict) or arguments:
             raise ValueError("invalid_arguments")

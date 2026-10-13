@@ -28,7 +28,7 @@ data class OperationSpec(
 /**
  * Stable UI identifiers are distinct from backend command names.
  * Do not register a mutating operation as AUTO_READ.
- * Agent Ops is intentionally omitted until the existing UI migration is complete.
+ * Agent Ops groups read-only CLI operations in one panel.
  */
 object OperationRegistry {
     val operations: List<OperationSpec> = listOf(
@@ -58,6 +58,9 @@ object OperationRegistry {
             ExecutionPolicy.EXPLICIT_INPUT, "lcd-message"),
         OperationSpec("sound", "Sound", "volume-2", setOf("play", "audio", "alert"),
             ExecutionPolicy.EXPLICIT_INPUT, "sound-play"),
+        OperationSpec("agent-ops", "Agent Ops", "list-checks",
+            setOf("agent", "issues", "status", "github", "budgets", "five-hour", "weekly"),
+            ExecutionPolicy.AUTO_READ),
         OperationSpec("tasks", "Task history", "list-todo", setOf("codex", "jobs", "executions", "history"),
             ExecutionPolicy.AUTO_READ, "codex-tasks"),
         OperationSpec("task-detail", "Task detail", "clipboard-check", setOf("task", "result", "execution", "id"),
