@@ -49,7 +49,9 @@ fun OperationPalette(
                     }
                     if (panel.loading) LinearProgressIndicator(Modifier.fillMaxWidth())
                     panel.error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
-                    if (panel.id == "tasks") {
+                    if (panel.id == "agent-ops") {
+                        AgentOpsPanel(panel.output)
+                    } else if (panel.id == "tasks") {
                         TaskHistoryPanel(panel.output, onInspectTask)
                     } else if (panel.id == "task-detail") {
                         TaskDetailPanel(panel.output)
@@ -357,4 +359,54 @@ private fun TaskDetailPanel(output: String?) {
         Text(if (showRaw) "Hide JSON" else "Show JSON")
     }
     if (showRaw) Text(result.toString(2), style = MaterialTheme.typography.bodySmall)
+}
+
+@Composable
+private fun AgentOpsPanel(output: String?) {
+    if (output == null) return
+    val data = remember(output) {
+        runCatching { JSONObject(output).optJSONObject("result") }.getOrNull()
+    }
+    if (data == null) {
+        Text("Agent Ops response unavailable", color = MaterialTheme.colorScheme.error)
+        return
+    }
+    Text("Issues", style = MaterialTheme.typography.titleSmall)
+    if (data.has("issues_error")) {
+        Text("Unavailable: ${data.optString("issues_error")}", color = MaterialTheme.colorScheme.error)
+    } else {
+        val issues = data.opt("issues")
+        when (issues) {
+            is JSONObject -> {
+                val entries = issues.optJSONArray("issues")
+                if (entries == null) Text("Issue list unavailable", style = MaterialTheme.typography.bodySmall)
+                else if (entries.length() == 0) Text("No issues reported")
+                else for (index in 0 until entries.length()) {
+                    val issue = entries.optJSONObject(index) ?: continue
+                    Text("#${issue.optString("number", "?")} ${issue.optString("title", "Untitled issue")}")
+                    Text("${issue.optString("repository", "")} · ${issue.optString("state", "unknown")} · ${issue.optInt("comment_count", issue.optInt("comments", 0))} comments",
+                        style = MaterialTheme.typography.bodySmall)
+                }
+            }
+            else -> Text("Issue list unavailable", style = MaterialTheme.typography.bodySmall)
+        }
+    }
+    HorizontalDivider()
+    Text("Agent status and budgets", style = MaterialTheme.typography.titleSmall)
+    if (data.has("status_error")) {
+        Text("Unavailable: ${data.optString("status_error")}", color = MaterialTheme.colorScheme.error)
+    } else {
+        val status = data.optJSONObject("status")
+        if (status == null) Text("Agent status unavailable")
+        else {
+            // Do not infer remaining budget percentages from unspecified CLI fields.
+            Text("5-hour remaining: unavailable")
+            Text("Weekly remaining: unavailable")
+            var expanded by remember { mutableStateOf(false) }
+            TextButton(onClick = { expanded = !expanded }) {
+                Text(if (expanded) "Hide status JSON" else "Show status JSON")
+            }
+            if (expanded) Text(status.toString(2), style = MaterialTheme.typography.bodySmall)
+        }
+    }
 }
