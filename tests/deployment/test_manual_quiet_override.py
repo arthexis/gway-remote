@@ -48,14 +48,13 @@ class ManualBatchQuietTests(unittest.TestCase):
     def test_failed_revision_retry_is_explicit_and_only_failed(self):
         now = datetime.now(timezone.utc)
         items = self.candidates(now)
-        installed = {name: item.sha for item, (name, _) in zip(items, TARGETS)}
         calls = []
         with tempfile.TemporaryDirectory() as tmp:
             for i, (name, _) in enumerate(TARGETS):
                 mark(name, items[i].sha, "failed" if i == 0 else "installed", tmp)
             with patch("gway_remote.best_effort.collect", side_effect=lambda client, attempts: tuple(
                 Candidate(name=x.name, sha=x.sha, merged_at=x.merged_at, ci=x.ci,
-                          attempted_sha=attempts.get(x.name)) for x in items)), \\
+                          attempted_sha=attempts.get(x.name)) for x in items)), \
                  patch("gway_remote.best_effort.main_head", side_effect=lambda _, repo: next(
                      item.sha for item, (name, url) in zip(items, TARGETS) if url == repo)):
                 runners = {name: lambda sha, name=name: calls.append(name) for name, _ in TARGETS}
