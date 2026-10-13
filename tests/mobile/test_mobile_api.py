@@ -54,6 +54,20 @@ class ApiTests(LocalApiCase):
         self.assertIsInstance(body["execution_ns"], int)
         self.assertGreaterEqual(body["execution_ns"], 0)
 
+    def test_agent_issue_acknowledgement_is_not_execution_completion(self):
+        payload = b'{"command":"agent-issue","arguments":{"ref":"owner/repo#2","at":"2026-10-13T15:00:00Z"}}'
+        for state, expected in (("requested", "requested"),
+                                ("already_requested", "already_requested"),
+                                ("launch_unconfirmed", "unknown")):
+            with self.subTest(state=state):
+                with patch.object(mobile, "execute", return_value={
+                    "schema_version": 1, "command": "submit", "status": "ok",
+                    "data": {"state": state}, "error": None}):
+                    status, response = self.request("POST", "/api/v1/execute", payload)
+                self.assertEqual(status, 200)
+                self.assertEqual(response["status"], expected)
+                self.assertNotEqual(response["status"], "completed")
+
     def test_rejects_unsafe_and_invalid_requests(self):
         for payload in (b'{"command":"run","arguments":{}}',
                         b'{"command":"status","arguments":{"now":true}}'):
