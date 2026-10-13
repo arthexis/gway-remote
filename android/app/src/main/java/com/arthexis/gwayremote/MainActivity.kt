@@ -65,19 +65,7 @@ fun CompanionScreen(store: SecretStore) {
     var agentIssuesExpanded by remember { mutableStateOf(false) }
     var agentIssuesLoading by remember { mutableStateOf(false) }
     var refreshStatus by remember { mutableStateOf("") }
-    var simulatorExpanded by remember { mutableStateOf(false) }
-    var simulatorHost by remember { mutableStateOf("") }
-    var simulatorPort by remember { mutableStateOf("9000") }
-    var simulatorDiscovery by remember { mutableStateOf("Not checked") }
-    var simulatorPeers by remember { mutableStateOf(listOf<String>()) }
-    var simulatorPeerMenu by remember { mutableStateOf(false) }
     var simulatorStatus by remember { mutableStateOf("Not checked") }
-    var simulatorOutput by remember { mutableStateOf("") }
-    var simulatorTruncated by remember { mutableStateOf(false) }
-    var simulatorResultsLoaded by remember { mutableStateOf(false) }
-    var simulatorResultsError by remember { mutableStateOf("") }
-    var simulatorOutcome by remember { mutableStateOf("unknown") }
-    var simulatorExitCode by remember { mutableStateOf("") }
     var csmsExpanded by remember { mutableStateOf(false) }
     var csmsView by remember { mutableStateOf("status") }
     var csmsMenuOpen by remember { mutableStateOf(false) }
@@ -230,30 +218,6 @@ fun CompanionScreen(store: SecretStore) {
                     csmsOutput = data?.optString("output") ?: response.toString(2)
                     csmsTruncated = data?.optBoolean("truncated") ?: false
                 }
-                if (command == "simulator-results") {
-                    val data = response.optJSONObject("result")
-                    if (data == null) {
-                        simulatorResultsError = "Invalid results response"
-                    } else {
-                        simulatorOutput = data.optString("output", "")
-                        simulatorTruncated = data.optBoolean("truncated", false)
-                        simulatorResultsLoaded = true
-                        simulatorOutcome = data.optString("outcome", "unknown")
-                        simulatorExitCode = if (data.has("exit_code")) data.optInt("exit_code").toString() else ""
-                        simulatorResultsError = ""
-                        simulatorStatus = "${data.optString("state", "unknown")} — " +
-                            data.optString("target", "")
-                    }
-                }
-                if (command == "simulator-discover") {
-                    val data = response.optJSONObject("result")
-                    val peers = data?.optJSONArray("peers")
-                    simulatorPeers = if (peers == null) emptyList() else
-                        (0 until peers.length()).mapNotNull { index ->
-                            peers.optJSONObject(index)?.optString("host")?.takeIf { it.isNotBlank() }
-                        }
-                    simulatorDiscovery = "Discovered Ethernet peers: ${simulatorPeers.size}"
-                }
                 if (command == "simulator-status" || command == "simulator-start" || command == "simulator-stop") {
                     val data = response.optJSONObject("result")
                     simulatorStatus = "${data?.optString("state") ?: "unknown"} — " +
@@ -263,7 +227,6 @@ fun CompanionScreen(store: SecretStore) {
             } catch (e: Exception) {
                 result = e.message ?: "Connection failed"
                 if (path.endsWith("/commands")) commands = emptyList()
-                if (command == "simulator-results") simulatorResultsError = e.message ?: "Results unavailable"
             } finally { busy = false }
         }
     }
@@ -296,8 +259,6 @@ fun CompanionScreen(store: SecretStore) {
         val targetToken = token
         val selectedView = csmsView
         val refreshCsms = csmsExpanded
-        val refreshSimulator = simulatorExpanded
-        val refreshResults = simulatorResultsLoaded
         scope.launch {
             val failures = mutableListOf<String>()
             try {
@@ -335,20 +296,7 @@ fun CompanionScreen(store: SecretStore) {
                             }
                         }
                     }
-                    if (refreshSimulator) {
-                        fetch("Simulator", "/api/v1/execute", "simulator-status")?.optJSONObject("result")?.let {
-                            simulatorStatus = "${it.optString("state", "unknown")} — ${it.optString("target", "")}"
-                        }
-                        if (refreshResults) {
-                            fetch("Simulator results", "/api/v1/execute", "simulator-results")?.optJSONObject("result")?.let {
-                                simulatorOutput = it.optString("output", "")
-                                simulatorTruncated = it.optBoolean("truncated")
-                                simulatorOutcome = it.optString("outcome", "unknown")
-                                simulatorExitCode = if (it.has("exit_code")) it.optInt("exit_code").toString() else ""
-                                simulatorResultsError = ""
-                            }
-                        }
-                    }
+
                 }
                 try {
                     updateStatus = "Checking releases…"
@@ -617,15 +565,6 @@ fun CompanionScreen(store: SecretStore) {
                                 it.id == id && it.loading && it.revision == revision
                             }
                             panelState = panelState.complete(id, revision, response.toString(2))
-                            if (id == "simulator-discover" && stillCurrent) {
-                                val peers = response.optJSONObject("result")?.optJSONArray("peers")
-                                simulatorPeers = if (peers == null) emptyList() else
-                                    (0 until peers.length()).mapNotNull { index ->
-                                        peers.optJSONObject(index)?.optString("host")
-                                            ?.takeIf { it.isNotBlank() }
-                                    }.distinct()
-                                simulatorDiscovery = "Discovered Ethernet peers: ${simulatorPeers.size}"
-                            }
                         } catch (e: Exception) {
                             panelState = panelState.fail(id, revision, e.message ?: "Execution failed")
                         }
