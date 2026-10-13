@@ -23,7 +23,7 @@ class Plan:
     reason: str
 
 
-def plan(candidates, now):
+def plan(candidates, now, *, bypass_quiet=False):
     """An unknown attempt is eligible once; an interrupted attempt is not retried."""
     if now.tzinfo is None or now.utcoffset() is None:
         raise ValueError("now must be timezone-aware")
@@ -42,7 +42,7 @@ def plan(candidates, now):
     if not pending:
         return Plan("idle", (), "all current revisions already attempted")
     latest = max(c.merged_at.astimezone(timezone.utc) for c in candidates)
-    if now.astimezone(timezone.utc) < latest + QUIET_PERIOD:
+    if not bypass_quiet and now.astimezone(timezone.utc) < latest + QUIET_PERIOD:
         return Plan("waiting", (), "shared quiet period")
     if any(by_name[name].ci != "success" for name, _ in pending):
         return Plan("blocked", (), "CI not successful for pending revision")
