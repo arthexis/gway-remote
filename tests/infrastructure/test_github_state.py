@@ -35,7 +35,7 @@ class TestGitHubState(unittest.TestCase):
         self.assertIsNone(states[0].attempted_sha)
         result = report(FakeGitHub(), datetime(2026, 10, 9, 12, tzinfo=timezone.utc))
         self.assertEqual(result["decision"], "ready")
-        self.assertEqual(len(result["attempt"]), 3)
+        self.assertEqual(len(result["attempt"]), len(TARGETS))
 
     def test_recorded_manual_install_is_not_pending(self):
         sha = "a" * 40
@@ -44,7 +44,7 @@ class TestGitHubState(unittest.TestCase):
         lcd = next(target for target in result["targets"] if target["name"] == "gway-lcd-sound")
         self.assertEqual(lcd["last_attempted"], sha)
         self.assertNotIn({"name": "gway-lcd-sound", "sha": sha}, result["attempt"])
-        self.assertEqual(len(result["attempt"]), 2)
+        self.assertEqual(len(result["attempt"]), len(TARGETS) - 1)
 
     def test_cli_reconcile_loads_local_attempt_journal(self):
         from gway_remote import __main__ as cli
