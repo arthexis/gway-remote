@@ -52,6 +52,10 @@ fun OperationPalette(
                         SimulatorResultsPanel(panel.output)
                     } else if (panel.id == "simulator-status") {
                         SimulatorStatusPanel(panel.output)
+                    } else if (panel.id == "csms") {
+                        CsmsHealthPanel(panel.output)
+                    } else if (panel.id == "csms-view") {
+                        CsmsInspectionPanel(panel.output)
                     } else {
                         panel.output?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
                     }
@@ -248,5 +252,43 @@ private fun SimulatorResultsPanel(output: String?) {
         Text(if (rawExpanded) "Hide raw output" else "Show raw output")
     }
     if (rawExpanded) Text(if (log.isEmpty()) "No output captured" else log,
+        style = MaterialTheme.typography.bodySmall)
+}
+
+@Composable
+private fun CsmsHealthPanel(output: String?) {
+    if (output == null) {
+        Text("CSMS health not yet checked", style = MaterialTheme.typography.bodySmall)
+        return
+    }
+    val result = remember(output) { runCatching { JSONObject(output).optJSONObject("result") }.getOrNull() }
+    if (result == null) {
+        Text("CSMS health response unavailable", color = MaterialTheme.colorScheme.error)
+        return
+    }
+    val healthy = if (result.has("healthy") && !result.isNull("healthy"))
+        result.optBoolean("healthy") else null
+    Text(when (healthy) {
+        true -> "Healthy"
+        false -> "Needs attention"
+        null -> "Health unknown"
+    })
+    Text(result.optString("reason").ifBlank { "No diagnostic details" },
+        style = MaterialTheme.typography.bodySmall)
+}
+
+@Composable
+private fun CsmsInspectionPanel(output: String?) {
+    if (output == null) return
+    val result = remember(output) { runCatching { JSONObject(output).optJSONObject("result") }.getOrNull() }
+    if (result == null) {
+        Text("Inspection response unavailable", color = MaterialTheme.colorScheme.error)
+        return
+    }
+    if (result.optBoolean("truncated", false)) {
+        Text("Output truncated to 64 KB", color = MaterialTheme.colorScheme.error)
+    }
+    val content = result.optString("output", "")
+    Text(if (content.isBlank()) "No inspection output returned" else content,
         style = MaterialTheme.typography.bodySmall)
 }
