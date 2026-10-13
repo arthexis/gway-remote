@@ -5,7 +5,8 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from gway_remote.codex_reporting import ReportOutbox, assignment_prompt, diagnostic_body
+from gway_remote.codex_reporting import ReportOutbox, assignment_prompt, diagnostic_body, record_interrupted
+from gway_remote.codex_queue import TaskQueue
 
 
 class Response:
@@ -36,6 +37,20 @@ class ReportingTests(unittest.TestCase):
         self.assertIn("remains open", report)
         with self.assertRaises(ValueError):
             diagnostic_body(reason="success")
+
+    def test_restart_recovery_posts_one_diagnostic_per_interrupted_attempt(self):
+        with tempfile.TemporaryDirectory() as root:
+            with TaskQueue(Path(root) / "queue.sqlite") as queue, \
+                 ReportOutbox(Path(root) / "reports.sqlite") as outbox:
+                task = queue.admit("field-validation", "arthexis/gway-remote", 41)
+                queue.approve(task["id"])
+                claimed = queue.claim_next()
+                self.assertEqual(claimed["id"], task["id"])
+                self.assertEqual(record_interrupted(queue, outbox), 1)
+                self.assertEqual(queue.get(task["id"])["state"], "interrupted")
+                self.assertEqual(len(outbox.pending()), 1)
+                self.assertEqual(record_interrupted(queue, outbox), 0)
+                self.assertEqual(len(outbox.pending()), 1)
 
     def test_idempotent_attempt_key_and_remote_comment_check(self):
         with tempfile.TemporaryDirectory() as root:
