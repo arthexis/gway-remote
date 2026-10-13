@@ -613,7 +613,19 @@ fun CompanionScreen(store: SecretStore) {
                                 ApiClient(targetEndpoint, targetToken).request(
                                     "/api/v1/execute", command, args)
                             }
+                            val stillCurrent = panelState.panels.any {
+                                it.id == id && it.loading && it.revision == revision
+                            }
                             panelState = panelState.complete(id, revision, response.toString(2))
+                            if (id == "simulator-discover" && stillCurrent) {
+                                val peers = response.optJSONObject("result")?.optJSONArray("peers")
+                                simulatorPeers = if (peers == null) emptyList() else
+                                    (0 until peers.length()).mapNotNull { index ->
+                                        peers.optJSONObject(index)?.optString("host")
+                                            ?.takeIf { it.isNotBlank() }
+                                    }.distinct()
+                                simulatorDiscovery = "Discovered Ethernet peers: ${simulatorPeers.size}"
+                            }
                         } catch (e: Exception) {
                             panelState = panelState.fail(id, revision, e.message ?: "Execution failed")
                         }
