@@ -412,14 +412,20 @@ fun CompanionScreen(store: SecretStore) {
                     "lcd" -> "lcd-message"
                     "sound" -> "sound-play"
                     "csms-view" -> "csms-view"
+                    "simulator-start" -> "simulator-start"
+                    "simulator-stop" -> "simulator-stop"
                     else -> null
                 }
-                if (command != null && PanelExecution.canRun(id, true, false, true)) {
+                if (command != null && PanelExecution.canRun(id, true,
+                        id == "simulator-start" || id == "simulator-stop", true)) {
                     val args = JSONObject()
                     if (id == "lcd") {
                         args.put("line1", inputs["line1"].orEmpty())
                         args.put("line2", inputs["line2"].orEmpty())
                         args.put("duration_seconds", inputs["duration"]?.toIntOrNull() ?: 30)
+                    } else if (id == "simulator-start" || id == "simulator-stop") {
+                        args.put("port", inputs["port"]?.toIntOrNull() ?: 9000)
+                        inputs["host"]?.trim()?.takeIf { it.isNotEmpty() }?.let { args.put("host", it) }
                     } else if (id == "csms-view") {
                         args.put("view", inputs["view"] ?: "status")
                     } else {
