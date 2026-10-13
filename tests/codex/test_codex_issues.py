@@ -13,7 +13,7 @@ def issue(number=10, comments=0, state="open", labels=None):
         "number": number, "title": "Inspect device", "html_url": f"https://github.com/{REPO}/issues/{number}",
         "state": state, "comments": comments,
         "user": {"id": 780437, "login": "arthexis"},
-        "labels": [{"name": label} for label in (labels or ["local-agent"])],
+        "labels": [{"name": label} for label in (["local-agent"] if labels is None else labels)],
     }
 
 
