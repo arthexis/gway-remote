@@ -48,21 +48,10 @@ def serve(path: Path) -> None:
     if path.exists() or path.is_symlink():
         raise RuntimeError(f"Socket path already exists: {path}")
     from .codex_queue import TaskQueue, default_db
-    from .codex_reporting import ReportOutbox, diagnostic_body
-    # Persist interruption notices *before* changing the legacy running rows.
-    # This also covers process/host termination when the agent could not report.
+    from .codex_reporting import ReportOutbox, record_interrupted
     with TaskQueue(default_db()) as queue:
-        interrupted = queue.db.execute(
-            "SELECT id, repository, issue FROM tasks WHERE state='running'"
-        ).fetchall()
         with ReportOutbox(default_db().with_suffix(".reports.sqlite")) as outbox:
-            for task in interrupted:
-                outbox.enqueue(
-                    task["repository"], task["issue"],
-                    diagnostic_body(reason="interrupted", phase="unknown"),
-                    report_key=task["id"],
-                )
-        queue.recover()
+            record_interrupted(queue, outbox)
     started = time.monotonic()
     stop = threading.Event()
     # Polling is enabled only when the worker has an explicitly provisioned
