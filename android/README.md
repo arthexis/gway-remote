@@ -40,3 +40,7 @@ The app provides two separate printable ASCII input fields of at most 16 charact
 ## Consolidated release on merge
 
 Merging any PR to main runs Android tests and attempts to publish a newly versioned signed release APK. The signing secrets must be configured, and an existing release with the same version is never overwritten. The updater discovers the signed release using GitHub's release metadata and SHA-256 asset digest. No release is published from PR builds; device testing remains necessary.
+
+## Composable command surface — UI-1 foundation
+
+`OperationRegistry.kt` defines stable IDs, labels, icon identifiers, search keywords, optional backend command bindings and three execution policies: `AUTO_READ`, `EXPLICIT_INPUT` and `CONFIRM`. Only safe, parameterless read operations can execute when a future panel opens. Inputs require explicit Run and potentially disruptive operations require confirmation. UI-1 does not replace the current navigation, change backend contracts or expose Agent Ops issue execution. UI-2 will consume the registry through independent panel state.
