@@ -11,7 +11,8 @@ from pathlib import Path
 ALLOWED_REPOSITORY = "arthexis/ocpp-csms"
 LCD_REPOSITORY = "arthexis/gway-lcd-sound"
 SIM_REPOSITORY = "arthexis/ocpp-simulator"
-TASKS = ("system-health", "ocpp-simulator", "lcd-sound-deploy", "ocpp-csms-deploy", "ocpp-simulator-deploy")
+AGENT_REPOSITORY = "arthexis/gway-agent-ops"
+TASKS = ("system-health", "ocpp-simulator", "lcd-sound-deploy", "ocpp-csms-deploy", "ocpp-simulator-deploy", "agent-ops-deploy")
 
 
 def validate(task: str, repository: str = "", sha: str = "") -> None:
@@ -21,8 +22,9 @@ def validate(task: str, repository: str = "", sha: str = "") -> None:
         if repository or sha:
             raise ValueError("Health task takes no repository or sha")
         return
-    expected = (LCD_REPOSITORY if task == "lcd-sound-deploy" else
-                SIM_REPOSITORY if task == "ocpp-simulator-deploy" else ALLOWED_REPOSITORY)
+    expected = {"lcd-sound-deploy": LCD_REPOSITORY,
+                "ocpp-simulator-deploy": SIM_REPOSITORY,
+                "agent-ops-deploy": AGENT_REPOSITORY}.get(task, ALLOWED_REPOSITORY)
     if repository != expected:
         raise ValueError("Repository not allowed")
     if len(sha) != 40 or not all(c in "0123456789abcdefABCDEF" for c in sha):
@@ -40,17 +42,19 @@ def run(task: str, repository: str = "", sha: str = "") -> None:
         }, sort_keys=True))
         return
 
-    if task in ("lcd-sound-deploy", "ocpp-csms-deploy", "ocpp-simulator-deploy"):
+    if task in ("lcd-sound-deploy", "ocpp-csms-deploy", "ocpp-simulator-deploy", "agent-ops-deploy"):
         from .best_effort import manual_execute
         from .github_state import GitHub
         installer = {
             "lcd-sound-deploy": deploy_lcd_sound,
             "ocpp-csms-deploy": deploy_csms,
             "ocpp-simulator-deploy": deploy_simulator,
+            "agent-ops-deploy": deploy_agent_ops,
         }[task]
         name = {"lcd-sound-deploy": "gway-lcd-sound",
                 "ocpp-csms-deploy": "ocpp-csms",
-                "ocpp-simulator-deploy": "ocpp-simulator"}[task]
+                "ocpp-simulator-deploy": "ocpp-simulator",
+                "agent-ops-deploy": "gway-agent-ops"}[task]
         print(json.dumps(manual_execute(GitHub(), name, sha, installer), sort_keys=True))
         return
 
@@ -169,7 +173,7 @@ def main() -> None:
     status_parser.add_argument("--json", action="store_true")
     subparsers.add_parser("probe-csms", help="Read-only CSMS health diagnosis")
     logs_parser = subparsers.add_parser("logs", help="Inspect local installation logs")
-    logs_parser.add_argument("component", nargs="?", choices=("ocpp-csms", "ocpp-simulator", "gway-lcd-sound"))
+    logs_parser.add_argument("component", nargs="?", choices=("ocpp-csms", "ocpp-simulator", "gway-lcd-sound", "gway-agent-ops"))
     logs_parser.add_argument("--lines", type=int, default=None)
     report_parser = subparsers.add_parser("report-bundle", help="Export sanitized artifact report")
     report_parser.add_argument("--output", required=True)
@@ -313,6 +317,7 @@ def main() -> None:
                 "ocpp-csms": deploy_csms,
                 "ocpp-simulator": deploy_simulator,
                 "gway-lcd-sound": deploy_lcd_sound,
+                "gway-agent-ops": deploy_agent_ops,
             }, bypass_quiet=args.now, retry_failed=args.retry_failed)
             print(json.dumps(result, indent=2, sort_keys=True))
             if args.now and result["decision"] in ("waiting", "blocked", "stale", "idle"):
