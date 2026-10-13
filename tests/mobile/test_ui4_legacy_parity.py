@@ -36,6 +36,7 @@ class LegacyParityTests(unittest.TestCase):
         self.assertIn('"api-commands" -> "/api/v1/commands"', activity)
         self.assertIn('unmatchedCommands = commands.filter { it !in panelCommands }', activity)
         self.assertIn('Text("Additional server read commands"', activity)
+        self.assertNotIn('Text("CSMS", style =', activity)
 
 
 if __name__ == "__main__":
