@@ -11,8 +11,10 @@ class AgentOpsSendUiTests(unittest.TestCase):
         palette = (MOBILE / "OperationPalette.kt").read_text()
         self.assertIn('Text("Send issue")', palette)
         self.assertIn('enabled = valid && !sending', palette)
-        self.assertIn('attempted = selectedRef to timestamp', palette)
-        self.assertIn('onSend(pending.first, pending.second)', palette)
+        self.assertIn('attemptedAt = timestamp', palette)
+        self.assertIn('prefs.edit().putString("ref", selectedRef).putString("at", timestamp).apply()', palette)
+        self.assertIn('onSend(attempted.first, attempted.second)', palette)
+        self.assertIn('onObserve(attempted.first, attempted.second)', palette)
         self.assertIn('Text("Retry same submission")', palette)
         self.assertIn('ChronoUnit.SECONDS', palette)
 
