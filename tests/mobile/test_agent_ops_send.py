@@ -35,10 +35,10 @@ class AgentIssueSendTests(unittest.TestCase):
     @patch.object(agent_ops_adapter, "_agent_path", return_value="/usr/bin/agent")
     @patch.object(agent_ops_adapter.subprocess, "run")
     def test_fixed_argv_and_same_timestamp_on_retry(self, run, _path):
-        run.return_value = Mock(returncode=0, stdout='{"schema_version":1,"command":"issue","status":"finished","data":{"issue":"arthexis/gway-agent-ops#16"},"error":null}')
+        run.return_value = Mock(returncode=0, stdout='{"schema_version":1,"command":"submit","status":"ok","data":{"issue":"arthexis/gway-agent-ops#16"},"error":null}')
         args = {"ref": "arthexis/gway-agent-ops#16", "at": "2026-10-13T15:00:00Z"}
         for _ in range(2):
-            self.assertEqual(execute("agent-issue", args)["status"], "finished")
+            self.assertEqual(execute("agent-issue", args)["status"], "ok")
         self.assertEqual(run.call_count, 2)
         for call in run.call_args_list:
             self.assertEqual(call.args[0], [
