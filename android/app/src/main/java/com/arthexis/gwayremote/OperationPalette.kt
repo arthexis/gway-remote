@@ -46,6 +46,28 @@ fun OperationPalette(
                     panel.output?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
                     if (spec.policy == ExecutionPolicy.AUTO_READ) {
                         TextButton(onClick = { onRefresh(panel.id) }, enabled = !panel.loading) { Text("Refresh") }
+                    } else if (panel.id == "csms-view") {
+                        val views = listOf("status", "chargers", "charge-points", "transactions",
+                            "events", "alerts", "rfid-report", "report")
+                        val selected = panel.inputs["view"] ?: "status"
+                        var menuOpen by remember(panel.id) { mutableStateOf(false) }
+                        Box {
+                            OutlinedButton(onClick = { menuOpen = true }) {
+                                Text("View: $selected ▾")
+                            }
+                            DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
+                                views.forEach { view ->
+                                    DropdownMenuItem(text = { Text(view) }, onClick = {
+                                        onInput(panel.id, "view", view)
+                                        menuOpen = false
+                                    })
+                                }
+                            }
+                        }
+                        Button(enabled = !panel.loading && selected in views,
+                            onClick = { onExecute(panel.id, mapOf("view" to selected)) }) {
+                            Text("Inspect")
+                        }
                     } else if (panel.id == "lcd") {
                         val line1 = panel.inputs["line1"].orEmpty()
                         val line2 = panel.inputs["line2"].orEmpty()
