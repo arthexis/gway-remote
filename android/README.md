@@ -44,3 +44,7 @@ Merging any PR to main runs Android tests and attempts to publish a newly versio
 ## Composable command surface — UI-1 foundation
 
 `OperationRegistry.kt` defines stable IDs, labels, icon identifiers, search keywords, optional backend command bindings and three execution policies: `AUTO_READ`, `EXPLICIT_INPUT` and `CONFIRM`. Only safe, parameterless read operations can execute when a future panel opens. Inputs require explicit Run and potentially disruptive operations require confirmation. UI-1 does not replace the current navigation, change backend contracts or expose Agent Ops issue execution. UI-2 will consume the registry through independent panel state.
+
+## UI-2 panel manager
+
+`OperationPanels.kt` defines immutable, independent panel state (`inputs`, `loading`, `output`, `error`), duplicate-free opening, newest-first placement, close/reorder operations, and palette filtering of unopened operations. Monotonic request revisions reject out-of-order responses even after a panel closes and reopens. Restoring panel IDs never runs commands. `PanelExecution.canRun` enforces UI-1 auto-read, explicit-input, and confirmation policies at the controller boundary. This is intentionally a pure model; UI-3 will connect it to the Compose screen, preserving all current commands until migration parity.
