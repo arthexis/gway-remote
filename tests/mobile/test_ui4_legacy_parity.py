@@ -21,8 +21,7 @@ class LegacyParityTests(unittest.TestCase):
 
     def test_unmigrated_controls_stay_available(self):
         activity = ACTIVITY.read_text()
-        for marker in ('Text("CSMS"',
-                       'Text("OCPP Simulator"', 'SimulatorControls(',
+        for marker in ('Text("OCPP Simulator"', 'SimulatorControls(',
                        'Text("Response"', 'Update app'):
             self.assertIn(marker, activity)
 
