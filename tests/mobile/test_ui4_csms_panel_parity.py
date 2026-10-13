@@ -19,8 +19,9 @@ class CsmsPanelParityTests(unittest.TestCase):
     def test_simulator_and_apk_controls_remain(self):
         source = ACTIVITY.read_text()
         self.assertNotIn('Text("CSMS", style =', source)
-        for marker in ('Update app',
-                       '"probe-csms"', '"csms-view"'):
+        registry = (ROOT / "android/app/src/main/java/com/arthexis/gwayremote/OperationRegistry.kt").read_text()
+        self.assertIn('"probe-csms"', registry)
+        for marker in ('Update app', '"csms-view"'):
             with self.subTest(marker=marker):
                 self.assertIn(marker, source)
 
