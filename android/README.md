@@ -48,3 +48,7 @@ Merging any PR to main runs Android tests and attempts to publish a newly versio
 ## UI-2 panel manager
 
 `OperationPanels.kt` defines immutable, independent panel state (`inputs`, `loading`, `output`, `error`), duplicate-free opening, newest-first placement, close/reorder operations, and palette filtering of unopened operations. Monotonic request revisions reject out-of-order responses even after a panel closes and reopens. Restoring panel IDs never runs commands. `PanelExecution.canRun` enforces UI-1 auto-read, explicit-input, and confirmation policies at the controller boundary. This is intentionally a pure model; UI-3 will connect it to the Compose screen, preserving all current commands until migration parity.
+
+## UI-3 palette rollout
+
+The Android screen now shows independently open, reorderable bordered operation panels above the legacy controls, followed by a compact searchable palette of unopened operations. Opening a safe read-only operation fetches it once; Refresh explicitly fetches again. Closing/reopening rejects earlier asynchronous results via UI-2 request IDs. Parameterized and mutating operations remain in the existing controls until UI-4 moves their inputs and execution with parity tests; opening their new panels **does not** execute them. The existing updater, settings, refresh, CSMS, simulator, LCD, sound and benchmark controls remain reachable during this bridge phase.
