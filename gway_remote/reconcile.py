@@ -15,6 +15,7 @@ TARGETS = (
     ("ocpp-csms", "arthexis/ocpp-csms"),
     ("ocpp-simulator", "arthexis/ocpp-simulator"),
     ("gway-lcd-sound", "arthexis/gway-lcd-sound"),
+    ("gway-agent-ops", "arthexis/gway-agent-ops"),
 )
 _SHA = re.compile(r"[0-9a-fA-F]{40}")
 _GOOD_CI = "success"
