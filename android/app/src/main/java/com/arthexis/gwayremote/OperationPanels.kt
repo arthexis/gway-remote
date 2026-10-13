@@ -18,7 +18,10 @@ data class OpenPanelResult(
     val shouldAutoRun: Boolean
 )
 
-data class OperationPanelState(val panels: List<OperationPanel> = emptyList()) {
+data class OperationPanelState(
+    val panels: List<OperationPanel> = emptyList(),
+    val nextRevision: Long = 1L
+) {
     init {
         require(panels.map { it.id }.distinct().size == panels.size) { "duplicate open panels" }
         require(panels.all { OperationRegistry.get(it.id) != null }) { "unknown operation" }
@@ -48,8 +51,12 @@ data class OperationPanelState(val panels: List<OperationPanel> = emptyList()) {
     }
 
     /** Start is called only by the controller after policy validation. */
-    fun start(id: String): OperationPanelState =
-        edit(id) { it.copy(loading = true, output = null, error = null, revision = it.revision + 1) }
+    fun start(id: String): OperationPanelState {
+        if (panels.none { it.id == id }) return this
+        val token = nextRevision
+        return edit(id) { it.copy(loading = true, output = null, error = null, revision = token) }
+            .copy(nextRevision = token + 1)
+    }
 
     /** Ignore stale responses, including those for a closed/reopened panel. */
     fun complete(id: String, revision: Long, output: String): OperationPanelState =
@@ -61,7 +68,7 @@ data class OperationPanelState(val panels: List<OperationPanel> = emptyList()) {
     /** Restored panels never trigger auto-run; loading jobs cannot be resurrected. */
     fun restore(ids: List<String>): OperationPanelState {
         val unique = ids.distinct().filter { OperationRegistry.get(it) != null }
-        return OperationPanelState(unique.map(::OperationPanel))
+        return copy(panels = unique.map(::OperationPanel))
     }
 
     fun unopened(query: String = ""): List<OperationSpec> {
