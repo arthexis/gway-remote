@@ -48,8 +48,10 @@ def serve(path: Path) -> None:
     if path.exists() or path.is_symlink():
         raise RuntimeError(f"Socket path already exists: {path}")
     from .codex_queue import TaskQueue, default_db
+    from .codex_reporting import ReportOutbox, record_interrupted
     with TaskQueue(default_db()) as queue:
-        queue.recover()
+        with ReportOutbox(default_db().with_suffix(".reports.sqlite")) as outbox:
+            record_interrupted(queue, outbox)
     started = time.monotonic()
     stop = threading.Event()
     # Polling is enabled only when the worker has an explicitly provisioned
@@ -59,6 +61,7 @@ def serve(path: Path) -> None:
     if interval < 60:
         raise ValueError("poll interval must be at least 60 seconds")
     next_poll = time.monotonic() if token else float("inf")
+    next_report_retry = time.monotonic()
     next_execution = time.monotonic()
     execution_lock = threading.Lock()
     execution_thread: threading.Thread | None = None
@@ -95,6 +98,16 @@ def serve(path: Path) -> None:
         server.settimeout(0.5)
         try:
             while not stop.is_set():
+                if token and time.monotonic() >= next_report_retry:
+                    next_report_retry = time.monotonic() + interval
+                    try:
+                        from .codex_reporting import ReportOutbox
+                        from .codex_queue import default_db
+                        with ReportOutbox(default_db().with_suffix(".reports.sqlite")) as outbox:
+                            outbox.deliver(token)
+                    except Exception as exc:
+                        logging.warning("Codex issue reporting retry failed: %s",
+                                        type(exc).__name__)
                 if token and time.monotonic() >= next_poll:
                     next_poll = time.monotonic() + interval
                     try:

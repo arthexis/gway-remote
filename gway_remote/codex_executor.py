@@ -14,11 +14,14 @@ from typing import Callable
 
 from .codex_queue import TaskQueue, default_db
 from .codex_results import reconcile
+from .codex_reporting import assignment_prompt, diagnostic_body, ReportOutbox
+from .codex_issues import DispatchLedger, eligible_issue
+from .codex_policy import TRUSTED_CREATOR_ID, verify_issue_creator
 
 _REPO = re.compile(r"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$")
 
 
-def issue_objective(task: dict, token: str) -> str:
+def issue_objective(task: dict, token: str, *, on_issue=None) -> str:
     repository = task["repository"]
     if not _REPO.fullmatch(repository):
         raise ValueError("invalid repository")
@@ -32,11 +35,12 @@ def issue_objective(task: dict, token: str) -> str:
         issue = json.load(response)
     if "pull_request" in issue or issue.get("state") != "open":
         raise ValueError("assignment must refer to an open issue")
-    if issue.get("user", {}).get("login", "").lower() != "arthexis":
+    if not verify_issue_creator(issue, trusted_id=TRUSTED_CREATOR_ID):
         raise ValueError("issue author is not trusted")
-    return f"Implement approved GitHub assignment {repository}#{task['issue']}:\n" + (
-        issue.get("title", "") + "\n\n" + issue.get("body", "")
-    )[:30000] + "\n\nDo not merge or deploy. Report tests and results."
+    if on_issue is not None:
+        on_issue(issue)
+    return assignment_prompt(repository, int(task["issue"]),
+                             issue.get("title", ""), issue.get("body", ""))
 
 
 def run_once(*, db: Path | None = None, token: str | None = None,
@@ -65,7 +69,13 @@ def run_once(*, db: Path | None = None, token: str | None = None,
                 on_claim(task_id)
             if not token:
                 raise RuntimeError("GitHub token unavailable")
-            objective = issue_objective(task, token)
+            def mark_dispatch(issue):
+                # Admission happened in the existing approved queue. An
+                # operator may explicitly approve this same issue again.
+                if eligible_issue(issue, task["repository"]):
+                    with DispatchLedger((db or default_db()).with_suffix(".dispatch.sqlite")) as ledger:
+                        ledger.accept(task["repository"], issue, admitted=True, resend=True)
+            objective = issue_objective(task, token, on_issue=mark_dispatch)
             repository = task["repository"]
             checkout = (repos_root / repository.split("/")[1]).resolve()
             if not checkout.is_dir() or not (checkout / ".git").exists():
@@ -129,6 +139,19 @@ def run_once(*, db: Path | None = None, token: str | None = None,
         except Exception as exc:
             state = "failed"
             detail = f"{type(exc).__name__}: {str(exc)[:400]}"
+        if state != "succeeded":
+            try:
+                reason = ("interrupted" if state == "interrupted" else
+                          "timeout" if "timed out" in detail else "crash")
+                diagnostic = diagnostic_body(reason=reason, exit_code=exit_code,
+                                             phase="executing" if output else "preparing")
+                with ReportOutbox((db or default_db()).with_suffix(".reports.sqlite")) as outbox:
+                    outbox.enqueue(task["repository"], int(task["issue"]), diagnostic,
+                                   report_key=task_id)
+                    outbox.deliver(token)
+            except Exception:
+                # Reporting must never mask the original execution outcome.
+                pass
         reconciliation = reconcile(final, output, workspace, state)
         return queue.finish_execution(task_id, state, detail, exit_code=exit_code,
                                       reconciliation=reconciliation)
