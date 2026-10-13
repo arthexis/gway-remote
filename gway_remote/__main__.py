@@ -173,7 +173,8 @@ def main() -> None:
     logs_parser.add_argument("--lines", type=int, default=None)
     report_parser = subparsers.add_parser("report-bundle", help="Export sanitized artifact report")
     report_parser.add_argument("--output", required=True)
-    subparsers.add_parser("deploy-batch", help="Run eligible merged revisions once (explicit invocation)")
+    batch_parser = subparsers.add_parser("deploy-batch", help="Run eligible merged revisions once")
+    batch_parser.add_argument("--now", action="store_true", help="Bypass quiet period for operator-requested batch")
     worker_parser = subparsers.add_parser("codex", aliases=["codex-worker"], help="Codex worker and task inspection")
     worker_parser.add_argument("action", choices=("serve", "status", "tasks", "task", "submit", "discover", "veto", "unveto", "approve", "next"))
     worker_parser.add_argument("task_id", nargs="?")
@@ -309,8 +310,10 @@ def main() -> None:
                 "ocpp-csms": deploy_csms,
                 "ocpp-simulator": deploy_simulator,
                 "gway-lcd-sound": deploy_lcd_sound,
-            })
+            }, bypass_quiet=args.now)
             print(json.dumps(result, indent=2, sort_keys=True))
+            if args.now and result["decision"] in ("waiting", "blocked", "stale"):
+                parser.exit(1, f"gway-remote: manual batch not deployed ({result[\'decision\']}: {result.get(\'reason\', \'unknown\')})\\n")
             if any(item["status"] == "failed" for item in result["results"]):
                 parser.exit(1, "gway-remote: one or more installations failed\\n")
         except (ValueError, RuntimeError, OSError) as exc:
