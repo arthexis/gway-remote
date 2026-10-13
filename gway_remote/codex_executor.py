@@ -15,11 +15,13 @@ from typing import Callable
 from .codex_queue import TaskQueue, default_db
 from .codex_results import reconcile
 from .codex_reporting import assignment_prompt, diagnostic_body, ReportOutbox
+from .codex_issues import DispatchLedger
+from .codex_policy import TRUSTED_CREATOR_ID, verify_issue_creator
 
 _REPO = re.compile(r"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$")
 
 
-def issue_objective(task: dict, token: str) -> str:
+def issue_objective(task: dict, token: str, *, on_issue=None) -> str:
     repository = task["repository"]
     if not _REPO.fullmatch(repository):
         raise ValueError("invalid repository")
@@ -33,8 +35,10 @@ def issue_objective(task: dict, token: str) -> str:
         issue = json.load(response)
     if "pull_request" in issue or issue.get("state") != "open":
         raise ValueError("assignment must refer to an open issue")
-    if issue.get("user", {}).get("login", "").lower() != "arthexis":
+    if not verify_issue_creator(issue, trusted_id=TRUSTED_CREATOR_ID):
         raise ValueError("issue author is not trusted")
+    if on_issue is not None:
+        on_issue(issue)
     return assignment_prompt(repository, int(task["issue"]),
                              issue.get("title", ""), issue.get("body", ""))
 
@@ -65,7 +69,12 @@ def run_once(*, db: Path | None = None, token: str | None = None,
                 on_claim(task_id)
             if not token:
                 raise RuntimeError("GitHub token unavailable")
-            objective = issue_objective(task, token)
+            def mark_dispatch(issue):
+                # Admission happened in the existing approved queue. An
+                # operator may explicitly approve this same issue again.
+                with DispatchLedger((db or default_db()).with_suffix(".dispatch.sqlite")) as ledger:
+                    ledger.accept(task["repository"], issue, admitted=True, resend=True)
+            objective = issue_objective(task, token, on_issue=mark_dispatch)
             repository = task["repository"]
             checkout = (repos_root / repository.split("/")[1]).resolve()
             if not checkout.is_dir() or not (checkout / ".git").exists():
