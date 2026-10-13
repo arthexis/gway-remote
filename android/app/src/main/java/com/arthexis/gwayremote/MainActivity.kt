@@ -57,6 +57,9 @@ fun CompanionScreen(store: SecretStore) {
     var agentSendLoading by remember { mutableStateOf(false) }
     var agentSendResult by remember { mutableStateOf<String?>(null) }
     var agentSendError by remember { mutableStateOf<String?>(null) }
+    var agentObserveLoading by remember { mutableStateOf(false) }
+    var agentObserveResult by remember { mutableStateOf<String?>(null) }
+    var agentObserveError by remember { mutableStateOf<String?>(null) }
     var endpoint by remember { mutableStateOf(store.endpoint) }
     var token by remember { mutableStateOf(store.token) }
     var result by remember { mutableStateOf("Configure HTTPS endpoint and token") }
@@ -469,6 +472,34 @@ fun CompanionScreen(store: SecretStore) {
             agentSendLoading = agentSendLoading,
             agentSendResult = agentSendResult,
             agentSendError = agentSendError,
+            agentObserveLoading = agentObserveLoading,
+            agentObserveResult = agentObserveResult,
+            agentObserveError = agentObserveError,
+            onAgentObserve = { ref, at ->
+                if (!agentObserveLoading) {
+                    agentObserveLoading = true
+                    agentObserveResult = null
+                    agentObserveError = null
+                    val targetEndpoint = endpoint.trim()
+                    val targetToken = token
+                    scope.launch {
+                        try {
+                            val args = JSONObject().put("ref", ref).put("at", at)
+                            val response = withContext(Dispatchers.IO) {
+                                ApiClient(targetEndpoint, targetToken).request(
+                                    "/api/v1/execute", "agent-observe", args)
+                            }
+                            agentObserveResult = response.optJSONObject("result")
+                                ?.optJSONObject("data")?.optString("state", "unknown")
+                                ?: "unknown"
+                        } catch (e: Exception) {
+                            agentObserveError = e.message ?: "Observation unavailable"
+                        } finally {
+                            agentObserveLoading = false
+                        }
+                    }
+                }
+            },
             onAgentSend = { ref, at ->
                 if (!agentSendLoading) {
                     agentSendLoading = true
@@ -481,7 +512,7 @@ fun CompanionScreen(store: SecretStore) {
                             val args = JSONObject().put("ref", ref).put("at", at)
                             val response = withContext(Dispatchers.IO) {
                                 ApiClient(targetEndpoint, targetToken).request(
-                                    "/api/v1/execute", "agent-issue", args)
+                                    "/api/v1/execute", "agent-issue", args, timeoutMs = 30000)
                             }
                             agentSendResult = response.optJSONObject("result")?.toString(2)
                                 ?: response.toString(2)
