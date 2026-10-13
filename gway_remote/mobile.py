@@ -7,6 +7,7 @@ import subprocess
 import shutil
 
 from .benchmark import echo
+from .codex_views import list_tasks, task_detail
 from .csms_health import csms_probe
 from .simulator_network import discover
 from . import simulator_runner
@@ -53,6 +54,9 @@ OPERATIONS = {"probe-csms": csms_probe, "status": status,
 
 def commands():
     return ([{"name": name, "arguments": {}, "read_only": True} for name in OPERATIONS]
+            + [{"name": "codex-tasks", "read_only": True, "arguments": {}},
+                {"name": "codex-task", "read_only": True, "arguments": {
+                    "task_id": {"type": "string", "required": True}}}]
             + [{"name": "benchmark-echo", "read_only": True, "arguments": {
                 "payload": {"type": "string", "max_length": 4096, "required": True}}}]
             + [{"name": name, "read_only": name in ("simulator-status", "simulator-results"), "arguments": {}}
@@ -108,7 +112,21 @@ def sound_play(arguments):
     return {"played": arguments["sound"]}
 
 
+def codex_mobile(name, arguments):
+    if not isinstance(arguments, dict):
+        raise ValueError("invalid_arguments")
+    if name == "codex-tasks":
+        if arguments:
+            raise ValueError("invalid_arguments")
+        return list_tasks()
+    if set(arguments) != {"task_id"} or not isinstance(arguments["task_id"], str):
+        raise ValueError("invalid_arguments")
+    return task_detail(arguments["task_id"])
+
+
 def execute(name, arguments):
+    if name in ("codex-tasks", "codex-task"):
+        return codex_mobile(name, arguments)
     if name == "benchmark-echo":
         return echo(arguments)
     if name == "csms-view":

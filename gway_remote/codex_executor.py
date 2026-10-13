@@ -13,6 +13,7 @@ import urllib.request
 from typing import Callable
 
 from .codex_queue import TaskQueue, default_db
+from .codex_results import reconcile
 
 _REPO = re.compile(r"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$")
 
@@ -56,6 +57,9 @@ def run_once(*, db: Path | None = None, token: str | None = None,
         if task is None:
             return None
         task_id = task["id"]
+        queue.start_execution(task_id)
+        exit_code = None
+        output = final = workspace = None
         try:
             if on_claim is not None:
                 on_claim(task_id)
@@ -73,6 +77,11 @@ def run_once(*, db: Path | None = None, token: str | None = None,
                            check=True, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
             output = work_root / (task_id + ".jsonl")
             final = work_root / (task_id + ".final.txt")
+            queue.db.execute(
+                "UPDATE task_executions SET workspace_path=?, transcript_path=?, "
+                "final_message_path=? WHERE task_id=?",
+                (str(workspace), str(output), str(final), task_id),
+            )
             with output.open("w", encoding="utf-8") as stream:
                 process = subprocess.Popen(
                     ["codex", "exec", "--cd", str(workspace), "--json",
@@ -107,6 +116,7 @@ def run_once(*, db: Path | None = None, token: str | None = None,
                         process.wait()
                 else:
                     process.wait()
+            exit_code = process.returncode
             detail = f"exit={process.returncode}; transcript={output}; final={final}; workspace={workspace}"
             if reason == "cancelled":
                 state = "interrupted"
@@ -119,4 +129,6 @@ def run_once(*, db: Path | None = None, token: str | None = None,
         except Exception as exc:
             state = "failed"
             detail = f"{type(exc).__name__}: {str(exc)[:400]}"
-        return queue.transition(task_id, "running", state, detail)
+        reconciliation = reconcile(final, output, workspace, state)
+        return queue.finish_execution(task_id, state, detail, exit_code=exit_code,
+                                      reconciliation=reconciliation)

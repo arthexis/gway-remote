@@ -19,6 +19,20 @@ TRANSITIONS = {
     "vetoed": frozenset(("requested",)),
 }
 SCHEMA = """
+CREATE TABLE IF NOT EXISTS task_executions (
+ task_id TEXT PRIMARY KEY REFERENCES tasks(id),
+ started_at TEXT NOT NULL,
+ finished_at TEXT,
+ exit_code INTEGER,
+ transcript_path TEXT,
+ final_message_path TEXT,
+ workspace_path TEXT,
+ outcome TEXT NOT NULL DEFAULT 'running',
+ report TEXT,
+ reported_outcome TEXT NOT NULL DEFAULT 'unknown',
+ verification TEXT NOT NULL DEFAULT 'unverified',
+ artifacts_json TEXT NOT NULL DEFAULT '[]'
+);
 CREATE TABLE IF NOT EXISTS tasks (
  id TEXT PRIMARY KEY,
  kind TEXT NOT NULL,
@@ -84,10 +98,21 @@ class TaskQueue:
                         FROM tasks""")
                     self.db.execute("DROP TABLE tasks")
                     self.db.execute("ALTER TABLE tasks_migrated RENAME TO tasks")
+
             # executescript() implicitly commits, so run statements separately.
             for statement in SCHEMA.split(";"):
                 if statement.strip():
                     self.db.execute(statement)
+            execution_columns = {row[1] for row in self.db.execute(
+                "PRAGMA table_info(task_executions)")}
+            for column, definition in (
+                ("report", "TEXT"),
+                ("reported_outcome", "TEXT NOT NULL DEFAULT 'unknown'"),
+                ("verification", "TEXT NOT NULL DEFAULT 'unverified'"),
+                ("artifacts_json", "TEXT NOT NULL DEFAULT '[]'"),
+            ):
+                if column not in execution_columns:
+                    self.db.execute(f"ALTER TABLE task_executions ADD COLUMN {column} {definition}")
             self.db.execute("COMMIT")
         except Exception:
             self.db.execute("ROLLBACK")
@@ -206,10 +231,71 @@ class TaskQueue:
             self.db.execute("ROLLBACK")
             raise
 
+    def start_execution(self, task_id: str, *, workspace: str | None = None,
+                        transcript: str | None = None, final_message: str | None = None):
+        """Persist executor metadata without changing approval or queue state."""
+        task = self.get(task_id)
+        if task is None or task["state"] != "running":
+            raise ValueError("task must be running")
+        self.db.execute(
+            """INSERT INTO task_executions
+               (task_id,started_at,workspace_path,transcript_path,final_message_path)
+               VALUES (?,?,?,?,?)""",
+            (task_id, now(), workspace, transcript, final_message),
+        )
+
+    def finish_execution(self, task_id: str, state: str, detail: str,
+                         *, exit_code: int | None = None,
+                         reconciliation: dict | None = None):
+        """Atomically persist task state and structured execution result."""
+        if state not in TRANSITIONS["running"]:
+            raise ValueError("invalid execution outcome")
+        self.db.execute("BEGIN IMMEDIATE")
+        try:
+            self.transition(task_id, "running", state, detail)
+            result = self.db.execute(
+                """UPDATE task_executions SET finished_at=?, exit_code=?, outcome=?
+                   WHERE task_id=? AND finished_at IS NULL""",
+                (now(), exit_code, state, task_id),
+            )
+            if result.rowcount != 1:
+                raise ValueError("execution record missing or already finalized")
+            if reconciliation is not None:
+                self.db.execute(
+                    """UPDATE task_executions SET report=?, reported_outcome=?,
+                       verification=?, artifacts_json=? WHERE task_id=?""",
+                    (reconciliation["report"], reconciliation["reported_outcome"],
+                     reconciliation["verification"], reconciliation["artifacts_json"],
+                     task_id),
+                )
+            self.db.execute("COMMIT")
+        except Exception:
+            self.db.execute("ROLLBACK")
+            raise
+        return self.get(task_id)
+
+    def execution(self, task_id: str):
+        row = self.db.execute(
+            "SELECT * FROM task_executions WHERE task_id=?", (task_id,)
+        ).fetchone()
+        return dict(row) if row else None
+
     def recover(self):
         """Mark interrupted jobs for review, never automatically retry them."""
-        result = self.db.execute(
-            "UPDATE tasks SET state='interrupted', updated_at=?, "
-            "detail='Worker restarted; manual review required' WHERE state='running'",
-            (now(),))
-        return result.rowcount
+        self.db.execute("BEGIN IMMEDIATE")
+        try:
+            timestamp = now()
+            result = self.db.execute(
+                "UPDATE tasks SET state='interrupted', updated_at=?, "
+                "detail='Worker restarted; manual review required' WHERE state='running'",
+                (timestamp,))
+            self.db.execute(
+                "UPDATE task_executions SET finished_at=?, outcome='interrupted' "
+                "WHERE finished_at IS NULL AND task_id IN "
+                "(SELECT id FROM tasks WHERE state='interrupted')",
+                (timestamp,))
+            self.db.execute("COMMIT")
+            return result.rowcount
+        except Exception:
+            self.db.execute("ROLLBACK")
+            raise

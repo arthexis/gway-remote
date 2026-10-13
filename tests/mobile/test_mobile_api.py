@@ -8,6 +8,11 @@ from gway_remote import mobile
 
 
 class MobileTests(unittest.TestCase):
+    def test_codex_read_only_catalog_entries(self):
+        names = {entry["name"] for entry in mobile.commands()}
+        self.assertIn("codex-tasks", names)
+        self.assertIn("codex-task", names)
+
     def test_rejects_mutations_and_arguments(self):
         for name in ("run", "deploy-batch", "logs", "reconcile", "report-bundle"):
             with self.assertRaises(ValueError):
