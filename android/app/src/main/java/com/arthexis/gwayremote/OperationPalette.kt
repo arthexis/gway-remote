@@ -411,7 +411,7 @@ private fun AgentOpsPanel(
         val issues = data.opt("issues")
         when (issues) {
             is JSONObject -> {
-                val entries = issues.optJSONArray("issues")
+                val entries = issues.optJSONObject("data")?.optJSONArray("issues")
                 if (entries == null) Text("Issue list unavailable", style = MaterialTheme.typography.bodySmall)
                 else if (entries.length() == 0) Text("No issues reported")
                 else for (index in 0 until entries.length()) {
@@ -421,7 +421,7 @@ private fun AgentOpsPanel(
                     if (referencePattern.matches(issueRef)) {
                         TextButton(onClick = { selectedRef = issueRef; attempted = null }) { Text("Select for Send") }
                     }
-                    Text("${issue.optString("repository", "")} · ${issue.optString("state", "unknown")} · ${issue.optInt("comment_count", issue.optInt("comments", 0))} comments",
+                    Text("${issue.optString("repository", "")} · ${agentIssueState(issue)} · ${issue.optInt("comments", 0)} comments",
                         style = MaterialTheme.typography.bodySmall)
                 }
             }
@@ -433,17 +433,52 @@ private fun AgentOpsPanel(
     if (data.has("status_error")) {
         Text("Unavailable: ${data.optString("status_error")}", color = MaterialTheme.colorScheme.error)
     } else {
-        val status = data.optJSONObject("status")
+        val status = data.optJSONObject("status")?.optJSONObject("data")
         if (status == null) Text("Agent status unavailable")
         else {
-            // Do not infer remaining budget percentages from unspecified CLI fields.
-            Text("5-hour remaining: unavailable")
-            Text("Weekly remaining: unavailable")
+            val budget = status.optJSONObject("budget")
+            AgentBudgetWindow("5-hour", budget?.optJSONObject("five_hour"))
+            AgentBudgetWindow("Weekly", budget?.optJSONObject("weekly"))
             var expanded by remember { mutableStateOf(false) }
             TextButton(onClick = { expanded = !expanded }) {
                 Text(if (expanded) "Hide status JSON" else "Show status JSON")
             }
             if (expanded) Text(status.toString(2), style = MaterialTheme.typography.bodySmall)
         }
+    }
+}
+
+private fun agentIssueState(issue: JSONObject): String {
+    return when (issue.optString("state", "").lowercase()) {
+        "open" -> "Open"
+        "attended" -> "Attended"
+        "sent" -> {
+            val sent = issue.optString("sent_at")
+            val elapsed = runCatching {
+                java.time.Duration.between(java.time.Instant.parse(sent), java.time.Instant.now()).seconds
+            }.getOrNull()
+            val age = when {
+                elapsed == null || elapsed < 0 -> null
+                elapsed < 60 -> "${elapsed}s"
+                elapsed < 3600 -> "${elapsed / 60}m"
+                elapsed < 86400 -> "${elapsed / 3600}h"
+                else -> "${elapsed / 86400}d"
+            }
+            if (age == null) "Sent" else "Sent $age"
+        }
+        else -> "Unknown"
+    }
+}
+
+@Composable
+private fun AgentBudgetWindow(label: String, window: JSONObject?) {
+    val percent = window?.opt("remaining_percent")
+    val available = window?.optBoolean("available", false) == true &&
+        percent is Number && percent.toDouble() in 0.0..100.0
+    val remaining = if (available) "${percent}%" else "unavailable"
+    Text("$label remaining: $remaining")
+    if (available) {
+        window?.optString("resets_at")?.takeIf { it.isNotBlank() && it != "null" }
+            ?.let { Text("Resets: $it", style = MaterialTheme.typography.bodySmall) }
     }
 }
