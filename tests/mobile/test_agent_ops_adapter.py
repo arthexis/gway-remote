@@ -21,8 +21,8 @@ class AgentOpsAdapterTests(unittest.TestCase):
     @patch.object(agent_ops_adapter, "_agent_path", return_value="/usr/local/bin/agent")
     @patch.object(agent_ops_adapter.subprocess, "run")
     def test_exact_argv_no_shell(self, run, _path):
-        run.return_value = Mock(returncode=0, stdout='{"issues":[]}')
-        self.assertEqual(execute("agent-issues", {}), {"issues": []})
+        run.return_value = Mock(returncode=0, stdout='{"schema_version":1,"command":"issues","status":"ok","data":{"issues":[]},"error":null}')
+        self.assertEqual(execute("agent-issues", {})["data"], {"issues": []})
         self.assertEqual(run.call_args.args[0], ["/usr/local/bin/agent", "issues", "--json"])
         self.assertEqual(run.call_args.kwargs["timeout"], 20)
         self.assertFalse(run.call_args.kwargs["check"])
