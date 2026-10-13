@@ -32,7 +32,7 @@ def appliance_lock(path=LOCK_PATH):
             fcntl.flock(handle, fcntl.LOCK_UN)
 
 
-def execute(client, now, installers, directory=DEFAULT_DIR, lock_path=None):
+def execute(client, now, installers, directory=DEFAULT_DIR, lock_path=None, *, bypass_quiet=False):
     """Call only under a trusted runner. Installer errors are recorded and isolated.
 
     Re-check all main heads before each component. A changing head aborts the
@@ -41,7 +41,7 @@ def execute(client, now, installers, directory=DEFAULT_DIR, lock_path=None):
     directory = Path(directory)
     with appliance_lock(lock_path or directory / "appliance.lock"):
         snapshot = collect(client, attempted_shas(directory))
-        decision = plan(snapshot, now)
+        decision = plan(snapshot, now, bypass_quiet=bypass_quiet)
         if decision.state != "ready":
             return {"decision": decision.state, "reason": decision.reason, "results": []}
         results = []
