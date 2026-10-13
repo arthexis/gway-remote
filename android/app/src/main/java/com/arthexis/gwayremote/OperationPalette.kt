@@ -25,7 +25,8 @@ fun OperationPalette(
     onExecute: (String, Map<String, String>) -> Unit,
     benchmarkContent: @Composable () -> Unit,
     simulatorStatus: String,
-    onSimulatorCommand: (String, JSONObject) -> Unit
+    onSimulatorCommand: (String, JSONObject) -> Unit,
+    onSelectSimulatorPeer: (String, String) -> Unit
 ) {
     var filter by remember { mutableStateOf("") }
     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -57,6 +58,26 @@ fun OperationPalette(
                     if (spec.policy == ExecutionPolicy.AUTO_READ) {
                         TextButton(onClick = { onRefresh(panel.id) }, enabled = !panel.loading) { Text("Refresh") }
                     } else if (panel.id == "simulator-discover") {
+                        val discovered = remember(panel.output) {
+                            runCatching {
+                                val peers = JSONObject(panel.output ?: "{}").optJSONObject("result")
+                                    ?.optJSONArray("peers")
+                                if (peers == null) emptyList<String>()
+                                else (0 until peers.length()).mapNotNull { index ->
+                                    peers.optJSONObject(index)?.optString("host")
+                                        ?.takeIf { it.isNotBlank() }
+                                }.distinct()
+                            }.getOrDefault(emptyList())
+                        }
+                        if (discovered.isNotEmpty()) {
+                            Text("Discovered Ethernet peers: ${discovered.size}")
+                            discovered.forEach { peer ->
+                                OutlinedButton(onClick = {
+                                    onSelectSimulatorPeer(peer, panel.inputs["port"] ?: "9000")
+                                }) { Text("Use $peer for Start") }
+                            }
+                        }
+
                         val host = panel.inputs["host"].orEmpty()
                         val port = panel.inputs["port"] ?: "9000"
                         OutlinedTextField(host, { onInput(panel.id, "host", it) },

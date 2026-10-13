@@ -525,6 +525,12 @@ fun CompanionScreen(store: SecretStore) {
             onClose = { id -> panelState = panelState.close(id) },
             onMove = { id, index -> panelState = panelState.move(id, index) },
             onRefresh = { id -> runPanelRead(id) },
+            onSelectSimulatorPeer = { host, port ->
+                val opened = panelState.open("simulator-start")
+                panelState = opened.state.input("simulator-start", "host", host)
+                    .input("simulator-start", "port", port)
+                // Target selection only updates parameters; it never starts a simulation.
+            },
             benchmarkContent = benchmarkPanelContent,
             simulatorStatus = simulatorStatus,
             onSimulatorCommand = { command, args ->
