@@ -27,7 +27,11 @@ fun OperationPalette(
     simulatorStatus: String,
     onSimulatorCommand: (String, JSONObject) -> Unit,
     onSelectSimulatorPeer: (String, String) -> Unit,
-    onInspectTask: (String) -> Unit
+    onInspectTask: (String) -> Unit,
+    agentSendLoading: Boolean,
+    agentSendResult: String?,
+    agentSendError: String?,
+    onAgentSend: (String, String) -> Unit
 ) {
     var filter by remember { mutableStateOf("") }
     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -50,7 +54,7 @@ fun OperationPalette(
                     if (panel.loading) LinearProgressIndicator(Modifier.fillMaxWidth())
                     panel.error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
                     if (panel.id == "agent-ops") {
-                        AgentOpsPanel(panel.output)
+                        AgentOpsPanel(panel.output, agentSendLoading, agentSendResult, agentSendError, onAgentSend)
                     } else if (panel.id == "tasks") {
                         TaskHistoryPanel(panel.output, onInspectTask)
                     } else if (panel.id == "task-detail") {
@@ -362,7 +366,36 @@ private fun TaskDetailPanel(output: String?) {
 }
 
 @Composable
-private fun AgentOpsPanel(output: String?) {
+private fun AgentOpsPanel(
+    output: String?,
+    sending: Boolean,
+    sendResult: String?,
+    sendError: String?,
+    onSend: (String, String) -> Unit
+) {
+    var selectedRef by remember { mutableStateOf("") }
+    var attempted by remember { mutableStateOf<Pair<String, String>?>(null) }
+    val referencePattern = remember { Regex("[A-Za-z0-9][A-Za-z0-9_.-]{0,99}/[A-Za-z0-9][A-Za-z0-9_.-]{0,99}#[1-9][0-9]*") }
+    OutlinedTextField(selectedRef, { selectedRef = it; attempted = null },
+        label = { Text("GitHub issue OWNER/REPO#N") }, singleLine = true)
+    val valid = referencePattern.matches(selectedRef)
+    Button(enabled = valid && !sending, onClick = {
+        val timestamp = java.time.Instant.now().truncatedTo(java.time.temporal.ChronoUnit.SECONDS).toString()
+        attempted = selectedRef to timestamp
+        onSend(selectedRef, timestamp)
+    }) { Text("Send issue") }
+    if (sending) LinearProgressIndicator(Modifier.fillMaxWidth())
+    if (sendError != null) {
+        Text("Submission not confirmed: $sendError", color = MaterialTheme.colorScheme.error)
+        val pending = attempted
+        if (pending != null) {
+            TextButton(enabled = !sending, onClick = { onSend(pending.first, pending.second) }) {
+                Text("Retry same submission")
+            }
+        }
+    }
+    if (sendResult != null) Text("Agent response: $sendResult", style = MaterialTheme.typography.bodySmall)
+
     if (output == null) return
     val data = remember(output) {
         runCatching { JSONObject(output).optJSONObject("result") }.getOrNull()
@@ -384,6 +417,10 @@ private fun AgentOpsPanel(output: String?) {
                 else for (index in 0 until entries.length()) {
                     val issue = entries.optJSONObject(index) ?: continue
                     Text("#${issue.optString("number", "?")} ${issue.optString("title", "Untitled issue")}")
+                    val issueRef = "${issue.optString("repository") }#${issue.optInt("number")}"
+                    if (referencePattern.matches(issueRef)) {
+                        TextButton(onClick = { selectedRef = issueRef; attempted = null }) { Text("Select for Send") }
+                    }
                     Text("${issue.optString("repository", "")} · ${issue.optString("state", "unknown")} · ${issue.optInt("comment_count", issue.optInt("comments", 0))} comments",
                         style = MaterialTheme.typography.bodySmall)
                 }
