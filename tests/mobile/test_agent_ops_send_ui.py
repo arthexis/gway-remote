@@ -9,10 +9,13 @@ MOBILE = ROOT / "android/app/src/main/java/com/arthexis/gwayremote"
 class AgentOpsSendUiTests(unittest.TestCase):
     def test_send_requires_explicit_user_press_and_timestamp_reuse(self):
         palette = (MOBILE / "OperationPalette.kt").read_text()
-        self.assertIn('Text("Send issue")', palette)
-        self.assertIn('enabled = valid && !sending', palette)
-        self.assertIn('attemptedAt = timestamp', palette)
-        self.assertIn('prefs.edit().putString("ref", selectedRef).putString("at", timestamp).apply()', palette)
+        self.assertIn('Text("Send to Agent?")', palette)
+        self.assertIn('Button(enabled = validUrl && !sending, onClick = { confirmRef = issueRef })', palette)
+        self.assertIn('confirmButton = { TextButton(onClick = {', palette)
+        self.assertIn('attemptedAt = at', palette)
+        self.assertIn('prefs.edit().putString("ref", ref).putString("at", at).apply()', palette)
+        self.assertIn('onSend(ref, at)', palette)
+        self.assertNotIn('OutlinedTextField(selectedRef', palette)
         self.assertIn('onSend(attempted.first, attempted.second)', palette)
         self.assertIn('onObserve(attempted.first, attempted.second)', palette)
         self.assertIn('Text("Retry same submission")', palette)

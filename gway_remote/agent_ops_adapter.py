@@ -28,7 +28,7 @@ def _run(arguments):
     command = arguments[0]
     # A synchronous issue invocation can run longer than the read APIs.
     # Do not automatically retry timeouts: the dispatch may have been accepted.
-    timeout = 20 if command in ("issues", "status", "observe", "submit") else 1800
+    timeout = 20 if command in ("issues", "status", "observe", "submit", "preview") else 1800
     try:
         completed = subprocess.run(
             [_agent_path(), *arguments, "--json"],
@@ -110,3 +110,12 @@ def observe_issue(arguments):
     if parsed.strftime("%Y-%m-%dT%H:%M:%SZ") != at:
         raise ValueError("invalid_timestamp")
     return _run(["observe", ref, "--at", at])
+
+
+def preview_issue(arguments):
+    if type(arguments) is not dict or set(arguments) != {"ref"}:
+        raise ValueError("invalid_arguments")
+    ref = arguments["ref"]
+    if type(ref) is not str or not ISSUE_REF.fullmatch(ref):
+        raise ValueError("invalid_issue_ref")
+    return _run(["preview", ref])

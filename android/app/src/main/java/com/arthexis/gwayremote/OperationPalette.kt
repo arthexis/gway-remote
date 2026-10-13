@@ -7,6 +7,10 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.platform.LocalContext
 import android.content.Context
+import android.content.ClipData
+import android.content.ClipboardManager
+import android.content.Intent
+import android.net.Uri
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import org.json.JSONObject
@@ -34,6 +38,7 @@ fun OperationPalette(
     agentSendResult: String?,
     agentSendError: String?,
     onAgentSend: (String, String) -> Unit,
+    onAgentCopyPrompt: (String) -> Unit,
     agentObserveLoading: Boolean,
     agentObserveResult: String?,
     agentObserveError: String?,
@@ -60,7 +65,7 @@ fun OperationPalette(
                     if (panel.loading) LinearProgressIndicator(Modifier.fillMaxWidth())
                     panel.error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
                     if (panel.id == "agent-ops") {
-                        AgentOpsPanel(panel.output, agentSendLoading, agentSendResult, agentSendError, onAgentSend,
+                        AgentOpsPanel(panel.output, agentSendLoading, agentSendResult, agentSendError, onAgentSend, onAgentCopyPrompt,
                             agentObserveLoading, agentObserveResult, agentObserveError, onAgentObserve)
                     } else if (panel.id == "tasks") {
                         TaskHistoryPanel(panel.output, onInspectTask)
@@ -379,6 +384,7 @@ private fun AgentOpsPanel(
     sendResult: String?,
     sendError: String?,
     onSend: (String, String) -> Unit,
+    onCopyPrompt: (String) -> Unit,
     observing: Boolean,
     observation: String?,
     observationError: String?,
@@ -386,21 +392,25 @@ private fun AgentOpsPanel(
 ) {
     val context = LocalContext.current
     val prefs = remember(context) { context.getSharedPreferences("agent-ops-submission", Context.MODE_PRIVATE) }
-    var selectedRef by remember { mutableStateOf(prefs.getString("ref", "").orEmpty()) }
     var attemptedRef by remember { mutableStateOf(prefs.getString("ref", "").orEmpty()) }
     var attemptedAt by remember { mutableStateOf(prefs.getString("at", "").orEmpty()) }
     val attempted = if (attemptedRef.isNotBlank() && attemptedAt.isNotBlank()) attemptedRef to attemptedAt else null
     val referencePattern = remember { Regex("[A-Za-z0-9][A-Za-z0-9_.-]{0,99}/[A-Za-z0-9][A-Za-z0-9_.-]{0,99}#[1-9][0-9]*") }
-    OutlinedTextField(selectedRef, { selectedRef = it },
-        label = { Text("GitHub issue OWNER/REPO#N") }, singleLine = true)
-    val valid = referencePattern.matches(selectedRef)
-    Button(enabled = valid && !sending, onClick = {
-        val timestamp = java.time.Instant.now().truncatedTo(java.time.temporal.ChronoUnit.SECONDS).toString()
-        attemptedRef = selectedRef
-        attemptedAt = timestamp
-        prefs.edit().putString("ref", selectedRef).putString("at", timestamp).apply()
-        onSend(selectedRef, timestamp)
-    }) { Text("Send issue") }
+    var confirmRef by remember { mutableStateOf<String?>(null) }
+    confirmRef?.let { ref ->
+        AlertDialog(onDismissRequest = { confirmRef = null },
+            title = { Text("Send to Agent?") },
+            text = { Text("Request execution of $ref? This does not confirm completion.") },
+            confirmButton = { TextButton(onClick = {
+                confirmRef = null
+                val at = java.time.Instant.now().truncatedTo(java.time.temporal.ChronoUnit.SECONDS).toString()
+                attemptedRef = ref
+                attemptedAt = at
+                prefs.edit().putString("ref", ref).putString("at", at).apply()
+                onSend(ref, at)
+            }) { Text("Send to Agent") } },
+            dismissButton = { TextButton(onClick = { confirmRef = null }) { Text("Cancel") } })
+    }
     if (sending) LinearProgressIndicator(Modifier.fillMaxWidth())
     if (sendError != null) {
         Text("Submission not confirmed: $sendError", color = MaterialTheme.colorScheme.error)
@@ -441,10 +451,25 @@ private fun AgentOpsPanel(
                 else if (entries.length() == 0) Text("No issues reported")
                 else for (index in 0 until entries.length()) {
                     val issue = entries.optJSONObject(index) ?: continue
-                    Text("#${issue.optString("number", "?")} ${issue.optString("title", "Untitled issue")}")
-                    val issueRef = "${issue.optString("repository") }#${issue.optInt("number")}"
-                    if (referencePattern.matches(issueRef)) {
-                        TextButton(onClick = { selectedRef = issueRef }) { Text("Select for Send") }
+                    val issueRef = "${issue.optString("repository")}#${issue.optInt("number")}"
+                    val issueUrl = issue.optString("url")
+                    val expectedUrl = if (referencePattern.matches(issueRef))
+                        "https://github.com/${issue.optString("repository")}/issues/${issue.optInt("number")}" else ""
+                    val validUrl = expectedUrl.isNotEmpty() && issueUrl == expectedUrl
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        TextButton(enabled = validUrl, onClick = {
+                            runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(issueUrl))) }
+                        }, modifier = Modifier.weight(1f)) {
+                            Text("#${issue.optInt("number")} ${issue.optString("title", "Untitled issue")}")
+                        }
+                        IconButton(enabled = validUrl, onClick = {
+                            val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                            clipboard.setPrimaryClip(ClipData.newPlainText("GitHub issue", issueUrl))
+                        }) { Text("⧉") }
+                    }
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Button(enabled = validUrl && !sending, onClick = { confirmRef = issueRef }) { Text("Send to Agent") }
+                        OutlinedButton(enabled = validUrl, onClick = { onCopyPrompt(issueRef) }) { Text("Copy Prompt") }
                     }
                     Text("${issue.optString("repository", "")} · ${agentIssueState(issue)} · ${issue.optInt("comments", 0)} comments",
                         style = MaterialTheme.typography.bodySmall)

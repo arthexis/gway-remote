@@ -58,7 +58,7 @@ object OperationRegistry {
             ExecutionPolicy.EXPLICIT_INPUT, "lcd-message"),
         OperationSpec("sound", "Sound", "volume-2", setOf("play", "audio", "alert"),
             ExecutionPolicy.EXPLICIT_INPUT, "sound-play"),
-        OperationSpec("agent-ops", "Agent Ops", "list-checks",
+        OperationSpec("agent-ops", "Assigned Issues", "list-checks",
             setOf("agent", "issues", "status", "github", "budgets", "five-hour", "weekly"),
             ExecutionPolicy.AUTO_READ),
         OperationSpec("tasks", "Task history", "list-todo", setOf("codex", "jobs", "executions", "history"),
