@@ -312,7 +312,7 @@ def main() -> None:
                 "gway-lcd-sound": deploy_lcd_sound,
             }, bypass_quiet=args.now)
             print(json.dumps(result, indent=2, sort_keys=True))
-            if args.now and result["decision"] in ("waiting", "blocked", "stale"):
+            if args.now and result["decision"] in ("waiting", "blocked", "stale", "idle"):
                 parser.exit(1, f"gway-remote: manual batch not deployed ({result[\'decision\']}: {result.get(\'reason\', \'unknown\')})\\n")
             if any(item["status"] == "failed" for item in result["results"]):
                 parser.exit(1, "gway-remote: one or more installations failed\\n")
