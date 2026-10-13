@@ -16,8 +16,9 @@ class SimulatorStatusSyncTests(unittest.TestCase):
 
     def test_legacy_simulator_controls_are_retained_until_parity(self):
         content = ACTIVITY.read_text()
-        self.assertIn('Text("OCPP Simulator"', content)
-        self.assertIn('SimulatorControls(', content)
+        self.assertNotIn('Text("OCPP Simulator"', content)
+        palette = (ROOT / "android/app/src/main/java/com/arthexis/gwayremote/OperationPalette.kt").read_text()
+        self.assertIn('SimulatorControls(', palette)
 
 
 if __name__ == "__main__":
