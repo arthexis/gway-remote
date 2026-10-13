@@ -288,17 +288,30 @@ fun CompanionScreen(store: SecretStore) {
             "api-commands" -> "/api/v1/commands"
             else -> "/api/v1/execute"
         }
-        if (path == "/api/v1/execute" && spec.command == null) return
+        if (path == "/api/v1/execute" && spec.command == null && id != "agent-ops") return
         panelState = panelState.start(id)
         val revision = panelState.panels.firstOrNull { it.id == id }?.revision ?: return
         val targetEndpoint = endpoint.trim()
         val targetToken = token
         scope.launch {
             try {
-                val response = withContext(Dispatchers.IO) {
-                    ApiClient(targetEndpoint, targetToken).request(
-                        path, spec.command
-                    )
+                val response = if (id == "agent-ops") {
+                    withContext(Dispatchers.IO) {
+                        val client = ApiClient(targetEndpoint, targetToken)
+                        val merged = JSONObject()
+                        // Read each source independently: one failure must not erase the other.
+                        for (command in listOf("agent-issues", "agent-status")) {
+                            val key = if (command == "agent-issues") "issues" else "status"
+                            try {
+                                merged.put(key, client.request("/api/v1/execute", command).opt("result"))
+                            } catch (e: Exception) {
+                                merged.put(key + "_error", e.message ?: "Unavailable")
+                            }
+                        }
+                        JSONObject().put("result", merged)
+                    }
+                } else withContext(Dispatchers.IO) {
+                    ApiClient(targetEndpoint, targetToken).request(path, spec.command)
                 }
                 val stillCurrent = panelState.panels.any {
                     it.id == id && it.loading && it.revision == revision
