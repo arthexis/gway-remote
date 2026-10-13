@@ -66,13 +66,6 @@ fun CompanionScreen(store: SecretStore) {
     var agentIssuesLoading by remember { mutableStateOf(false) }
     var refreshStatus by remember { mutableStateOf("") }
     var simulatorStatus by remember { mutableStateOf("Not checked") }
-    var csmsExpanded by remember { mutableStateOf(false) }
-    var csmsView by remember { mutableStateOf("status") }
-    var csmsMenuOpen by remember { mutableStateOf(false) }
-    var csmsOutput by remember { mutableStateOf("") }
-    var csmsTruncated by remember { mutableStateOf(false) }
-    var csmsHealthy by remember { mutableStateOf<Boolean?>(null) }
-    var csmsReason by remember { mutableStateOf("") }
     var expandedWriteOperation by remember { mutableStateOf<String?>(null) }
     var lcdDuration by remember { mutableFloatStateOf(30f) }
     var lcdLine1 by remember { mutableStateOf("") }
@@ -208,16 +201,6 @@ fun CompanionScreen(store: SecretStore) {
                             item.optString("name").takeIf { it.isNotBlank() } else null
                     }
                 }
-                if (command == "probe-csms") {
-                    val data = response.optJSONObject("result")
-                    csmsHealthy = data?.optBoolean("healthy")
-                    csmsReason = data?.optString("reason") ?: "No diagnostic details"
-                }
-                if (command == "csms-view") {
-                    val data = response.optJSONObject("result")
-                    csmsOutput = data?.optString("output") ?: response.toString(2)
-                    csmsTruncated = data?.optBoolean("truncated") ?: false
-                }
                 if (command == "simulator-status" || command == "simulator-start" || command == "simulator-stop") {
                     val data = response.optJSONObject("result")
                     simulatorStatus = "${data?.optString("state") ?: "unknown"} — " +
@@ -257,8 +240,6 @@ fun CompanionScreen(store: SecretStore) {
         refreshStatus = "Refreshing…"
         val targetEndpoint = endpoint.trim()
         val targetToken = token
-        val selectedView = csmsView
-        val refreshCsms = csmsExpanded
         scope.launch {
             val failures = mutableListOf<String>()
             try {
@@ -281,19 +262,6 @@ fun CompanionScreen(store: SecretStore) {
                             if (item.optBoolean("read_only") &&
                                 (item.optJSONObject("arguments")?.length() ?: 0) == 0)
                                 item.optString("name").takeIf { it.isNotBlank() } else null
-                        }
-                    }
-                    if (refreshCsms) {
-                        fetch("CSMS health", "/api/v1/execute", "probe-csms")?.optJSONObject("result")?.let {
-                            csmsHealthy = it.optBoolean("healthy")
-                            csmsReason = it.optString("reason", "")
-                        }
-                        if (csmsOutput.isNotBlank()) {
-                            fetch("CSMS view", "/api/v1/execute", "csms-view",
-                                JSONObject().put("view", selectedView))?.optJSONObject("result")?.let {
-                                csmsOutput = it.optString("output", "")
-                                csmsTruncated = it.optBoolean("truncated")
-                            }
                         }
                     }
 
