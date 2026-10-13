@@ -1,5 +1,7 @@
 """Narrow adapter to the installed Agent Ops CLI, without shell or queue access."""
 import json
+import re
+from datetime import datetime, timezone
 from pathlib import Path
 import shutil
 import subprocess
@@ -43,3 +45,25 @@ def status(arguments):
     if type(arguments) is not dict or arguments:
         raise ValueError("invalid_arguments")
     return _run(["status"])
+
+# The Agent Ops CLI is responsible for trust gating and deduplicating an
+# identical issue/timestamp submission. Remote must never mint a replacement
+# timestamp on a retry.
+ISSUE_REF = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,99}/[A-Za-z0-9][A-Za-z0-9_.-]{0,99}#[1-9][0-9]*$")
+
+
+def send_issue(arguments):
+    if type(arguments) is not dict or set(arguments) != {"ref", "at"}:
+        raise ValueError("invalid_arguments")
+    ref, at = arguments["ref"], arguments["at"]
+    if type(ref) is not str or not ISSUE_REF.fullmatch(ref):
+        raise ValueError("invalid_issue_ref")
+    if type(at) is not str or len(at) != 20 or not at.endswith("Z"):
+        raise ValueError("invalid_timestamp")
+    try:
+        parsed = datetime.strptime(at, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=timezone.utc)
+    except ValueError as exc:
+        raise ValueError("invalid_timestamp") from exc
+    if parsed.strftime("%Y-%m-%dT%H:%M:%SZ") != at:
+        raise ValueError("invalid_timestamp")
+    return _run(["issue", ref, "--at", at])
