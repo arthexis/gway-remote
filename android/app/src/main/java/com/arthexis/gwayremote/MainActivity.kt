@@ -525,6 +525,11 @@ fun CompanionScreen(store: SecretStore) {
             onClose = { id -> panelState = panelState.close(id) },
             onMove = { id, index -> panelState = panelState.move(id, index) },
             onRefresh = { id -> runPanelRead(id) },
+            onInspectTask = { taskId ->
+                panelState = panelState.open("task-detail").state
+                    .input("task-detail", "task_id", taskId)
+                // Selecting a row does not send commands or execute an issue.
+            },
             onSelectSimulatorPeer = { host, port ->
                 val opened = panelState.open("simulator-start")
                 panelState = opened.state.input("simulator-start", "host", host)
@@ -565,6 +570,7 @@ fun CompanionScreen(store: SecretStore) {
                     "lcd" -> "lcd-message"
                     "sound" -> "sound-play"
                     "csms-view" -> "csms-view"
+                    "task-detail" -> "codex-task"
                     "simulator-discover" -> "simulator-discover"
                     else -> null
                 }
@@ -579,6 +585,10 @@ fun CompanionScreen(store: SecretStore) {
                         if (port == null || port !in 1..65535) return@OperationPalette
                         args.put("port", port)
                         inputs["host"]?.trim()?.takeIf { it.isNotEmpty() }?.let { args.put("host", it) }
+                    } else if (id == "task-detail") {
+                        val taskId = inputs["task_id"].orEmpty()
+                        if (!Regex("[0-9a-fA-F]{8}(-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12}").matches(taskId)) return@OperationPalette
+                        args.put("task_id", taskId)
                     } else if (id == "csms-view") {
                         args.put("view", inputs["view"] ?: "status")
                     } else {
