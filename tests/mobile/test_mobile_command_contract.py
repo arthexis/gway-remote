@@ -13,7 +13,7 @@ EXPECTED_COMMANDS = frozenset({
 READ_ONLY = frozenset({
     "status", "status-quick", "probe-csms", "simulator-discover",
     "simulator-status", "simulator-results", "csms-view", "benchmark-echo",
-    "codex-tasks", "codex-task",
+    "codex-tasks", "codex-task", "codex-issues",
 })
 
 
