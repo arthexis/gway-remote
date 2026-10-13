@@ -4,6 +4,8 @@ import android.os.Bundle
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
+import android.content.Intent
+import android.net.Uri
 import androidx.compose.ui.platform.LocalContext
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -57,6 +59,10 @@ fun CompanionScreen(store: SecretStore) {
     var commands by remember { mutableStateOf(listOf<String>()) }
     var busy by remember { mutableStateOf(false) }
     var refreshing by remember { mutableStateOf(false) }
+    var agentIssues by remember { mutableStateOf(listOf<JSONObject>()) }
+    var agentIssuesError by remember { mutableStateOf("") }
+    var agentIssuesExpanded by remember { mutableStateOf(false) }
+    var agentIssuesLoading by remember { mutableStateOf(false) }
     var refreshStatus by remember { mutableStateOf("") }
     var simulatorExpanded by remember { mutableStateOf(false) }
     var simulatorHost by remember { mutableStateOf("") }
@@ -261,6 +267,26 @@ fun CompanionScreen(store: SecretStore) {
         }
     }
 
+    fun refreshAgentIssues() {
+        if (agentIssuesLoading) return
+        agentIssuesLoading = true
+        scope.launch {
+            try {
+                val response = withContext(Dispatchers.IO) {
+                    ApiClient(endpoint.trim(), token).request(
+                        "/api/v1/execute", "codex-issues", JSONObject())
+                }
+                val entries = response.getJSONObject("result").getJSONArray("issues")
+                agentIssues = (0 until entries.length()).map { entries.getJSONObject(it) }
+                agentIssuesError = ""
+            } catch (e: Exception) {
+                agentIssuesError = e.message ?: "Assignments unavailable"
+            } finally {
+                agentIssuesLoading = false
+            }
+        }
+    }
+
     fun refreshAll() {
         if (refreshing || busy || benchmarkRunning || updating) return
         refreshing = true
@@ -349,6 +375,60 @@ fun CompanionScreen(store: SecretStore) {
             }
         }
         if (refreshStatus.isNotBlank()) Text(refreshStatus, style = MaterialTheme.typography.bodySmall)
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+            TextButton(onClick = {
+                agentIssuesExpanded = !agentIssuesExpanded
+                if (agentIssuesExpanded) refreshAgentIssues()
+            }) { Text(if (agentIssuesExpanded) "Agent assignments ▾" else "Agent assignments ▸") }
+            if (agentIssuesExpanded) TextButton(
+                onClick = { refreshAgentIssues() }, enabled = !agentIssuesLoading
+            ) { Text("Refresh") }
+        }
+        if (agentIssuesExpanded) {
+            if (agentIssuesLoading) LinearProgressIndicator(Modifier.fillMaxWidth())
+            if (agentIssuesError.isNotBlank()) Text(agentIssuesError, color = MaterialTheme.colorScheme.error)
+            agentIssues.forEach { issue ->
+                val url = issue.optString("url")
+                val state = issue.optString("state", "queued")
+                val sent = issue.optString("sent_at")
+                val status = when (state) {
+                    "sent" -> {
+                        val elapsed = try {
+                            val start = java.time.OffsetDateTime.parse(sent).toInstant()
+                            java.time.Duration.between(start, java.time.Instant.now()).seconds.coerceAtLeast(0)
+                        } catch (_: Exception) { 0L }
+                        "Sent " + when {
+                            elapsed < 60 -> "${elapsed}s"
+                            elapsed < 3600 -> "${elapsed / 60}m"
+                            elapsed < 86400 -> "${elapsed / 3600}h"
+                            else -> "${elapsed / 86400}d"
+                        }
+                    }
+                    "attended" -> "Attended"
+                    else -> "Queued"
+                }
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Column(Modifier.weight(1f)) {
+                        TextButton(onClick = {
+                            try { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url))) }
+                            catch (_: Exception) { agentIssuesError = "Unable to open GitHub" }
+                        }) { Text("#${issue.optInt("number")} ${issue.optString("title")}") }
+                        Text("${issue.optString("repository")} · $status",
+                            style = MaterialTheme.typography.bodySmall)
+                    }
+                    Text("☏ ${issue.optInt("comments")}",
+                        modifier = Modifier.padding(top = 12.dp))
+                    IconButton(onClick = {
+                        val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                        clipboard.setPrimaryClip(ClipData.newPlainText("GitHub issue", url))
+                    }, modifier = Modifier.semantics { contentDescription = "Copy issue URL" }) {
+                        Text("↗")
+                    }
+                }
+                HorizontalDivider()
+            }
+        }
+
         if (update != null) {
             Text("Update available: ${update!!.version} (code ${update!!.versionCode}); installed code $installedCode")
             Button(enabled = !updating, onClick = { downloadUpdate() }) { Text("Update app") }
