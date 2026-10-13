@@ -405,7 +405,40 @@ fun CompanionScreen(store: SecretStore) {
             },
             onClose = { id -> panelState = panelState.close(id) },
             onMove = { id, index -> panelState = panelState.move(id, index) },
-            onRefresh = { id -> runPanelRead(id) }
+            onRefresh = { id -> runPanelRead(id) },
+            onInput = { id, key, value -> panelState = panelState.input(id, key, value) },
+            onExecute = { id, inputs ->
+                val command = when (id) {
+                    "lcd" -> "lcd-message"
+                    "sound" -> "sound-play"
+                    else -> null
+                }
+                if (command != null && PanelExecution.canRun(id, true, false, true)) {
+                    val args = JSONObject()
+                    if (id == "lcd") {
+                        args.put("line1", inputs["line1"].orEmpty())
+                        args.put("line2", inputs["line2"].orEmpty())
+                        args.put("duration_seconds", inputs["duration"]?.toIntOrNull() ?: 30)
+                    } else {
+                        args.put("sound", inputs["sound"] ?: "notice")
+                    }
+                    panelState = panelState.start(id)
+                    val revision = panelState.panels.first { it.id == id }.revision
+                    val targetEndpoint = endpoint.trim()
+                    val targetToken = token
+                    scope.launch {
+                        try {
+                            val response = withContext(Dispatchers.IO) {
+                                ApiClient(targetEndpoint, targetToken).request(
+                                    "/api/v1/execute", command, args)
+                            }
+                            panelState = panelState.complete(id, revision, response.toString(2))
+                        } catch (e: Exception) {
+                            panelState = panelState.fail(id, revision, e.message ?: "Execution failed")
+                        }
+                    }
+                }
+            }
         )
         HorizontalDivider()
         Text("Existing controls", style = MaterialTheme.typography.titleSmall)
