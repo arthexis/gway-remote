@@ -14,6 +14,7 @@ from typing import Callable
 
 from .codex_queue import TaskQueue, default_db
 from .codex_results import reconcile
+from .codex_reporting import assignment_prompt, diagnostic_body, ReportOutbox
 
 _REPO = re.compile(r"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$")
 
@@ -34,9 +35,8 @@ def issue_objective(task: dict, token: str) -> str:
         raise ValueError("assignment must refer to an open issue")
     if issue.get("user", {}).get("login", "").lower() != "arthexis":
         raise ValueError("issue author is not trusted")
-    return f"Implement approved GitHub assignment {repository}#{task['issue']}:\n" + (
-        issue.get("title", "") + "\n\n" + issue.get("body", "")
-    )[:30000] + "\n\nDo not merge or deploy. Report tests and results."
+    return assignment_prompt(repository, int(task["issue"]),
+                             issue.get("title", ""), issue.get("body", ""))
 
 
 def run_once(*, db: Path | None = None, token: str | None = None,
@@ -129,6 +129,18 @@ def run_once(*, db: Path | None = None, token: str | None = None,
         except Exception as exc:
             state = "failed"
             detail = f"{type(exc).__name__}: {str(exc)[:400]}"
+        if state != "succeeded":
+            try:
+                reason = ("interrupted" if state == "interrupted" else
+                          "timeout" if "timed out" in detail else "crash")
+                diagnostic = diagnostic_body(reason=reason, exit_code=exit_code,
+                                             phase="executing" if output else "preparing")
+                with ReportOutbox((db or default_db()).with_suffix(".reports.sqlite")) as outbox:
+                    outbox.enqueue(task["repository"], int(task["issue"]), diagnostic)
+                    outbox.deliver(token)
+            except Exception:
+                # Reporting must never mask the original execution outcome.
+                pass
         reconciliation = reconcile(final, output, workspace, state)
         return queue.finish_execution(task_id, state, detail, exit_code=exit_code,
                                       reconciliation=reconciliation)
