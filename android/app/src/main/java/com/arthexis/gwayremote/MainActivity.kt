@@ -54,6 +54,9 @@ class MainActivity : ComponentActivity() {
 @Composable
 fun CompanionScreen(store: SecretStore) {
     var panelState by remember { mutableStateOf(OperationPanelState()) }
+    var agentSendLoading by remember { mutableStateOf(false) }
+    var agentSendResult by remember { mutableStateOf<String?>(null) }
+    var agentSendError by remember { mutableStateOf<String?>(null) }
     var endpoint by remember { mutableStateOf(store.endpoint) }
     var token by remember { mutableStateOf(store.token) }
     var result by remember { mutableStateOf("Configure HTTPS endpoint and token") }
@@ -463,6 +466,33 @@ fun CompanionScreen(store: SecretStore) {
             onClose = { id -> panelState = panelState.close(id) },
             onMove = { id, index -> panelState = panelState.move(id, index) },
             onRefresh = { id -> runPanelRead(id) },
+            agentSendLoading = agentSendLoading,
+            agentSendResult = agentSendResult,
+            agentSendError = agentSendError,
+            onAgentSend = { ref, at ->
+                if (!agentSendLoading) {
+                    agentSendLoading = true
+                    agentSendResult = null
+                    agentSendError = null
+                    val targetEndpoint = endpoint.trim()
+                    val targetToken = token
+                    scope.launch {
+                        try {
+                            val args = JSONObject().put("ref", ref).put("at", at)
+                            val response = withContext(Dispatchers.IO) {
+                                ApiClient(targetEndpoint, targetToken).request(
+                                    "/api/v1/execute", "agent-issue", args)
+                            }
+                            agentSendResult = response.optJSONObject("result")?.toString(2)
+                                ?: response.toString(2)
+                        } catch (e: Exception) {
+                            agentSendError = e.message ?: "Agent submission unavailable"
+                        } finally {
+                            agentSendLoading = false
+                        }
+                    }
+                }
+            },
             onInspectTask = { taskId ->
                 panelState = panelState.open("task-detail").state
                     .input("task-detail", "task_id", taskId)
