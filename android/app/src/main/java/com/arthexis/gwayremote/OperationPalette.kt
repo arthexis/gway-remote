@@ -47,7 +47,13 @@ fun OperationPalette(
                     }
                     if (panel.loading) LinearProgressIndicator(Modifier.fillMaxWidth())
                     panel.error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
-                    panel.output?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
+                    if (panel.id == "simulator-results") {
+                        SimulatorResultsPanel(panel.output)
+                    } else if (panel.id == "simulator-status") {
+                        SimulatorStatusPanel(panel.output)
+                    } else {
+                        panel.output?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
+                    }
                     if (spec.policy == ExecutionPolicy.AUTO_READ) {
                         TextButton(onClick = { onRefresh(panel.id) }, enabled = !panel.loading) { Text("Refresh") }
                     } else if (panel.id == "simulator-discover") {
@@ -177,4 +183,49 @@ fun OperationPalette(
             }
         }
     }
+}
+
+/** Interpret the existing read-command responses without modifying their API contracts. */
+@Composable
+private fun SimulatorStatusPanel(output: String?) {
+    if (output == null) return
+    val result = remember(output) { runCatching { JSONObject(output).optJSONObject("result") }.getOrNull() }
+    if (result == null) {
+        Text(output, style = MaterialTheme.typography.bodySmall)
+        return
+    }
+    Text("State: ${result.optString("state", "unknown")}")
+    Text("Target: ${result.optString("target", "unknown")}")
+}
+
+@Composable
+private fun SimulatorResultsPanel(output: String?) {
+    if (output == null) {
+        Text("Refresh to load captured simulator results.", style = MaterialTheme.typography.bodySmall)
+        return
+    }
+    val result = remember(output) { runCatching { JSONObject(output).optJSONObject("result") }.getOrNull() }
+    if (result == null) {
+        Text(output, style = MaterialTheme.typography.bodySmall)
+        return
+    }
+    val log = result.optString("output", "")
+    val truncated = result.optBoolean("truncated", false)
+    Text("Process: ${result.optString("state", "unknown")} — ${result.optString("target", "unknown")}")
+    Text("Outcome: ${result.optString("outcome", "unknown")}" +
+        (if (result.has("exit_code") && !result.isNull("exit_code"))
+            " (exit ${result.optInt("exit_code")})" else ""))
+    if (truncated) Text("Output truncated to last 32 KB", color = MaterialTheme.colorScheme.error)
+    Text("OCPP activity", style = MaterialTheme.typography.titleSmall)
+    val milestones = remember(log, truncated) { SimulatorActivitySummary.parse(log, truncated) }
+    if (milestones.isEmpty()) Text("No recognizable OCPP milestones in captured output.")
+    else milestones.forEach { milestone ->
+        Text("${milestone.label}: ${milestone.evidence}", style = MaterialTheme.typography.bodySmall)
+    }
+    var rawExpanded by remember { mutableStateOf(false) }
+    TextButton(onClick = { rawExpanded = !rawExpanded }) {
+        Text(if (rawExpanded) "Hide raw output" else "Show raw output")
+    }
+    if (rawExpanded) Text(if (log.isEmpty()) "No output captured" else log,
+        style = MaterialTheme.typography.bodySmall)
 }
