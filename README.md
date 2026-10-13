@@ -101,12 +101,13 @@ the latest matching log. Output is sanitized for common credential patterns.
 The original private logs can still contain sensitive information; do not
 publish them directly.
 
-The **Appliance report and manual batch** GitHub Actions workflow is opt-in
-and restricted to the repository owner. Select `report` for read-only
-status inspection or explicitly select `deploy` to run the one-shot batch.
-The workflow publishes a Markdown summary and a 14-day artifact containing
+The **Appliance Report** workflow is a strictly read-only, owner-dispatched
+snapshot. The separate **Appliance Deploy** workflow permits explicit manual
+installation, bypassing only the quiet period; a five-minute scheduled poll
+is enabled only with `GWAY_REMOTE_AUTO_ENABLED=true`. Both workflows publish
+a Markdown summary and a 14-day artifact containing
 `status.json`, `summary.json`, `summary.md`, and bounded, sanitized
-installation logs. It does not automatically run on a merge or a push.
+installation logs. The report workflow never runs an installer.
 
 To produce the same artifact files locally:
 
@@ -121,7 +122,7 @@ enabled by these reporting commands.
 
 ## Automatic polling
 
-The appliance report workflow polls every five minutes on the default branch, but automatic deployment is disabled unless the repository variable `GWAY_REMOTE_AUTO_ENABLED` equals `true`. Keep this unset until field validation. The application enforces the shared 20-minute quiet period and one attempt per revision. Scheduled polling never runs from a PR branch.
+The **Appliance Deploy** workflow polls every five minutes on the default branch, but automatic deployment is disabled unless the repository variable `GWAY_REMOTE_AUTO_ENABLED` equals `true`. Keep this unset until field validation. Automatic batches enforce the shared quiet period and one attempt per revision; an explicit manual invocation bypasses only the quiet period, not CI, SHA verification, or the deployment lock. Scheduled polling never runs from a PR branch.
 
 ## Ansible CLI provisioning (opt-in)
 
