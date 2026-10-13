@@ -34,7 +34,7 @@ def _run(arguments):
             [_agent_path(), *arguments, "--json"],
             capture_output=True, text=True, timeout=timeout, check=False)
     except subprocess.TimeoutExpired as exc:
-        raise AgentOpsError("agent_result_unconfirmed" if command == "issue"
+        raise AgentOpsError("agent_result_unconfirmed" if command in ("issue", "submit")
                             else "agent_cli_timeout") from exc
     except OSError as exc:
         raise AgentOpsError("agent_cli_failed") from exc
