@@ -53,6 +53,7 @@ class MainActivity : ComponentActivity() {
 @OptIn(ExperimentalLayoutApi::class, ExperimentalMaterial3Api::class)
 @Composable
 fun CompanionScreen(store: SecretStore) {
+    var panelState by remember { mutableStateOf(OperationPanelState()) }
     var endpoint by remember { mutableStateOf(store.endpoint) }
     var token by remember { mutableStateOf(store.token) }
     var result by remember { mutableStateOf("Configure HTTPS endpoint and token") }
@@ -363,6 +364,27 @@ fun CompanionScreen(store: SecretStore) {
         }
     }
 
+    fun runPanelRead(id: String) {
+        val spec = OperationRegistry.get(id) ?: return
+        if (spec.policy != ExecutionPolicy.AUTO_READ || spec.command == null) return
+        panelState = panelState.start(id)
+        val revision = panelState.panels.firstOrNull { it.id == id }?.revision ?: return
+        val targetEndpoint = endpoint.trim()
+        val targetToken = token
+        scope.launch {
+            try {
+                val response = withContext(Dispatchers.IO) {
+                    ApiClient(targetEndpoint, targetToken).request(
+                        "/api/v1/execute", spec.command
+                    )
+                }
+                panelState = panelState.complete(id, revision, response.toString(2))
+            } catch (e: Exception) {
+                panelState = panelState.fail(id, revision, e.message ?: "Connection failed")
+            }
+        }
+    }
+
     PullToRefreshBox(isRefreshing = refreshing, onRefresh = { refreshAll() },
         modifier = Modifier.fillMaxSize().background(Color.Black).statusBarsPadding().navigationBarsPadding()) {
     Column(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background).imePadding().verticalScroll(rememberScrollState()).padding(20.dp),
@@ -374,6 +396,19 @@ fun CompanionScreen(store: SecretStore) {
                 Text("⚙", style = MaterialTheme.typography.headlineMedium)
             }
         }
+        OperationPalette(
+            state = panelState,
+            onOpen = { id ->
+                val opened = panelState.open(id)
+                panelState = opened.state
+                if (opened.shouldAutoRun) runPanelRead(id)
+            },
+            onClose = { id -> panelState = panelState.close(id) },
+            onMove = { id, index -> panelState = panelState.move(id, index) },
+            onRefresh = { id -> runPanelRead(id) }
+        )
+        HorizontalDivider()
+        Text("Existing controls", style = MaterialTheme.typography.titleSmall)
         if (refreshStatus.isNotBlank()) Text(refreshStatus, style = MaterialTheme.typography.bodySmall)
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
             TextButton(onClick = {
