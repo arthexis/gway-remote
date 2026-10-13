@@ -12,7 +12,11 @@ class StatusTests(unittest.TestCase):
         self.path = Path(self.temp.name)
 
     def test_no_history(self):
-        result = status(self.path, probe=lambda _: True)
+        # Installation history is isolated, but active release links belong to the host.
+        # Mock that independent lookup so this test behaves identically on appliances.
+        from unittest.mock import patch
+        with patch("gway_remote.status.installed_revision", return_value=None):
+            result = status(self.path, probe=lambda _: True)
         self.assertEqual(len(result["components"]), 3)
         self.assertTrue(all(x["installation"] == "never-attempted" for x in result["components"]))
         self.assertTrue(all(x["installed_sha"] is None for x in result["components"]))
