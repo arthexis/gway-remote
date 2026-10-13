@@ -41,7 +41,7 @@ object OperationRegistry {
         OperationSpec("simulator-status", "Simulator status", "activity", setOf("charging", "session", "state"),
             ExecutionPolicy.AUTO_READ, "simulator-status"),
         OperationSpec("simulator-discover", "Discover simulator", "search", setOf("network", "peers", "ethernet"),
-            ExecutionPolicy.AUTO_READ, "simulator-discover"),
+            ExecutionPolicy.EXPLICIT_INPUT, "simulator-discover"),
         OperationSpec("simulator-start", "Start simulator", "play", setOf("charging", "session", "start"),
             ExecutionPolicy.CONFIRM, "simulator-start"),
         OperationSpec("simulator-stop", "Stop simulator", "square", setOf("charging", "session", "stop"),
