@@ -8,12 +8,12 @@ EXPECTED_COMMANDS = frozenset({
     "status", "status-quick", "probe-csms", "lcd-message", "sound-play",
     "simulator-discover", "simulator-start", "simulator-stop",
     "simulator-status", "simulator-results", "csms-view", "benchmark-echo",
-    "codex-tasks", "codex-task", "codex-issues", "agent-issues", "agent-status", "agent-observe", "agent-issue", "agent-observe",
+    "codex-tasks", "codex-task", "codex-issues", "agent-issues", "agent-status", "agent-observe", "agent-issue",
 })
 READ_ONLY = frozenset({
     "status", "status-quick", "probe-csms", "simulator-discover",
     "simulator-status", "simulator-results", "csms-view", "benchmark-echo",
-    "codex-tasks", "codex-task", "codex-issues", "agent-issues", "agent-status",
+    "codex-tasks", "codex-task", "codex-issues", "agent-issues", "agent-status", "agent-observe",
 })
 
 
