@@ -366,7 +366,13 @@ fun CompanionScreen(store: SecretStore) {
 
     fun runPanelRead(id: String) {
         val spec = OperationRegistry.get(id) ?: return
-        if (spec.policy != ExecutionPolicy.AUTO_READ || spec.command == null) return
+        if (spec.policy != ExecutionPolicy.AUTO_READ) return
+        val path = when (id) {
+            "api-health" -> "/api/v1/health"
+            "api-commands" -> "/api/v1/commands"
+            else -> "/api/v1/execute"
+        }
+        if (path == "/api/v1/execute" && spec.command == null) return
         panelState = panelState.start(id)
         val revision = panelState.panels.firstOrNull { it.id == id }?.revision ?: return
         val targetEndpoint = endpoint.trim()
@@ -375,7 +381,7 @@ fun CompanionScreen(store: SecretStore) {
             try {
                 val response = withContext(Dispatchers.IO) {
                     ApiClient(targetEndpoint, targetToken).request(
-                        "/api/v1/execute", spec.command
+                        path, spec.command
                     )
                 }
                 panelState = panelState.complete(id, revision, response.toString(2))
@@ -676,15 +682,6 @@ fun CompanionScreen(store: SecretStore) {
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             Button(enabled = !busy, onClick = { perform("/api/v1/health") }) { Text("Test") }
             Button(enabled = !busy, onClick = { perform("/api/v1/commands") }) { Text("Commands") }
-        }
-        Text("Read operations", style = MaterialTheme.typography.titleMedium)
-        FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp),
-            verticalArrangement = Arrangement.spacedBy(4.dp)) {
-        commands.filter { it != "probe-csms" && it != "simulator-status" && it != "simulator-results" }.forEach { name ->
-            OutlinedButton(enabled = !busy, onClick = { perform("/api/v1/execute", name) }) {
-                Text(name)
-            }
-        }
         }
         Text("CSMS", style = MaterialTheme.typography.titleMedium)
         OutlinedButton(onClick = { csmsExpanded = !csmsExpanded }) {
