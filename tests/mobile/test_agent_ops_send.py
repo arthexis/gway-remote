@@ -35,10 +35,10 @@ class AgentIssueSendTests(unittest.TestCase):
     @patch.object(agent_ops_adapter, "_agent_path", return_value="/usr/bin/agent")
     @patch.object(agent_ops_adapter.subprocess, "run")
     def test_fixed_argv_and_same_timestamp_on_retry(self, run, _path):
-        run.return_value = Mock(returncode=0, stdout='{"status":"sent"}')
+        run.return_value = Mock(returncode=0, stdout='{"schema_version":1,"command":"issue","status":"finished","data":{"issue":"arthexis/gway-agent-ops#16"},"error":null}')
         args = {"ref": "arthexis/gway-agent-ops#16", "at": "2026-10-13T15:00:00Z"}
         for _ in range(2):
-            self.assertEqual(execute("agent-issue", args), {"status": "sent"})
+            self.assertEqual(execute("agent-issue", args)["status"], "finished")
         self.assertEqual(run.call_count, 2)
         for call in run.call_args_list:
             self.assertEqual(call.args[0], [
@@ -50,10 +50,10 @@ class AgentIssueSendTests(unittest.TestCase):
     def test_cli_failure_and_timeout_do_not_report_sent(self, run, _path):
         args = {"ref": "arthexis/gway-agent-ops#16", "at": "2026-10-13T15:00:00Z"}
         run.return_value = Mock(returncode=1, stdout="", stderr="locked")
-        with self.assertRaisesRegex(RuntimeError, "agent_cli_failed"):
+        with self.assertRaisesRegex(RuntimeError, "agent_invalid_json"):
             execute("agent-issue", args)
         run.side_effect = subprocess.TimeoutExpired("agent", 20)
-        with self.assertRaisesRegex(RuntimeError, "agent_cli_timeout"):
+        with self.assertRaisesRegex(RuntimeError, "agent_result_unconfirmed"):
             execute("agent-issue", args)
 
 

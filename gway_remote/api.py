@@ -7,6 +7,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from ipaddress import ip_address
 
 from . import mobile
+from .agent_ops_adapter import AgentOpsError
 
 WIREGUARD_BIND_ADDRESS = "10.90.0.2"
 MAX_BODY = 8192
@@ -82,6 +83,10 @@ def handler_for(token):
                 started_ns = perf_counter_ns()
                 result = mobile.execute(request["command"], request["arguments"])
                 execution_ns = perf_counter_ns() - started_ns
+            except AgentOpsError as exc:
+                self.respond(409 if exc.code in ("agent_busy", "agent_duplicate") else 502,
+                             {"error": exc.code})
+                return
             except ValueError as exc:
                 self.respond(400, {"error": str(exc)})
                 return

@@ -16,23 +16,50 @@ def _agent_path():
     return executable
 
 
+class AgentOpsError(RuntimeError):
+    """Non-sensitive, stable CLI failure code for the authenticated API."""
+
+    def __init__(self, code):
+        super().__init__(code)
+        self.code = code
+
+
 def _run(arguments):
+    command = arguments[0]
+    # A synchronous issue invocation can run longer than the read APIs.
+    # Do not automatically retry timeouts: the dispatch may have been accepted.
+    timeout = 20 if command in ("issues", "status") else 1800
     try:
         completed = subprocess.run(
             [_agent_path(), *arguments, "--json"],
-            capture_output=True, text=True, timeout=20, check=False)
+            capture_output=True, text=True, timeout=timeout, check=False)
     except subprocess.TimeoutExpired as exc:
-        raise RuntimeError("agent_cli_timeout") from exc
+        raise AgentOpsError("agent_result_unconfirmed" if command == "issue"
+                            else "agent_cli_timeout") from exc
     except OSError as exc:
-        raise RuntimeError("agent_cli_failed") from exc
-    if completed.returncode != 0:
-        raise RuntimeError("agent_cli_failed")
+        raise AgentOpsError("agent_cli_failed") from exc
     if len(completed.stdout) > MAX_OUTPUT:
-        raise RuntimeError("agent_response_too_large")
+        raise AgentOpsError("agent_response_too_large")
     try:
-        return json.loads(completed.stdout)
+        payload = json.loads(completed.stdout)
     except (TypeError, ValueError) as exc:
-        raise RuntimeError("agent_invalid_json") from exc
+        raise AgentOpsError("agent_invalid_json") from exc
+    if (not isinstance(payload, dict) or payload.get("schema_version") != 1
+            or payload.get("command") != command
+            or not isinstance(payload.get("status"), str)
+            or "data" not in payload or "error" not in payload):
+        raise AgentOpsError("agent_invalid_contract")
+    status = payload["status"]
+    if completed.returncode != 0 or status not in ("ok", "finished"):
+        codes = {"busy": "agent_busy", "duplicate": "agent_duplicate"}
+        raise AgentOpsError(codes.get(status, "agent_execution_failed"))
+    if command == "issue" and status != "finished":
+        raise AgentOpsError("agent_result_unconfirmed")
+    if command != "issue" and status != "ok":
+        raise AgentOpsError("agent_invalid_contract")
+    if not isinstance(payload["data"], dict):
+        raise AgentOpsError("agent_invalid_contract")
+    return payload
 
 
 def issues(arguments):
