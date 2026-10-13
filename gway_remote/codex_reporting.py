@@ -25,13 +25,13 @@ def assignment_prompt(repository: str, issue: int, title: str, body: str) -> str
     """Give the agent one issue to work on and explicitly forbid closing it."""
     url = f"https://github.com/{repository}/issues/{issue}"
     return (
-        f"Assignment: {repository}#{issue}\\nIssue URL: {url}\\n\\n"
+        f"Assignment: {repository}#{issue}\nIssue URL: {url}\n\n"
         "Read the issue and relevant repository instructions. Follow its acceptance "
-        "criteria within your authorized scope.\\n"
+        "criteria within your authorized scope.\n"
         "Post a comment on THIS GitHub issue explaining work performed, tests, "
         "blockers, and relevant artifacts. Do not close the issue; its original "
-        "creator reviews and closes it. Do not merge or deploy.\\n\\n"
-        f"Issue title: {title}\\nIssue body:\\n{body[:25000]}"
+        "creator reviews and closes it. Do not merge or deploy.\n\n"
+        f"Issue title: {title}\nIssue body:\n{body[:25000]}"
     )
 
 
@@ -52,7 +52,7 @@ def diagnostic_body(*, reason: str, detail: str = "", exit_code: int | None = No
     if detail:
         lines.append(f"Diagnostic: {detail[:MAX_DETAIL]}")
     lines.append("Assignment remains open for the creator to review. No automatic retry.")
-    return "\\n".join(lines)
+    return "\n".join(lines)
 
 
 class ReportOutbox:
