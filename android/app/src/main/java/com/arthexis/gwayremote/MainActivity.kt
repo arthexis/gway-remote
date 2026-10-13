@@ -512,7 +512,7 @@ fun CompanionScreen(store: SecretStore) {
                             val args = JSONObject().put("ref", ref).put("at", at)
                             val response = withContext(Dispatchers.IO) {
                                 ApiClient(targetEndpoint, targetToken).request(
-                                    "/api/v1/execute", "agent-issue", args)
+                                    "/api/v1/execute", "agent-issue", args, timeoutMs = 30000)
                             }
                             agentSendResult = response.optJSONObject("result")?.toString(2)
                                 ?: response.toString(2)
