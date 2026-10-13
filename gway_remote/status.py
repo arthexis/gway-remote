@@ -2,6 +2,8 @@
 from datetime import datetime, timezone
 import platform
 import logging
+from pathlib import Path
+import re
 from time import perf_counter_ns
 
 _LOG = logging.getLogger(__name__)
@@ -9,6 +11,26 @@ _LOG = logging.getLogger(__name__)
 from .attempts import DEFAULT_DIR, read_attempts
 from .health import component_health, quick_component_check
 from .reconcile import TARGETS
+
+
+_RELEASE = re.compile(r"^[0-9a-f]{12}(?:-dev)?$")
+
+
+def installed_revision(name):
+    """Read a versioned active-release symlink, never infer from attempt journal."""
+    home = Path.home()
+    links = {
+        "ocpp-csms": home / ".local/share/ocpp-csms/current",
+        "gway-lcd-sound": home / ".local/share/gway-lcd-sound/current",
+    }
+    link = links.get(name)
+    if link is None or not link.is_symlink():
+        return None
+    try:
+        candidate = link.resolve(strict=True).name
+    except (OSError, RuntimeError):
+        return None
+    return candidate if _RELEASE.fullmatch(candidate) else None
 
 def status(directory=DEFAULT_DIR, probe=component_health, *, depth="deep"):
     if depth not in ("deep", "quick"):
@@ -50,7 +72,7 @@ def status(directory=DEFAULT_DIR, probe=component_health, *, depth="deep"):
             probe_durations[name] = round((perf_counter_ns() - probe_start_ns) / 1_000_000, 2)
         components.append({"name": name, "evidence": evidence, "attempted_sha": sha,
                            "attempted_at": at, "installation": installation,
-                           "health": health, "installed_sha": None,
+                           "health": health, "installed_sha": installed_revision(name),
                            "error": error, "log": log})
     total_ms = round((perf_counter_ns() - started_ns) / 1_000_000, 2)
     _LOG.info("status timing total_ms=%.2f journal_ms=%.2f probe_ms=%s",
@@ -62,12 +84,13 @@ def status(directory=DEFAULT_DIR, probe=component_health, *, depth="deep"):
 
 def format_status(report):
     rows = ["Gway Remote — " + report["node"], "",
-            f'{"Component":<19} {"Attempted SHA":<13} {"Installation":<17} Health']
+            f'{"Component":<19} {"Attempted SHA":<13} {"Installed SHA":<14} {"Installation":<17} Health']
     for item in report["components"]:
         sha = (item["attempted_sha"] or "—")[:12]
-        rows.append(f'{item["name"]:<19} {sha:<13} {item["installation"]:<17} {item["health"]}')
+        installed = (item.get("installed_sha") or "unknown")[:12]
+        rows.append(f'{item["name"]:<19} {sha:<13} {installed:<14} {item["installation"]:<17} {item["health"]}')
         if item["error"]:
             rows.append("  Error: " + str(item["error"]))
     rows.append("")
-    rows.append("Attempted SHA is not proof of the currently installed revision.")
+    rows.append("Installed revision is independently read from release links when available; unknown otherwise.")
     return "\n".join(rows)
