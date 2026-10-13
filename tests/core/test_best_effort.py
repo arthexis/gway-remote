@@ -49,14 +49,14 @@ class BestEffortTests(unittest.TestCase):
         self.assertEqual(result["decision"], "completed")
         self.assertEqual(self.calls, [name for name, _ in TARGETS])
         self.assertEqual(execute(self.client, NOW, self.installers(), self.path)["decision"], "idle")
-        self.assertEqual(len(self.calls), 3)
+        self.assertEqual(len(self.calls), len(TARGETS))
 
     def test_failure_stops_batch_without_retry(self):
         execute(self.client, NOW, self.installers(("ocpp-simulator",)), self.path)
         self.assertEqual(self.calls, ["ocpp-csms", "ocpp-simulator"])
         self.assertEqual(read_attempts(self.path)["ocpp-simulator"]["status"], "failed")
         execute(self.client, NOW, self.installers(), self.path)
-        self.assertEqual(self.calls, ["ocpp-csms", "ocpp-simulator", "gway-lcd-sound"])
+        self.assertEqual(self.calls, [name for name, _ in TARGETS])
 
     def test_crash_before_installer_is_not_retried(self):
         from gway_remote.attempts import mark
@@ -94,7 +94,7 @@ class BestEffortTests(unittest.TestCase):
         self.client.heads[repo] = "b" * 40
         execute(self.client, NOW, self.installers(), self.path)
         self.assertEqual(self.calls[-1], "ocpp-csms")
-        self.assertEqual(len(self.calls), 4)
+        self.assertEqual(len(self.calls), len(TARGETS) + 1)
 
 
 if __name__ == "__main__":
