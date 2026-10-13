@@ -15,7 +15,7 @@ from typing import Callable
 from .codex_queue import TaskQueue, default_db
 from .codex_results import reconcile
 from .codex_reporting import assignment_prompt, diagnostic_body, ReportOutbox
-from .codex_issues import DispatchLedger
+from .codex_issues import DispatchLedger, eligible_issue
 from .codex_policy import TRUSTED_CREATOR_ID, verify_issue_creator
 
 _REPO = re.compile(r"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$")
@@ -72,8 +72,9 @@ def run_once(*, db: Path | None = None, token: str | None = None,
             def mark_dispatch(issue):
                 # Admission happened in the existing approved queue. An
                 # operator may explicitly approve this same issue again.
-                with DispatchLedger((db or default_db()).with_suffix(".dispatch.sqlite")) as ledger:
-                    ledger.accept(task["repository"], issue, admitted=True, resend=True)
+                if eligible_issue(issue, task["repository"]):
+                    with DispatchLedger((db or default_db()).with_suffix(".dispatch.sqlite")) as ledger:
+                        ledger.accept(task["repository"], issue, admitted=True, resend=True)
             objective = issue_objective(task, token, on_issue=mark_dispatch)
             repository = task["repository"]
             checkout = (repos_root / repository.split("/")[1]).resolve()
