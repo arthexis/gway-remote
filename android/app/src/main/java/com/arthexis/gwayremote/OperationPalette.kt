@@ -23,6 +23,7 @@ fun OperationPalette(
     onRefresh: (String) -> Unit,
     onInput: (String, String, String) -> Unit,
     onExecute: (String, Map<String, String>) -> Unit,
+    benchmarkContent: @Composable () -> Unit,
     simulatorStatus: String,
     onSimulatorCommand: (String, JSONObject) -> Unit
 ) {
@@ -49,6 +50,8 @@ fun OperationPalette(
                     panel.output?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
                     if (spec.policy == ExecutionPolicy.AUTO_READ) {
                         TextButton(onClick = { onRefresh(panel.id) }, enabled = !panel.loading) { Text("Refresh") }
+                    } else if (panel.id == "benchmark") {
+                        benchmarkContent()
                     } else if (panel.id == "simulator-start" || panel.id == "simulator-stop") {
                         val host = panel.inputs["host"].orEmpty()
                         val port = panel.inputs["port"] ?: "9000"
