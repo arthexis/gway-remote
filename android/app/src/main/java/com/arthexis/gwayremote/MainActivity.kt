@@ -683,6 +683,21 @@ fun CompanionScreen(store: SecretStore) {
             Button(enabled = !busy, onClick = { perform("/api/v1/health") }) { Text("Test") }
             Button(enabled = !busy, onClick = { perform("/api/v1/commands") }) { Text("Commands") }
         }
+        // The server may advertise additional parameterless read commands not yet
+        // registered as stable operation panels. Retain them until UI-4 parity.
+        val panelCommands = OperationRegistry.operations.mapNotNull { it.command }.toSet()
+        val unmatchedCommands = commands.filter { it !in panelCommands }
+        if (unmatchedCommands.isNotEmpty()) {
+            Text("Additional server read commands", style = MaterialTheme.typography.titleSmall)
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                unmatchedCommands.forEach { name ->
+                    OutlinedButton(enabled = !busy, onClick = { perform("/api/v1/execute", name) }) {
+                        Text(name)
+                    }
+                }
+            }
+        }
         Text("CSMS", style = MaterialTheme.typography.titleMedium)
         OutlinedButton(onClick = { csmsExpanded = !csmsExpanded }) {
             Text(if (csmsExpanded) "CSMS inspection ▴" else "CSMS inspection ▾")
