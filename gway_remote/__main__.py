@@ -135,18 +135,18 @@ def deploy_agent_ops(sha: str) -> None:
         entry = bin_dir / "agent"
         if not destination.exists():
             releases.mkdir(parents=True, exist_ok=True)
-            staging = Path(tempfile.mkdtemp(prefix=".agent-stage-", dir=releases))
+            # Build in the final location: pip console scripts embed the venv
+            # interpreter's absolute path, so renaming a venv is unsafe.
             try:
-                subprocess.run([sys.executable, "-m", "venv", str(staging)],
+                subprocess.run([sys.executable, "-m", "venv", str(destination)],
                                check=True, timeout=90)
-                subprocess.run([str(staging / "bin/pip"), "install", "--no-deps", str(source)],
+                subprocess.run([str(destination / "bin/pip"), "install", "--no-deps", str(source)],
                                check=True, timeout=300)
-                subprocess.run([str(staging / "bin/agent"), "--help"], check=True, timeout=30)
-                staging.rename(destination)
-            finally:
-                if staging.exists():
-                    import shutil
-                    shutil.rmtree(staging)
+                subprocess.run([str(destination / "bin/agent"), "--help"], check=True, timeout=30)
+            except Exception:
+                import shutil
+                shutil.rmtree(destination, ignore_errors=True)
+                raise
         else:
             subprocess.run([str(destination / "bin/agent"), "--help"], check=True, timeout=30)
         bin_dir.mkdir(parents=True, exist_ok=True)
