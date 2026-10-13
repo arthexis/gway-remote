@@ -13,7 +13,7 @@ class AgentOpsPanelContractTests(unittest.TestCase):
         self.assertIn('OperationSpec("agent-ops"', registry)
         for obsolete_id in ('OperationSpec("agent-issues"', 'OperationSpec("agent-status"'):
             self.assertNotIn(obsolete_id, registry)
-        self.assertIn('AgentOpsPanel(panel.output, agentSendLoading, agentSendResult, agentSendError, onAgentSend)', palette)
+        self.assertIn('AgentOpsPanel(panel.output, agentSendLoading, agentSendResult, agentSendError, onAgentSend,', palette)
         self.assertIn('AgentBudgetWindow("5-hour", budget?.optJSONObject("five_hour"))', palette)
         self.assertIn('AgentBudgetWindow("Weekly", budget?.optJSONObject("weekly"))', palette)
         self.assertIn('issues.optJSONObject("data")?.optJSONArray("issues")', palette)
