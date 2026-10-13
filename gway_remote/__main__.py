@@ -114,6 +114,53 @@ def deploy_csms(sha: str) -> None:
         subprocess.run(["sh", "./deploy.sh"], cwd=source, check=True, timeout=900)
 
 
+def deploy_agent_ops(sha: str) -> None:
+    """Install a pinned Agent Ops CLI without running Codex or adopting credentials."""
+    with tempfile.TemporaryDirectory(prefix="agent-ops-deploy-") as directory:
+        source = Path(directory) / "source"
+        subprocess.run(["git", "clone", "--quiet", "--no-checkout",
+                        "https://github.com/arthexis/gway-agent-ops.git", str(source)],
+                       check=True, timeout=180)
+        subprocess.run(["git", "-C", str(source), "checkout", "--detach", sha],
+                       check=True, timeout=60)
+        actual = subprocess.check_output(["git", "-C", str(source), "rev-parse", "HEAD"],
+                                         text=True, timeout=20).strip()
+        if actual.lower() != sha.lower():
+            raise ValueError("Agent Ops checkout SHA mismatch")
+        # Keep installed releases independent of the operator's CODEX_HOME.
+        prefix = Path.home() / ".local/share/gway-agent-ops"
+        releases = prefix / "releases"
+        destination = releases / sha.lower()
+        bin_dir = Path.home() / ".local/bin"
+        entry = bin_dir / "agent"
+        if not destination.exists():
+            releases.mkdir(parents=True, exist_ok=True)
+            staging = Path(tempfile.mkdtemp(prefix=".agent-stage-", dir=releases))
+            try:
+                subprocess.run([sys.executable, "-m", "venv", str(staging)],
+                               check=True, timeout=90)
+                subprocess.run([str(staging / "bin/pip"), "install", "--no-deps", str(source)],
+                               check=True, timeout=300)
+                subprocess.run([str(staging / "bin/agent"), "--help"], check=True, timeout=30)
+                staging.rename(destination)
+            finally:
+                if staging.exists():
+                    import shutil
+                    shutil.rmtree(staging)
+        else:
+            subprocess.run([str(destination / "bin/agent"), "--help"], check=True, timeout=30)
+        bin_dir.mkdir(parents=True, exist_ok=True)
+        # Atomic update: the existing CLI remains in place until the replacement is ready.
+        import uuid
+        temporary = bin_dir / (".agent-" + uuid.uuid4().hex)
+        try:
+            temporary.symlink_to(destination / "bin/agent")
+            os.replace(temporary, entry)
+        finally:
+            temporary.unlink(missing_ok=True)
+        # Deliberately do not run agent adopt, Codex, or issue execution here.
+
+
 def user_systemd_env() -> dict[str, str]:
     """Locate the persistent user's systemd bus in a non-login runner service."""
     runtime = Path(f"/run/user/{os.getuid()}")
