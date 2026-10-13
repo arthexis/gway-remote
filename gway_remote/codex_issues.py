@@ -43,7 +43,7 @@ def eligible_issue(issue: dict, repository: str) -> bool:
 
 
 def priority(issue: dict) -> str:
-    labels = {label.get("name") for label in issue.get("labels", ())
+    labels = {label.get("name") for label in (issue.get("labels") or ())
               if isinstance(label, dict)}
     return next((p for p in PRIORITIES if p in labels or ("priority:" + p) in labels),
                 DEFAULT_PRIORITY)
