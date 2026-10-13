@@ -15,12 +15,13 @@ class DiscoverySynchronizationTests(unittest.TestCase):
         self.assertIn('port !in 1..65535', activity)
         self.assertIn('Text("Discover / check target")', palette)
 
-    def test_discovered_peers_sync_only_from_current_request(self):
+    def test_discovery_results_live_in_panel_state_only(self):
         activity = ACTIVITY.read_text()
-        self.assertIn('id == "simulator-discover" && stillCurrent', activity)
-        self.assertIn('it.id == id && it.loading && it.revision == revision', activity)
-        self.assertIn('simulatorPeers = if (peers == null) emptyList() else', activity)
-        self.assertIn('}.distinct()', activity)
+        palette = PALETTE.read_text()
+        self.assertNotIn('simulatorPeers =', activity)
+        self.assertNotIn('simulatorDiscovery =', activity)
+        self.assertIn('panelState = panelState.complete(id, revision, response.toString(2))', activity)
+        self.assertIn('val discovered = remember(panel.output)', palette)
 
     def test_selecting_peer_does_not_start_simulator(self):
         palette = PALETTE.read_text()
