@@ -4,7 +4,7 @@ import fcntl
 from pathlib import Path
 
 from .attempt_policy import plan
-from .attempts import DEFAULT_DIR, attempted_shas, mark
+from .attempts import DEFAULT_DIR, attempted_shas, read_attempts, mark
 from .github_state import collect, main_head
 from .logs import capture_log, log_filename
 from .reconcile import TARGETS
@@ -32,7 +32,7 @@ def appliance_lock(path=LOCK_PATH):
             fcntl.flock(handle, fcntl.LOCK_UN)
 
 
-def execute(client, now, installers, directory=DEFAULT_DIR, lock_path=None, *, bypass_quiet=False):
+def execute(client, now, installers, directory=DEFAULT_DIR, lock_path=None, *, bypass_quiet=False, retry_failed=False):
     """Call only under a trusted runner. Installer errors are recorded and isolated.
 
     Re-check all main heads before each component. A changing head aborts the
@@ -40,7 +40,14 @@ def execute(client, now, installers, directory=DEFAULT_DIR, lock_path=None, *, b
     """
     directory = Path(directory)
     with appliance_lock(lock_path or directory / "appliance.lock"):
-        snapshot = collect(client, attempted_shas(directory))
+        attempted = attempted_shas(directory)
+        if retry_failed:
+            if not bypass_quiet:
+                raise ValueError('failed retry requires explicit manual --now')
+            for name, entry in read_attempts(directory).items():
+                if entry.get('status') == 'failed':
+                    attempted.pop(name, None)
+        snapshot = collect(client, attempted)
         decision = plan(snapshot, now, bypass_quiet=bypass_quiet)
         if decision.state != "ready":
             return {"decision": decision.state, "reason": decision.reason, "results": []}
