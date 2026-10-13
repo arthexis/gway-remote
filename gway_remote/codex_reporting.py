@@ -149,3 +149,21 @@ class ReportOutbox:
                             (datetime.now(timezone.utc).isoformat(), row["id"]))
             sent += 1
         return sent
+
+
+def record_interrupted(queue, outbox: ReportOutbox) -> int:
+    """Recover running legacy attempts without issuing another assignment.
+
+    Enqueue before marking rows interrupted; stable keys tolerate a restart
+    between either operation and a later GitHub delivery.
+    """
+    rows = queue.db.execute(
+        "SELECT id, repository, issue FROM tasks WHERE state='running'"
+    ).fetchall()
+    for task in rows:
+        outbox.enqueue(
+            task["repository"], task["issue"],
+            diagnostic_body(reason="interrupted", phase="unknown"),
+            report_key=task["id"],
+        )
+    return queue.recover()
