@@ -21,8 +21,7 @@ class LegacyParityTests(unittest.TestCase):
 
     def test_unmigrated_controls_stay_available(self):
         activity = ACTIVITY.read_text()
-        for marker in ('Text("CSMS"',
-                       'Text("OCPP Simulator"', 'SimulatorControls(',
+        for marker in ('Text("OCPP Simulator"', 'SimulatorControls(',
                        'Text("Response"', 'Update app'):
             self.assertIn(marker, activity)
 
@@ -36,6 +35,7 @@ class LegacyParityTests(unittest.TestCase):
         self.assertIn('"api-commands" -> "/api/v1/commands"', activity)
         self.assertIn('unmatchedCommands = commands.filter { it !in panelCommands }', activity)
         self.assertIn('Text("Additional server read commands"', activity)
+        self.assertNotIn('Text("CSMS", style =', activity)
 
 
 if __name__ == "__main__":

@@ -704,42 +704,6 @@ fun CompanionScreen(store: SecretStore) {
                 }
             }
         }
-        Text("CSMS", style = MaterialTheme.typography.titleMedium)
-        OutlinedButton(onClick = { csmsExpanded = !csmsExpanded }) {
-            Text(if (csmsExpanded) "CSMS inspection ▴" else "CSMS inspection ▾")
-        }
-        if (csmsExpanded) {
-            Button(enabled = !busy, onClick = { perform("/api/v1/execute", "probe-csms") }) {
-                Text("Refresh CSMS health")
-            }
-            if (csmsHealthy != null) {
-                Text(if (csmsHealthy == true) "● Healthy" else "● Needs attention",
-                    color = if (csmsHealthy == true) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error)
-                Text(csmsReason)
-            }
-            Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Box(Modifier.weight(1f)) {
-                    OutlinedButton(onClick = { csmsMenuOpen = true }) { Text("View: $csmsView ▾") }
-                    DropdownMenu(expanded = csmsMenuOpen, onDismissRequest = { csmsMenuOpen = false }) {
-                        listOf("status", "chargers", "charge-points", "transactions", "events",
-                            "alerts", "rfid-report", "report").forEach { view ->
-                            DropdownMenuItem(text = { Text(view) }, onClick = {
-                                csmsView = view
-                                csmsMenuOpen = false
-                            })
-                        }
-                    }
-                }
-                Button(enabled = !busy, onClick = {
-                    perform("/api/v1/execute", "csms-view", JSONObject().put("view", csmsView))
-                }) { Text("Inspect") }
-            }
-            if (csmsOutput.isNotBlank()) {
-                if (csmsTruncated) Text("Output truncated to 64 KB", color = MaterialTheme.colorScheme.error)
-                Text(csmsOutput, style = MaterialTheme.typography.bodySmall)
-            }
-        }
         Text("OCPP Simulator", style = MaterialTheme.typography.titleMedium)
         OutlinedButton(onClick = { simulatorExpanded = !simulatorExpanded }) {
             Text(if (simulatorExpanded) "Ethernet target ▴" else "Ethernet target ▾")

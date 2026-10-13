@@ -16,9 +16,10 @@ class CsmsPanelParityTests(unittest.TestCase):
             with self.subTest(marker=marker):
                 self.assertIn(marker, source)
 
-    def test_legacy_csms_and_apk_controls_remain(self):
+    def test_simulator_and_apk_controls_remain(self):
         source = ACTIVITY.read_text()
-        for marker in ('Text("CSMS"', 'Text("OCPP Simulator"', 'Update app',
+        self.assertNotIn('Text("CSMS", style =', source)
+        for marker in ('Text("OCPP Simulator"', 'Update app',
                        '"probe-csms"', '"csms-view"'):
             with self.subTest(marker=marker):
                 self.assertIn(marker, source)
