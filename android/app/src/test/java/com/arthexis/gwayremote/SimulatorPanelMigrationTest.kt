@@ -4,6 +4,14 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class SimulatorPanelMigrationTest {
+    @Test fun discoveryRequiresExplicitInputsAndDoesNotAutoRun() {
+        val spec = OperationRegistry.get("simulator-discover")!!
+        assertEquals(ExecutionPolicy.EXPLICIT_INPUT, spec.policy)
+        assertFalse(OperationPanelState().open(spec.id).shouldAutoRun)
+        assertFalse(PanelExecution.canRun(spec.id, false, false, true))
+        assertTrue(PanelExecution.canRun(spec.id, true, false, true))
+    }
+
     @Test fun startAndStopRequireConfirmation() {
         for (id in listOf("simulator-start", "simulator-stop")) {
             assertEquals(ExecutionPolicy.CONFIRM, OperationRegistry.get(id)?.policy)
