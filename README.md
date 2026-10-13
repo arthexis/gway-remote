@@ -167,3 +167,19 @@ The CLI-only deployment in PR #44 is **not** a complete mobile API rollout. Fini
 7. **End-to-end acceptance.** Merge a controlled revision, verify backend SHA and mobile API health on Gway-001, verify the signed GitHub Release and its in-app update metadata, then exercise the phone against the updated API. Document rollback for both sides.
 
 Automatic restart is implemented in the deployment workflow. It requires a configured GWAY_REMOTE_API_TOKEN Actions secret and a successful on-device deployment check; APK release gating remains a separate concern.
+
+### Explicit failed deployment retry
+
+In **Appliance Deploy**, select `retry_failed=true` when deliberately
+retrying a revision whose last recorded attempt failed. Manual dispatch
+invokes `deploy-batch --now --retry-failed`, bypassing the quiet period and
+releasing **failed** attempt records for the current main SHA only. It never
+retries successful or interrupted records, never weakens CI/current-main/lock
+checks, and does not affect scheduled polling. An ordinary manual deploy
+continues to respect one attempt per SHA.
+
+Appliance reports show **Attempted SHA** (journal) separately from **Installed
+SHA** (read independently from a versioned release symlink when available).
+Unknown means the current installed revision cannot be verified, notably for
+the simulator. Do not infer the installed revision from an attempt, even if
+that attempt is marked installed.

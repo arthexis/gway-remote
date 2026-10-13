@@ -8,6 +8,7 @@ import tempfile
 from gway_remote.attempt_policy import Candidate, QUIET_PERIOD, plan
 from gway_remote.reconcile import TARGETS
 from gway_remote.best_effort import execute
+from gway_remote.attempts import mark
 
 
 class ManualBatchQuietTests(unittest.TestCase):
@@ -42,6 +43,33 @@ class ManualBatchQuietTests(unittest.TestCase):
         self.assertEqual(len(calls), len(TARGETS))
         self.assertTrue(all(x["status"] == "installed" for x in out["results"]))
 
+
+
+    def test_failed_revision_retry_is_explicit_and_only_failed(self):
+        now = datetime.now(timezone.utc)
+        items = self.candidates(now)
+        calls = []
+        with tempfile.TemporaryDirectory() as tmp:
+            for i, (name, _) in enumerate(TARGETS):
+                mark(name, items[i].sha, "failed" if i == 0 else "installed", tmp)
+            with patch("gway_remote.best_effort.collect", side_effect=lambda client, attempts: tuple(
+                Candidate(name=x.name, sha=x.sha, merged_at=x.merged_at, ci=x.ci,
+                          attempted_sha=attempts.get(x.name)) for x in items)), \
+                 patch("gway_remote.best_effort.main_head", side_effect=lambda _, repo: next(
+                     item.sha for item, (name, url) in zip(items, TARGETS) if url == repo)):
+                runners = {name: lambda sha, name=name: calls.append(name) for name, _ in TARGETS}
+                out = execute(object(), now, runners, directory=tmp, bypass_quiet=True)
+                self.assertEqual(out["decision"], "idle")
+                result = execute(object(), now, runners, directory=tmp,
+                                 bypass_quiet=True, retry_failed=True)
+                self.assertEqual(result["decision"], "completed")
+                self.assertEqual(calls, [items[0].name])
+
+    def test_retry_flag_requires_manual_mode(self):
+        now = datetime.now(timezone.utc)
+        with tempfile.TemporaryDirectory() as tmp:
+            with self.assertRaisesRegex(ValueError, "requires explicit manual"):
+                execute(object(), now, {}, directory=tmp, retry_failed=True)
 
 if __name__ == "__main__":
     unittest.main()

@@ -175,6 +175,7 @@ def main() -> None:
     report_parser.add_argument("--output", required=True)
     batch_parser = subparsers.add_parser("deploy-batch", help="Run eligible merged revisions once")
     batch_parser.add_argument("--now", action="store_true", help="Bypass quiet period for operator-requested batch")
+    batch_parser.add_argument("--retry-failed", action="store_true", help="Explicitly retry failed revisions, never installed or interrupted ones")
     worker_parser = subparsers.add_parser("codex", aliases=["codex-worker"], help="Codex worker and task inspection")
     worker_parser.add_argument("action", choices=("serve", "status", "tasks", "task", "submit", "discover", "veto", "unveto", "approve", "next"))
     worker_parser.add_argument("task_id", nargs="?")
@@ -302,6 +303,8 @@ def main() -> None:
             parser.exit(1, f"gway-remote: reconciliation unavailable: {exc}\n")
         return
     if args.command == "deploy-batch":
+        if args.retry_failed and not args.now:
+            parser.error("--retry-failed requires --now")
         from datetime import datetime, timezone
         from .best_effort import execute
         from .github_state import GitHub
@@ -310,7 +313,7 @@ def main() -> None:
                 "ocpp-csms": deploy_csms,
                 "ocpp-simulator": deploy_simulator,
                 "gway-lcd-sound": deploy_lcd_sound,
-            }, bypass_quiet=args.now)
+            }, bypass_quiet=args.now, retry_failed=args.retry_failed)
             print(json.dumps(result, indent=2, sort_keys=True))
             if args.now and result["decision"] in ("waiting", "blocked", "stale", "idle"):
                 parser.exit(1, "gway-remote: manual batch not deployed ({}: {})\\n".format(result["decision"], result.get("reason", "unknown")))

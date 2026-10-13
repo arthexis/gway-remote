@@ -35,15 +35,16 @@ def bundle(destination, directory=DEFAULT_DIR, probe=None):
         "components": public["components"],
     }, indent=2) + "\n", encoding="utf-8")
     lines = ["## Gway Remote appliance report", "",
-             "| Component | Attempted SHA | Installation | Health | Log |",
-             "| --- | --- | --- | --- | --- |"]
+             "| Component | Attempted SHA | Installed SHA | Installation | Health | Log |",
+             "| --- | --- | --- | --- | --- | --- |"]
     for item in public["components"]:
         sha = (item["attempted_sha"] or "unknown")[:12]
+        installed = (item.get("installed_sha") or "unknown")[:12]
         log = item.get("log")
         log_label = "included" if log and (logs / log).exists() else "none"
-        lines.append(f'| {item["name"]} | {sha} | {item["installation"]} | '
+        lines.append(f'| {item["name"]} | {sha} | {installed} | {item["installation"]} | '
                      f'{item["health"]} | {log_label} |')
-    lines.extend(["", "Last attempted SHA does not prove the installed revision.",
+    lines.extend(["", "Installed SHA is independently observed where possible; unknown means no verified release evidence.",
                   "Download the workflow artifact for sanitized installation logs.", ""])
     markdown = "\n".join(lines)
     (destination / "summary.md").write_text(markdown, encoding="utf-8")

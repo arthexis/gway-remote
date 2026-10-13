@@ -22,6 +22,8 @@ class ApplianceWorkflowTests(unittest.TestCase):
         self.assertIn("GWAY_REMOTE_AUTO_ENABLED", deploy)
         self.assertIn("github.actor == 'arthexis'", deploy)
         self.assertIn("deploy-batch --now", deploy)
+        self.assertIn("deploy-batch --now --retry-failed", deploy)
+        self.assertIn("RETRY_FAILED", deploy)
         self.assertIn("deploy-batch\n", deploy)
         self.assertIn("report-bundle", deploy)
         self.assertIn("exit_code", deploy)
