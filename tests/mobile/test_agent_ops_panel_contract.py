@@ -14,8 +14,12 @@ class AgentOpsPanelContractTests(unittest.TestCase):
         for obsolete_id in ('OperationSpec("agent-issues"', 'OperationSpec("agent-status"'):
             self.assertNotIn(obsolete_id, registry)
         self.assertIn('AgentOpsPanel(panel.output, agentSendLoading, agentSendResult, agentSendError, onAgentSend)', palette)
-        self.assertIn('"5-hour remaining: unavailable"', palette)
-        self.assertIn('"Weekly remaining: unavailable"', palette)
+        self.assertIn('AgentBudgetWindow("5-hour", budget?.optJSONObject("five_hour"))', palette)
+        self.assertIn('AgentBudgetWindow("Weekly", budget?.optJSONObject("weekly"))', palette)
+        self.assertIn('issues.optJSONObject("data")?.optJSONArray("issues")', palette)
+        self.assertIn('status")?.optJSONObject("data")', palette)
+        self.assertIn('issue.optInt("comments", 0)', palette)
+        self.assertIn('"Sent $age"', palette)
 
     def test_both_cli_reads_have_isolated_failures(self):
         activity = (ANDROID / "MainActivity.kt").read_text()
