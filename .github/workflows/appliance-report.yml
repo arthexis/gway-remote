@@ -35,7 +35,11 @@ jobs:
         shell: bash
         run: |
           set +e
-          python3 -m gway_remote deploy-batch
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" && "${{ inputs.mode }}" == "deploy" ]]; then
+            python3 -m gway_remote deploy-batch --now
+          else
+            python3 -m gway_remote deploy-batch
+          fi
           code=$?
           echo "exit_code=$code" >> "$GITHUB_OUTPUT"
           exit 0
