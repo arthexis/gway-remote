@@ -411,6 +411,7 @@ fun CompanionScreen(store: SecretStore) {
                 val command = when (id) {
                     "lcd" -> "lcd-message"
                     "sound" -> "sound-play"
+                    "csms-view" -> "csms-view"
                     else -> null
                 }
                 if (command != null && PanelExecution.canRun(id, true, false, true)) {
@@ -419,6 +420,8 @@ fun CompanionScreen(store: SecretStore) {
                         args.put("line1", inputs["line1"].orEmpty())
                         args.put("line2", inputs["line2"].orEmpty())
                         args.put("duration_seconds", inputs["duration"]?.toIntOrNull() ?: 30)
+                    } else if (id == "csms-view") {
+                        args.put("view", inputs["view"] ?: "status")
                     } else {
                         args.put("sound", inputs["sound"] ?: "notice")
                     }
