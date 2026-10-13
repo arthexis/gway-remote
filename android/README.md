@@ -52,3 +52,7 @@ Merging any PR to main runs Android tests and attempts to publish a newly versio
 ## UI-3 palette rollout
 
 The Android screen now shows independently open, reorderable bordered operation panels above the legacy controls, followed by a compact searchable palette of unopened operations. Opening a safe read-only operation fetches it once; Refresh explicitly fetches again. Closing/reopening rejects earlier asynchronous results via UI-2 request IDs. Parameterized and mutating operations remain in the existing controls until UI-4 moves their inputs and execution with parity tests; opening their new panels **does not** execute them. The existing updater, settings, refresh, CSMS, simulator, LCD, sound and benchmark controls remain reachable during this bridge phase.
+
+## UI-4c Simulator panels
+
+The simulator Start panel reuses the existing `SimulatorControls` scenario forms and validation (boot, charge, remote and battery) instead of reimplementing backend payloads. Confirmations are required before either Start or Stop reaches the authenticated API; panel outputs and failures stay independent. Simulator status, discovery and results remain available as read-only palette operations. Legacy simulator controls remain below the new palette until parity and real APK testing are complete.

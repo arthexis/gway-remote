@@ -406,6 +406,33 @@ fun CompanionScreen(store: SecretStore) {
             onClose = { id -> panelState = panelState.close(id) },
             onMove = { id, index -> panelState = panelState.move(id, index) },
             onRefresh = { id -> runPanelRead(id) },
+            simulatorStatus = simulatorStatus,
+            onSimulatorCommand = { command, args ->
+                val operationId = if (command == "simulator-stop") "simulator-stop" else "simulator-start"
+                val id = if (panelState.panels.any { it.id == operationId }) operationId else "simulator-start"
+                if (command in setOf("simulator-start", "simulator-stop") &&
+                    PanelExecution.canRun(operationId, true, true, true) &&
+                    panelState.panels.any { it.id == id && !it.loading }) {
+                    panelState = panelState.start(id)
+                    val revision = panelState.panels.first { it.id == id }.revision
+                    val targetEndpoint = endpoint.trim()
+                    val targetToken = token
+                    scope.launch {
+                        try {
+                            val response = withContext(Dispatchers.IO) {
+                                ApiClient(targetEndpoint, targetToken).request(
+                                    "/api/v1/execute", command, args)
+                            }
+                            panelState = panelState.complete(id, revision, response.toString(2))
+                            val payload = response.optJSONObject("result")
+                            simulatorStatus = "${payload?.optString("state") ?: "unknown"} — " +
+                                (payload?.optString("target") ?: "")
+                        } catch (e: Exception) {
+                            panelState = panelState.fail(id, revision, e.message ?: "Simulator command failed")
+                        }
+                    }
+                }
+            },
             onInput = { id, key, value -> panelState = panelState.input(id, key, value) },
             onExecute = { id, inputs ->
                 val command = when (id) {
