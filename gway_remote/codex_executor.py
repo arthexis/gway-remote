@@ -136,7 +136,8 @@ def run_once(*, db: Path | None = None, token: str | None = None,
                 diagnostic = diagnostic_body(reason=reason, exit_code=exit_code,
                                              phase="executing" if output else "preparing")
                 with ReportOutbox((db or default_db()).with_suffix(".reports.sqlite")) as outbox:
-                    outbox.enqueue(task["repository"], int(task["issue"]), diagnostic,\n                                   report_key=task_id)
+                    outbox.enqueue(task["repository"], int(task["issue"]), diagnostic,
+                                   report_key=task_id)
                     outbox.deliver(token)
             except Exception:
                 # Reporting must never mask the original execution outcome.
