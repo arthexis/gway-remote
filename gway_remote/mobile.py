@@ -56,6 +56,9 @@ OPERATIONS = {"probe-csms": csms_probe, "status": status,
 
 def commands():
     return ([{"name": name, "arguments": {}, "read_only": True} for name in OPERATIONS]
+            + [{"name": "agent-issue", "read_only": False, "arguments": {
+                "ref": {"type": "string", "required": True},
+                "at": {"type": "string", "required": True}}}]
             + [{"name": "agent-issues", "read_only": True, "arguments": {}},
                 {"name": "agent-status", "read_only": True, "arguments": {}}]
             + [{"name": "codex-issues", "read_only": True, "arguments": {}},
@@ -130,6 +133,8 @@ def codex_mobile(name, arguments):
 
 
 def execute(name, arguments):
+    if name == "agent-issue":
+        return agent_ops_adapter.send_issue(arguments)
     if name == "agent-issues":
         return agent_ops_adapter.issues(arguments)
     if name == "agent-status":
