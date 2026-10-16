@@ -1,6 +1,18 @@
 name: Appliance Deploy
 on:
   workflow_dispatch:
+    inputs:
+      repository:
+        description: Repository to deploy
+        type: choice
+        required: true
+        default: all
+        options:
+          - all
+          - ocpp-csms
+          - ocpp-simulator
+          - gway-lcd-sound
+          - gway-agent-ops
 
 permissions:
   contents: read
@@ -10,32 +22,88 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  deploy:
-    name: Gway-001 appliance deployment
-    if: github.event_name == 'workflow_dispatch' && github.actor == 'arthexis'
+  ocpp_csms:
+    name: Deploy ocpp-csms
+    if: ${{ github.event_name == 'workflow_dispatch' && github.actor == 'arthexis' && (inputs.repository == 'all' || inputs.repository == 'ocpp-csms') }}
     runs-on: [self-hosted, Linux, ARM64, gway-001]
-    timeout-minutes: 60
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
-      - name: Execute deployment batch
-        id: batch
+      - name: Deploy ocpp-csms
+        shell: bash
         env:
           GH_TOKEN: ${{ secrets.GWAY_REMOTE_DISPATCH_TOKEN }}
-        shell: bash
         run: |
-          set +e
-          python3 -m gway_remote deploy-batch --all
-          code=$?
-          echo "exit_code=$code" >> "$GITHUB_OUTPUT"
-          echo "Deployment batch exit code: $code" >> "$GITHUB_STEP_SUMMARY"
-          if [[ "$code" != 0 ]]; then
-            echo "::error::Deployment batch failed; inspect the sanitized report and installation logs artifact"
-          fi
-          exit 0
+          set -euo pipefail
+          python3 -m gway_remote deploy-batch --all --target ocpp-csms
+
+  ocpp_simulator:
+    name: Deploy ocpp-simulator
+    needs: ocpp_csms
+    if: ${{ always() && github.event_name == 'workflow_dispatch' && github.actor == 'arthexis' && (inputs.repository == 'all' || inputs.repository == 'ocpp-simulator') }}
+    runs-on: [self-hosted, Linux, ARM64, gway-001]
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Deploy ocpp-simulator
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GWAY_REMOTE_DISPATCH_TOKEN }}
+        run: |
+          set -euo pipefail
+          python3 -m gway_remote deploy-batch --all --target ocpp-simulator
+
+  gway_lcd_sound:
+    name: Deploy gway-lcd-sound
+    needs: ocpp_simulator
+    if: ${{ always() && github.event_name == 'workflow_dispatch' && github.actor == 'arthexis' && (inputs.repository == 'all' || inputs.repository == 'gway-lcd-sound') }}
+    runs-on: [self-hosted, Linux, ARM64, gway-001]
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Deploy gway-lcd-sound
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GWAY_REMOTE_DISPATCH_TOKEN }}
+        run: |
+          set -euo pipefail
+          python3 -m gway_remote deploy-batch --all --target gway-lcd-sound
+
+  gway_agent_ops:
+    name: Deploy gway-agent-ops
+    needs: gway_lcd_sound
+    if: ${{ always() && github.event_name == 'workflow_dispatch' && github.actor == 'arthexis' && (inputs.repository == 'all' || inputs.repository == 'gway-agent-ops') }}
+    runs-on: [self-hosted, Linux, ARM64, gway-001]
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Deploy gway-agent-ops
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GWAY_REMOTE_DISPATCH_TOKEN }}
+        run: |
+          set -euo pipefail
+          python3 -m gway_remote deploy-batch --all --target gway-agent-ops
+
+  report:
+    name: Export appliance deployment report
+    needs: [ocpp_csms, ocpp_simulator, gway_lcd_sound, gway_agent_ops]
+    if: ${{ always() && github.event_name == 'workflow_dispatch' && github.actor == 'arthexis' }}
+    runs-on: [self-hosted, Linux, ARM64, gway-001]
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
       - name: Export read-only sanitized report
-        if: always()
         shell: bash
         run: |
           set -euo pipefail
@@ -49,6 +117,3 @@ jobs:
           path: ${{ runner.temp }}/gway-remote-report/
           retention-days: 14
           if-no-files-found: error
-      - name: Preserve deployment failure after uploading artifacts
-        if: steps.batch.outputs.exit_code != '0' && steps.batch.outputs.exit_code != ''
-        run: exit 1

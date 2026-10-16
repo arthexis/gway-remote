@@ -225,6 +225,7 @@ def main() -> None:
     report_parser = subparsers.add_parser("report-bundle", help="Export sanitized artifact report")
     report_parser.add_argument("--output", required=True)
     batch_parser = subparsers.add_parser("deploy-batch", help="Deploy appliance revisions")
+    batch_parser.add_argument("--target", choices=("ocpp-csms", "ocpp-simulator", "gway-lcd-sound", "gway-agent-ops"), default=None)
     batch_parser.add_argument("--all", action="store_true", help="Explicitly reinstall all latest main revisions regardless of prior attempts or CI")
     batch_parser.add_argument("--now", action="store_true", help="Bypass quiet period for operator-requested batch")
     batch_parser.add_argument("--retry-failed", action="store_true", help="Explicitly retry failed revisions, never installed or interrupted ones")
@@ -355,6 +356,8 @@ def main() -> None:
             parser.exit(1, f"gway-remote: reconciliation unavailable: {exc}\n")
         return
     if args.command == "deploy-batch":
+        if args.target and not args.all:
+            parser.error("--target requires --all")
         if args.all and (args.now or args.retry_failed):
             parser.error("--all cannot be combined with legacy eligibility flags")
         if args.retry_failed and not args.now:
@@ -376,7 +379,7 @@ def main() -> None:
                 "ocpp-simulator": deploy_simulator,
                 "gway-lcd-sound": deploy_lcd_sound,
                 "gway-agent-ops": deploy_agent_ops,
-            }, bypass_quiet=args.now, retry_failed=args.retry_failed, verify=verify_release, deploy_all=args.all)
+            }, bypass_quiet=args.now, retry_failed=args.retry_failed, verify=verify_release, deploy_all=args.all, target=args.target)
             print(json.dumps(result, indent=2, sort_keys=True))
             if result["decision"] == "failed":
                 parser.exit(1, "gway-remote: installation failed: {} at {}\\n".format(result["failed_component"], result["failed_sha"]))
