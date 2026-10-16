@@ -49,40 +49,27 @@ fun OperationPalette(
     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
         state.panels.forEachIndexed { position, panel ->
             val spec = OperationRegistry.get(panel.id) ?: return@forEachIndexed
-            OutlinedCard(Modifier.fillMaxWidth()) {
-                Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                        Text(spec.label, style = MaterialTheme.typography.titleMedium)
-                        Row {
-                            if (position > 0) TextButton(onClick = { onMove(panel.id, position - 1) }) {
-                                Text("↑")
-                            }
-                            if (position < state.panels.lastIndex) TextButton(onClick = { onMove(panel.id, position + 1) }) {
-                                Text("↓")
-                            }
-                            IconButton(onClick = { onClose(panel.id) }) { Text("×") }
-                        }
-                    }
-                    if (panel.loading) LinearProgressIndicator(Modifier.fillMaxWidth())
-                    panel.error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
-                    if (panel.id == "agent-ops") {
-                        AgentOpsPanel(panel.output, agentSendLoading, agentSendResult, agentSendError, onAgentSend, onAgentCopyPrompt,
-                            agentObserveLoading, agentObserveResult, agentObserveError, onAgentObserve)
-                    } else if (panel.id == "tasks") {
-                        TaskHistoryPanel(panel.output, onInspectTask)
-                    } else if (panel.id == "task-detail") {
-                        TaskDetailPanel(panel.output)
-                    } else if (panel.id == "simulator-results") {
-                        SimulatorResultsPanel(panel.output)
-                    } else if (panel.id == "simulator-status") {
-                        SimulatorStatusPanel(panel.output)
-                    } else if (panel.id == "csms") {
-                        CsmsHealthPanel(panel.output)
-                    } else if (panel.id == "csms-view") {
-                        CsmsInspectionPanel(panel.output)
-                    } else {
-                        panel.output?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
-                    }
+            StandardPanel(
+                spec = spec,
+                panel = panel,
+                position = position,
+                panelCount = state.panels.size,
+                onMove = onMove,
+                onClose = onClose
+            ) {
+                    PanelContent(
+                        panel = panel,
+                        onInspectTask = onInspectTask,
+                        agentSendLoading = agentSendLoading,
+                        agentSendResult = agentSendResult,
+                        agentSendError = agentSendError,
+                        onAgentSend = onAgentSend,
+                        onAgentCopyPrompt = onAgentCopyPrompt,
+                        agentObserveLoading = agentObserveLoading,
+                        agentObserveResult = agentObserveResult,
+                        agentObserveError = agentObserveError,
+                        onAgentObserve = onAgentObserve
+                    )
                     if (spec.policy == ExecutionPolicy.AUTO_READ) {
                         TextButton(onClick = { onRefresh(panel.id) }, enabled = !panel.loading) { Text("Refresh") }
                     } else if (panel.id == "task-detail") {
@@ -240,7 +227,6 @@ fun OperationPalette(
                         Text("Controls remain available in the existing interface until UI-4.",
                             style = MaterialTheme.typography.bodySmall)
                     }
-                }
             }
         }
         OutlinedTextField(
@@ -251,9 +237,7 @@ fun OperationPalette(
         FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp),
                 verticalArrangement = Arrangement.spacedBy(6.dp)) {
             state.unopened(filter).forEach { spec ->
-                OutlinedButton(onClick = { onOpen(spec.id) }) {
-                    Text(spec.label)
-                }
+                OperationButton(spec = spec, onOpen = onOpen)
             }
         }
     }
@@ -261,7 +245,7 @@ fun OperationPalette(
 
 /** Interpret the existing read-command responses without modifying their API contracts. */
 @Composable
-private fun SimulatorStatusPanel(output: String?) {
+internal fun SimulatorStatusPanel(output: String?) {
     if (output == null) return
     val result = remember(output) { runCatching { JSONObject(output).optJSONObject("result") }.getOrNull() }
     if (result == null) {
@@ -273,7 +257,7 @@ private fun SimulatorStatusPanel(output: String?) {
 }
 
 @Composable
-private fun SimulatorResultsPanel(output: String?) {
+internal fun SimulatorResultsPanel(output: String?) {
     if (output == null) {
         Text("Refresh to load captured simulator results.", style = MaterialTheme.typography.bodySmall)
         return
@@ -305,7 +289,7 @@ private fun SimulatorResultsPanel(output: String?) {
 }
 
 @Composable
-private fun CsmsHealthPanel(output: String?) {
+internal fun CsmsHealthPanel(output: String?) {
     if (output == null) {
         Text("CSMS health not yet checked", style = MaterialTheme.typography.bodySmall)
         return
@@ -327,7 +311,7 @@ private fun CsmsHealthPanel(output: String?) {
 }
 
 @Composable
-private fun CsmsInspectionPanel(output: String?) {
+internal fun CsmsInspectionPanel(output: String?) {
     if (output == null) return
     val result = remember(output) { runCatching { JSONObject(output).optJSONObject("result") }.getOrNull() }
     if (result == null) {
@@ -345,7 +329,7 @@ private fun CsmsInspectionPanel(output: String?) {
 private val TASK_UUID = Regex("[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}")
 
 @Composable
-private fun TaskHistoryPanel(output: String?, inspect: (String) -> Unit) {
+internal fun TaskHistoryPanel(output: String?, inspect: (String) -> Unit) {
     if (output == null) return
     val tasks = remember(output) {
         runCatching { JSONObject(output).optJSONObject("result")?.optJSONArray("tasks") }.getOrNull()
@@ -373,7 +357,7 @@ private fun TaskHistoryPanel(output: String?, inspect: (String) -> Unit) {
 }
 
 @Composable
-private fun TaskDetailPanel(output: String?) {
+internal fun TaskDetailPanel(output: String?) {
     if (output == null) return
     val result = remember(output) {
         runCatching { JSONObject(output).optJSONObject("result") }.getOrNull()
@@ -396,7 +380,7 @@ private fun TaskDetailPanel(output: String?) {
 }
 
 @Composable
-private fun AgentOpsPanel(
+internal fun AgentOpsPanel(
     output: String?,
     sending: Boolean,
     sendResult: String?,
