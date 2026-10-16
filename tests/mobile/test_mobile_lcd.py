@@ -41,6 +41,32 @@ class MobileLCDTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             mobile.execute("sound-play", {"sound": "anything; rm -rf /"})
 
+    def test_explicit_motif_preview(self):
+        with patch.object(mobile.subprocess, "run") as run:
+            self.assertEqual(
+                mobile.execute("sound-play", {"sound": "notice", "motif": "github-actions"}),
+                {"played": "notice", "motif": "github-actions"},
+            )
+            self.assertEqual(
+                run.call_args.args[0],
+                ["/usr/local/bin/sound", "--motif", "github-actions", "notice"],
+            )
+        for motif in ("", "../other", "--backend", "bad motif", 42):
+            with self.subTest(motif=motif), self.assertRaises(ValueError):
+                mobile.execute("sound-play", {"sound": "notice", "motif": motif})
+
+    def test_list_installed_motifs(self):
+        from subprocess import CompletedProcess
+        with patch.object(mobile.subprocess, "run",
+                          return_value=CompletedProcess([], 0, '["codex", "github-actions", "wifi"]')) as run:
+            self.assertEqual(
+                mobile.execute("sound-motifs", {}),
+                {"motifs": ["codex", "github-actions", "wifi"]},
+            )
+            self.assertEqual(run.call_args.args[0], ["/usr/local/bin/sound", "--list-motifs"])
+        with self.assertRaises(ValueError):
+            mobile.execute("sound-motifs", {"unexpected": True})
+
     def test_rejects_bad_messages(self):
         for value in [
             {"line1": "x" * 17, "line2": ""},
