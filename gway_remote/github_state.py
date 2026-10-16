@@ -52,7 +52,7 @@ def main_arrival(client: GitHub, repository: str, sha: str):
 
 def ci_for_head(client: GitHub, repository: str, sha: str):
     """Conservative status: all completed push workflow runs for this SHA must pass."""
-    data = client.get(f"repos/{repository}/actions/runs?branch=main&event=push&per_page=50")
+    data = client.get(f"repos/{repository}/actions/runs?branch=main&event=push&head_sha={sha}&per_page=100")
     runs = [r for r in data.get("workflow_runs", [])
             if r.get("head_sha", "").lower() == sha.lower()]
     if not runs:
