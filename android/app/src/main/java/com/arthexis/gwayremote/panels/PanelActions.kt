@@ -53,6 +53,44 @@ internal fun PanelActions(
                     enabled = !panel.loading && selected in views,
                     onClick = { onExecute(panel.id, mapOf("view" to selected)) }
                 ) { Text("Inspect") }
+            } else if (panel.id == "lcd") {
+                val line1 = panel.inputs["line1"].orEmpty()
+                val line2 = panel.inputs["line2"].orEmpty()
+                val duration = panel.inputs["duration"].orEmpty().ifEmpty { "30" }
+                OutlinedTextField(
+                    value = line1,
+                    onValueChange = { next ->
+                        if (next.length <= 16 && next.all { it.code in 32..126 }) {
+                            onInput(panel.id, "line1", next)
+                        }
+                    },
+                    label = { Text("LCD line 1 (max 16)") },
+                    singleLine = true
+                )
+                OutlinedTextField(
+                    value = line2,
+                    onValueChange = { next ->
+                        if (next.length <= 16 && next.all { it.code in 32..126 }) {
+                            onInput(panel.id, "line2", next)
+                        }
+                    },
+                    label = { Text("LCD line 2 (max 16)") },
+                    singleLine = true
+                )
+                OutlinedTextField(
+                    value = duration,
+                    onValueChange = { onInput(panel.id, "duration", it) },
+                    label = { Text("Duration (30–300 seconds)") },
+                    singleLine = true
+                )
+                Button(
+                    enabled = !panel.loading &&
+                        (line1.isNotEmpty() || line2.isNotEmpty()) &&
+                        (duration.toIntOrNull()?.let { it in 30..300 } == true),
+                    onClick = {
+                        onExecute(panel.id, panel.inputs + ("duration" to duration))
+                    }
+                ) { Text("Show on LCD") }
             }
         }
         ExecutionPolicy.CONFIRM -> Unit // Specialized confirmation controls migrate separately.
