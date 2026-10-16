@@ -360,12 +360,20 @@ def main() -> None:
         from .best_effort import execute
         from .github_state import GitHub
         try:
+            from .status import installed_revision
+            def verify_release(name, sha):
+                if name == "gway-lcd-sound":
+                    installed = installed_revision(name)
+                    if installed != sha[:12]:
+                        raise RuntimeError(
+                            f"LCD Sound installed revision mismatch: expected {sha[:12]}, observed {installed or 'unknown'}"
+                        )
             result = execute(GitHub(), datetime.now(timezone.utc), {
                 "ocpp-csms": deploy_csms,
                 "ocpp-simulator": deploy_simulator,
                 "gway-lcd-sound": deploy_lcd_sound,
                 "gway-agent-ops": deploy_agent_ops,
-            }, bypass_quiet=args.now, retry_failed=args.retry_failed)
+            }, bypass_quiet=args.now, retry_failed=args.retry_failed, verify=verify_release)
             print(json.dumps(result, indent=2, sort_keys=True))
             if args.now and result["decision"] in ("waiting", "blocked", "stale", "idle"):
                 parser.exit(1, "gway-remote: manual batch not deployed ({}: {})\\n".format(result["decision"], result.get("reason", "unknown")))
