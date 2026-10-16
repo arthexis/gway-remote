@@ -375,6 +375,8 @@ def main() -> None:
                 "gway-agent-ops": deploy_agent_ops,
             }, bypass_quiet=args.now, retry_failed=args.retry_failed, verify=verify_release)
             print(json.dumps(result, indent=2, sort_keys=True))
+            if result["decision"] == "blocked":
+                parser.exit(1, "gway-remote: batch blocked\\n")
             if args.now and result["decision"] in ("waiting", "blocked", "stale", "idle"):
                 parser.exit(1, "gway-remote: manual batch not deployed ({}: {})\\n".format(result["decision"], result.get("reason", "unknown")))
             if any(item["status"] == "failed" for item in result["results"]):
