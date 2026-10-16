@@ -60,7 +60,7 @@ internal fun PanelActions(
                 OutlinedTextField(
                     value = line1,
                     onValueChange = { next ->
-                        if (next.length <= 16 && next.all { it.code in 32..126 }) {
+                        if (LcdInput.validLine(next)) {
                             onInput(panel.id, "line1", next)
                         }
                     },
@@ -84,11 +84,9 @@ internal fun PanelActions(
                     singleLine = true
                 )
                 Button(
-                    enabled = !panel.loading &&
-                        (line1.isNotEmpty() || line2.isNotEmpty()) &&
-                        (duration.toIntOrNull()?.let { it in 30..300 } == true),
+                    enabled = LcdInput.canExecute(panel.inputs, panel.loading),
                     onClick = {
-                        onExecute(panel.id, panel.inputs + ("duration" to duration))
+                        onExecute(panel.id, LcdInput.payload(panel.inputs))
                     }
                 ) { Text("Show on LCD") }
             }
