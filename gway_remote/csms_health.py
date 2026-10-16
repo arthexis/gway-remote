@@ -17,7 +17,8 @@ def _run(argv, timeout=15):
 def csms_probe(*, runner=_run, executable=None, data_dir=None):
     """Return a diagnostic reason, not just a misleading unhealthy boolean."""
     executable = Path(executable) if executable is not None else Path(shutil.which("ocpp-csms") or str(Path.home() / ".local/bin/ocpp-csms"))
-    # An omitted override lets the CSMS CLI select the active schema directory.\n    data_dir = Path(data_dir) if data_dir is not None else None
+    # An omitted override lets the CSMS CLI select the active schema directory.
+    data_dir = Path(data_dir) if data_dir is not None else None
     def result(healthy, reason):
         return {"healthy": healthy, "reason": reason,
                 "executable": str(executable), "data_dir": str(data_dir) if data_dir is not None else "auto"}
@@ -28,7 +29,10 @@ def csms_probe(*, runner=_run, executable=None, data_dir=None):
     service = runner(["systemctl", "is-active", "ocpp-csms.service"])
     if service != "active":
         return result(False, "system service not active or unavailable")
-    argv = [str(executable)]\n    if data_dir is not None:\n        argv.extend(["--data-dir", str(data_dir)])\n    output = runner([*argv, "status", "--json"])
+    argv = [str(executable)]
+    if data_dir is not None:
+        argv.extend(["--data-dir", str(data_dir)])
+    output = runner([*argv, "status", "--json"])
     if output is None:
         return result(False, "CSMS status --json command failed")
     try:
