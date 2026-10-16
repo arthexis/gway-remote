@@ -316,7 +316,7 @@ internal fun CsmsInspectionPanel(output: String?) {
         style = MaterialTheme.typography.bodySmall)
 }
 
-private val TASK_UUID = Regex("[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}")
+internal val TASK_UUID = Regex("[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}")
 
 @Composable
 internal fun TaskHistoryPanel(output: String?, inspect: (String) -> Unit) {
