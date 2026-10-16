@@ -8,7 +8,6 @@ from .attempts import DEFAULT_DIR, attempted_shas, read_attempts, mark
 from .github_state import collect, main_head
 from .logs import capture_log, log_filename
 from .reconcile import TARGETS
-from .status import installed_revision
 
 LOCK_PATH = DEFAULT_DIR / "appliance.lock"
 INSTALLERS = {
@@ -34,7 +33,7 @@ def appliance_lock(path=LOCK_PATH):
             fcntl.flock(handle, fcntl.LOCK_UN)
 
 
-def execute(client, now, installers, directory=DEFAULT_DIR, lock_path=None, *, bypass_quiet=False, retry_failed=False):
+def execute(client, now, installers, directory=DEFAULT_DIR, lock_path=None, *, bypass_quiet=False, retry_failed=False, verify=None):
     """Call only under a trusted runner. Installer errors are recorded and isolated.
 
     Re-check all main heads before each component. A changing head aborts the
@@ -65,12 +64,8 @@ def execute(client, now, installers, directory=DEFAULT_DIR, lock_path=None, *, b
             try:
                 with capture_log(directory, filename):
                     installers[name](sha)
-                    if name == "gway-lcd-sound":
-                        installed = installed_revision(name)
-                        if installed != sha[:12]:
-                            raise RuntimeError(
-                                f"LCD Sound installed revision mismatch: expected {sha[:12]}, observed {installed or 'unknown'}"
-                            )
+                    if verify is not None:
+                        verify(name, sha)
             except Exception as exc:
                 mark(name, sha, "failed", directory, error=exc, log=filename)
                 results.append({"name": name, "sha": sha, "status": "failed",
