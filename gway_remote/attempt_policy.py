@@ -36,7 +36,7 @@ def plan(candidates, now, *, bypass_quiet=False):
         if (not _SHA.fullmatch(c.sha) or
                 c.merged_at is None or c.merged_at.tzinfo is None or
                 c.merged_at.utcoffset() is None):
-            return Plan("blocked", (), "invalid revision or merge timestamp")
+            return Plan("blocked", (), f"{c.name}: invalid revision or commit timestamp")
     pending = tuple((name, by_name[name].sha) for name in names
                     if by_name[name].attempted_sha != by_name[name].sha)
     if not pending:
