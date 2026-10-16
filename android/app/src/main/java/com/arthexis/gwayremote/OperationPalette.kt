@@ -242,9 +242,7 @@ fun OperationPalette(
         FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp),
                 verticalArrangement = Arrangement.spacedBy(6.dp)) {
             state.unopened(filter).forEach { spec ->
-                OutlinedButton(onClick = { onOpen(spec.id) }) {
-                    Text(spec.label)
-                }
+                OperationButton(spec = spec, onOpen = onOpen)
             }
         }
     }
