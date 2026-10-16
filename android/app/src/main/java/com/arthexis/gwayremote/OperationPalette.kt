@@ -81,7 +81,7 @@ fun OperationPalette(
                     } else if (panel.id == "csms-view") {
                         CsmsInspectionPanel(panel.output)
                     } else {
-                        panel.output?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
+                        panel.output?.let { GenericResultRenderer(it) }
                     }
                     if (spec.policy == ExecutionPolicy.AUTO_READ) {
                         TextButton(onClick = { onRefresh(panel.id) }, enabled = !panel.loading) { Text("Refresh") }
