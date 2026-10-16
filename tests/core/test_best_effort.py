@@ -46,6 +46,27 @@ class BestEffortTests(unittest.TestCase):
             return deploy
         return {name: make(name) for name, _ in TARGETS}
 
+    def test_manual_all_reinstalls_every_head_without_ci_or_attempt_filter(self):
+        first = execute(self.client, NOW, self.installers(), self.path, deploy_all=True)
+        second = execute(self.client, NOW, self.installers(), self.path, deploy_all=True)
+        self.assertEqual(first["decision"], "completed")
+        self.assertEqual(second["decision"], "completed")
+        self.assertEqual(self.calls, [name for name, _ in TARGETS] * 2)
+
+    def test_manual_all_failure_identifies_component_and_stops(self):
+        result = execute(self.client, NOW, self.installers(("ocpp-simulator",)), self.path, deploy_all=True)
+        self.assertEqual(result["decision"], "failed")
+        self.assertEqual(result["failed_component"], "ocpp-simulator")
+        self.assertEqual(result["failed_sha"], SHA)
+        self.assertEqual(self.calls, ["ocpp-csms", "ocpp-simulator"])
+        self.assertEqual(result["results"][-1]["status"], "failed")
+
+    def test_manual_all_fetches_latest_main_head_each_invocation(self):
+        execute(self.client, NOW, self.installers(), self.path, deploy_all=True)
+        self.client.heads[TARGETS[0][1]] = "b" * 40
+        result = execute(self.client, NOW, self.installers(), self.path, deploy_all=True)
+        self.assertEqual(result["results"][0]["sha"], "b" * 40)
+
     def test_ordered_once_and_durable(self):
         result = execute(self.client, NOW, self.installers(), self.path)
         self.assertEqual(result["decision"], "completed")

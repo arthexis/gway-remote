@@ -1,14 +1,6 @@
 name: Appliance Deploy
 on:
-  schedule:
-    - cron: '2-59/5 * * * *'
   workflow_dispatch:
-    inputs:
-      retry_failed:
-        description: Retry previously failed revisions (does not retry installed or interrupted attempts)
-        type: boolean
-        required: false
-        default: false
 
 permissions:
   contents: read
@@ -20,7 +12,7 @@ concurrency:
 jobs:
   deploy:
     name: Gway-001 appliance deployment
-    if: (github.event_name == 'schedule') || (github.event_name == 'workflow_dispatch' && github.actor == 'arthexis')
+    if: github.event_name == 'workflow_dispatch' && github.actor == 'arthexis'
     runs-on: [self-hosted, Linux, ARM64, gway-001]
     timeout-minutes: 60
     steps:
@@ -31,20 +23,10 @@ jobs:
         id: batch
         env:
           GH_TOKEN: ${{ secrets.GWAY_REMOTE_DISPATCH_TOKEN }}
-          MANUAL: ${{ github.event_name == 'workflow_dispatch' }}
-          RETRY_FAILED: ${{ inputs.retry_failed || false }}
         shell: bash
         run: |
           set +e
-          if [[ "$MANUAL" == "true" ]]; then
-            if [[ "$RETRY_FAILED" == "true" ]]; then
-              python3 -m gway_remote deploy-batch --now --retry-failed
-            else
-              python3 -m gway_remote deploy-batch --now
-            fi
-          else
-            python3 -m gway_remote deploy-batch
-          fi
+          python3 -m gway_remote deploy-batch --all
           code=$?
           echo "exit_code=$code" >> "$GITHUB_OUTPUT"
           echo "Deployment batch exit code: $code" >> "$GITHUB_STEP_SUMMARY"

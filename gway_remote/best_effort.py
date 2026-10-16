@@ -33,7 +33,7 @@ def appliance_lock(path=LOCK_PATH):
             fcntl.flock(handle, fcntl.LOCK_UN)
 
 
-def execute(client, now, installers, directory=DEFAULT_DIR, lock_path=None, *, bypass_quiet=False, retry_failed=False, verify=None):
+def execute(client, now, installers, directory=DEFAULT_DIR, lock_path=None, *, bypass_quiet=False, retry_failed=False, verify=None, deploy_all=False):
     """Call only under a trusted runner. Installer errors are recorded and isolated.
 
     Re-check all main heads before each component. A changing head aborts the
@@ -41,6 +41,31 @@ def execute(client, now, installers, directory=DEFAULT_DIR, lock_path=None, *, b
     """
     directory = Path(directory)
     with appliance_lock(lock_path or directory / "appliance.lock"):
+        if deploy_all:
+            # Explicit operator action: every invocation targets every current main HEAD.
+            # No CI, quiet-period or prior-attempt eligibility filtering.
+            snapshot = tuple((name, repo, main_head(client, repo)) for name, repo in TARGETS)
+            results = []
+            for name, repo, sha in snapshot:
+                if main_head(client, repo).lower() != sha.lower():
+                    return {"decision": "stale", "reason": f"{name}: main SHA changed during deployment",
+                            "results": results}
+                filename = log_filename(name, sha)
+                mark(name, sha, "started", directory, log=filename)
+                try:
+                    with capture_log(directory, filename):
+                        installers[name](sha)
+                        if verify is not None:
+                            verify(name, sha)
+                except Exception as exc:
+                    mark(name, sha, "failed", directory, error=exc, log=filename)
+                    results.append({"name": name, "sha": sha, "status": "failed",
+                                    "log": filename, "error": str(exc)[:500]})
+                    return {"decision": "failed", "reason": f"{name}: installation failed",
+                            "failed_component": name, "failed_sha": sha, "results": results}
+                mark(name, sha, "installed", directory, log=filename)
+                results.append({"name": name, "sha": sha, "status": "installed", "log": filename})
+            return {"decision": "completed", "results": results}
         attempted = attempted_shas(directory)
         if retry_failed:
             if not bypass_quiet:
