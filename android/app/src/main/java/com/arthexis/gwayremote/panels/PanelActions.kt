@@ -1,7 +1,8 @@
 package com.arthexis.gwayremote
 
 import androidx.compose.material3.*
-import androidx.compose.runtime.Composable
+import androidx.compose.foundation.layout.Box
+import androidx.compose.runtime.*
 
 /** Shared policy-driven actions; specialized controls remain in the palette. */
 @Composable
@@ -30,6 +31,28 @@ internal fun PanelActions(
                     enabled = !panel.loading && TASK_UUID.matches(taskId),
                     onClick = { onExecute(panel.id, mapOf("task_id" to taskId)) }
                 ) { Text("Inspect task") }
+            } else if (panel.id == "csms-view") {
+                val views = listOf("status", "chargers", "charge-points", "transactions",
+                    "events", "alerts", "rfid-report", "report")
+                val selected = panel.inputs["view"] ?: "status"
+                var menuOpen by remember(panel.id) { mutableStateOf(false) }
+                Box {
+                    OutlinedButton(onClick = { menuOpen = true }) {
+                        Text("View: $selected ▾")
+                    }
+                    DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
+                        views.forEach { view ->
+                            DropdownMenuItem(text = { Text(view) }, onClick = {
+                                onInput(panel.id, "view", view)
+                                menuOpen = false
+                            })
+                        }
+                    }
+                }
+                Button(
+                    enabled = !panel.loading && selected in views,
+                    onClick = { onExecute(panel.id, mapOf("view" to selected)) }
+                ) { Text("Inspect") }
             }
         }
         ExecutionPolicy.CONFIRM -> Unit // Specialized confirmation controls migrate separately.
