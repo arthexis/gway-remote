@@ -224,7 +224,8 @@ def main() -> None:
     logs_parser.add_argument("--lines", type=int, default=None)
     report_parser = subparsers.add_parser("report-bundle", help="Export sanitized artifact report")
     report_parser.add_argument("--output", required=True)
-    batch_parser = subparsers.add_parser("deploy-batch", help="Run eligible merged revisions once")
+    batch_parser = subparsers.add_parser("deploy-batch", help="Deploy appliance revisions")
+    batch_parser.add_argument("--all", action="store_true", help="Explicitly reinstall all latest main revisions regardless of prior attempts or CI")
     batch_parser.add_argument("--now", action="store_true", help="Bypass quiet period for operator-requested batch")
     batch_parser.add_argument("--retry-failed", action="store_true", help="Explicitly retry failed revisions, never installed or interrupted ones")
     worker_parser = subparsers.add_parser("codex", aliases=["codex-worker"], help="Codex worker and task inspection")
@@ -354,6 +355,8 @@ def main() -> None:
             parser.exit(1, f"gway-remote: reconciliation unavailable: {exc}\n")
         return
     if args.command == "deploy-batch":
+        if args.all and (args.now or args.retry_failed):
+            parser.error("--all cannot be combined with legacy eligibility flags")
         if args.retry_failed and not args.now:
             parser.error("--retry-failed requires --now")
         from datetime import datetime, timezone
@@ -373,8 +376,12 @@ def main() -> None:
                 "ocpp-simulator": deploy_simulator,
                 "gway-lcd-sound": deploy_lcd_sound,
                 "gway-agent-ops": deploy_agent_ops,
-            }, bypass_quiet=args.now, retry_failed=args.retry_failed, verify=verify_release)
+            }, bypass_quiet=args.now, retry_failed=args.retry_failed, verify=verify_release, deploy_all=args.all)
             print(json.dumps(result, indent=2, sort_keys=True))
+            if result["decision"] == "failed":
+                parser.exit(1, "gway-remote: installation failed: {} at {}\\n".format(result["failed_component"], result["failed_sha"]))
+            if args.all and result["decision"] != "completed":
+                parser.exit(1, "gway-remote: manual deployment incomplete: {} ({})\\n".format(result["decision"], result.get("reason", "unknown")))
             if result["decision"] == "blocked":
                 parser.exit(1, "gway-remote: batch blocked\\n")
             if args.now and result["decision"] in ("waiting", "blocked", "stale", "idle"):
