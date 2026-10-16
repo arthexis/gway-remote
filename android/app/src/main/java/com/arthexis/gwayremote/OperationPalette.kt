@@ -57,19 +57,19 @@ fun OperationPalette(
                 onMove = onMove,
                 onClose = onClose
             ) {
-                    when (PanelContentRegistry.kind(panel.id)) {
-                        PanelContentKind.AGENT_OPS ->
-                            AgentOpsPanel(panel.output, agentSendLoading, agentSendResult, agentSendError,
-                                onAgentSend, onAgentCopyPrompt, agentObserveLoading, agentObserveResult,
-                                agentObserveError, onAgentObserve)
-                        PanelContentKind.TASK_HISTORY -> TaskHistoryPanel(panel.output, onInspectTask)
-                        PanelContentKind.TASK_DETAIL -> TaskDetailPanel(panel.output)
-                        PanelContentKind.SIMULATOR_RESULTS -> SimulatorResultsPanel(panel.output)
-                        PanelContentKind.SIMULATOR_STATUS -> SimulatorStatusPanel(panel.output)
-                        PanelContentKind.CSMS_HEALTH -> CsmsHealthPanel(panel.output)
-                        PanelContentKind.CSMS_INSPECTION -> CsmsInspectionPanel(panel.output)
-                        PanelContentKind.GENERIC -> panel.output?.let { GenericResultRenderer(it) }
-                    }
+                    PanelContent(
+                        panel = panel,
+                        onInspectTask = onInspectTask,
+                        agentSendLoading = agentSendLoading,
+                        agentSendResult = agentSendResult,
+                        agentSendError = agentSendError,
+                        onAgentSend = onAgentSend,
+                        onAgentCopyPrompt = onAgentCopyPrompt,
+                        agentObserveLoading = agentObserveLoading,
+                        agentObserveResult = agentObserveResult,
+                        agentObserveError = agentObserveError,
+                        onAgentObserve = onAgentObserve
+                    )
                     if (spec.policy == ExecutionPolicy.AUTO_READ) {
                         TextButton(onClick = { onRefresh(panel.id) }, enabled = !panel.loading) { Text("Refresh") }
                     } else if (panel.id == "task-detail") {
@@ -245,7 +245,7 @@ fun OperationPalette(
 
 /** Interpret the existing read-command responses without modifying their API contracts. */
 @Composable
-private fun SimulatorStatusPanel(output: String?) {
+internal fun SimulatorStatusPanel(output: String?) {
     if (output == null) return
     val result = remember(output) { runCatching { JSONObject(output).optJSONObject("result") }.getOrNull() }
     if (result == null) {
@@ -257,7 +257,7 @@ private fun SimulatorStatusPanel(output: String?) {
 }
 
 @Composable
-private fun SimulatorResultsPanel(output: String?) {
+internal fun SimulatorResultsPanel(output: String?) {
     if (output == null) {
         Text("Refresh to load captured simulator results.", style = MaterialTheme.typography.bodySmall)
         return
@@ -289,7 +289,7 @@ private fun SimulatorResultsPanel(output: String?) {
 }
 
 @Composable
-private fun CsmsHealthPanel(output: String?) {
+internal fun CsmsHealthPanel(output: String?) {
     if (output == null) {
         Text("CSMS health not yet checked", style = MaterialTheme.typography.bodySmall)
         return
@@ -311,7 +311,7 @@ private fun CsmsHealthPanel(output: String?) {
 }
 
 @Composable
-private fun CsmsInspectionPanel(output: String?) {
+internal fun CsmsInspectionPanel(output: String?) {
     if (output == null) return
     val result = remember(output) { runCatching { JSONObject(output).optJSONObject("result") }.getOrNull() }
     if (result == null) {
@@ -329,7 +329,7 @@ private fun CsmsInspectionPanel(output: String?) {
 private val TASK_UUID = Regex("[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}")
 
 @Composable
-private fun TaskHistoryPanel(output: String?, inspect: (String) -> Unit) {
+internal fun TaskHistoryPanel(output: String?, inspect: (String) -> Unit) {
     if (output == null) return
     val tasks = remember(output) {
         runCatching { JSONObject(output).optJSONObject("result")?.optJSONArray("tasks") }.getOrNull()
@@ -357,7 +357,7 @@ private fun TaskHistoryPanel(output: String?, inspect: (String) -> Unit) {
 }
 
 @Composable
-private fun TaskDetailPanel(output: String?) {
+internal fun TaskDetailPanel(output: String?) {
     if (output == null) return
     val result = remember(output) {
         runCatching { JSONObject(output).optJSONObject("result") }.getOrNull()
@@ -380,7 +380,7 @@ private fun TaskDetailPanel(output: String?) {
 }
 
 @Composable
-private fun AgentOpsPanel(
+internal fun AgentOpsPanel(
     output: String?,
     sending: Boolean,
     sendResult: String?,
