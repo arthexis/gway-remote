@@ -77,6 +77,7 @@ fun CompanionScreen(store: SecretStore) {
     var lcdDuration by remember { mutableFloatStateOf(30f) }
     var lcdLine1 by remember { mutableStateOf("") }
     var lcdLine2 by remember { mutableStateOf("") }
+    var availableMotifs by remember { mutableStateOf(listOf<String>()) }
     var selectedSound by remember { mutableStateOf("notice") }
     var soundMenuOpen by remember { mutableStateOf(false) }
     var settingsOpen by remember { mutableStateOf(endpoint.isBlank() || token.isBlank()) }
@@ -94,6 +95,24 @@ fun CompanionScreen(store: SecretStore) {
     val benchmarkStop = remember { java.util.concurrent.atomic.AtomicBoolean(false) }
 
     val scope = rememberCoroutineScope()
+    LaunchedEffect(endpoint, token, panelState.panels.any { it.id == "sound" }) {
+        if (endpoint.isNotBlank() && token.isNotBlank() &&
+            panelState.panels.any { it.id == "sound" }) {
+            try {
+                val response = withContext(Dispatchers.IO) {
+                    ApiClient(endpoint.trim(), token).request(
+                        "/api/v1/execute", "sound-motifs", JSONObject())
+                }
+                val array = response.optJSONObject("result")?.optJSONObject("data")
+                    ?.optJSONArray("motifs")
+                availableMotifs = if (array == null) emptyList()
+                    else (0 until array.length()).map { array.getString(it) }
+            } catch (_: Exception) {
+                availableMotifs = emptyList()
+            }
+        }
+    }
+
     val context = LocalContext.current
     val notificationPermissionLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission()
@@ -584,6 +603,7 @@ fun CompanionScreen(store: SecretStore) {
                     }
                 }
             },
+            motifs = availableMotifs,
             onInput = { id, key, value -> panelState = panelState.input(id, key, value) },
             onExecute = { id, inputs ->
                 val command = when (id) {
@@ -613,6 +633,7 @@ fun CompanionScreen(store: SecretStore) {
                         args.put("view", inputs["view"] ?: "status")
                     } else {
                         args.put("sound", inputs["sound"] ?: "notice")
+                        inputs["motif"]?.takeIf { it.isNotBlank() }?.let { args.put("motif", it) }
                     }
                     panelState = panelState.start(id)
                     val revision = panelState.panels.first { it.id == id }.revision
