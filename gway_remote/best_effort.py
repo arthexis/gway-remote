@@ -33,18 +33,23 @@ def appliance_lock(path=LOCK_PATH):
             fcntl.flock(handle, fcntl.LOCK_UN)
 
 
-def execute(client, now, installers, directory=DEFAULT_DIR, lock_path=None, *, bypass_quiet=False, retry_failed=False, verify=None, deploy_all=False):
+def execute(client, now, installers, directory=DEFAULT_DIR, lock_path=None, *, bypass_quiet=False, retry_failed=False, verify=None, deploy_all=False, target=None):
     """Call only under a trusted runner. Installer errors are recorded and isolated.
 
     Re-check all main heads before each component. A changing head aborts the
     remaining batch rather than deploying a stale revision.
     """
+    if target is not None and target not in dict(TARGETS):
+        raise ValueError("unknown deployment target")
+    if target is not None and not deploy_all:
+        raise ValueError("target selection requires explicit --all")
     directory = Path(directory)
     with appliance_lock(lock_path or directory / "appliance.lock"):
         if deploy_all:
             # Explicit operator action: every invocation targets every current main HEAD.
             # No CI, quiet-period or prior-attempt eligibility filtering.
-            snapshot = tuple((name, repo, main_head(client, repo)) for name, repo in TARGETS)
+            snapshot = tuple((name, repo, main_head(client, repo)) for name, repo in TARGETS
+                             if target is None or name == target)
             results = []
             for name, repo, sha in snapshot:
                 if main_head(client, repo).lower() != sha.lower():
