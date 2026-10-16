@@ -70,16 +70,9 @@ fun OperationPalette(
                         agentObserveError = agentObserveError,
                         onAgentObserve = onAgentObserve
                     )
-                    if (spec.policy == ExecutionPolicy.AUTO_READ) {
-                        TextButton(onClick = { onRefresh(panel.id) }, enabled = !panel.loading) { Text("Refresh") }
-                    } else if (panel.id == "task-detail") {
-                        val taskId = panel.inputs["task_id"].orEmpty()
-                        OutlinedTextField(taskId, { onInput(panel.id, "task_id", it) },
-                            label = { Text("Task UUID") }, singleLine = true)
-                        Button(enabled = !panel.loading && TASK_UUID.matches(taskId),
-                            onClick = { onExecute(panel.id, mapOf("task_id" to taskId)) }) {
-                            Text("Inspect task")
-                        }
+                    PanelActions(spec = spec, panel = panel, onRefresh = onRefresh, onInput = onInput, onExecute = onExecute)
+                    if (spec.policy == ExecutionPolicy.AUTO_READ || panel.id == "task-detail" || panel.id == "csms-view" || panel.id == "lcd") {
+                        // Common read and task-detail actions are rendered by PanelActions.
                     } else if (panel.id == "simulator-discover") {
                         val discovered = remember(panel.output) {
                             runCatching {
@@ -135,58 +128,16 @@ fun OperationPalette(
                             }
                         }
                         pending?.let { (command, args) ->
-                            AlertDialog(onDismissRequest = { pending = null },
-                                title = { Text("Confirm simulator operation") },
-                                text = { Text("Execute $command on the configured simulator?") },
-                                confirmButton = {
-                                    TextButton(onClick = {
-                                        pending = null
-                                        onSimulatorCommand(command, args)
-                                    }) { Text("Execute") }
+                            ConfirmPanelAction(
+                                title = "Confirm simulator operation",
+                                description = "Execute $command on the configured simulator?",
+                                onConfirm = {
+                                    pending = null
+                                    onSimulatorCommand(command, args)
                                 },
-                                dismissButton = {
-                                    TextButton(onClick = { pending = null }) { Text("Cancel") }
-                                })
+                                onCancel = { pending = null }
+                            )
                         }
-                    } else if (panel.id == "csms-view") {
-                        val views = listOf("status", "chargers", "charge-points", "transactions",
-                            "events", "alerts", "rfid-report", "report")
-                        val selected = panel.inputs["view"] ?: "status"
-                        var menuOpen by remember(panel.id) { mutableStateOf(false) }
-                        Box {
-                            OutlinedButton(onClick = { menuOpen = true }) {
-                                Text("View: $selected ▾")
-                            }
-                            DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
-                                views.forEach { view ->
-                                    DropdownMenuItem(text = { Text(view) }, onClick = {
-                                        onInput(panel.id, "view", view)
-                                        menuOpen = false
-                                    })
-                                }
-                            }
-                        }
-                        Button(enabled = !panel.loading && selected in views,
-                            onClick = { onExecute(panel.id, mapOf("view" to selected)) }) {
-                            Text("Inspect")
-                        }
-                    } else if (panel.id == "lcd") {
-                        val line1 = panel.inputs["line1"].orEmpty()
-                        val line2 = panel.inputs["line2"].orEmpty()
-                        val duration = panel.inputs["duration"].orEmpty().ifEmpty { "30" }
-                        OutlinedTextField(line1, { next ->
-                            if (next.length <= 16 && next.all { it.code in 32..126 }) onInput(panel.id, "line1", next)
-                        }, label = { Text("LCD line 1 (max 16)") }, singleLine = true)
-                        OutlinedTextField(line2, { next ->
-                            if (next.length <= 16 && next.all { it.code in 32..126 }) onInput(panel.id, "line2", next)
-                        }, label = { Text("LCD line 2 (max 16)") }, singleLine = true)
-                        OutlinedTextField(duration, { onInput(panel.id, "duration", it) },
-                            label = { Text("Duration (30–300 seconds)") }, singleLine = true)
-                        Button(
-                            enabled = !panel.loading && (line1.isNotEmpty() || line2.isNotEmpty()) &&
-                                (duration.toIntOrNull()?.let { it in 30..300 } == true),
-                            onClick = { onExecute(panel.id, panel.inputs + ("duration" to duration)) }
-                        ) { Text("Show on LCD") }
                     } else if (panel.id == "sound") {
                         var expanded by remember(panel.id) { mutableStateOf(false) }
                         var motifExpanded by remember(panel.id) { mutableStateOf(false) }
@@ -326,7 +277,7 @@ internal fun CsmsInspectionPanel(output: String?) {
         style = MaterialTheme.typography.bodySmall)
 }
 
-private val TASK_UUID = Regex("[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}")
+internal val TASK_UUID = Regex("[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}")
 
 @Composable
 internal fun TaskHistoryPanel(output: String?, inspect: (String) -> Unit) {
