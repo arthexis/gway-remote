@@ -71,7 +71,7 @@ fun OperationPalette(
                         onAgentObserve = onAgentObserve
                     )
                     PanelActions(spec = spec, panel = panel, onRefresh = onRefresh, onInput = onInput, onExecute = onExecute)
-                    if (spec.policy == ExecutionPolicy.AUTO_READ || panel.id == "task-detail" || panel.id == "csms-view") {
+                    if (spec.policy == ExecutionPolicy.AUTO_READ || panel.id == "task-detail" || panel.id == "csms-view" || panel.id == "lcd") {
                         // Common read and task-detail actions are rendered by PanelActions.
                     } else if (panel.id == "simulator-discover") {
                         val discovered = remember(panel.output) {
@@ -138,23 +138,6 @@ fun OperationPalette(
                                 onCancel = { pending = null }
                             )
                         }
-                    } else if (panel.id == "lcd") {
-                        val line1 = panel.inputs["line1"].orEmpty()
-                        val line2 = panel.inputs["line2"].orEmpty()
-                        val duration = panel.inputs["duration"].orEmpty().ifEmpty { "30" }
-                        OutlinedTextField(line1, { next ->
-                            if (next.length <= 16 && next.all { it.code in 32..126 }) onInput(panel.id, "line1", next)
-                        }, label = { Text("LCD line 1 (max 16)") }, singleLine = true)
-                        OutlinedTextField(line2, { next ->
-                            if (next.length <= 16 && next.all { it.code in 32..126 }) onInput(panel.id, "line2", next)
-                        }, label = { Text("LCD line 2 (max 16)") }, singleLine = true)
-                        OutlinedTextField(duration, { onInput(panel.id, "duration", it) },
-                            label = { Text("Duration (30–300 seconds)") }, singleLine = true)
-                        Button(
-                            enabled = !panel.loading && (line1.isNotEmpty() || line2.isNotEmpty()) &&
-                                (duration.toIntOrNull()?.let { it in 30..300 } == true),
-                            onClick = { onExecute(panel.id, panel.inputs + ("duration" to duration)) }
-                        ) { Text("Show on LCD") }
                     } else if (panel.id == "sound") {
                         var expanded by remember(panel.id) { mutableStateOf(false) }
                         var motifExpanded by remember(panel.id) { mutableStateOf(false) }
