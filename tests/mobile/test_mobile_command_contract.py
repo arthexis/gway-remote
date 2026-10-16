@@ -5,13 +5,13 @@ from gway_remote import mobile
 # This is deliberately independent of the implementation's OPERATIONS mapping.
 # Review every addition to this list as an API exposure/security change.
 EXPECTED_COMMANDS = frozenset({
-    "status", "status-quick", "probe-csms", "lcd-message", "sound-play",
+    "status", "status-quick", "probe-csms", "lcd-message", "sound-play", "sound-motifs",
     "simulator-discover", "simulator-start", "simulator-stop",
     "simulator-status", "simulator-results", "csms-view", "benchmark-echo",
     "codex-tasks", "codex-task", "codex-issues", "agent-issues", "agent-status", "agent-observe", "agent-issue", "agent-preview",
 })
 READ_ONLY = frozenset({
-    "status", "status-quick", "probe-csms", "simulator-discover",
+    "status", "status-quick", "probe-csms", "sound-motifs", "simulator-discover",
     "simulator-status", "simulator-results", "csms-view", "benchmark-echo",
     "codex-tasks", "codex-task", "codex-issues", "agent-issues", "agent-status", "agent-observe", "agent-preview",
 })

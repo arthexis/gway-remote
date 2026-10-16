@@ -2,6 +2,7 @@
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 import os
+import json
 import tempfile
 import subprocess
 import shutil
@@ -79,8 +80,10 @@ def commands():
             + [{"name": "simulator-discover", "read_only": True, "arguments": {
                 "host": {"type": "string", "required": False},
                 "port": {"type": "integer", "required": False}}},
+               {"name": "sound-motifs", "read_only": True, "arguments": {}},
                {"name": "sound-play", "read_only": False, "arguments": {
-                "sound": {"type": "choice", "choices": list(SOUNDS), "required": True}}},
+                "sound": {"type": "choice", "choices": list(SOUNDS), "required": True},
+                "motif": {"type": "string", "required": False}}},
                {"name": "lcd-message", "read_only": False, "arguments": {
                 "line1": {"type": "string", "max_length": 16, "required": True},
                 "line2": {"type": "string", "max_length": 16, "required": True},
@@ -114,15 +117,42 @@ def lcd_message(arguments):
     return {"queued": True, "duration_seconds": duration}
 
 
-def sound_play(arguments):
-    if not isinstance(arguments, dict) or set(arguments) != {"sound"} or arguments["sound"] not in SOUNDS:
-        raise ValueError("invalid_sound")
+def sound_motifs(arguments):
+    if arguments:
+        raise ValueError("invalid_arguments")
     try:
-        subprocess.run(["/usr/local/bin/sound", arguments["sound"]], check=True,
-                       timeout=8, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        completed = subprocess.run(["/usr/local/bin/sound", "--list-motifs"],
+                                   check=True, timeout=8, capture_output=True, text=True)
+        motifs = json.loads(completed.stdout)
+        if not isinstance(motifs, list) or any(not isinstance(m, str) for m in motifs):
+            raise ValueError("invalid motif list")
+    except (OSError, subprocess.CalledProcessError, subprocess.TimeoutExpired, ValueError):
+        raise RuntimeError("sound_motifs_failed")
+    return {"motifs": motifs}
+
+
+def sound_play(arguments):
+    if (not isinstance(arguments, dict) or set(arguments) - {"sound", "motif"} or
+            arguments.get("sound") not in SOUNDS):
+        raise ValueError("invalid_sound")
+    motif = arguments.get("motif")
+    if motif is not None and (not isinstance(motif, str) or
+                              not motif or motif.startswith("-") or len(motif) > 100 or
+                              any(c not in "abcdefghijklmnopqrstuvwxyz0123456789-_" for c in motif)):
+        raise ValueError("invalid_motif")
+    cmd = ["/usr/local/bin/sound"]
+    if motif:
+        cmd.extend(["--motif", motif])
+    cmd.append(arguments["sound"])
+    try:
+        subprocess.run(cmd, check=True, timeout=8,
+                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     except (OSError, subprocess.CalledProcessError, subprocess.TimeoutExpired):
         raise RuntimeError("sound_play_failed")
-    return {"played": arguments["sound"]}
+    result = {"played": arguments["sound"]}
+    if motif:
+        result["motif"] = motif
+    return result
 
 
 def codex_mobile(name, arguments):
@@ -165,6 +195,8 @@ def execute(name, arguments):
         if not isinstance(arguments, dict) or set(arguments) - {"host", "port"}:
             raise ValueError("invalid_arguments")
         return discover(**arguments)
+    if name == "sound-motifs":
+        return sound_motifs(arguments)
     if name == "sound-play":
         return sound_play(arguments)
     if name == "lcd-message":
