@@ -19,6 +19,8 @@ class GitHub:
         for repo, sha in self.heads.items():
             if path == f"repos/{repo}/branches/main":
                 return {"commit": {"sha": sha}}
+            if path == f"repos/{repo}/commits/{sha}":
+                return {"commit": {"committer": {"date": (NOW - timedelta(minutes=21)).isoformat()}}}
             if path.startswith(f"repos/{repo}/actions/runs?"):
                 return {"workflow_runs": [{
                     "head_sha": sha,

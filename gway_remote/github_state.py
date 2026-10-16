@@ -39,22 +39,20 @@ def main_head(client: GitHub, repository: str):
 
 
 def main_arrival(client: GitHub, repository: str, sha: str):
-    """Use the main push workflow run timestamp only when its head SHA matches.
+    """Use the main HEAD commit timestamp, independent of Actions history.
 
-    GitHub Actions may not exist for direct pushes. Missing evidence blocks
-    deployment rather than falling back to misleading commit author dates.
+    Squash/merge commits on main carry a committer timestamp. A direct push
+    may have an older timestamp, but still requires successful main CI.
     """
-    data = client.get(f"repos/{repository}/actions/runs?branch=main&event=push&per_page=50")
-    matching = [r for r in data.get("workflow_runs", [])
-                if r.get("head_sha", "").lower() == sha.lower()]
-    if not matching:
-        return None
-    return min(timestamp(r["created_at"]) for r in matching)
+    data = client.get(f"repos/{repository}/commits/{sha}")
+    commit = data.get("commit") or {}
+    date = (commit.get("committer") or {}).get("date")
+    return timestamp(date) if date else None
 
 
 def ci_for_head(client: GitHub, repository: str, sha: str):
     """Conservative status: all completed push workflow runs for this SHA must pass."""
-    data = client.get(f"repos/{repository}/actions/runs?branch=main&event=push&per_page=50")
+    data = client.get(f"repos/{repository}/actions/runs?branch=main&event=push&head_sha={sha}&per_page=100")
     runs = [r for r in data.get("workflow_runs", [])
             if r.get("head_sha", "").lower() == sha.lower()]
     if not runs:
