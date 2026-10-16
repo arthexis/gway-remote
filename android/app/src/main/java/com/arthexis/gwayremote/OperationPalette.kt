@@ -70,17 +70,9 @@ fun OperationPalette(
                         agentObserveError = agentObserveError,
                         onAgentObserve = onAgentObserve
                     )
-                    PanelActions(spec = spec, panel = panel, onRefresh = onRefresh)
-                    if (spec.policy == ExecutionPolicy.AUTO_READ) {
-                        // Read-only operations have no additional input or mutation controls.
-                    } else if (panel.id == "task-detail") {
-                        val taskId = panel.inputs["task_id"].orEmpty()
-                        OutlinedTextField(taskId, { onInput(panel.id, "task_id", it) },
-                            label = { Text("Task UUID") }, singleLine = true)
-                        Button(enabled = !panel.loading && TASK_UUID.matches(taskId),
-                            onClick = { onExecute(panel.id, mapOf("task_id" to taskId)) }) {
-                            Text("Inspect task")
-                        }
+                    PanelActions(spec = spec, panel = panel, onRefresh = onRefresh, onInput = onInput, onExecute = onExecute)
+                    if (spec.policy == ExecutionPolicy.AUTO_READ || panel.id == "task-detail") {
+                        // Common read and task-detail actions are rendered by PanelActions.
                     } else if (panel.id == "simulator-discover") {
                         val discovered = remember(panel.output) {
                             runCatching {
@@ -136,18 +128,15 @@ fun OperationPalette(
                             }
                         }
                         pending?.let { (command, args) ->
-                            AlertDialog(onDismissRequest = { pending = null },
-                                title = { Text("Confirm simulator operation") },
-                                text = { Text("Execute $command on the configured simulator?") },
-                                confirmButton = {
-                                    TextButton(onClick = {
-                                        pending = null
-                                        onSimulatorCommand(command, args)
-                                    }) { Text("Execute") }
+                            ConfirmPanelAction(
+                                title = "Confirm simulator operation",
+                                description = "Execute $command on the configured simulator?",
+                                onConfirm = {
+                                    pending = null
+                                    onSimulatorCommand(command, args)
                                 },
-                                dismissButton = {
-                                    TextButton(onClick = { pending = null }) { Text("Cancel") }
-                                })
+                                onCancel = { pending = null }
+                            )
                         }
                     } else if (panel.id == "csms-view") {
                         val views = listOf("status", "chargers", "charge-points", "transactions",
