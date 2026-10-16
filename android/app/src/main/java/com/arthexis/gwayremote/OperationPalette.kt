@@ -49,22 +49,14 @@ fun OperationPalette(
     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
         state.panels.forEachIndexed { position, panel ->
             val spec = OperationRegistry.get(panel.id) ?: return@forEachIndexed
-            OutlinedCard(Modifier.fillMaxWidth()) {
-                Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                        Text(spec.label, style = MaterialTheme.typography.titleMedium)
-                        Row {
-                            if (position > 0) TextButton(onClick = { onMove(panel.id, position - 1) }) {
-                                Text("↑")
-                            }
-                            if (position < state.panels.lastIndex) TextButton(onClick = { onMove(panel.id, position + 1) }) {
-                                Text("↓")
-                            }
-                            IconButton(onClick = { onClose(panel.id) }) { Text("×") }
-                        }
-                    }
-                    if (panel.loading) LinearProgressIndicator(Modifier.fillMaxWidth())
-                    panel.error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
+            StandardPanel(
+                spec = spec,
+                panel = panel,
+                position = position,
+                panelCount = state.panels.size,
+                onMove = onMove,
+                onClose = onClose
+            ) {
                     if (panel.id == "agent-ops") {
                         AgentOpsPanel(panel.output, agentSendLoading, agentSendResult, agentSendError, onAgentSend, onAgentCopyPrompt,
                             agentObserveLoading, agentObserveResult, agentObserveError, onAgentObserve)
@@ -240,7 +232,6 @@ fun OperationPalette(
                         Text("Controls remain available in the existing interface until UI-4.",
                             style = MaterialTheme.typography.bodySmall)
                     }
-                }
             }
         }
         OutlinedTextField(
