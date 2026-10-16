@@ -1,7 +1,8 @@
 package com.arthexis.gwayremote
 
 import androidx.compose.material3.*
-import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.*
+import androidx.compose.ui.unit.dp
 import androidx.compose.runtime.*
 
 /** Shared policy-driven actions; specialized controls remain in the palette. */
@@ -11,7 +12,8 @@ internal fun PanelActions(
     panel: OperationPanel,
     onRefresh: (String) -> Unit,
     onInput: (String, String, String) -> Unit,
-    onExecute: (String, Map<String, String>) -> Unit
+    onExecute: (String, Map<String, String>) -> Unit,
+    motifs: List<String>
 ) {
     when (spec.policy) {
         ExecutionPolicy.AUTO_READ ->
@@ -89,6 +91,43 @@ internal fun PanelActions(
                         onExecute(panel.id, LcdInput.payload(panel.inputs))
                     }
                 ) { Text("Show on LCD") }
+            } else if (panel.id == "sound") {
+                var soundExpanded by remember(panel.id) { mutableStateOf(false) }
+                var motifExpanded by remember(panel.id) { mutableStateOf(false) }
+                val sound = SoundInput.sound(panel.inputs)
+                val motif = SoundInput.motif(panel.inputs)
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Box {
+                        OutlinedButton(onClick = { motifExpanded = true }) {
+                            Text("Motif: ${motif.ifEmpty { "None" }} ▾")
+                        }
+                        DropdownMenu(expanded = motifExpanded, onDismissRequest = { motifExpanded = false }) {
+                            (listOf("") + motifs).distinct().forEach { name ->
+                                DropdownMenuItem(text = { Text(name.ifEmpty { "None" }) }, onClick = {
+                                    onInput(panel.id, "motif", name)
+                                    motifExpanded = false
+                                })
+                            }
+                        }
+                    }
+                    Box {
+                        OutlinedButton(onClick = { soundExpanded = true }) {
+                            Text("Sound: $sound ▾")
+                        }
+                        DropdownMenu(expanded = soundExpanded, onDismissRequest = { soundExpanded = false }) {
+                            SoundInput.choices.forEach { name ->
+                                DropdownMenuItem(text = { Text(name) }, onClick = {
+                                    onInput(panel.id, "sound", name)
+                                    soundExpanded = false
+                                })
+                            }
+                        }
+                    }
+                }
+                Button(
+                    enabled = SoundInput.canExecute(panel.inputs, motifs, panel.loading),
+                    onClick = { onExecute(panel.id, SoundInput.payload(panel.inputs)) }
+                ) { Text("Play sound") }
             }
         }
         ExecutionPolicy.CONFIRM -> Unit // Specialized confirmation controls migrate separately.

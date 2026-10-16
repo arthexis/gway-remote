@@ -70,8 +70,8 @@ fun OperationPalette(
                         agentObserveError = agentObserveError,
                         onAgentObserve = onAgentObserve
                     )
-                    PanelActions(spec = spec, panel = panel, onRefresh = onRefresh, onInput = onInput, onExecute = onExecute)
-                    if (spec.policy == ExecutionPolicy.AUTO_READ || panel.id == "task-detail" || panel.id == "csms-view" || panel.id == "lcd") {
+                    PanelActions(spec = spec, panel = panel, onRefresh = onRefresh, onInput = onInput, onExecute = onExecute, motifs = motifs)
+                    if (spec.policy == ExecutionPolicy.AUTO_READ || panel.id == "task-detail" || panel.id == "csms-view" || panel.id == "lcd" || panel.id == "sound") {
                         // Common read and task-detail actions are rendered by PanelActions.
                     } else if (panel.id == "simulator-discover") {
                         val discovered = remember(panel.output) {
@@ -137,42 +137,6 @@ fun OperationPalette(
                                 },
                                 onCancel = { pending = null }
                             )
-                        }
-                    } else if (panel.id == "sound") {
-                        var expanded by remember(panel.id) { mutableStateOf(false) }
-                        var motifExpanded by remember(panel.id) { mutableStateOf(false) }
-                        val choices = listOf("ok", "notice", "attention", "warning", "error", "busy", "critical")
-                        val sound = panel.inputs["sound"].orEmpty().ifEmpty { "notice" }
-                        val motif = panel.inputs["motif"].orEmpty()
-                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Box {
-                            OutlinedButton(onClick = { motifExpanded = true }) {
-                                Text("Motif: ${motif.ifEmpty { "None" }} ▾")
-                            }
-                            DropdownMenu(expanded = motifExpanded, onDismissRequest = { motifExpanded = false }) {
-                                (listOf("") + motifs).distinct().forEach { name ->
-                                    DropdownMenuItem(text = { Text(name.ifEmpty { "None" }) }, onClick = {
-                                        onInput(panel.id, "motif", name)
-                                        motifExpanded = false
-                                    })
-                                }
-                            }
-                        }
-                        Box {
-                            OutlinedButton(onClick = { expanded = true }) { Text("Sound: $sound ▾") }
-                            DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
-                                choices.forEach { name ->
-                                    DropdownMenuItem(text = { Text(name) }, onClick = {
-                                        onInput(panel.id, "sound", name)
-                                        expanded = false
-                                    })
-                                }
-                            }
-                        }
-                        }
-                        Button(enabled = !panel.loading && sound in choices && (motif.isEmpty() || motif in motifs),
-                            onClick = { onExecute(panel.id, mapOf("sound" to sound, "motif" to motif)) }) {
-                            Text("Play sound")
                         }
                     } else {
                         Text("Controls remain available in the existing interface until UI-4.",
