@@ -15,11 +15,13 @@ class ApplianceWorkflowTests(unittest.TestCase):
         self.assertNotIn("GH_TOKEN", report)
         self.assertNotIn("GWAY_REMOTE_AUTO_ENABLED", report)
 
-    def test_deployment_manual_override_and_scheduled_gating(self):
+    def test_deployment_manual_override_and_default_schedule(self):
         deploy = (WORKFLOWS / "appliance-deploy.yml").read_text()
         self.assertIn("workflow_dispatch:", deploy)
         self.assertIn("schedule:", deploy)
-        self.assertIn("GWAY_REMOTE_AUTO_ENABLED", deploy)
+        self.assertNotIn("GWAY_REMOTE_AUTO_ENABLED", deploy)
+        self.assertIn("github.event_name == 'schedule'", deploy)
+        self.assertIn("github.event_name == 'workflow_dispatch'", deploy)
         self.assertIn("github.actor == 'arthexis'", deploy)
         self.assertIn("deploy-batch --now", deploy)
         self.assertIn("deploy-batch --now --retry-failed", deploy)
