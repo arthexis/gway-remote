@@ -70,8 +70,9 @@ fun OperationPalette(
                         agentObserveError = agentObserveError,
                         onAgentObserve = onAgentObserve
                     )
+                    PanelActions(spec = spec, panel = panel, onRefresh = onRefresh)
                     if (spec.policy == ExecutionPolicy.AUTO_READ) {
-                        TextButton(onClick = { onRefresh(panel.id) }, enabled = !panel.loading) { Text("Refresh") }
+                        // Read-only operations have no additional input or mutation controls.
                     } else if (panel.id == "task-detail") {
                         val taskId = panel.inputs["task_id"].orEmpty()
                         OutlinedTextField(taskId, { onInput(panel.id, "task_id", it) },
