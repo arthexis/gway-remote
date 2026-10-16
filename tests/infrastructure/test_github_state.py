@@ -16,6 +16,8 @@ class FakeGitHub:
     def get(self, path):
         if path.endswith("/branches/main"):
             return {"commit": {"sha": "a" * 40}}
+        if "/commits/" in path:
+            return {"commit": {"committer": {"date": "2026-10-09T11:00:00Z"}}}
         if "/actions/runs?" in path:
             return {"workflow_runs": [{
                 "head_sha": "a" * 40, "created_at": "2026-10-09T11:00:00Z",
