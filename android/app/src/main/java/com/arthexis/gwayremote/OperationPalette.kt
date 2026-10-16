@@ -29,6 +29,7 @@ fun OperationPalette(
     onRefresh: (String) -> Unit,
     onInput: (String, String, String) -> Unit,
     onExecute: (String, Map<String, String>) -> Unit,
+    motifs: List<String>,
     benchmarkContent: @Composable () -> Unit,
     simulatorStatus: String,
     onSimulatorCommand: (String, JSONObject) -> Unit,
@@ -201,8 +202,24 @@ fun OperationPalette(
                         ) { Text("Show on LCD") }
                     } else if (panel.id == "sound") {
                         var expanded by remember(panel.id) { mutableStateOf(false) }
+                        var motifExpanded by remember(panel.id) { mutableStateOf(false) }
                         val choices = listOf("ok", "notice", "attention", "warning", "error", "busy", "critical")
                         val sound = panel.inputs["sound"].orEmpty().ifEmpty { "notice" }
+                        val motif = panel.inputs["motif"].orEmpty()
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Box {
+                            OutlinedButton(onClick = { motifExpanded = true }) {
+                                Text("Motif: ${motif.ifEmpty { "None" }} ▾")
+                            }
+                            DropdownMenu(expanded = motifExpanded, onDismissRequest = { motifExpanded = false }) {
+                                (listOf("") + motifs).distinct().forEach { name ->
+                                    DropdownMenuItem(text = { Text(name.ifEmpty { "None" }) }, onClick = {
+                                        onInput(panel.id, "motif", name)
+                                        motifExpanded = false
+                                    })
+                                }
+                            }
+                        }
                         Box {
                             OutlinedButton(onClick = { expanded = true }) { Text("Sound: $sound ▾") }
                             DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
@@ -214,8 +231,9 @@ fun OperationPalette(
                                 }
                             }
                         }
-                        Button(enabled = !panel.loading && sound in choices,
-                            onClick = { onExecute(panel.id, mapOf("sound" to sound)) }) {
+                        }
+                        Button(enabled = !panel.loading && sound in choices && (motif.isEmpty() || motif in motifs),
+                            onClick = { onExecute(panel.id, mapOf("sound" to sound, "motif" to motif)) }) {
                             Text("Play sound")
                         }
                     } else {
