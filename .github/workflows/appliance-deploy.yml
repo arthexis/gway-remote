@@ -1,6 +1,18 @@
 name: Appliance Deploy
 on:
   workflow_dispatch:
+    inputs:
+      repository:
+        description: Repository to deploy
+        type: choice
+        required: true
+        default: all
+        options:
+          - all
+          - ocpp-csms
+          - ocpp-simulator
+          - gway-lcd-sound
+          - gway-agent-ops
 
 permissions:
   contents: read
@@ -11,7 +23,7 @@ concurrency:
 
 jobs:
   deploy:
-    name: Gway-001 appliance deployment
+    name: Gway-001 / ${{ inputs.repository }} deployment
     if: github.event_name == 'workflow_dispatch' && github.actor == 'arthexis'
     runs-on: [self-hosted, Linux, ARM64, gway-001]
     timeout-minutes: 60
@@ -26,7 +38,11 @@ jobs:
         shell: bash
         run: |
           set +e
-          python3 -m gway_remote deploy-batch --all
+          if [[ "${{ inputs.repository }}" == "all" ]]; then
+            python3 -m gway_remote deploy-batch --all
+          else
+            python3 -m gway_remote deploy-batch --all --target "${{ inputs.repository }}"
+          fi
           code=$?
           echo "exit_code=$code" >> "$GITHUB_OUTPUT"
           echo "Deployment batch exit code: $code" >> "$GITHUB_STEP_SUMMARY"
