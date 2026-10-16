@@ -57,23 +57,18 @@ fun OperationPalette(
                 onMove = onMove,
                 onClose = onClose
             ) {
-                    if (panel.id == "agent-ops") {
-                        AgentOpsPanel(panel.output, agentSendLoading, agentSendResult, agentSendError, onAgentSend, onAgentCopyPrompt,
-                            agentObserveLoading, agentObserveResult, agentObserveError, onAgentObserve)
-                    } else if (panel.id == "tasks") {
-                        TaskHistoryPanel(panel.output, onInspectTask)
-                    } else if (panel.id == "task-detail") {
-                        TaskDetailPanel(panel.output)
-                    } else if (panel.id == "simulator-results") {
-                        SimulatorResultsPanel(panel.output)
-                    } else if (panel.id == "simulator-status") {
-                        SimulatorStatusPanel(panel.output)
-                    } else if (panel.id == "csms") {
-                        CsmsHealthPanel(panel.output)
-                    } else if (panel.id == "csms-view") {
-                        CsmsInspectionPanel(panel.output)
-                    } else {
-                        panel.output?.let { GenericResultRenderer(it) }
+                    when (PanelContentRegistry.kind(panel.id)) {
+                        PanelContentKind.AGENT_OPS ->
+                            AgentOpsPanel(panel.output, agentSendLoading, agentSendResult, agentSendError,
+                                onAgentSend, onAgentCopyPrompt, agentObserveLoading, agentObserveResult,
+                                agentObserveError, onAgentObserve)
+                        PanelContentKind.TASK_HISTORY -> TaskHistoryPanel(panel.output, onInspectTask)
+                        PanelContentKind.TASK_DETAIL -> TaskDetailPanel(panel.output)
+                        PanelContentKind.SIMULATOR_RESULTS -> SimulatorResultsPanel(panel.output)
+                        PanelContentKind.SIMULATOR_STATUS -> SimulatorStatusPanel(panel.output)
+                        PanelContentKind.CSMS_HEALTH -> CsmsHealthPanel(panel.output)
+                        PanelContentKind.CSMS_INSPECTION -> CsmsInspectionPanel(panel.output)
+                        PanelContentKind.GENERIC -> panel.output?.let { GenericResultRenderer(it) }
                     }
                     if (spec.policy == ExecutionPolicy.AUTO_READ) {
                         TextButton(onClick = { onRefresh(panel.id) }, enabled = !panel.loading) { Text("Refresh") }
