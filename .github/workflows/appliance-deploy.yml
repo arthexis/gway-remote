@@ -47,6 +47,10 @@ jobs:
           fi
           code=$?
           echo "exit_code=$code" >> "$GITHUB_OUTPUT"
+          echo "Deployment batch exit code: $code" >> "$GITHUB_STEP_SUMMARY"
+          if [[ "$code" != 0 ]]; then
+            echo "::error::Deployment batch failed; inspect the sanitized report and installation logs artifact"
+          fi
           exit 0
       - name: Export read-only sanitized report
         if: always()
