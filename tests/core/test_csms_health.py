@@ -44,6 +44,38 @@ class HealthTests(unittest.TestCase):
         self.assertTrue(result["healthy"])
         self.assertEqual(result["executable"], str(self.exe))
 
+    def test_default_uses_active_storage_selected_by_csms(self):
+        # No override: the CLI resolves the active schema directory itself.
+        with patch("pathlib.Path.home", return_value=self.root):
+            result = csms_probe(runner=self.runner, executable=self.exe)
+        self.assertTrue(result["healthy"])
+        self.assertEqual(result["data_dir"], "auto")
+        self.assertEqual(self.commands, [
+            ["systemctl", "is-active", "ocpp-csms.service"],
+            [str(self.exe), "status", "--json"],
+        ])
+
+    def test_explicit_storage_override_is_forwarded(self):
+        result = csms_probe(runner=self.runner, executable=self.exe, data_dir=self.data)
+        self.assertTrue(result["healthy"])
+        self.assertEqual(result["data_dir"], str(self.data))
+        self.assertEqual(self.commands[-1], [
+            str(self.exe), "--data-dir", str(self.data), "status", "--json",
+        ])
+
+    def test_default_does_not_require_legacy_parent_directory(self):
+        # Only the CLI can determine whether its active schema storage is healthy.
+        with patch("pathlib.Path.home", return_value=self.root):
+            result = csms_probe(runner=self.runner, executable=self.exe)
+        self.assertTrue(result["healthy"])
+
+    def test_explicit_missing_storage_rejected_before_invoking_cli(self):
+        missing = self.root / "missing"
+        result = csms_probe(runner=self.runner, executable=self.exe, data_dir=missing)
+        self.assertFalse(result["healthy"])
+        self.assertEqual(result["reason"], "data directory missing")
+        self.assertEqual(self.commands, [])
+
     def test_healthy_even_during_active_charge(self):
         self.assertTrue(self.check())
         self.assertEqual(self.commands[0], ["systemctl", "is-active", "ocpp-csms.service"])
