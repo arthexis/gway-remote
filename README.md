@@ -104,7 +104,7 @@ publish them directly.
 The **Appliance Report** workflow is a strictly read-only, owner-dispatched
 snapshot. The separate **Appliance Deploy** workflow permits explicit manual
 installation, bypassing only the quiet period; a five-minute scheduled poll
-is enabled only with `GWAY_REMOTE_AUTO_ENABLED=true`. Both workflows publish
+runs automatically on the default branch. Both workflows publish
 a Markdown summary and a 14-day artifact containing
 `status.json`, `summary.json`, `summary.md`, and bounded, sanitized
 installation logs. The report workflow never runs an installer.
@@ -122,7 +122,7 @@ enabled by these reporting commands.
 
 ## Automatic polling
 
-The **Appliance Deploy** workflow polls every five minutes on the default branch, but automatic deployment is disabled unless the repository variable `GWAY_REMOTE_AUTO_ENABLED` equals `true`. Keep this unset until field validation. Automatic batches enforce the shared quiet period and one attempt per revision; an explicit manual invocation bypasses only the quiet period, not CI, SHA verification, or the deployment lock. Scheduled polling never runs from a PR branch.
+The **Appliance Deploy** workflow polls every five minutes on the default branch without an enable variable. Automatic batches enforce the shared quiet period and one attempt per revision; an explicit manual invocation bypasses only the quiet period, not CI, SHA verification, or the deployment lock. Scheduled polling never runs from a PR branch.
 
 ## Ansible CLI provisioning (opt-in)
 
@@ -141,10 +141,10 @@ The role defaults to the runner account `arthe` and installation root
 `/opt/gway-remote`. Override `gway_remote_runner_user` if necessary.
 The CLI reads the attempt journal in that account's home directory.
 
-Before activating scheduled deployment, verify the runner account, read-only
-report artifacts, global CLI, cross-repository read token, and live-charge
-protection on Gway-001. Leave `GWAY_REMOTE_AUTO_ENABLED` unset until
-that field validation is complete.
+Verify the runner account, read-only report artifacts, global CLI,
+cross-repository read token, and live-charge protection on Gway-001.
+Scheduled deployment is enabled by default; CI, quiet-period, and deployment
+safety checks remain in force.
 
 ## Automatic GWay Remote backend installation
 

@@ -20,7 +20,7 @@ concurrency:
 jobs:
   deploy:
     name: Gway-001 appliance deployment
-    if: (github.event_name == 'schedule' && vars.GWAY_REMOTE_AUTO_ENABLED == 'true') || (github.event_name == 'workflow_dispatch' && github.actor == 'arthexis')
+    if: (github.event_name == 'schedule') || (github.event_name == 'workflow_dispatch' && github.actor == 'arthexis')
     runs-on: [self-hosted, Linux, ARM64, gway-001]
     timeout-minutes: 60
     steps:
