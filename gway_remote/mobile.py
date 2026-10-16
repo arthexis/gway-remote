@@ -149,7 +149,10 @@ def sound_play(arguments):
                        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     except (OSError, subprocess.CalledProcessError, subprocess.TimeoutExpired):
         raise RuntimeError("sound_play_failed")
-    return {"played": arguments["sound"], "motif": motif}
+    result = {"played": arguments["sound"]}
+    if motif:
+        result["motif"] = motif
+    return result
 
 
 def codex_mobile(name, arguments):
