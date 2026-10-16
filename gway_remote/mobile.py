@@ -137,7 +137,7 @@ def sound_play(arguments):
         raise ValueError("invalid_sound")
     motif = arguments.get("motif")
     if motif is not None and (not isinstance(motif, str) or
-                              not motif or len(motif) > 100 or
+                              not motif or motif.startswith("-") or len(motif) > 100 or
                               any(c not in "abcdefghijklmnopqrstuvwxyz0123456789-_" for c in motif)):
         raise ValueError("invalid_motif")
     cmd = ["/usr/local/bin/sound"]
