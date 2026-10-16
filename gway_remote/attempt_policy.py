@@ -1,4 +1,4 @@
-"""Pure best-effort policy: each merged SHA is automatically attempted at most once."""
+"""Pure best-effort policy: failed revisions require explicit owner retry."""
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 
@@ -24,7 +24,7 @@ class Plan:
 
 
 def plan(candidates, now, *, bypass_quiet=False):
-    """An unknown attempt is eligible once; an interrupted attempt is not retried."""
+    """An unknown attempt is eligible once; failed or interrupted attempts need explicit retry."""
     if now.tzinfo is None or now.utcoffset() is None:
         raise ValueError("now must be timezone-aware")
     by_name = {c.name: c for c in candidates}
