@@ -48,3 +48,27 @@ Status: design only; no runtime behavior changes.
 - Confirm Android camera API choice and permission behavior on supported versions.
 
 Stage 1 does not create a database, endpoint, panel or camera functionality.
+
+## Verified Kotlin class-level integration (inspection follow-up)
+
+- `OperationRegistry.kt`: `OperationSpec(id, label, icon, keywords, policy, command)`; IDs must be stable kebab-case and unique. Add separate `archive` and `qr-scanner` specs. Archive read may be `AUTO_READ` with `archive-list`; QR scanner must **not** be `AUTO_READ`, since opening a panel must not activate the camera.
+- `OperationPanels.kt`: `OperationPanelState.open()` places new panels first and prevents duplicate IDs. `close()`, `move()`, `start()/complete()/fail()` and revision tokens isolate state and reject stale responses. `restore()` does not rerun operations. Keep QR camera lifecycle separate from this pure immutable state model.
+- `OperationPalette.kt`: renders independent `OutlinedCard` panels and palette buttons from `state.unopened(filter)`. It has explicit specialized branches for task, simulator and CSMS panels. Add `ArchivePanel` and `QrScannerPanel` composables here (prefer separate files) and callbacks for archive actions. No new top-level navigation needed.
+- `MainActivity.kt`: `CompanionScreen` owns `panelState`, opens panels via `OperationPalette.onOpen`, runs auto-reads with `runPanelRead`, and executes explicit operations via callbacks. Wire archive list/refresh and QR save here, preserving revision checks and independent open panels. Closing QR panel must release camera; panel close alone currently just removes state.
+- `ApiClient.kt`: `request(path, command?, arguments?, timeoutMs?)` supports authenticated HTTPS JSON only, disallows redirects, and validates host/protocol. Add explicit bounded binary transfer methods; do not retrofit photo uploads into JSON or permit cross-host redirects.
+- `gway_remote/mobile.py`: `execute(name, arguments)` is a closed if-chain and `commands()` advertises schemas. Archive handlers should validate types/keys per command and be explicitly registered. Existing default `OPERATIONS` path rejects any arguments.
+- `gway_remote/api.py`: currently only GET health/commands and POST execute. Attachment routes need deliberate routing and authorization; avoid expanding the global 8 KiB JSON request limit.
+
+### Revised implementation decisions
+1. Add two palette buttons, not a new navigation section. Multiple panels stay open; QR saves without opening Archive.
+2. Add a typed Archive panel that parses structured results, not a raw JSON dump. Its list refresh can be signaled after successful save while preserving other panel state.
+3. Implement QR scanner as an interactive Compose panel with explicit start/stop, permission handling and camera disposal. Opening the panel must not launch permission or camera automatically.
+4. Keep archive operation results and attachment transfer distinct in the client. The existing `ApiClient.request` remains unchanged for existing commands.
+5. Preserve `OperationPanelState` as pure model; avoid storing camera resources, image bytes, or network handles in it.
+
+### Additional test targets
+- `OperationRegistry`: unique stable IDs and correct non-auto policy for QR.
+- `OperationPanelState`: Archive and QR simultaneously open; closing one preserves the other; stale results ignored after reopen.
+- `OperationPalette`: correct specialized panel selection and independent refresh.
+- `ApiClient`: upload/download host validation, bearer authorization, bounded transfer, no redirects.
+- `mobile.execute`: explicit archive command allowlist and invalid arguments rejected.
