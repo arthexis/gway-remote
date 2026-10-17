@@ -66,38 +66,9 @@ def operate(action):
     if action.startswith("promote:"):
         sha = action.split(":", 1)[1]
         source = validated_source(sha)
-        backup = STATE / "previous"
-        metadata = STATE / "previous.json"
-        for path in PUBLIC:
-            if not path.is_symlink() or path.resolve(strict=True) != TARGET:
-                raise ValueError("Unexpected public sound entry point")
-        if TARGET.is_file() and not TARGET.is_symlink():
-            original = TARGET.stat()
-            atomic_copy(TARGET, backup, original.st_mode & 0o777)
-            temporary = STATE / "previous.json.tmp"
-            temporary.write_text(json.dumps({"sha256": digest(backup), "mode": original.st_mode & 0o777,
-                                            "uid": original.st_uid, "gid": original.st_gid, "release": sha}))
-            os.replace(temporary, metadata)
-        else:
-            raise ValueError("Existing public player missing")
         atomic_copy(source, TARGET)
         os.chown(TARGET, 0, 0)
         print(json.dumps({"release": sha, "sha256": digest(TARGET)}))
-    elif action.startswith("restore:"):
-        sha = action.split(":", 1)[1]
-        if not SHA.fullmatch(sha):
-            raise ValueError("Invalid restore SHA")
-        backup, metadata = STATE / "previous", STATE / "previous.json"
-        if not backup.is_file() or backup.is_symlink() or not metadata.is_file():
-            raise ValueError("No valid previous public player")
-        info = json.loads(metadata.read_text())
-        if info.get("release") != sha:
-            raise ValueError("No backup for requested release")
-        if digest(backup) != info["sha256"]:
-            raise ValueError("Backup checksum mismatch")
-        atomic_copy(backup, TARGET, info["mode"])
-        os.chown(TARGET, info["uid"], info["gid"])
-        print(json.dumps({"restored_sha256": digest(TARGET)}))
     else:
         raise ValueError("Unknown operation")
 
