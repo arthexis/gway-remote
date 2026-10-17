@@ -69,11 +69,11 @@ def main(argv):
                                             "uid": TARGET.stat().st_uid, "gid": TARGET.stat().st_gid}))
         else:
             raise ValueError("Existing public player missing")
-        atomic_copy(source, TARGET)
-        os.chown(TARGET, 0, 0)
         for path in PUBLIC:
             if not path.is_symlink() or path.resolve(strict=True) != TARGET:
                 raise ValueError("Unexpected public sound entry point")
+        atomic_copy(source, TARGET)
+        os.chown(TARGET, 0, 0)
         print(json.dumps({"release": sha, "sha256": digest(TARGET)}))
     elif action == "restore":
         backup, metadata = STATE / "previous", STATE / "previous.json"
