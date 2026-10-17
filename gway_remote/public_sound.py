@@ -41,5 +41,7 @@ def promote(sha: str, *, release_root=None, execute=subprocess.run) -> str:
     return hashlib.sha256(installed).hexdigest()
 
 
-def restore(*, execute=subprocess.run) -> None:
-    execute(["sudo", "-n", HELPER, "restore"], check=True, timeout=60)
+def restore(sha: str, *, execute=subprocess.run) -> None:
+    if not SHA.fullmatch(sha):
+        raise ValueError("Expected pinned full release SHA")
+    execute(["sudo", "-n", HELPER, f"restore:{sha}"], check=True, timeout=60)
