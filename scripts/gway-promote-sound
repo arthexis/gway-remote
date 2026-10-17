@@ -5,6 +5,9 @@ sudoers must permit ONLY this executable, never python or shell directly.
 """
 import hashlib
 import json
+import fcntl
+import subprocess
+import stat
 import os
 from pathlib import Path
 import re
@@ -33,6 +36,21 @@ def validated_source(sha):
     source = release / "scripts/gway/sound.sh"
     if source.is_symlink() or not source.is_file() or not (source.stat().st_mode & 0o111):
         raise ValueError("Pinned sound player unavailable")
+    # The release is user-writable: verify against the immutable git object
+    # from the pinned revision, not only the mutable current symlink.
+    result = subprocess.run(
+        ["git", "-C", str(release), "hash-object", "--", str(source)],
+        check=True, capture_output=True, text=True, timeout=10)
+    checkout = subprocess.run(
+        ["git", "-C", str(release), "rev-parse", "HEAD"],
+        check=True, capture_output=True, text=True, timeout=10)
+    if checkout.stdout.strip() != sha:
+        raise ValueError("Release commit does not match pinned SHA")
+    original = subprocess.run(
+        ["git", "-C", str(release), "rev-parse", f"{sha}:scripts/gway/sound.sh"],
+        check=True, capture_output=True, text=True, timeout=10)
+    if result.stdout.strip() != original.stdout.strip():
+        raise ValueError("Release player differs from pinned git object")
     return source
 
 
