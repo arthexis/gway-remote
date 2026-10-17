@@ -76,7 +76,7 @@ class BestEffortTests(unittest.TestCase):
 
     def test_failure_stops_batch_without_retry(self):
         execute(self.client, NOW, self.installers(("ocpp-simulator",)), self.path)
-        self.assertEqual(self.calls, ["ocpp-csms", "ocpp-simulator"])
+        self.assertEqual(self.calls, [name for name, _ in TARGETS[:next(i for i, (name, _) in enumerate(TARGETS) if name == "ocpp-simulator") + 1]])
         self.assertEqual(read_attempts(self.path)["ocpp-simulator"]["status"], "failed")
         execute(self.client, NOW, self.installers(), self.path)
         self.assertEqual(self.calls, [name for name, _ in TARGETS])
