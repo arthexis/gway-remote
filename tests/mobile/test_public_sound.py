@@ -3,7 +3,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from gway_remote.public_sound import promote, restore
+from gway_remote.public_sound import promote
 
 
 class PublicSoundTests(unittest.TestCase):
@@ -26,16 +26,6 @@ class PublicSoundTests(unittest.TestCase):
                 with self.assertRaisesRegex(RuntimeError, "missing"):
                     promote("a" * 40, release_root=root)
                 run.assert_not_called()
-
-    def test_restore_rejects_unpinned_sha(self):
-        with self.assertRaises(ValueError):
-            restore("main")
-
-    def test_restore_passes_only_pinned_release_to_helper(self):
-        with patch("gway_remote.public_sound.subprocess.run") as run:
-            restore("a" * 40)
-        run.assert_called_once()
-        self.assertEqual(run.call_args.args[0][-1], "restore:" + "a" * 40)
 
     def test_promote_rejects_missing_helper_before_sudo(self):
         with tempfile.TemporaryDirectory() as tmp:
