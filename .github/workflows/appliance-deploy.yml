@@ -10,6 +10,7 @@ on:
         options:
           - all
           - ocpp-csms
+          - ocpp-reports
           - ocpp-simulator
           - gway-lcd-sound
           - gway-agent-ops
@@ -40,9 +41,27 @@ jobs:
           set -euo pipefail
           python3 -m gway_remote deploy-batch --all --target ocpp-csms
 
+  ocpp_reports:
+    name: Deploy ocpp-reports
+    needs: ocpp_csms
+    if: ${{ always() && github.event_name == 'workflow_dispatch' && github.actor == 'arthexis' && (inputs.repository == 'all' || inputs.repository == 'ocpp-reports') }}
+    runs-on: [self-hosted, Linux, ARM64, gway-001]
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Deploy ocpp-reports
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GWAY_REMOTE_DISPATCH_TOKEN }}
+        run: |
+          set -euo pipefail
+          python3 -m gway_remote deploy-batch --all --target ocpp-reports
+
   ocpp_simulator:
     name: Deploy ocpp-simulator
-    needs: ocpp_csms
+    needs: ocpp_reports
     if: ${{ always() && github.event_name == 'workflow_dispatch' && github.actor == 'arthexis' && (inputs.repository == 'all' || inputs.repository == 'ocpp-simulator') }}
     runs-on: [self-hosted, Linux, ARM64, gway-001]
     timeout-minutes: 30
@@ -114,7 +133,7 @@ jobs:
 
   report:
     name: Export appliance deployment report
-    needs: [ocpp_csms, ocpp_simulator, gway_lcd_sound, gway_agent_ops, gway_ap_kiosk]
+    needs: [ocpp_csms, ocpp_reports, ocpp_simulator, gway_lcd_sound, gway_agent_ops, gway_ap_kiosk]
     if: ${{ always() && github.event_name == 'workflow_dispatch' && github.actor == 'arthexis' }}
     runs-on: [self-hosted, Linux, ARM64, gway-001]
     timeout-minutes: 10

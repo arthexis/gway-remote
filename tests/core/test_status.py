@@ -28,8 +28,12 @@ class StatusTests(unittest.TestCase):
                               ("gway-lcd-sound", "started")):
             mark(name, "a" * 40, outcome, self.path)
         result = status(self.path, probe=lambda _: False)
-        self.assertEqual([x["installation"] for x in result["components"]],
-                         ["installed", "failed", "interrupted"] + ["never-attempted"] * (len(TARGETS) - 3))
+        outcomes = {x["name"]: x["installation"] for x in result["components"]}
+        self.assertEqual(outcomes["ocpp-csms"], "installed")
+        self.assertEqual(outcomes["ocpp-simulator"], "failed")
+        self.assertEqual(outcomes["gway-lcd-sound"], "interrupted")
+        self.assertTrue(all(value == "never-attempted" for name, value in outcomes.items()
+                            if name not in {"ocpp-csms", "ocpp-simulator", "gway-lcd-sound"}))
         self.assertIn("ocpp-csms", format_status(result))
 
     def test_bad_journal(self):
