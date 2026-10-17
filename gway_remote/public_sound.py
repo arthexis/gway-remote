@@ -27,7 +27,10 @@ def promote(sha: str, *, release_root=None, execute=subprocess.run) -> str:
         raise RuntimeError("Pinned public sound player is missing or not executable")
     if not Path(HELPER).is_file():
         raise RuntimeError("Privileged sound promotion helper is missing")
+    expected_checksum = hashlib.sha256(player.read_bytes()).hexdigest()
     execute(["sudo", "-n", HELPER, f"promote:{sha}"], check=True, timeout=60)
+    if hashlib.sha256(player.read_bytes()).hexdigest() != expected_checksum:
+        raise RuntimeError("Pinned source changed during promotion")
     installed = PLAYER.read_bytes()
     if hashlib.sha256(installed).digest() != hashlib.sha256(player.read_bytes()).digest():
         raise RuntimeError("Public player checksum differs from pinned release")
