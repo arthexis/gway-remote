@@ -1,0 +1,86 @@
+#!/usr/bin/env python3
+"""Root-owned, fixed-purpose public sound promoter. Install as root:root 0755.
+
+sudoers must permit ONLY this executable, never python or shell directly.
+"""
+import os
+import hashlib
+import json
+from pathlib import Path
+import re
+import sys
+import tempfile
+import pwd
+
+ROOT = None
+
+
+def release_root():
+    if ROOT is not None:
+        return ROOT
+    uid = os.environ.get("SUDO_UID")
+    if uid is None:
+        raise ValueError("SUDO_UID is required for public sound promotion")
+    return Path(pwd.getpwuid(int(uid)).pw_dir) / ".local/share/gway-lcd-sound"
+TARGET = Path("/usr/local/libexec/gway-home-tools/sound.sh")
+PUBLIC = (Path("/usr/local/bin/sound"), Path("/usr/local/bin/sound.sh"))
+SHA = re.compile(r"[0-9a-f]{40}$")
+
+
+def validated_source(sha):
+    if not SHA.fullmatch(sha):
+        raise ValueError("Invalid pinned SHA")
+    root = release_root()
+    release = root / "releases" / sha[:12]
+    current = root / "current"
+    if not current.is_symlink() or current.resolve(strict=True) != release.resolve(strict=True):
+        raise ValueError("Active release does not match pinned SHA")
+    source = release / "scripts/gway/sound.sh"
+    if source.is_symlink() or not source.is_file() or not (source.stat().st_mode & 0o111):
+        raise ValueError("Pinned sound player unavailable")
+    return source
+
+
+def atomic_copy(source, destination, mode=0o755):
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    fd, temp = tempfile.mkstemp(prefix=".sound-", dir=destination.parent)
+    try:
+        with os.fdopen(fd, "wb") as stream:
+            stream.write(source.read_bytes())
+            stream.flush()
+            os.fsync(stream.fileno())
+        os.chmod(temp, mode)
+        os.replace(temp, destination)
+    finally:
+        if os.path.exists(temp):
+            os.unlink(temp)
+
+
+def main(argv):
+    if os.geteuid() != 0 or len(argv) != 2:
+        raise ValueError("Requires root and exactly one operation argument")
+    action = argv[1]
+    operate(action)
+
+def operate(action):
+    if action.startswith("promote:"):
+        sha = action.split(":", 1)[1]
+        source = validated_source(sha)
+        for path in PUBLIC:
+            if not path.is_symlink() or path.resolve(strict=True) != TARGET:
+                raise ValueError("Unexpected public sound entry point")
+        if TARGET.is_symlink() or not TARGET.is_file():
+            raise ValueError("Public sound target must be a regular file")
+        atomic_copy(source, TARGET)
+        os.chown(TARGET, 0, 0)
+        print(json.dumps({"release": sha, "sha256": hashlib.sha256(TARGET.read_bytes()).hexdigest()}))
+    else:
+        raise ValueError("Unknown operation")
+
+
+if __name__ == "__main__":
+    try:
+        main(sys.argv)
+    except (OSError, ValueError) as error:
+        print(f"public sound promotion failed: {type(error).__name__}", file=sys.stderr)
+        sys.exit(1)

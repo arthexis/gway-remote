@@ -49,3 +49,21 @@
   ansible.builtin.assert:
     that:
       - (gway_remote_status.stdout | from_json).schema == 'gway-remote/status/v1'
+
+- name: Install fixed-purpose public sound helper
+  ansible.builtin.copy:
+    src: "{{ playbook_dir }}/../scripts/gway-promote-sound"
+    dest: /usr/local/sbin/gway-promote-sound
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Restrict public sound helper sudo to appliance runner
+  ansible.builtin.copy:
+    dest: /etc/sudoers.d/gway-remote-public-sound
+    owner: root
+    group: root
+    mode: "0440"
+    validate: "/usr/sbin/visudo -cf %s"
+    content: |
+      {{ gway_remote_runner_user }} ALL=(root) NOPASSWD: /usr/local/sbin/gway-promote-sound *

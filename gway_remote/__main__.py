@@ -220,11 +220,12 @@ def deploy_lcd_sound(sha: str) -> None:
                        cwd=source, check=True, timeout=120)
         subprocess.run(["bash", "scripts/deploy/install.sh", "verify"],
                        cwd=source, check=True, timeout=60)
-        # Never switch modes; the installed service definition is shadow-only.
+        from gway_remote.public_sound import promote
+        checksum = promote(sha)
+        print(f"Public sound player: sha256={checksum} release={sha}")
         subprocess.run(["systemctl", "--user", "daemon-reload"],
                        env=user_systemd_env(), check=True, timeout=20)
-        subprocess.run(["systemctl", "--user", "try-restart", "gway-app-observer.service"],
-                       env=user_systemd_env(), check=True, timeout=30)
+
 
 
 def main() -> None:
