@@ -10,8 +10,9 @@ from pathlib import Path
 import re
 import sys
 import tempfile
+import pwd
 
-ROOT = Path("/home/arthe/.local/share/gway-lcd-sound")
+ROOT = Path(pwd.getpwuid(int(os.environ.get("SUDO_UID", "-1"))).pw_dir) / ".local/share/gway-lcd-sound"
 TARGET = Path("/usr/local/libexec/gway-home-tools/sound.sh")
 PUBLIC = (Path("/usr/local/bin/sound"), Path("/usr/local/bin/sound.sh"))
 SHA = re.compile(r"[0-9a-f]{40}$")
