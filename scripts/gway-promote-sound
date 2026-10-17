@@ -4,19 +4,15 @@
 sudoers must permit ONLY this executable, never python or shell directly.
 """
 import hashlib
-import json
-import fcntl
 import os
 from pathlib import Path
 import re
 import sys
 import tempfile
 
-RUNNER = "arthe"
 ROOT = Path("/home/arthe/.local/share/gway-lcd-sound")
 TARGET = Path("/usr/local/libexec/gway-home-tools/sound.sh")
 PUBLIC = (Path("/usr/local/bin/sound"), Path("/usr/local/bin/sound.sh"))
-STATE = Path("/var/lib/gway-remote/public-sound")
 SHA = re.compile(r"[0-9a-f]{40}\\Z")
 
 
@@ -56,11 +52,7 @@ def main(argv):
     if os.geteuid() != 0 or len(argv) != 2:
         raise ValueError("Requires root and exactly one operation argument")
     action = argv[1]
-    STATE.mkdir(parents=True, exist_ok=True, mode=0o700)
-    with (STATE / "lock").open("a+b") as lock:
-        fcntl.flock(lock, fcntl.LOCK_EX)
-        operate(action)
-
+    operate(action)
 
 def operate(action):
     if action.startswith("promote:"):
