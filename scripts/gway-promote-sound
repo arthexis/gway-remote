@@ -4,6 +4,8 @@
 sudoers must permit ONLY this executable, never python or shell directly.
 """
 import os
+import hashlib
+import json
 from pathlib import Path
 import re
 import sys
@@ -53,9 +55,14 @@ def operate(action):
     if action.startswith("promote:"):
         sha = action.split(":", 1)[1]
         source = validated_source(sha)
+        for path in PUBLIC:
+            if not path.is_symlink() or path.resolve(strict=True) != TARGET:
+                raise ValueError("Unexpected public sound entry point")
+        if TARGET.is_symlink() or not TARGET.is_file():
+            raise ValueError("Public sound target must be a regular file")
         atomic_copy(source, TARGET)
         os.chown(TARGET, 0, 0)
-        print(json.dumps({"release": sha, "sha256": digest(TARGET)}))
+        print(json.dumps({"release": sha, "sha256": hashlib.sha256(TARGET.read_bytes()).hexdigest()}))
     else:
         raise ValueError("Unknown operation")
 
