@@ -12,7 +12,8 @@ ALLOWED_REPOSITORY = "arthexis/ocpp-csms"
 LCD_REPOSITORY = "arthexis/gway-lcd-sound"
 SIM_REPOSITORY = "arthexis/ocpp-simulator"
 AGENT_REPOSITORY = "arthexis/gway-agent-ops"
-TASKS = ("system-health", "ocpp-simulator", "lcd-sound-deploy", "ocpp-csms-deploy", "ocpp-simulator-deploy", "agent-ops-deploy")
+KIOSK_REPOSITORY = "arthexis/gway-ap-kiosk"
+TASKS = ("system-health", "ocpp-simulator", "lcd-sound-deploy", "ocpp-csms-deploy", "ocpp-simulator-deploy", "agent-ops-deploy", "ap-kiosk-deploy")
 
 
 def validate(task: str, repository: str = "", sha: str = "") -> None:
@@ -24,7 +25,8 @@ def validate(task: str, repository: str = "", sha: str = "") -> None:
         return
     expected = {"lcd-sound-deploy": LCD_REPOSITORY,
                 "ocpp-simulator-deploy": SIM_REPOSITORY,
-                "agent-ops-deploy": AGENT_REPOSITORY}.get(task, ALLOWED_REPOSITORY)
+                "agent-ops-deploy": AGENT_REPOSITORY,
+                "ap-kiosk-deploy": KIOSK_REPOSITORY}.get(task, ALLOWED_REPOSITORY)
     if repository != expected:
         raise ValueError("Repository not allowed")
     if len(sha) != 40 or not all(c in "0123456789abcdefABCDEF" for c in sha):
@@ -42,7 +44,7 @@ def run(task: str, repository: str = "", sha: str = "") -> None:
         }, sort_keys=True))
         return
 
-    if task in ("lcd-sound-deploy", "ocpp-csms-deploy", "ocpp-simulator-deploy", "agent-ops-deploy"):
+    if task in ("lcd-sound-deploy", "ocpp-csms-deploy", "ocpp-simulator-deploy", "agent-ops-deploy", "ap-kiosk-deploy"):
         from .best_effort import manual_execute
         from .github_state import GitHub
         installer = {
@@ -50,11 +52,13 @@ def run(task: str, repository: str = "", sha: str = "") -> None:
             "ocpp-csms-deploy": deploy_csms,
             "ocpp-simulator-deploy": deploy_simulator,
             "agent-ops-deploy": deploy_agent_ops,
+            "ap-kiosk-deploy": deploy_ap_kiosk,
         }[task]
         name = {"lcd-sound-deploy": "gway-lcd-sound",
                 "ocpp-csms-deploy": "ocpp-csms",
                 "ocpp-simulator-deploy": "ocpp-simulator",
-                "agent-ops-deploy": "gway-agent-ops"}[task]
+                "agent-ops-deploy": "gway-agent-ops",
+                "ap-kiosk-deploy": "gway-ap-kiosk"}[task]
         print(json.dumps(manual_execute(GitHub(), name, sha, installer), sort_keys=True))
         return
 
@@ -161,6 +165,22 @@ def deploy_agent_ops(sha: str) -> None:
         # Deliberately do not run agent adopt, Codex, or issue execution here.
 
 
+def deploy_ap_kiosk(sha: str) -> None:
+    """Deploy the pinned kiosk main revision via its standalone Ansible wrapper."""
+    with tempfile.TemporaryDirectory(prefix="ap-kiosk-deploy-") as directory:
+        source = Path(directory) / "source"
+        subprocess.run(["git", "clone", "--quiet", "--no-checkout",
+                        "https://github.com/arthexis/gway-ap-kiosk.git", str(source)],
+                       check=True, timeout=180)
+        subprocess.run(["git", "-C", str(source), "checkout", "--detach", sha],
+                       check=True, timeout=60)
+        actual = subprocess.check_output(["git", "-C", str(source), "rev-parse", "HEAD"],
+                                         text=True, timeout=20).strip()
+        if actual.lower() != sha.lower():
+            raise ValueError("AP kiosk checkout SHA mismatch")
+        subprocess.run(["bash", "./deploy.sh"], cwd=source, check=True, timeout=600)
+
+
 def user_systemd_env() -> dict[str, str]:
     """Locate the persistent user's systemd bus in a non-login runner service."""
     runtime = Path(f"/run/user/{os.getuid()}")
@@ -221,12 +241,12 @@ def main() -> None:
     status_parser.add_argument("--json", action="store_true")
     subparsers.add_parser("probe-csms", help="Read-only CSMS health diagnosis")
     logs_parser = subparsers.add_parser("logs", help="Inspect local installation logs")
-    logs_parser.add_argument("component", nargs="?", choices=("ocpp-csms", "ocpp-simulator", "gway-lcd-sound", "gway-agent-ops"))
+    logs_parser.add_argument("component", nargs="?", choices=("ocpp-csms", "ocpp-simulator", "gway-lcd-sound", "gway-agent-ops", "gway-ap-kiosk"))
     logs_parser.add_argument("--lines", type=int, default=None)
     report_parser = subparsers.add_parser("report-bundle", help="Export sanitized artifact report")
     report_parser.add_argument("--output", required=True)
     batch_parser = subparsers.add_parser("deploy-batch", help="Deploy appliance revisions")
-    batch_parser.add_argument("--target", choices=("ocpp-csms", "ocpp-simulator", "gway-lcd-sound", "gway-agent-ops"), default=None)
+    batch_parser.add_argument("--target", choices=("ocpp-csms", "ocpp-simulator", "gway-lcd-sound", "gway-agent-ops", "gway-ap-kiosk"), default=None)
     batch_parser.add_argument("--all", action="store_true", help="Explicitly reinstall all latest main revisions regardless of prior attempts or CI")
     batch_parser.add_argument("--now", action="store_true", help="Bypass quiet period for operator-requested batch")
     batch_parser.add_argument("--retry-failed", action="store_true", help="Explicitly retry failed revisions, never installed or interrupted ones")
@@ -380,6 +400,7 @@ def main() -> None:
                 "ocpp-simulator": deploy_simulator,
                 "gway-lcd-sound": deploy_lcd_sound,
                 "gway-agent-ops": deploy_agent_ops,
+                "gway-ap-kiosk": deploy_ap_kiosk,
             }, bypass_quiet=args.now, retry_failed=args.retry_failed, verify=verify_release, deploy_all=args.all, target=args.target)
             print(json.dumps(result, indent=2, sort_keys=True))
             if result["decision"] == "failed":

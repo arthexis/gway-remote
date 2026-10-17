@@ -20,19 +20,19 @@ class ApplianceWorkflowTests(unittest.TestCase):
         self.assertIn("workflow_dispatch:", deploy)
         self.assertNotIn("schedule:", deploy)
         self.assertIn("github.actor == 'arthexis'", deploy)
-        for name in ("ocpp-csms", "ocpp-simulator", "gway-lcd-sound", "gway-agent-ops"):
+        for name in ("ocpp-csms", "ocpp-simulator", "gway-lcd-sound", "gway-agent-ops", "gway-ap-kiosk"):
             with self.subTest(repository=name):
                 self.assertIn(f"deploy-batch --all --target {name}", deploy)
                 self.assertIn(f"name: Deploy {name}", deploy)
         self.assertIn("report-bundle", deploy)
-        self.assertEqual(4, deploy.count("python3 -m gway_remote deploy-batch --all --target"))
+        self.assertEqual(5, deploy.count("python3 -m gway_remote deploy-batch --all --target"))
 
     def test_serialized_jobs_continue_after_individual_failure(self):
         deploy = (WORKFLOWS / "appliance-deploy.yml").read_text()
-        for dependency in ("ocpp_csms", "ocpp_simulator", "gway_lcd_sound"):
+        for dependency in ("ocpp_csms", "ocpp_simulator", "gway_lcd_sound", "gway_agent_ops"):
             self.assertIn(f"needs: {dependency}", deploy)
-        self.assertIn("needs: [ocpp_csms, ocpp_simulator, gway_lcd_sound, gway_agent_ops]", deploy)
-        self.assertEqual(4, deploy.count("always() && github.event_name"))
+        self.assertIn("needs: [ocpp_csms, ocpp_simulator, gway_lcd_sound, gway_agent_ops, gway_ap_kiosk]", deploy)
+        self.assertEqual(5, deploy.count("always() && github.event_name"))
         self.assertNotIn("exit 0", deploy)
 
     def test_workflows_share_appliance_concurrency_lock(self):
