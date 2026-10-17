@@ -3,7 +3,6 @@
 
 sudoers must permit ONLY this executable, never python or shell directly.
 """
-import hashlib
 import os
 from pathlib import Path
 import re
@@ -13,11 +12,7 @@ import tempfile
 ROOT = Path("/home/arthe/.local/share/gway-lcd-sound")
 TARGET = Path("/usr/local/libexec/gway-home-tools/sound.sh")
 PUBLIC = (Path("/usr/local/bin/sound"), Path("/usr/local/bin/sound.sh"))
-SHA = re.compile(r"[0-9a-f]{40}\\Z")
-
-
-def digest(path):
-    return hashlib.sha256(path.read_bytes()).hexdigest()
+SHA = re.compile(r"[0-9a-f]{40}$")
 
 
 def validated_source(sha):
