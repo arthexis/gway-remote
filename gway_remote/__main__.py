@@ -9,11 +9,12 @@ import tempfile
 from pathlib import Path
 
 ALLOWED_REPOSITORY = "arthexis/ocpp-csms"
+REPORTS_REPOSITORY = "arthexis/ocpp-reports"
 LCD_REPOSITORY = "arthexis/gway-lcd-sound"
 SIM_REPOSITORY = "arthexis/ocpp-simulator"
 AGENT_REPOSITORY = "arthexis/gway-agent-ops"
 KIOSK_REPOSITORY = "arthexis/gway-ap-kiosk"
-TASKS = ("system-health", "ocpp-simulator", "lcd-sound-deploy", "ocpp-csms-deploy", "ocpp-simulator-deploy", "agent-ops-deploy", "ap-kiosk-deploy")
+TASKS = ("system-health", "ocpp-simulator", "lcd-sound-deploy", "ocpp-csms-deploy", "ocpp-reports-deploy", "ocpp-simulator-deploy", "agent-ops-deploy", "ap-kiosk-deploy")
 
 
 def validate(task: str, repository: str = "", sha: str = "") -> None:
@@ -26,7 +27,8 @@ def validate(task: str, repository: str = "", sha: str = "") -> None:
     expected = {"lcd-sound-deploy": LCD_REPOSITORY,
                 "ocpp-simulator-deploy": SIM_REPOSITORY,
                 "agent-ops-deploy": AGENT_REPOSITORY,
-                "ap-kiosk-deploy": KIOSK_REPOSITORY}.get(task, ALLOWED_REPOSITORY)
+                "ap-kiosk-deploy": KIOSK_REPOSITORY,
+                "ocpp-reports-deploy": REPORTS_REPOSITORY}.get(task, ALLOWED_REPOSITORY)
     if repository != expected:
         raise ValueError("Repository not allowed")
     if len(sha) != 40 or not all(c in "0123456789abcdefABCDEF" for c in sha):
@@ -44,18 +46,20 @@ def run(task: str, repository: str = "", sha: str = "") -> None:
         }, sort_keys=True))
         return
 
-    if task in ("lcd-sound-deploy", "ocpp-csms-deploy", "ocpp-simulator-deploy", "agent-ops-deploy", "ap-kiosk-deploy"):
+    if task in ("lcd-sound-deploy", "ocpp-csms-deploy", "ocpp-reports-deploy", "ocpp-simulator-deploy", "agent-ops-deploy", "ap-kiosk-deploy"):
         from .best_effort import manual_execute
         from .github_state import GitHub
         installer = {
             "lcd-sound-deploy": deploy_lcd_sound,
             "ocpp-csms-deploy": deploy_csms,
+            "ocpp-reports-deploy": deploy_reports,
             "ocpp-simulator-deploy": deploy_simulator,
             "agent-ops-deploy": deploy_agent_ops,
             "ap-kiosk-deploy": deploy_ap_kiosk,
         }[task]
         name = {"lcd-sound-deploy": "gway-lcd-sound",
                 "ocpp-csms-deploy": "ocpp-csms",
+                "ocpp-reports-deploy": "ocpp-reports",
                 "ocpp-simulator-deploy": "ocpp-simulator",
                 "agent-ops-deploy": "gway-agent-ops",
                 "ap-kiosk-deploy": "gway-ap-kiosk"}[task]
@@ -116,6 +120,22 @@ def deploy_csms(sha: str) -> None:
             raise ValueError("Checkout SHA mismatch")
         # Never bypass the canonical deployment safety checks or invoke as root.
         subprocess.run(["sh", "./deploy.sh"], cwd=source, check=True, timeout=900)
+
+
+def deploy_reports(sha: str) -> None:
+    """Deploy pinned Reports main through its canonical wrapper."""
+    with tempfile.TemporaryDirectory(prefix="reports-deploy-") as directory:
+        source = Path(directory) / "source"
+        subprocess.run(["git", "clone", "--quiet", "--no-checkout",
+                        "https://github.com/arthexis/ocpp-reports.git", str(source)],
+                       check=True, timeout=180)
+        subprocess.run(["git", "-C", str(source), "checkout", "--detach", sha],
+                       check=True, timeout=60)
+        actual = subprocess.check_output(["git", "-C", str(source), "rev-parse", "HEAD"],
+                                         text=True, timeout=20).strip()
+        if actual.lower() != sha.lower():
+            raise ValueError("Reports checkout SHA mismatch")
+        subprocess.run(["bash", "./deploy.sh"], cwd=source, check=True, timeout=900)
 
 
 def deploy_agent_ops(sha: str) -> None:
@@ -241,12 +261,12 @@ def main() -> None:
     status_parser.add_argument("--json", action="store_true")
     subparsers.add_parser("probe-csms", help="Read-only CSMS health diagnosis")
     logs_parser = subparsers.add_parser("logs", help="Inspect local installation logs")
-    logs_parser.add_argument("component", nargs="?", choices=("ocpp-csms", "ocpp-simulator", "gway-lcd-sound", "gway-agent-ops", "gway-ap-kiosk"))
+    logs_parser.add_argument("component", nargs="?", choices=("ocpp-csms", "ocpp-simulator", "gway-lcd-sound", "gway-agent-ops", "gway-ap-kiosk", "ocpp-reports"))
     logs_parser.add_argument("--lines", type=int, default=None)
     report_parser = subparsers.add_parser("report-bundle", help="Export sanitized artifact report")
     report_parser.add_argument("--output", required=True)
     batch_parser = subparsers.add_parser("deploy-batch", help="Deploy appliance revisions")
-    batch_parser.add_argument("--target", choices=("ocpp-csms", "ocpp-simulator", "gway-lcd-sound", "gway-agent-ops", "gway-ap-kiosk"), default=None)
+    batch_parser.add_argument("--target", choices=("ocpp-csms", "ocpp-simulator", "gway-lcd-sound", "gway-agent-ops", "gway-ap-kiosk", "ocpp-reports"), default=None)
     batch_parser.add_argument("--all", action="store_true", help="Explicitly reinstall all latest main revisions regardless of prior attempts or CI")
     batch_parser.add_argument("--now", action="store_true", help="Bypass quiet period for operator-requested batch")
     batch_parser.add_argument("--retry-failed", action="store_true", help="Explicitly retry failed revisions, never installed or interrupted ones")
@@ -397,6 +417,7 @@ def main() -> None:
                         )
             result = execute(GitHub(), datetime.now(timezone.utc), {
                 "ocpp-csms": deploy_csms,
+                "ocpp-reports": deploy_reports,
                 "ocpp-simulator": deploy_simulator,
                 "gway-lcd-sound": deploy_lcd_sound,
                 "gway-agent-ops": deploy_agent_ops,
