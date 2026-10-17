@@ -7,9 +7,7 @@ import hashlib
 import json
 import os
 from pathlib import Path
-import pwd
 import re
-import shutil
 import sys
 import tempfile
 
@@ -63,15 +61,15 @@ def main(argv):
         STATE.mkdir(parents=True, exist_ok=True, mode=0o700)
         backup = STATE / "previous"
         metadata = STATE / "previous.json"
+        for path in PUBLIC:
+            if not path.is_symlink() or path.resolve(strict=True) != TARGET:
+                raise ValueError("Unexpected public sound entry point")
         if TARGET.exists():
             atomic_copy(TARGET, backup, TARGET.stat().st_mode & 0o777)
             metadata.write_text(json.dumps({"sha256": digest(backup), "mode": TARGET.stat().st_mode & 0o777,
                                             "uid": TARGET.stat().st_uid, "gid": TARGET.stat().st_gid}))
         else:
             raise ValueError("Existing public player missing")
-        for path in PUBLIC:
-            if not path.is_symlink() or path.resolve(strict=True) != TARGET:
-                raise ValueError("Unexpected public sound entry point")
         atomic_copy(source, TARGET)
         os.chown(TARGET, 0, 0)
         print(json.dumps({"release": sha, "sha256": digest(TARGET)}))
