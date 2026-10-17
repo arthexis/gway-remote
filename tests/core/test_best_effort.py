@@ -58,7 +58,7 @@ class BestEffortTests(unittest.TestCase):
         self.assertEqual(result["decision"], "failed")
         self.assertEqual(result["failed_component"], "ocpp-simulator")
         self.assertEqual(result["failed_sha"], SHA)
-        self.assertEqual(self.calls, ["ocpp-csms", "ocpp-simulator"])
+        self.assertEqual(self.calls, [name for name, _ in TARGETS[:next(i for i, (name, _) in enumerate(TARGETS) if name == "ocpp-simulator") + 1]])
         self.assertEqual(result["results"][-1]["status"], "failed")
 
     def test_manual_all_fetches_latest_main_head_each_invocation(self):
