@@ -213,7 +213,7 @@ def deploy_lcd_sound(sha: str) -> None:
             errors = []
             if promotion_attempted:
                 try:
-                    restore()
+                    restore(sha)
                 except Exception as exc:
                     errors.append(f"public player restore failed: {type(exc).__name__}")
             try:
