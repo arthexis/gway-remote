@@ -15,6 +15,7 @@ INSTALLERS = {
     "ocpp-simulator": "deploy_simulator",
     "gway-lcd-sound": "deploy_lcd_sound",
     "gway-agent-ops": "deploy_agent_ops",
+    "gway-ap-kiosk": "deploy_ap_kiosk",
 }
 
 
