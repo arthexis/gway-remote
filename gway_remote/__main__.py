@@ -200,30 +200,11 @@ def deploy_lcd_sound(sha: str) -> None:
                        cwd=source, check=True, timeout=120)
         subprocess.run(["bash", "scripts/deploy/install.sh", "verify"],
                        cwd=source, check=True, timeout=60)
-        from gway_remote.public_sound import promote, restore
-        promotion_attempted = False
-        try:
-            promotion_attempted = True
-            checksum = promote(sha)
-            print(f"Public sound player: sha256={checksum} release={sha}")
-            # No playback, GPIO use, or service restart for player replacement.
-            subprocess.run(["systemctl", "--user", "daemon-reload"],
-                           env=user_systemd_env(), check=True, timeout=20)
-        except Exception as failure:
-            errors = []
-            if promotion_attempted:
-                try:
-                    restore(sha)
-                except Exception as exc:
-                    errors.append(f"public player restore failed: {type(exc).__name__}")
-            try:
-                subprocess.run(["bash", "scripts/deploy/install.sh", "rollback", "--no-restart"],
-                               cwd=source, check=True, timeout=120)
-            except Exception as exc:
-                errors.append(f"release rollback failed: {type(exc).__name__}")
-            if errors:
-                raise RuntimeError("; ".join(errors)) from failure
-            raise
+        from gway_remote.public_sound import promote
+        checksum = promote(sha)
+        print(f"Public sound player: sha256={checksum} release={sha}")
+        subprocess.run(["systemctl", "--user", "daemon-reload"],
+                       env=user_systemd_env(), check=True, timeout=20)
 
 
 
