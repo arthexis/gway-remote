@@ -76,7 +76,7 @@ class PublicSoundTests(unittest.TestCase):
             target.write_bytes(b"old")
             alias = root / "sound"
             alias.symlink_to(target)
-            with patch.object(helper, "ROOT", root), patch.object(helper, "TARGET", target), \\
+            with patch.object(helper, "ROOT", root), patch.object(helper, "TARGET", target), \
                  patch.object(helper, "PUBLIC", (alias,)), patch.object(helper.os, "chown"):
                 helper.operate("promote:" + sha)
                 self.assertEqual(target.read_bytes(), source.read_bytes())
