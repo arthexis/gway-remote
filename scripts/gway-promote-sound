@@ -1,0 +1,95 @@
+#!/usr/bin/env python3
+"""Root-owned, fixed-purpose public sound promoter. Install as root:root 0755.
+
+sudoers must permit ONLY this executable, never python or shell directly.
+"""
+import hashlib
+import json
+import os
+from pathlib import Path
+import pwd
+import re
+import shutil
+import sys
+import tempfile
+
+RUNNER = "arthe"
+ROOT = Path("/home/arthe/.local/share/gway-lcd-sound")
+TARGET = Path("/usr/local/libexec/gway-home-tools/sound.sh")
+PUBLIC = (Path("/usr/local/bin/sound"), Path("/usr/local/bin/sound.sh"))
+STATE = Path("/var/lib/gway-remote/public-sound")
+SHA = re.compile(r"[0-9a-f]{40}\\Z")
+
+
+def digest(path):
+    return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def validated_source(sha):
+    if not SHA.fullmatch(sha):
+        raise ValueError("Invalid pinned SHA")
+    release = ROOT / "releases" / sha[:12]
+    current = ROOT / "current"
+    if not current.is_symlink() or current.resolve(strict=True) != release.resolve(strict=True):
+        raise ValueError("Active release does not match pinned SHA")
+    source = release / "scripts/gway/sound.sh"
+    if source.is_symlink() or not source.is_file() or not (source.stat().st_mode & 0o111):
+        raise ValueError("Pinned sound player unavailable")
+    return source
+
+
+def atomic_copy(source, destination, mode=0o755):
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    fd, temp = tempfile.mkstemp(prefix=".sound-", dir=destination.parent)
+    try:
+        with os.fdopen(fd, "wb") as stream:
+            stream.write(source.read_bytes())
+            stream.flush()
+            os.fsync(stream.fileno())
+        os.chmod(temp, mode)
+        os.replace(temp, destination)
+    finally:
+        if os.path.exists(temp):
+            os.unlink(temp)
+
+
+def main(argv):
+    if os.geteuid() != 0 or len(argv) != 2:
+        raise ValueError("Requires root and exactly one operation argument")
+    action = argv[1]
+    if action.startswith("promote:"):
+        sha = action.split(":", 1)[1]
+        source = validated_source(sha)
+        STATE.mkdir(parents=True, exist_ok=True, mode=0o700)
+        backup = STATE / "previous"
+        metadata = STATE / "previous.json"
+        if TARGET.exists():
+            atomic_copy(TARGET, backup, TARGET.stat().st_mode & 0o777)
+            metadata.write_text(json.dumps({"sha256": digest(backup), "mode": TARGET.stat().st_mode & 0o777,
+                                            "uid": TARGET.stat().st_uid, "gid": TARGET.stat().st_gid}))
+        else:
+            raise ValueError("Existing public player missing")
+        atomic_copy(source, TARGET)
+        os.chown(TARGET, 0, 0)
+        for path in PUBLIC:
+            if not path.is_symlink() or path.resolve(strict=True) != TARGET:
+                raise ValueError("Unexpected public sound entry point")
+        print(json.dumps({"release": sha, "sha256": digest(TARGET)}))
+    elif action == "restore":
+        backup, metadata = STATE / "previous", STATE / "previous.json"
+        info = json.loads(metadata.read_text())
+        if digest(backup) != info["sha256"]:
+            raise ValueError("Backup checksum mismatch")
+        atomic_copy(backup, TARGET, info["mode"])
+        os.chown(TARGET, info["uid"], info["gid"])
+        print(json.dumps({"restored_sha256": digest(TARGET)}))
+    else:
+        raise ValueError("Unknown operation")
+
+
+if __name__ == "__main__":
+    try:
+        main(sys.argv)
+    except (OSError, ValueError) as error:
+        print(f"public sound promotion failed: {type(error).__name__}", file=sys.stderr)
+        sys.exit(1)
