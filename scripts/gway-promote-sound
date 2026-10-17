@@ -36,21 +36,17 @@ def validated_source(sha):
     source = release / "scripts/gway/sound.sh"
     if source.is_symlink() or not source.is_file() or not (source.stat().st_mode & 0o111):
         raise ValueError("Pinned sound player unavailable")
-    # The release is user-writable: verify against the immutable git object
-    # from the pinned revision, not only the mutable current symlink.
-    result = subprocess.run(
-        ["git", "-C", str(release), "hash-object", "--", str(source)],
-        check=True, capture_output=True, text=True, timeout=10)
-    checkout = subprocess.run(
-        ["git", "-C", str(release), "rev-parse", "HEAD"],
-        check=True, capture_output=True, text=True, timeout=10)
-    if checkout.stdout.strip() != sha:
-        raise ValueError("Release commit does not match pinned SHA")
-    original = subprocess.run(
-        ["git", "-C", str(release), "rev-parse", f"{sha}:scripts/gway/sound.sh"],
-        check=True, capture_output=True, text=True, timeout=10)
-    if result.stdout.strip() != original.stdout.strip():
-        raise ValueError("Release player differs from pinned git object")
+    # Installer copies releases without .git. The privileged helper must not
+    # silently trust a mutable release as proof of its pinned commit.
+    # Fail closed until a root-owned pinned blob manifest is provisioned.
+    manifest = STATE / "trusted" / sha
+    if not manifest.is_file() or manifest.is_symlink():
+        raise ValueError("Trusted pinned player manifest unavailable")
+    if manifest.stat().st_uid != 0 or (manifest.stat().st_mode & 0o022):
+        raise ValueError("Trusted manifest permissions are unsafe")
+    expected = manifest.read_text(encoding="ascii").strip()
+    if not re.fullmatch(r"[0-9a-f]{64}", expected) or digest(source) != expected:
+        raise ValueError("Pinned player checksum mismatch")
     return source
 
 
