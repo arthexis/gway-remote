@@ -40,8 +40,3 @@ def promote(sha: str, *, release_root=None, execute=subprocess.run) -> str:
         raise RuntimeError("Public player does not expose --motif")
     return hashlib.sha256(installed).hexdigest()
 
-
-def restore(sha: str, *, execute=subprocess.run) -> None:
-    if not SHA.fullmatch(sha):
-        raise ValueError("Expected pinned full release SHA")
-    execute(["sudo", "-n", HELPER, f"restore:{sha}"], check=True, timeout=60)
