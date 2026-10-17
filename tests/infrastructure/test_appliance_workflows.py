@@ -21,7 +21,7 @@ class ApplianceWorkflowTests(unittest.TestCase):
         self.assertIn("workflow_dispatch:", deploy)
         self.assertNotIn("schedule:", deploy)
         self.assertIn("github.actor == 'arthexis'", deploy)
-        for name in ("ocpp-csms", "ocpp-simulator", "gway-lcd-sound", "gway-agent-ops", "gway-ap-kiosk"):
+        for name, _ in TARGETS:
             with self.subTest(repository=name):
                 self.assertIn(f"deploy-batch --all --target {name}", deploy)
                 self.assertIn(f"name: Deploy {name}", deploy)
