@@ -43,7 +43,7 @@ jobs:
 
   ocpp_reports:
     name: Deploy ocpp-reports
-    needs: ocpp_reports
+    needs: ocpp_csms
     if: ${{ always() && github.event_name == 'workflow_dispatch' && github.actor == 'arthexis' && (inputs.repository == 'all' || inputs.repository == 'ocpp-reports') }}
     runs-on: [self-hosted, Linux, ARM64, gway-001]
     timeout-minutes: 30
@@ -61,7 +61,7 @@ jobs:
 
   ocpp_simulator:
     name: Deploy ocpp-simulator
-    needs: ocpp_csms
+    needs: ocpp_reports
     if: ${{ always() && github.event_name == 'workflow_dispatch' && github.actor == 'arthexis' && (inputs.repository == 'all' || inputs.repository == 'ocpp-simulator') }}
     runs-on: [self-hosted, Linux, ARM64, gway-001]
     timeout-minutes: 30
