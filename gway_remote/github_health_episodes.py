@@ -16,6 +16,7 @@ def reconcile(connection, repositories, completed_at):
         "workflow TEXT NOT NULL, state TEXT NOT NULL, "
         "opened_at TEXT NOT NULL, resolved_at TEXT, "
         "resolution_kind TEXT, evidence_url TEXT)")
+    connection.execute("CREATE TABLE IF NOT EXISTS ci_lane_cursor (lane_id TEXT PRIMARY KEY, latest_run_id INTEGER NOT NULL)")
     alerts = []
     for repo in repositories:
         name = repo["name"]
@@ -29,10 +30,19 @@ def reconcile(connection, repositories, completed_at):
                 continue
             latest = runs[0]
             previous = runs[1] if len(runs) > 1 else None
+            cursor = connection.execute(
+                "SELECT latest_run_id FROM ci_lane_cursor WHERE lane_id=?", (identity,)).fetchone()
+            latest_id = int(latest["id"])
+            fresh = cursor is None or latest_id > cursor[0]
+            if fresh:
+                connection.execute(
+                    "INSERT INTO ci_lane_cursor VALUES (?, ?) "
+                    "ON CONFLICT(lane_id) DO UPDATE SET latest_run_id=excluded.latest_run_id",
+                    (identity, latest_id))
             current = connection.execute(
                 "SELECT id, state, opened_at, resolved_at, resolution_kind, evidence_url "
                 "FROM ci_episodes WHERE id=? AND state='ACTIVE'", (identity,)).fetchone()
-            if current and latest["conclusion"] == "success":
+            if current and fresh and latest["conclusion"] == "success":
                 connection.execute(
                     "UPDATE ci_episodes SET state='RESOLVED', resolved_at=?, "
                     "resolution_kind='fixed', evidence_url=? WHERE id=?",
@@ -48,12 +58,14 @@ def reconcile(connection, repositories, completed_at):
                     "category": "CI_ANOMALY", "title": workflow + " repeatedly failing",
                     "evidence_url": current[5],
                     "next_action": "Inspect failed workflow"})
-            elif (previous is not None and latest["conclusion"] in BAD
+            elif (fresh and previous is not None and latest["conclusion"] in BAD
                   and previous["conclusion"] in BAD):
                 connection.execute(
                     "INSERT INTO ci_episodes "
                     "(id, repository, lane, workflow, state, opened_at, evidence_url) "
-                    "VALUES (?, ?, ?, ?, 'ACTIVE', ?, ?)",
+                    "VALUES (?, ?, ?, ?, 'ACTIVE', ?, ?) "
+                    "ON CONFLICT(id) DO UPDATE SET state='ACTIVE', opened_at=excluded.opened_at, "
+                    "resolved_at=NULL, resolution_kind=NULL, evidence_url=excluded.evidence_url",
                     (identity, name, trigger + ":" + branch, workflow,
                      completed_at, latest["url"]))
                 alerts.append({
