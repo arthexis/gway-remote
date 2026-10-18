@@ -265,6 +265,10 @@ def main() -> None:
     logs_parser.add_argument("--lines", type=int, default=None)
     report_parser = subparsers.add_parser("report-bundle", help="Export sanitized artifact report")
     report_parser.add_argument("--output", required=True)
+    deployments_parser = subparsers.add_parser("deployments", help="Inspect configured appliance deployments")
+    from .reconcile import TARGETS as DEPLOYMENT_TARGETS
+    deployments_parser.add_argument("repository", nargs="?", choices=[name for name, _ in DEPLOYMENT_TARGETS])
+    deployments_parser.add_argument("--json", action="store_true")
     deploy_parser = subparsers.add_parser("deploy", help="Trigger GitHub Appliance Deploy workflow")
     from .deploy_dispatch import TARGETS
     deploy_parser.add_argument("repository", nargs="?", choices=TARGETS[1:])
@@ -399,6 +403,14 @@ def main() -> None:
             print(json.dumps(report(GitHub(), attempts=attempted_shas()), indent=2, sort_keys=True))
         except Exception as exc:
             parser.exit(1, f"gway-remote: reconciliation unavailable: {exc}\n")
+        return
+    if args.command == "deployments":
+        from .deployments import inventory, format_inventory
+        try:
+            result = inventory(args.repository)
+            print(json.dumps(result, indent=2, sort_keys=True) if args.json else format_inventory(result))
+        except (OSError, ValueError, RuntimeError, KeyError) as exc:
+            parser.exit(1, f"gway-remote: deployments unavailable: {exc}\\n")
         return
     if args.command == "deploy":
         if args.all == bool(args.repository):
