@@ -87,6 +87,24 @@ def collect(api):
             if not isinstance(checks, dict) or not isinstance(checks.get("check_runs"), list):
                 raise ValueError("Missing head checks")
             head_runs = checks["check_runs"]
+            reviews = api.get("/repos/" + encoded + "/pulls/" + str(pr["number"]) +
+                              "/reviews?per_page=100")
+            if not isinstance(reviews, list):
+                raise ValueError("Missing PR review evidence")
+            latest_reviews = {}
+            for review in reviews:
+                user = review.get("user") or {}
+                if user.get("login") and review.get("state") in (
+                        "APPROVED", "CHANGES_REQUESTED", "DISMISSED"):
+                    latest_reviews[user["login"]] = review["state"]
+            review_blocked = "CHANGES_REQUESTED" in latest_reviews.values()
+            age_seconds = None
+            if pr.get("updated_at"):
+                try:
+                    age_seconds = (datetime.now(timezone.utc) -
+                        datetime.fromisoformat(pr["updated_at"].replace("Z", "+00:00"))).total_seconds()
+                except ValueError:
+                    pass
             failing = any(c.get("status") == "completed" and
                           c.get("conclusion") in ("failure", "timed_out", "action_required")
                           for c in head_runs)
@@ -106,6 +124,13 @@ def collect(api):
                 # GitHub check-runs alone do not establish branch-protection
                 # requirements. Never claim a required-check blocker yet.
                 "required_check_verified": required_failed,
+                "review_blocked": review_blocked,
+                "mergeable_state": pr.get("mergeable_state") or "unknown",
+                "age_seconds": age_seconds,
+                "required_check_count": len(required),
+                "check_count": len(head_runs),
+                "checks_pending": pending,
+                "checks_failing": failing,
             })
         # Pass B: retain failed-run evidence, but never infer root cause from
         # a single failure, nor compare non-equivalent lanes.
