@@ -1,0 +1,11 @@
+[Unit]
+Description=Hourly GWay Remote GitHub Health collection
+
+[Timer]
+OnCalendar=hourly
+Persistent=true
+RandomizedDelaySec=120
+Unit=gway-remote-health.service
+
+[Install]
+WantedBy=timers.target

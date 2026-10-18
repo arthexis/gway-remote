@@ -98,3 +98,75 @@
     name: gway-remote-watch.timer
     enabled: true
     state: started
+
+- name: Create private GitHub Health configuration directory
+  ansible.builtin.file:
+    path: "/home/{{ gway_remote_runner_user }}/.config/gway-remote"
+    state: directory
+    owner: "{{ gway_remote_runner_user }}"
+    group: "{{ gway_remote_runner_user }}"
+    mode: "0700"
+
+- name: Inspect externally provisioned GitHub Health token configuration
+  ansible.builtin.stat:
+    path: "/home/{{ gway_remote_runner_user }}/.config/gway-remote/github-health.env"
+  register: github_health_token_config
+
+- name: Validate private GitHub Health credentials
+  ansible.builtin.assert:
+    that:
+      - github_health_token_config.stat.isreg | default(false)
+      - github_health_token_config.stat.pw_name == gway_remote_runner_user
+      - github_health_token_config.stat.mode == '0600'
+    fail_msg: >-
+      github-health.env must be a regular file owned by
+      {{ gway_remote_runner_user }} with mode 0600.
+      Fix ownership and permissions before deploying.
+  when: github_health_token_config.stat.exists
+
+- name: Verify API snapshot path is readable by appliance runner
+  ansible.builtin.command:
+    argv:
+      - /usr/bin/python3
+      - -c
+      - |
+        import os
+        from pathlib import Path
+        path = Path.home() / ".local/state/gway-remote"
+        assert path.is_dir() and os.access(path, os.R_OK | os.X_OK)
+        snapshot = path / "github-health.json"
+        if snapshot.exists():
+            assert snapshot.is_file() and os.access(snapshot, os.R_OK)
+  become_user: "{{ gway_remote_runner_user }}"
+  changed_when: false
+
+- name: Install GitHub Health collector systemd units
+  ansible.builtin.copy:
+    src: "{{ playbook_dir }}/../deploy/systemd/{{ item }}"
+    dest: "/etc/systemd/system/{{ item }}"
+    owner: root
+    group: root
+    mode: "0644"
+  loop:
+    - gway-remote-health.service
+    - gway-remote-health.timer
+  register: github_health_units
+
+- name: Reload systemd for GitHub Health units
+  ansible.builtin.systemd_service:
+    daemon_reload: true
+  when: github_health_units.changed
+
+- name: Enable GitHub Health timer only when private token configuration exists
+  ansible.builtin.systemd_service:
+    name: gway-remote-health.timer
+    enabled: true
+    state: started
+  when: github_health_token_config.stat.exists
+
+- name: Keep GitHub Health timer disabled until private token is provisioned
+  ansible.builtin.systemd_service:
+    name: gway-remote-health.timer
+    enabled: false
+    state: stopped
+  when: not github_health_token_config.stat.exists

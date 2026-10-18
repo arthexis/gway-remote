@@ -1,0 +1,12 @@
+[Unit]
+Description=GWay Remote GitHub Health evidence collection
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=oneshot
+EnvironmentFile=%h/.config/gway-remote/github-health.env
+ExecStart=/usr/bin/env python3 -m gway_remote.github_health_watch
+TimeoutStartSec=300
+NoNewPrivileges=true
+PrivateTmp=true

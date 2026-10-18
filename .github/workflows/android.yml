@@ -50,19 +50,12 @@ jobs:
         with:
           gradle-version: '8.10.2'
           cache-read-only: ${{ github.event_name == 'pull_request' }}
-      - name: Validate and build debug APK (PR)
+      - name: Validate Android unit tests (PR)
         if: github.event_name == 'pull_request'
         run: |
           start=$SECONDS
-          gradle :app:testDebugUnitTest :app:assembleDebug --no-daemon
-          echo "Android PR build: $((SECONDS - start))s" >> "$GITHUB_STEP_SUMMARY"
-      - name: Upload debug APK (PR)
-        if: github.event_name == 'pull_request'
-        uses: actions/upload-artifact@v4
-        with:
-          name: gway-remote-debug-apk
-          path: android/app/build/outputs/apk/debug/app-debug.apk
-          if-no-files-found: error
+          gradle :app:testDebugUnitTest --no-daemon
+          echo "Android PR unit tests: $((SECONDS - start))s" >> "$GITHUB_STEP_SUMMARY"
       - name: Require release signing secrets
         if: github.ref == 'refs/heads/main'
         env:

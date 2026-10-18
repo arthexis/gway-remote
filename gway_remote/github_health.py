@@ -22,7 +22,7 @@ def unavailable(reason):
 
 def read_snapshot(path=None, now=None):
     """Never poll GitHub or trigger a workflow. Only read a completed snapshot."""
-    path = path or os.environ.get("GWAY_REMOTE_GITHUB_HEALTH_SNAPSHOT")
+    path = path or os.environ.get("GWAY_REMOTE_GITHUB_HEALTH_SNAPSHOT") or str(Path.home() / ".local/state/gway-remote/github-health.json")
     if not path:
         return unavailable("not_configured")
     try:
