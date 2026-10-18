@@ -470,15 +470,6 @@ def main() -> None:
                 "gway-rfid": deploy_rfid,
             }, bypass_quiet=args.now, retry_failed=args.retry_failed, verify=verify_release, deploy_all=args.all, target=args.target)
             print(json.dumps(result, indent=2, sort_keys=True))
-            # Direct CLI execution must report failures too. The issue updater
-            # is best-effort and must never change the deployment exit status.
-            if any(row.get("status") in ("failed", "blocked") for row in result.get("results", [])):
-                try:
-                    from .deploy_failure_issues import report_manual_failures
-                    for url in report_manual_failures(result):
-                        print(f"Deployment failure issue: {url}", file=sys.stderr)
-                except Exception as issue_exc:
-                    print(f"gway-remote: warning: unable to publish deployment issue: {issue_exc}", file=sys.stderr)
             if result["decision"] == "failed":
                 parser.exit(1, "gway-remote: installation failed: {} at {}\\n".format(result["failed_component"], result["failed_sha"]))
             if args.all and result["decision"] != "completed":
