@@ -10,10 +10,9 @@ import subprocess
 
 from .logs import read_log, sanitize
 from .reconcile import TARGETS
+from .probe_registry import probe_for
 from .status import status
 
-# Optional unit hints. Future targets work without an entry and report unknown.
-SYSTEM_UNITS = {"gway-rfid": "gway-rfid.service"}
 MAX_OUTPUT = 1200
 
 
@@ -55,7 +54,7 @@ def diagnose(name=None, *, directory=None, lines=30):
         # No directory override means the actual local appliance journal.
         snippet = read_log(name=target, lines=lines) if directory is None else read_log(directory, name=target, lines=lines)
         item["recent_installer_log"] = sanitize(snippet or "")[-MAX_OUTPUT:]
-        item["systemd"] = _systemd(SYSTEM_UNITS.get(target))
+        item["systemd"] = _systemd(probe_for(target).service)
         if item["installation"] in {"failed", "interrupted"}:
             item["diagnosis"] = "installation-failed"
         elif item["health"] == "unhealthy":
