@@ -47,7 +47,7 @@ def component_health(name: str) -> bool:
             ["systemctl", "is-enabled", "--quiet", "gway-rfid.service"])
     if name == "ocpp-csms":
         return csms_health()
-    return False
+    return None  # No probe contract: unknown, not unhealthy.
 
 
 
