@@ -16,6 +16,7 @@ from pathlib import Path
 
 from .github_health import REPOSITORIES
 from .github_health_publish import publish
+from .github_health_episodes import reconcile
 
 API = "https://api.github.com"
 CATEGORIES = {"CI_FAILURE_STUCK", "CI_MISSING", "CI_ABNORMALLY_LONG",
@@ -72,9 +73,26 @@ def collect(api):
                     "repository": repo, "workflow": run.get("name"),
                     "run_id": run["id"], "conclusion": run["conclusion"],
                     "url": run.get("html_url")})
+        lanes = {}
+        for run in workflow_runs:
+            if run.get("status") != "completed" or run.get("conclusion") is None:
+                continue
+            workflow, trigger, branch = run.get("name"), run.get("event"), run.get("head_branch")
+            if not all(isinstance(v, str) and v for v in (workflow, trigger, branch)):
+                continue
+            lanes.setdefault((workflow, trigger, branch), []).append({
+                "id": run["id"], "conclusion": run["conclusion"],
+                "url": run.get("html_url") or "",
+                "created_at": run.get("created_at") or ""})
+        ci_lanes = []
+        for (workflow, trigger, branch), lane_runs in lanes.items():
+            lane_runs.sort(key=lambda item: (item["created_at"], item["id"]), reverse=True)
+            ci_lanes.append({"workflow": workflow, "trigger": trigger,
+                             "branch": branch, "completed_runs": lane_runs})
         results.append({
             "name": repo, "pass_a_checked": True, "pass_b_checked": True,
             "open_pr_count": len(pulls), "recent_run_count": len(workflow_runs),
+            "ci_lanes": ci_lanes,
             "recent_failed_runs": [f for f in findings if f["repository"] == repo],
         })
     return results
@@ -94,17 +112,18 @@ def store_observation(db_path, completed_at, repositories):
             connection.execute(
                 "INSERT INTO observations VALUES (?, ?, ?)",
                 (completed_at, repo["name"], json.dumps(repo, sort_keys=True)))
+        return reconcile(connection, repositories, completed_at)
 
 
 def check(api, db_path, snapshot_path):
     repositories = collect(api)
     completed_at = datetime.now(timezone.utc).isoformat()
-    store_observation(db_path, completed_at, repositories)
+    alerts = store_observation(db_path, completed_at, repositories)
     # Alert classification remains intentionally conservative: evidence-only
     # observations do not count as active or resolved alert episodes.
     snapshot = {"schema_version": 1, "status": "available",
                 "completed_at": completed_at, "repositories": repositories,
-                "alerts": [], "classification_status": "not_implemented"}
+                "alerts": alerts, "classification_status": "partial_ci_episodes"}
     destination = Path(snapshot_path)
     destination.parent.mkdir(parents=True, exist_ok=True)
     temporary = None
