@@ -41,7 +41,9 @@ class RfidDeploymentTests(unittest.TestCase):
     def test_one_target_only(self):
         calls = []
         installers = {name: lambda sha, name=name: calls.append(name) for name, _ in TARGETS}
-        with tempfile.TemporaryDirectory() as temp, patch("gway_remote.best_effort.main_head", return_value=SHA):
+        with tempfile.TemporaryDirectory() as temp, \
+             patch("gway_remote.best_effort.main_head", return_value=SHA), \
+             patch("gway_remote.best_effort.ci_for_head", return_value="success"):
             result = execute(object(), None, installers, directory=Path(temp),
                              deploy_all=True, target="gway-rfid")
         self.assertEqual(result["decision"], "completed")
