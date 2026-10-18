@@ -40,14 +40,14 @@ class DeployDispatchTests(unittest.TestCase):
     @patch("gway_remote.deploy_dispatch.subprocess.run")
     @patch.dict("os.environ", {"GITHUB_TOKEN": "token-for-test"}, clear=True)
     def test_github_token_is_forwarded_to_gh(self, run):
-        dispatch()
+        dispatch("ocpp-csms")
         self.assertEqual(run.call_args.kwargs["env"]["GH_TOKEN"], "token-for-test")
 
     @patch("gway_remote.deploy_dispatch.subprocess.run")
     def test_gh_failure_is_not_reported_as_success(self, run):
         run.side_effect = subprocess.CalledProcessError(1, ["gh"], stderr="permission denied")
         with self.assertRaisesRegex(RuntimeError, "permission denied"):
-            dispatch()
+            dispatch("ocpp-csms")
 
 
 if __name__ == "__main__":
