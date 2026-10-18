@@ -46,20 +46,21 @@ class BestEffortTests(unittest.TestCase):
             return deploy
         return {name: make(name) for name, _ in TARGETS}
 
-    def test_manual_all_reinstalls_every_head_without_ci_or_attempt_filter(self):
+    def test_manual_all_reinstalls_every_ci_approved_head(self):
         first = execute(self.client, NOW, self.installers(), self.path, deploy_all=True)
         second = execute(self.client, NOW, self.installers(), self.path, deploy_all=True)
         self.assertEqual(first["decision"], "completed")
         self.assertEqual(second["decision"], "completed")
         self.assertEqual(self.calls, [name for name, _ in TARGETS] * 2)
 
-    def test_manual_all_failure_identifies_component_and_stops(self):
+    def test_manual_all_failure_identifies_component_and_continues(self):
         result = execute(self.client, NOW, self.installers(("ocpp-simulator",)), self.path, deploy_all=True)
-        self.assertEqual(result["decision"], "failed")
-        self.assertEqual(result["failed_component"], "ocpp-simulator")
-        self.assertEqual(result["failed_sha"], SHA)
-        self.assertEqual(self.calls, [name for name, _ in TARGETS[:next(i for i, (name, _) in enumerate(TARGETS) if name == "ocpp-simulator") + 1]])
-        self.assertEqual(result["results"][-1]["status"], "failed")
+        self.assertEqual(result["decision"], "partial")
+        failed = next(item for item in result["results"] if item["name"] == "ocpp-simulator")
+        self.assertEqual(failed["sha"], SHA)
+        self.assertEqual(failed["status"], "failed")
+        self.assertIn("simulated failure", failed["reason"])
+        self.assertEqual(self.calls, [name for name, _ in TARGETS])
 
     def test_manual_all_fetches_latest_main_head_each_invocation(self):
         execute(self.client, NOW, self.installers(), self.path, deploy_all=True)
