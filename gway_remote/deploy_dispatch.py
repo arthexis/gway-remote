@@ -1,5 +1,6 @@
 """Operator-triggered appliance deployment via GitHub Actions."""
 
+import json
 import os
 import subprocess
 
@@ -19,9 +20,11 @@ def dispatch(target: str) -> str:
     if not env.get("GH_TOKEN") and env.get("GITHUB_TOKEN"):
         env["GH_TOKEN"] = env["GITHUB_TOKEN"]
     try:
-        subprocess.run(
-            ["gh", "workflow", "run", WORKFLOW, "--repo", REPOSITORY,
-             "--ref", "main", "-f", f"repository={target}"],
+        result = subprocess.run(
+            ["gh", "api", "--method", "POST",
+             f"repos/{REPOSITORY}/actions/workflows/{WORKFLOW}/dispatches",
+             "-f", "ref=main", "-f", f"inputs[repository]={target}",
+             "-F", "return_run_details=true"],
             env=env, check=True, text=True, capture_output=True, timeout=30,
         )
     except FileNotFoundError as exc:
@@ -31,6 +34,17 @@ def dispatch(target: str) -> str:
     except subprocess.CalledProcessError as exc:
         detail = (exc.stderr or "").strip()
         raise RuntimeError(f"GitHub workflow dispatch failed: {detail or exc.returncode}") from exc
+    # GitHub returns an exact run ID when return_run_details is supported.
+    # Never infer an ID by selecting the latest run (concurrent requests race).
+    try:
+        details = json.loads(result.stdout or "{}")
+    except (ValueError, TypeError):
+        details = {}
+    run_id = details.get("workflow_run_id") if isinstance(details, dict) else None
+    if isinstance(run_id, int) and run_id > 0:
+        return (f"Requested {target} deployment: workflow run {run_id}\n"
+                f"https://github.com/{REPOSITORY}/actions/runs/{run_id}"
+                " (request accepted; installation result pending)")
     return (f"Requested {target} deployment through "
             f"https://github.com/{REPOSITORY}/actions/workflows/{WORKFLOW}"
-            " (request accepted; installation result pending)")
+            " (request accepted; run ID unavailable; installation result pending)")
