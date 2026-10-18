@@ -9,7 +9,7 @@ TARGETS = ("all", "ocpp-csms", "ocpp-reports", "ocpp-simulator",
            "gway-lcd-sound", "gway-agent-ops", "gway-ap-kiosk")
 
 
-def dispatch(target: str = "all") -> str:
+def dispatch(target: str) -> str:
     """Request the existing workflow; do not execute installers locally."""
     if target not in TARGETS:
         raise ValueError(f"Unknown deployment target: {target}")
