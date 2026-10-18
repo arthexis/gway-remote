@@ -479,6 +479,13 @@ fun CompanionScreen(store: SecretStore) {
                 Text("⚙", style = MaterialTheme.typography.headlineMedium)
             }
         }
+        var githubHealthOpen by remember { mutableStateOf(false) }
+        OutlinedButton(onClick = { githubHealthOpen = !githubHealthOpen }) {
+            Text(if (githubHealthOpen) "Hide GitHub Health" else "GitHub Health")
+        }
+        if (githubHealthOpen) {
+            GitHubHealthPanel(endpoint = endpoint, token = token)
+        }
         OperationPalette(
             state = panelState,
             onOpen = { id ->
