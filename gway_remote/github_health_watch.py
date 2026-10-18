@@ -104,7 +104,7 @@ def check(api, db_path, snapshot_path):
     # observations do not count as active or resolved alert episodes.
     snapshot = {"schema_version": 1, "status": "available",
                 "completed_at": completed_at, "repositories": repositories,
-                "alerts": []}
+                "alerts": [], "classification_status": "not_implemented"}
     destination = Path(snapshot_path)
     destination.parent.mkdir(parents=True, exist_ok=True)
     temporary = None
