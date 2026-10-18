@@ -21,7 +21,9 @@ class Probe:
 PROBES = {
     "ocpp-csms": Probe("csms", release=".local/share/ocpp-csms/current",
                         revision_pattern=r"[0-9a-f]{12}(?:-dev)?"),
-    "ocpp-simulator": Probe("executable", executable=".local/bin/ocpp-simulator"),
+    "ocpp-simulator": Probe("executable", executable=".local/bin/ocpp-simulator",
+                            release=".local/share/ocpp-simulator/current",
+                            revision_pattern=r"[0-9a-f]{12}"),
     "gway-lcd-sound": Probe("lcd", executable=".local/bin/gway-app-observer",
                             release=".local/share/gway-lcd-sound/current",
                             revision_pattern=r"[0-9a-f]{12}(?:-dev)?"),
