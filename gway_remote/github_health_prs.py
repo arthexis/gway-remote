@@ -27,7 +27,7 @@ def reconcile_prs(connection, repositories, completed_at):
             observed.add(number)
             # A failing completed check is a candidate, not automatically stuck.
             candidate = (not pr["draft"] and not pr["on_hold"]
-                         and pr["head_check"] == "failure")
+                         and pr["head_check"] == "failure" and pr["required_check_verified"])
             existing = connection.execute(
                 "SELECT head_sha, first_seen FROM pr_blockers "
                 "WHERE repository=? AND number=?", (name, number)).fetchone()
