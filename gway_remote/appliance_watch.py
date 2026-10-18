@@ -102,7 +102,7 @@ def _reserve_dispatch(name, sha, directory=DEFAULT_DIR):
     try:
         with os.fdopen(fd, "w", encoding="utf-8") as out:
             json.dump(data, out, sort_keys=True)
-            out.write("\\n")
+            out.write("\n")
             out.flush()
             os.fsync(out.fileno())
         os.replace(tmp, directory / "watch-dispatches.json")
