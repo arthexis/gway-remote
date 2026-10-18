@@ -5,8 +5,9 @@ import subprocess
 
 REPOSITORY = "arthexis/gway-remote"
 WORKFLOW = "appliance-deploy.yml"
-TARGETS = ("all", "ocpp-csms", "ocpp-reports", "ocpp-simulator",
-           "gway-lcd-sound", "gway-agent-ops", "gway-ap-kiosk")
+from .reconcile import TARGETS as DEPLOYMENT_TARGETS
+
+TARGETS = ("all", *(name for name, _ in DEPLOYMENT_TARGETS))
 
 
 def dispatch(target: str) -> str:
