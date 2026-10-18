@@ -3,7 +3,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from gway_remote.diagnostics import diagnose, format_diagnosis
+from gway_remote.diagnostics import diagnose, format_diagnosis, classify
 from gway_remote.health import component_health
 from gway_remote.reconcile import TARGETS
 
@@ -29,6 +29,29 @@ class DiagnosticTests(unittest.TestCase):
                 report = diagnose("gway-agent-ops", directory=Path(folder))
         self.assertEqual(report["components"][0]["diagnosis"], "installation-failed")
         self.assertIn("installation-failed", format_diagnosis(report))
+
+    def test_structured_classification(self):
+        base = {"installation": "installed", "health": "healthy",
+                "attempted_sha": "a" * 40, "installed_sha": "a" * 40}
+        cases = [
+            ({**base, "installation": "failed"}, {}, "installation-failed"),
+            ({**base, "installed_sha": "b" * 40}, {}, "revision-mismatch"),
+            ({**base, "health": "unhealthy"},
+             {"LoadState": "loaded", "ActiveState": "failed"}, "runtime-failed"),
+            ({**base, "health": "unhealthy"}, {}, "health-check-failed"),
+            ({**base, "health": "unknown"}, {}, "runtime-not-verified"),
+            (base, {}, "healthy"),
+        ]
+        for component, systemd, expected in cases:
+            with self.subTest(expected=expected):
+                category, reason = classify(component, systemd)
+                self.assertEqual(category, expected)
+                self.assertTrue(reason)
+
+    def test_missing_revision_does_not_invent_mismatch(self):
+        component = {"installation": "installed", "health": "unknown",
+                     "attempted_sha": "a" * 40, "installed_sha": None}
+        self.assertEqual(classify(component, {})[0], "runtime-not-verified")
 
     def test_invalid_target_and_line_bounds(self):
         with self.assertRaises(ValueError):
