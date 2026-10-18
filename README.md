@@ -64,6 +64,47 @@ Prerequisites on the runner: user `arthe` (same home and user systemd manager as
 
 **Note:** The caller's dispatch job confirms submission, not deployment success. Inspect the corresponding Gway Remote Actions run for the final result; do not treat a successful dispatch as a successful installation.
 
+## Trigger appliance deployment from Gway-001
+
+Use the globally installed CLI to request the existing GitHub **Appliance Deploy**
+workflow (this command does not install anything locally):
+
+```sh
+gway-remote deploy --all             # all components
+gway-remote deploy                    # error: explicit target required
+gway-remote deploy ocpp-csms         # one component
+gway-remote deploy ocpp-reports
+gway-remote deploy gway-ap-kiosk
+```
+
+The CLI requires the GitHub CLI (`gh`) installed and authenticated as an
+account authorized to dispatch workflows in `arthexis/gway-remote`.
+Use `gh auth login`, or provide `GH_TOKEN` / `GITHUB_TOKEN` with
+Actions write permission. GitHub's workflow also checks that the actor is
+`arthexis`; a different authenticated user can submit the request but
+the workflow will not run deployment jobs. The command targets `main` and
+uses the workflow's fixed list of deployment targets.
+
+A successful command indicates only that GitHub accepted the request.
+Inspect the Actions workflow run to determine installation success.
+
+## Inspect configured deployments
+
+```sh
+gway-remote deployments
+gway-remote deployments ocpp-csms
+gway-remote deployments --json
+```
+
+This read-only inventory lists the six configured repositories, last recorded
+deployment attempt timestamp, attempt result, attempted SHA, current GitHub
+`main` SHA, and independently verified installed SHA. An installed revision
+is shown as `unknown` when no supported release link can verify it; a
+successful attempt alone is **not** proof of installation. The timestamp
+represents the last attempt state update, not necessarily its start time.
+GitHub access is required to read the latest main revisions. The journal
+keeps only the most recent attempt per target, not a full history.
+
 ## Local appliance status
 
 Run `python3 -m gway_remote status` or `python3 -m gway_remote status --json`.
