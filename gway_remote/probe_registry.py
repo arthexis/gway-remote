@@ -15,6 +15,7 @@ class Probe:
     service: str | None = None
     release: str | None = None
     revision_pattern: str | None = None
+    revision_from_executable: bool = False
 
 
 PROBES = {
@@ -24,8 +25,10 @@ PROBES = {
     "gway-lcd-sound": Probe("lcd", executable=".local/bin/gway-app-observer",
                             release=".local/share/gway-lcd-sound/current",
                             revision_pattern=r"[0-9a-f]{12}(?:-dev)?"),
-    "ocpp-reports": Probe("executable", executable="/usr/local/bin/ocpp-reports"),
-    "gway-agent-ops": Probe("executable", executable=".local/bin/agent"),
+    "ocpp-reports": Probe("executable", executable="/usr/local/bin/ocpp-reports",
+                          revision_from_executable=True),
+    "gway-agent-ops": Probe("executable", executable=".local/bin/agent",
+                           revision_from_executable=True),
     "gway-ap-kiosk": Probe("systemd", service="gway-kiosk-status.service"),
     "gway-rfid": Probe("systemd", service="gway-rfid.service",
                        release=".local/share/gway-rfid/current",
