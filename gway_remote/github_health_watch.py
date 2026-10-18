@@ -18,6 +18,8 @@ from .github_health import REPOSITORIES
 from .github_health_publish import publish
 from .github_health_episodes import reconcile
 from .github_health_prs import reconcile_prs
+from .github_health_categories import reconcile_extra
+from .github_health_pending import reconcile_pending
 
 API = "https://api.github.com"
 CATEGORIES = {"CI_FAILURE_STUCK", "CI_MISSING", "CI_ABNORMALLY_LONG",
@@ -87,6 +89,24 @@ def collect(api):
             if not isinstance(checks, dict) or not isinstance(checks.get("check_runs"), list):
                 raise ValueError("Missing head checks")
             head_runs = checks["check_runs"]
+            reviews = api.get("/repos/" + encoded + "/pulls/" + str(pr["number"]) +
+                              "/reviews?per_page=100")
+            if not isinstance(reviews, list):
+                raise ValueError("Missing PR review evidence")
+            latest_reviews = {}
+            for review in reviews:
+                user = review.get("user") or {}
+                if user.get("login") and review.get("state") in (
+                        "APPROVED", "CHANGES_REQUESTED", "DISMISSED"):
+                    latest_reviews[user["login"]] = review["state"]
+            review_blocked = "CHANGES_REQUESTED" in latest_reviews.values()
+            age_seconds = None
+            if pr.get("updated_at"):
+                try:
+                    age_seconds = (datetime.now(timezone.utc) -
+                        datetime.fromisoformat(pr["updated_at"].replace("Z", "+00:00"))).total_seconds()
+                except ValueError:
+                    pass
             failing = any(c.get("status") == "completed" and
                           c.get("conclusion") in ("failure", "timed_out", "action_required")
                           for c in head_runs)
@@ -106,6 +126,17 @@ def collect(api):
                 # GitHub check-runs alone do not establish branch-protection
                 # requirements. Never claim a required-check blocker yet.
                 "required_check_verified": required_failed,
+                "review_blocked": review_blocked,
+                "mergeable_state": pr.get("mergeable_state") or "unknown",
+                "age_seconds": age_seconds,
+                "required_check_count": len(required),
+                "check_count": len(head_runs),
+                "checks_pending": pending,
+                "checks_failing": failing,
+                "missing_required_checks": sorted(required - {
+                    c.get("name") for c in head_runs if isinstance(c.get("name"), str)}),
+                "auto_merge_enabled": bool(pr.get("auto_merge")),
+                "updated_at": pr.get("updated_at"),
             })
         # Pass B: retain failed-run evidence, but never infer root cause from
         # a single failure, nor compare non-equivalent lanes.
@@ -134,10 +165,18 @@ def collect(api):
             lane_runs.sort(key=lambda item: (item["created_at"], item["id"]), reverse=True)
             ci_lanes.append({"workflow": workflow, "trigger": trigger,
                              "branch": branch, "completed_runs": lane_runs})
+        pending_runs = [{
+            "id": r["id"], "name": r.get("name") or "",
+            "event": r.get("event") or "", "branch": r.get("head_branch") or "",
+            "status": r.get("status"), "created_at": r.get("created_at") or "",
+            "url": r.get("html_url") or ""
+        } for r in workflow_runs if r.get("status") in
+            {"queued", "waiting", "requested", "in_progress"}]
         results.append({
             "name": repo, "pass_a_checked": True, "pass_b_checked": True,
             "open_pr_count": len(pulls), "recent_run_count": len(workflow_runs),
             "ci_lanes": ci_lanes, "pr_evidence": pr_evidence,
+            "pending_runs": pending_runs,
             "recent_failed_runs": [f for f in findings if f["repository"] == repo],
         })
     return results
@@ -159,6 +198,8 @@ def store_observation(db_path, completed_at, repositories):
                 (completed_at, repo["name"], json.dumps(repo, sort_keys=True)))
         alerts = reconcile(connection, repositories, completed_at)
         alerts.extend(reconcile_prs(connection, repositories, completed_at))
+        alerts.extend(reconcile_extra(connection, repositories, completed_at))
+        alerts.extend(reconcile_pending(connection, repositories, completed_at))
         return alerts
 
 
