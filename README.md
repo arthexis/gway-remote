@@ -70,7 +70,8 @@ Use the globally installed CLI to request the existing GitHub **Appliance Deploy
 workflow (this command does not install anything locally):
 
 ```sh
-gway-remote deploy                   # all components
+gway-remote deploy --all             # all components
+gway-remote deploy                    # error: explicit target required
 gway-remote deploy ocpp-csms         # one component
 gway-remote deploy ocpp-reports
 gway-remote deploy gway-ap-kiosk
