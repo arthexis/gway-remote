@@ -158,14 +158,14 @@ def check(*, apply=False, client=None, now=None):
         name = row["name"]
         observation = observations[name]
         category = observation["diagnosis"]
-        if category in {"runtime-failed", "health-check-failed"}:
+        evidence = quick_component_check(name)
+        missing = missing_installation(row, observation, evidence)
+        if category in {"runtime-failed", "health-check-failed"} and not missing:
             decisions.append({"name": name, "state": "intrinsic-failure"})
             if apply:
                 _issue(sources[name], name, "runtime-failure",
                        observation.get("diagnosis_reason", "Runtime check failed"))
             continue
-        evidence = quick_component_check(name)
-        missing = missing_installation(row, observation, evidence)
         if row["revision_status"] == "unknown" and not missing:
             decisions.append({"name": name, "state": "unverified-revision"})
             continue
