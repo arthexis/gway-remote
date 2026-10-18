@@ -6,7 +6,7 @@ from time import perf_counter_ns
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from ipaddress import ip_address
 
-from . import mobile
+from . import mobile, github_health
 from .agent_ops_adapter import AgentOpsError
 
 WIREGUARD_BIND_ADDRESS = "10.90.0.2"
@@ -45,13 +45,15 @@ def handler_for(token):
             return True
 
         def do_GET(self):
-            if self.path not in ("/api/v1/health", "/api/v1/commands"):
+            if self.path not in ("/api/v1/health", "/api/v1/commands", "/api/v1/github-health"):
                 self.respond(404, {"error": "not_found"})
                 return
             if not self.authorized():
                 return
             if self.path == "/api/v1/health":
                 self.respond(200, {"status": "ok", "api": "gway-remote/v1"})
+            elif self.path == "/api/v1/github-health":
+                self.respond(200, github_health.read_snapshot())
             else:
                 self.respond(200, {"commands": mobile.commands()})
 
