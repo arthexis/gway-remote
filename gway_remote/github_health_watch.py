@@ -17,6 +17,7 @@ from pathlib import Path
 from .github_health import REPOSITORIES
 from .github_health_publish import publish
 from .github_health_episodes import reconcile
+from .github_health_prs import reconcile_prs
 
 API = "https://api.github.com"
 CATEGORIES = {"CI_FAILURE_STUCK", "CI_MISSING", "CI_ABNORMALLY_LONG",
@@ -62,6 +63,33 @@ def collect(api):
         for pr in pulls:
             if not isinstance(pr, dict) or "number" not in pr:
                 raise ValueError("Incomplete PR evidence")
+        pr_evidence = []
+        for pr in pulls:
+            head = pr.get("head") or {}
+            sha = head.get("sha")
+            if not isinstance(sha, str) or not sha:
+                raise ValueError("Missing PR head SHA")
+            checks = api.get("/repos/" + encoded + "/commits/" +
+                             urllib.parse.quote(sha, safe="") + "/check-runs?per_page=100")
+            if not isinstance(checks, dict) or not isinstance(checks.get("check_runs"), list):
+                raise ValueError("Missing head checks")
+            head_runs = checks["check_runs"]
+            failing = any(c.get("status") == "completed" and
+                          c.get("conclusion") in ("failure", "timed_out", "action_required")
+                          for c in head_runs)
+            pending = any(c.get("status") != "completed" for c in head_runs)
+            labels = {label.get("name") for label in pr.get("labels", [])
+                      if isinstance(label, dict)}
+            pr_evidence.append({
+                "number": pr["number"], "head_sha": sha,
+                "url": pr.get("html_url") or "",
+                "draft": pr.get("draft") is True,
+                "on_hold": "on-hold" in labels,
+                "head_check": "pending" if pending else "failure" if failing else "other",
+                # GitHub check-runs alone do not establish branch-protection
+                # requirements. Never claim a required-check blocker yet.
+                "required_check_verified": False,
+            })
         # Pass B: retain failed-run evidence, but never infer root cause from
         # a single failure, nor compare non-equivalent lanes.
         for run in workflow_runs:
@@ -92,7 +120,7 @@ def collect(api):
         results.append({
             "name": repo, "pass_a_checked": True, "pass_b_checked": True,
             "open_pr_count": len(pulls), "recent_run_count": len(workflow_runs),
-            "ci_lanes": ci_lanes,
+            "ci_lanes": ci_lanes, "pr_evidence": pr_evidence,
             "recent_failed_runs": [f for f in findings if f["repository"] == repo],
         })
     return results
@@ -112,7 +140,9 @@ def store_observation(db_path, completed_at, repositories):
             connection.execute(
                 "INSERT INTO observations VALUES (?, ?, ?)",
                 (completed_at, repo["name"], json.dumps(repo, sort_keys=True)))
-        return reconcile(connection, repositories, completed_at)
+        alerts = reconcile(connection, repositories, completed_at)
+        alerts.extend(reconcile_prs(connection, repositories, completed_at))
+        return alerts
 
 
 def check(api, db_path, snapshot_path):
