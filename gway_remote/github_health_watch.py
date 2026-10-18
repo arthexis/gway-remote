@@ -1,0 +1,136 @@
+"""Read-only GitHub Health collector for the Gway-001 appliance.
+
+No workflow dispatches or repository mutations. A failed collection never
+publishes a healthy snapshot or resolves historical alerts.
+"""
+import argparse
+import json
+import os
+import sqlite3
+import tempfile
+import urllib.error
+import urllib.parse
+import urllib.request
+from datetime import datetime, timezone
+from pathlib import Path
+
+from .github_health import REPOSITORIES
+from .github_health_publish import publish
+
+API = "https://api.github.com"
+CATEGORIES = {"CI_FAILURE_STUCK", "CI_MISSING", "CI_ABNORMALLY_LONG",
+              "REVIEW_BLOCKED", "BRANCH_FRESHNESS_BLOCKED",
+              "READY_BUT_NOT_MERGING", "STALE_IN_PROGRESS",
+              "AUTOMATION_STATE_INCONSISTENCY", "CI_ANOMALY"}
+
+
+class GitHubReadOnly:
+    def __init__(self, token):
+        if not token:
+            raise ValueError("GITHUB_TOKEN required")
+        self.token = token
+
+    def get(self, path):
+        if not path.startswith("/") or path.startswith("//"):
+            raise ValueError("Invalid API path")
+        request = urllib.request.Request(
+            API + path, headers={"Authorization": "Bearer " + self.token,
+                                 "Accept": "application/vnd.github+json",
+                                 "X-GitHub-Api-Version": "2022-11-28",
+                                 "User-Agent": "gway-remote-health"})
+        with urllib.request.urlopen(request, timeout=20) as response:
+            return json.load(response)
+
+
+def collect(api):
+    """Two bounded read-only passes; unknown evidence is never reported healthy."""
+    results = []
+    findings = []
+    for repo in REPOSITORIES:
+        encoded = urllib.parse.quote(repo, safe="/")
+        pulls = api.get("/repos/" + encoded + "/pulls?state=open&per_page=100")
+        runs = api.get("/repos/" + encoded + "/actions/runs?per_page=30")
+        if not isinstance(pulls, list) or not isinstance(runs, dict):
+            raise ValueError("Unexpected GitHub response for " + repo)
+        workflow_runs = runs.get("workflow_runs")
+        if not isinstance(workflow_runs, list):
+            raise ValueError("Missing workflow runs for " + repo)
+        # Pass A: evidence acquisition. Do not classify a PR stuck solely
+        # because a check failed or a PR is old: historical persistence and
+        # expected automated transitions must first be established.
+        for pr in pulls:
+            if not isinstance(pr, dict) or "number" not in pr:
+                raise ValueError("Incomplete PR evidence")
+        # Pass B: retain failed-run evidence, but never infer root cause from
+        # a single failure, nor compare non-equivalent lanes.
+        for run in workflow_runs:
+            if not isinstance(run, dict) or "id" not in run:
+                raise ValueError("Incomplete CI evidence")
+            if run.get("status") == "completed" and run.get("conclusion") in (
+                    "failure", "timed_out", "action_required"):
+                findings.append({
+                    "repository": repo, "workflow": run.get("name"),
+                    "run_id": run["id"], "conclusion": run["conclusion"],
+                    "url": run.get("html_url")})
+        results.append({
+            "name": repo, "pass_a_checked": True, "pass_b_checked": True,
+            "open_pr_count": len(pulls), "recent_run_count": len(workflow_runs),
+            "recent_failed_runs": [f for f in findings if f["repository"] == repo],
+        })
+    return results
+
+
+def store_observation(db_path, completed_at, repositories):
+    """SQLite is authoritative for observations; no fabricated alert clearances."""
+    db_path = Path(db_path)
+    db_path.parent.mkdir(parents=True, exist_ok=True)
+    with sqlite3.connect(db_path) as connection:
+        connection.execute("PRAGMA journal_mode=WAL")
+        connection.execute(
+            "CREATE TABLE IF NOT EXISTS observations ("
+            "completed_at TEXT NOT NULL, repository TEXT NOT NULL, "
+            "payload TEXT NOT NULL, PRIMARY KEY(completed_at, repository))")
+        for repo in repositories:
+            connection.execute(
+                "INSERT INTO observations VALUES (?, ?, ?)",
+                (completed_at, repo["name"], json.dumps(repo, sort_keys=True)))
+
+
+def check(api, db_path, snapshot_path):
+    repositories = collect(api)
+    completed_at = datetime.now(timezone.utc).isoformat()
+    store_observation(db_path, completed_at, repositories)
+    # Alert classification remains intentionally conservative: evidence-only
+    # observations do not count as active or resolved alert episodes.
+    snapshot = {"schema_version": 1, "status": "available",
+                "completed_at": completed_at, "repositories": repositories,
+                "alerts": []}
+    destination = Path(snapshot_path)
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    temporary = None
+    try:
+        with tempfile.NamedTemporaryFile("w", encoding="utf-8",
+                                         dir=destination.parent, delete=False) as stream:
+            temporary = Path(stream.name)
+            json.dump(snapshot, stream)
+        publish(temporary, destination)
+    finally:
+        if temporary is not None:
+            temporary.unlink(missing_ok=True)
+    return snapshot
+
+
+def main(argv=None):
+    parser = argparse.ArgumentParser(description="Read-only appliance GitHub health check")
+    parser.add_argument("--db", default=os.environ.get("GWAY_REMOTE_GITHUB_HEALTH_DB",
+                        "~/.local/state/gway-remote/github-health.sqlite3"))
+    parser.add_argument("--snapshot", default=os.environ.get(
+        "GWAY_REMOTE_GITHUB_HEALTH_SNAPSHOT",
+        "~/.local/state/gway-remote/github-health.json"))
+    args = parser.parse_args(argv)
+    check(GitHubReadOnly(os.environ.get("GITHUB_TOKEN")),
+          Path(args.db).expanduser(), Path(args.snapshot).expanduser())
+
+
+if __name__ == "__main__":
+    main()
