@@ -18,8 +18,9 @@ class ProbeRegistryTests(unittest.TestCase):
 
     def test_unknown_probe_is_not_a_failed_health_check(self):
         self.assertIsNone(component_health("future-repo"))
-        for name in ("ocpp-reports", "gway-agent-ops", "gway-ap-kiosk"):
-            self.assertIsNone(installed_revision(name))
+        self.assertIsNone(installed_revision("future-repo"))
+        # Installed revisions for registered targets depend on appliance state,
+        # so they cannot be asserted unknown on a self-hosted runner.
 
     def test_registered_system_unit_drives_existing_probe(self):
         with patch("gway_remote.health._command", return_value=True) as command:
