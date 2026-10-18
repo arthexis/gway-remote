@@ -31,6 +31,11 @@ class EpisodeTests(unittest.TestCase):
         self.assertEqual(resolved[0]["resolution_kind"], "fixed")
         self.assertEqual(reconcile(self.db, self.rows(["success", "failure"]), "t5"), [])
 
+    def test_old_failure_cannot_reopen_resolved_episode(self):
+        reconcile(self.db, self.rows(["failure", "failure"]), "t1")
+        reconcile(self.db, self.rows(["success", "failure"]), "t2")
+        self.assertEqual(reconcile(self.db, self.rows(["failure", "failure"]), "t3"), [])
+
     def test_single_failure_is_not_an_alert(self):
         self.assertEqual(reconcile(self.db, self.rows(["failure", "success"]), "t1"), [])
 
