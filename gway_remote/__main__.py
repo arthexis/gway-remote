@@ -267,7 +267,8 @@ def main() -> None:
     report_parser.add_argument("--output", required=True)
     deploy_parser = subparsers.add_parser("deploy", help="Trigger GitHub Appliance Deploy workflow")
     from .deploy_dispatch import TARGETS
-    deploy_parser.add_argument("repository", nargs="?", choices=TARGETS, default="all")
+    deploy_parser.add_argument("repository", nargs="?", choices=TARGETS[1:])
+    deploy_parser.add_argument("--all", action="store_true", help="Deploy all repositories")
     batch_parser = subparsers.add_parser("deploy-batch", help="Deploy appliance revisions")
     batch_parser.add_argument("--target", choices=("ocpp-csms", "ocpp-simulator", "gway-lcd-sound", "gway-agent-ops", "gway-ap-kiosk", "ocpp-reports"), default=None)
     batch_parser.add_argument("--all", action="store_true", help="Explicitly reinstall all latest main revisions regardless of prior attempts or CI")
@@ -400,9 +401,11 @@ def main() -> None:
             parser.exit(1, f"gway-remote: reconciliation unavailable: {exc}\n")
         return
     if args.command == "deploy":
+        if args.all == bool(args.repository):
+            parser.error("deploy requires either a repository or --all (not both)")
         from .deploy_dispatch import dispatch
         try:
-            print(dispatch(args.repository))
+            print(dispatch("all" if args.all else args.repository))
         except (ValueError, RuntimeError) as exc:
             parser.exit(1, f"gway-remote: {exc}\n")
         return
