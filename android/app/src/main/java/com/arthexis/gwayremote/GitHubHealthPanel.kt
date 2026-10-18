@@ -70,8 +70,8 @@ fun GitHubHealthPanel(endpoint: String, token: String) {
                     color = MaterialTheme.colorScheme.error)
             } else {
                 Text("Last completed: " + data.optString("completed_at"))
-                if (data.optString("classification_status") == "not_implemented") {
-                    Text("Evidence only — alert classification is not yet available.",
+                if (data.optString("classification_status") != "complete") {
+                    Text("Partial monitoring — full PR and CI classification is not yet available.",
                         color = MaterialTheme.colorScheme.error)
                 }
                 val repos = data.optJSONArray("repositories")
