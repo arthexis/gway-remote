@@ -42,6 +42,9 @@ def component_health(name: str) -> bool:
             if "--notification-mode shadow" not in content or "--no-processes" not in content:
                 return False
         return _command([str(observer), "--help"])
+    if name == "gway-rfid":
+        return _command(["systemctl", "is-active", "--quiet", "gway-rfid.service"]) and _command(
+            ["systemctl", "is-enabled", "--quiet", "gway-rfid.service"])
     if name == "ocpp-csms":
         return csms_health()
     return False
@@ -68,6 +71,9 @@ def quick_component_check(name: str):
             if "--notification-mode shadow" not in content or "--no-processes" not in content:
                 return "unit-configuration-mismatch"
         return "installation-present"
+    if name == "gway-rfid":
+        link = home / ".local/share/gway-rfid/current"
+        return "release-present" if link.is_symlink() and link.exists() else "release-missing"
     if name == "ocpp-csms":
         from .csms_health import csms_liveness
         return csms_liveness()
