@@ -112,6 +112,34 @@
     path: "/home/{{ gway_remote_runner_user }}/.config/gway-remote/github-health.env"
   register: github_health_token_config
 
+- name: Validate private GitHub Health credentials
+  ansible.builtin.assert:
+    that:
+      - github_health_token_config.stat.isreg | default(false)
+      - github_health_token_config.stat.pw_name == gway_remote_runner_user
+      - github_health_token_config.stat.mode == '0600'
+    fail_msg: >-
+      github-health.env must be a regular file owned by
+      {{ gway_remote_runner_user }} with mode 0600.
+      Fix ownership and permissions before deploying.
+  when: github_health_token_config.stat.exists
+
+- name: Verify API snapshot path is readable by appliance runner
+  ansible.builtin.command:
+    argv:
+      - /usr/bin/python3
+      - -c
+      - |
+        import os
+        from pathlib import Path
+        path = Path.home() / ".local/state/gway-remote"
+        assert path.is_dir() and os.access(path, os.R_OK | os.X_OK)
+        snapshot = path / "github-health.json"
+        if snapshot.exists():
+            assert snapshot.is_file() and os.access(snapshot, os.R_OK)
+  become_user: "{{ gway_remote_runner_user }}"
+  changed_when: false
+
 - name: Install GitHub Health collector systemd units
   ansible.builtin.copy:
     src: "{{ playbook_dir }}/../deploy/systemd/{{ item }}"
