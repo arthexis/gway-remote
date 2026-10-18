@@ -16,6 +16,7 @@ class Probe:
     release: str | None = None
     revision_pattern: str | None = None
     revision_from_executable: bool = False
+    revision_file: str | None = None
 
 
 PROBES = {
@@ -31,7 +32,8 @@ PROBES = {
                           revision_from_executable=True),
     "gway-agent-ops": Probe("executable", executable=".local/bin/agent",
                            revision_from_executable=True),
-    "gway-ap-kiosk": Probe("systemd", service="gway-kiosk-status.service"),
+    "gway-ap-kiosk": Probe("systemd", service="gway-kiosk-status.service",
+                           revision_file="/var/lib/gway-ap-kiosk/installed-revision"),
     "gway-rfid": Probe("systemd", service="gway-rfid.service",
                        release=".local/share/gway-rfid/current",
                        revision_pattern=r"[0-9a-f]{40}"),
