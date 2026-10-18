@@ -35,3 +35,29 @@ python3 -m gway_remote.github_health_watch
 
 Network failure or incomplete repository evidence fails the collection;
 the prior snapshot is not overwritten and eventually becomes stale.
+
+## Appliance deployment (Ansible increment)
+
+Ansible installs system units from `deploy/systemd/gway-remote-health.*`.
+The collector uses the deployed source at `/opt/gway-remote`, with the system
+Python interpreter, and stores SQLite/snapshots in
+`/home/arthe/.local/state/gway-remote/`. No commit-hash venv is used by
+this CLI deployment; it is a Python zipapp/source installation.
+
+The hourly timer is **disabled until** an operator provisions
+`/home/arthe/.config/gway-remote/github-health.env` privately, with
+permissions `0600` and owner `arthe`, containing a read-only token:
+
+```sh
+GITHUB_TOKEN=github_pat_REPLACE_WITH_READ_ONLY_TOKEN
+```
+
+Do not commit the file or paste the token into CI logs. Re-run `deploy.sh`
+after provisioning to enable the timer. Ansible does not create credentials.
+The API defaults to the same snapshot under its runtime user's home; when
+the API runs under a different account, configure
+`GWAY_REMOTE_GITHUB_HEALTH_SNAPSHOT` explicitly.
+
+Check `systemctl status gway-remote-health.timer` and
+`journalctl -u gway-remote-health.service` on the appliance. This is
+still partial classification; leave the ChatGPT health watch enabled.
