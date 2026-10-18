@@ -104,31 +104,3 @@ def main():
 if __name__ == "__main__":
     main()
 
-
-def report_manual_failures(result, *, repo="arthexis/gway-remote", directory=None):
-    """Best-effort incident updates for direct operator CLI execution.
-
-    Caller retains its original exit status even if GitHub is unavailable.
-    """
-    from .attempts import DEFAULT_DIR
-    from .logs import sanitize
-
-    directory = Path(directory or DEFAULT_DIR)
-    links = []
-    for item in result.get("results", []):
-        if item.get("status") not in ("failed", "blocked"):
-            continue
-        name = item["name"]
-        reason = sanitize(str(item.get("reason") or item.get("error") or "unknown"))[:500]
-        excerpt = ""
-        filename = item.get("log")
-        if filename and Path(filename).name == filename:
-            path = directory / "logs" / filename
-            if path.is_file() and not path.is_symlink():
-                excerpt = sanitize(path.read_text(encoding="utf-8", errors="replace"))[-6000:]
-        sha = item.get("sha") or "unknown"
-        summary = f"Operator-initiated CLI deployment\n\nAttempted SHA: {sha}\nReason: {reason}"
-        body = issue_body(name, item["status"], "Direct operator CLI invocation (no Actions run)", summary, excerpt)
-        issue = upsert(repo, name, body)
-        links.append(issue["html_url"])
-    return links
