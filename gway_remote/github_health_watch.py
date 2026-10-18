@@ -18,6 +18,7 @@ from .github_health import REPOSITORIES
 from .github_health_publish import publish
 from .github_health_episodes import reconcile
 from .github_health_prs import reconcile_prs
+from .github_health_categories import reconcile_extra
 
 API = "https://api.github.com"
 CATEGORIES = {"CI_FAILURE_STUCK", "CI_MISSING", "CI_ABNORMALLY_LONG",
@@ -163,10 +164,18 @@ def collect(api):
             lane_runs.sort(key=lambda item: (item["created_at"], item["id"]), reverse=True)
             ci_lanes.append({"workflow": workflow, "trigger": trigger,
                              "branch": branch, "completed_runs": lane_runs})
+        pending_runs = [{
+            "id": r["id"], "name": r.get("name") or "",
+            "event": r.get("event") or "", "branch": r.get("head_branch") or "",
+            "status": r.get("status"), "created_at": r.get("created_at") or "",
+            "url": r.get("html_url") or ""
+        } for r in workflow_runs if r.get("status") in
+            {"queued", "waiting", "requested", "in_progress"}]
         results.append({
             "name": repo, "pass_a_checked": True, "pass_b_checked": True,
             "open_pr_count": len(pulls), "recent_run_count": len(workflow_runs),
             "ci_lanes": ci_lanes, "pr_evidence": pr_evidence,
+            "pending_runs": pending_runs,
             "recent_failed_runs": [f for f in findings if f["repository"] == repo],
         })
     return results
@@ -188,6 +197,7 @@ def store_observation(db_path, completed_at, repositories):
                 (completed_at, repo["name"], json.dumps(repo, sort_keys=True)))
         alerts = reconcile(connection, repositories, completed_at)
         alerts.extend(reconcile_prs(connection, repositories, completed_at))
+        alerts.extend(reconcile_extra(connection, repositories, completed_at))
         return alerts
 
 
