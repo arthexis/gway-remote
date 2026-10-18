@@ -1,0 +1,50 @@
+"""Tests for the operator-facing GitHub deployment dispatcher."""
+import subprocess
+import unittest
+from unittest.mock import patch
+
+from gway_remote.deploy_dispatch import TARGETS, dispatch
+
+
+class DeployDispatchTests(unittest.TestCase):
+    @patch("gway_remote.deploy_dispatch.subprocess.run")
+    def test_all_targets_dispatch_with_fixed_workflow(self, run):
+        for target in TARGETS:
+            with self.subTest(target=target):
+                message = dispatch(target)
+                self.assertIn(target, message)
+                self.assertIn("pending", message)
+                args, kwargs = run.call_args
+                self.assertEqual(args[0], [
+                    "gh", "workflow", "run", "appliance-deploy.yml",
+                    "--repo", "arthexis/gway-remote", "--ref", "main",
+                    "-f", f"repository={target}",
+                ])
+                self.assertTrue(kwargs["check"])
+
+    @patch("gway_remote.deploy_dispatch.subprocess.run")
+    def test_invalid_target_cannot_dispatch(self, run):
+        with self.assertRaises(ValueError):
+            dispatch("../../another-workflow")
+        run.assert_not_called()
+
+    @patch("gway_remote.deploy_dispatch.subprocess.run", side_effect=FileNotFoundError())
+    def test_missing_gh_is_actionable(self, run):
+        with self.assertRaisesRegex(RuntimeError, "gh"):
+            dispatch()
+
+    @patch("gway_remote.deploy_dispatch.subprocess.run")
+    @patch.dict("os.environ", {"GITHUB_TOKEN": "token-for-test"}, clear=True)
+    def test_github_token_is_forwarded_to_gh(self, run):
+        dispatch()
+        self.assertEqual(run.call_args.kwargs["env"]["GH_TOKEN"], "token-for-test")
+
+    @patch("gway_remote.deploy_dispatch.subprocess.run")
+    def test_gh_failure_is_not_reported_as_success(self, run):
+        run.side_effect = subprocess.CalledProcessError(1, ["gh"], stderr="permission denied")
+        with self.assertRaisesRegex(RuntimeError, "permission denied"):
+            dispatch()
+
+
+if __name__ == "__main__":
+    unittest.main()
