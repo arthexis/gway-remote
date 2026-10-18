@@ -98,3 +98,47 @@
     name: gway-remote-watch.timer
     enabled: true
     state: started
+
+- name: Create private GitHub Health configuration directory
+  ansible.builtin.file:
+    path: "/home/{{ gway_remote_runner_user }}/.config/gway-remote"
+    state: directory
+    owner: "{{ gway_remote_runner_user }}"
+    group: "{{ gway_remote_runner_user }}"
+    mode: "0700"
+
+- name: Inspect externally provisioned GitHub Health token configuration
+  ansible.builtin.stat:
+    path: "/home/{{ gway_remote_runner_user }}/.config/gway-remote/github-health.env"
+  register: github_health_token_config
+
+- name: Install GitHub Health collector systemd units
+  ansible.builtin.copy:
+    src: "{{ playbook_dir }}/../deploy/systemd/{{ item }}"
+    dest: "/etc/systemd/system/{{ item }}"
+    owner: root
+    group: root
+    mode: "0644"
+  loop:
+    - gway-remote-health.service
+    - gway-remote-health.timer
+  register: github_health_units
+
+- name: Reload systemd for GitHub Health units
+  ansible.builtin.systemd_service:
+    daemon_reload: true
+  when: github_health_units.changed
+
+- name: Enable GitHub Health timer only when private token configuration exists
+  ansible.builtin.systemd_service:
+    name: gway-remote-health.timer
+    enabled: true
+    state: started
+  when: github_health_token_config.stat.exists
+
+- name: Keep GitHub Health timer disabled until private token is provisioned
+  ansible.builtin.systemd_service:
+    name: gway-remote-health.timer
+    enabled: false
+    state: stopped
+  when: not github_health_token_config.stat.exists
