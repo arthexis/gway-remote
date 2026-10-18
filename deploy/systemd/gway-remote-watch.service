@@ -1,0 +1,17 @@
+[Unit]
+Description=GWay Remote appliance reconciliation (single bounded tick)
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=oneshot
+User=arthe
+Group=arthe
+Environment=HOME=/home/arthe
+ExecStart=/usr/local/bin/python3 -m gway_remote.appliance_watch --apply
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=/home/arthe/.local/state/gway-remote
+TimeoutStartSec=180
