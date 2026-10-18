@@ -131,6 +131,10 @@ def collect(api):
                 "check_count": len(head_runs),
                 "checks_pending": pending,
                 "checks_failing": failing,
+                "missing_required_checks": sorted(required - {
+                    c.get("name") for c in head_runs if isinstance(c.get("name"), str)}),
+                "auto_merge_enabled": bool(pr.get("auto_merge")),
+                "updated_at": pr.get("updated_at"),
             })
         # Pass B: retain failed-run evidence, but never infer root cause from
         # a single failure, nor compare non-equivalent lanes.
