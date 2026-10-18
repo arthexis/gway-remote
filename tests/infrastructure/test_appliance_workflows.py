@@ -35,6 +35,10 @@ class ApplianceWorkflowTests(unittest.TestCase):
         self.assertIn("needs: [" + ", ".join(name.replace("-", "_") for name, _ in TARGETS) + "]", deploy)
         self.assertEqual(len(TARGETS), deploy.count("always() && github.event_name"))
         self.assertNotIn("exit 0", deploy)
+        self.assertIn("JOB_RESULTS: ${{ toJSON(needs) }}", deploy)
+        self.assertIn("Summarize independent deployment outcomes", deploy)
+        self.assertIn('outcome = "not selected"', deploy)
+        self.assertIn('outcome = results[job]["result"]', deploy)
 
     def test_workflows_share_appliance_concurrency_lock(self):
         report = (WORKFLOWS / "appliance-report.yml").read_text()
