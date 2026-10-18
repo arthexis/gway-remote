@@ -38,7 +38,7 @@ class DeploymentWorkflowTests(unittest.TestCase):
     def test_transactional_deployment_module_is_invoked(self):
         self.assertIn("from gway_remote.deployment import deploy", self.workflow)
         self.assertIn("deploy(", self.workflow)
-        self.assertIn('install=lambda: subprocess.run(["sh", "scripts/install-cli.sh"], check=True)', self.workflow)
+        self.assertIn('install=lambda: subprocess.run(["sh", "deploy.sh"], check=True)', self.workflow)
         self.assertNotIn("systemctl enable", self.workflow)
 
     def test_one_automatic_deployer(self):
