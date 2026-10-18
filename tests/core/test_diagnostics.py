@@ -10,9 +10,7 @@ from gway_remote.reconcile import TARGETS
 
 class DiagnosticTests(unittest.TestCase):
     def test_unknown_health_contract_does_not_claim_failure(self):
-        self.assertIsNone(component_health("ocpp-reports"))
-        self.assertIsNone(component_health("gway-agent-ops"))
-        self.assertIsNone(component_health("gway-ap-kiosk"))
+        self.assertIsNone(component_health("not-registered"))
 
     def test_each_registered_target_has_diagnostic_without_side_effects(self):
         with tempfile.TemporaryDirectory() as folder:
