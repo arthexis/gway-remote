@@ -11,6 +11,11 @@ class ProvisioningTests(unittest.TestCase):
         self.assertNotIn("deploy-batch", tasks)
         self.assertNotIn("systemctl", tasks)
 
+    def test_local_deploy_wrapper(self):
+        script = Path('deploy.sh').read_text()
+        self.assertIn('ansible-playbook', script)
+        self.assertIn("-i 'gway_remote,' -c local", script)
+
     def test_playbook_requires_explicit_inventory(self):
         playbook = Path("ansible/playbook.yml").read_text()
         self.assertIn("hosts: gway_remote", playbook)

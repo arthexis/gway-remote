@@ -39,7 +39,9 @@ jobs:
       - name: Validate CLI
         run: python -m gway_remote --help
       - name: Validate global CLI installer shell
-        run: sh -n scripts/install-cli.sh
+        run: |
+          sh -n scripts/install-cli.sh
+          sh -n deploy.sh
       - name: Validate Ansible playbook syntax
         run: |
           python -m pip install 'ansible-core>=2.16,<2.19'

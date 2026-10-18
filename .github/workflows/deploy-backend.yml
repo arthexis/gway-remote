@@ -56,7 +56,7 @@ jobs:
           from gway_remote.deployment import deploy, local_api_token
           deploy(
               token=local_api_token(),
-              install=lambda: subprocess.run(["sh", "scripts/install-cli.sh"], check=True),
+              install=lambda: subprocess.run(["sh", "deploy.sh"], check=True),
           )
           PY
           /usr/local/bin/gway-remote status --json | python3 -c 'import json,sys; assert json.load(sys.stdin)["schema"] == "gway-remote/status/v1"'
