@@ -93,7 +93,7 @@ def report_failures(repo, run_url, selected, job_results, report_dir):
             if path.is_file() and not path.is_symlink():
                 excerpt = path.read_text(encoding="utf-8", errors="replace")
         evidence = diagnostics.get(name, {})
-        concise = {key: evidence[key] for key in ("diagnosis", "health", "installation", "installed_sha", "systemd") if key in evidence}
+        concise = {key: evidence[key] for key in ("diagnosis", "diagnosis_reason", "health", "installation", "attempted_sha", "installed_sha", "systemd") if key in evidence}
         body = issue_body(name, outcome, run_url, summary, excerpt, concise)
         issue = upsert(repo, name, body)
         print(f"{name}: {issue['html_url']}")
