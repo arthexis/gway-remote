@@ -18,16 +18,18 @@ class FakeAPI:
             raise OSError("GitHub unavailable")
         if "/pulls?" in path:
             return []
+        if "/protection/required_status_checks" in path:
+            return {"contexts": [], "checks": []}
         return {"workflow_runs": []}
 
 
 class WatchTests(unittest.TestCase):
-    def test_two_read_only_requests_per_repo(self):
+    def test_three_read_only_requests_per_repo(self):
         api = FakeAPI()
         rows = collect(api)
         self.assertEqual([r["name"] for r in rows], list(REPOSITORIES))
-        self.assertEqual(len(api.paths), 10)
-        self.assertTrue(all("/pulls?" in p or "/actions/runs?" in p for p in api.paths))
+        self.assertEqual(len(api.paths), 15)
+        self.assertTrue(all("/pulls?" in p or "/actions/runs?" in p or "/protection/required_status_checks" in p for p in api.paths))
 
     def test_snapshot_and_sqlite(self):
         with tempfile.TemporaryDirectory() as root:
