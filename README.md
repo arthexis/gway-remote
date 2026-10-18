@@ -88,6 +88,23 @@ uses the workflow's fixed list of deployment targets.
 A successful command indicates only that GitHub accepted the request.
 Inspect the Actions workflow run to determine installation success.
 
+## Inspect configured deployments
+
+```sh
+gway-remote deployments
+gway-remote deployments ocpp-csms
+gway-remote deployments --json
+```
+
+This read-only inventory lists the six configured repositories, last recorded
+deployment attempt timestamp, attempt result, attempted SHA, current GitHub
+`main` SHA, and independently verified installed SHA. An installed revision
+is shown as `unknown` when no supported release link can verify it; a
+successful attempt alone is **not** proof of installation. The timestamp
+represents the last attempt state update, not necessarily its start time.
+GitHub access is required to read the latest main revisions. The journal
+keeps only the most recent attempt per target, not a full history.
+
 ## Local appliance status
 
 Run `python3 -m gway_remote status` or `python3 -m gway_remote status --json`.
