@@ -24,10 +24,10 @@ def issue_body(name, outcome, run_url, summary, log_excerpt=""):
     marker = MARKER.format(name=name)
     body = [
         marker,
-        f"## Deployment failure: \`{name}\`",
+        f"## Deployment failure: `{name}`",
         "",
         f"**Latest run:** {run_url}",
-        f"**Job result:** \`{outcome}\`",
+        f"**Job result:** `{outcome}`",
         "",
         "This issue is refreshed after subsequent failed deployments of this component.",
         "A successful deployment does not automatically close it.",
@@ -37,8 +37,8 @@ def issue_body(name, outcome, run_url, summary, log_excerpt=""):
         summary[:7000],
     ]
     if log_excerpt:
-        body.extend(["", "### Sanitized recent installer output", "", "\`\`\`text",
-                     log_excerpt[-6000:], "\`\`\`"])
+        body.extend(["", "### Sanitized recent installer output", "", "```text",
+                     log_excerpt[-6000:], "```"])
     body.extend(["", "Full bounded sanitized logs are in the run's report artifact."])
     return "\n".join(body)
 
@@ -103,3 +103,32 @@ def main():
 
 if __name__ == "__main__":
     main()
+
+
+def report_manual_failures(result, *, repo="arthexis/gway-remote", directory=None):
+    """Best-effort incident updates for direct operator CLI execution.
+
+    Caller retains its original exit status even if GitHub is unavailable.
+    """
+    from .attempts import DEFAULT_DIR
+    from .logs import sanitize
+
+    directory = Path(directory or DEFAULT_DIR)
+    links = []
+    for item in result.get("results", []):
+        if item.get("status") not in ("failed", "blocked"):
+            continue
+        name = item["name"]
+        reason = sanitize(str(item.get("reason") or item.get("error") or "unknown"))[:500]
+        excerpt = ""
+        filename = item.get("log")
+        if filename and Path(filename).name == filename:
+            path = directory / "logs" / filename
+            if path.is_file() and not path.is_symlink():
+                excerpt = sanitize(path.read_text(encoding="utf-8", errors="replace"))[-6000:]
+        sha = item.get("sha") or "unknown"
+        summary = f"Operator-initiated CLI deployment\n\nAttempted SHA: {sha}\nReason: {reason}"
+        body = issue_body(name, item["status"], "Direct operator CLI invocation (no Actions run)", summary, excerpt)
+        issue = upsert(repo, name, body)
+        links.append(issue["html_url"])
+    return links
