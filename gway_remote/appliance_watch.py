@@ -8,8 +8,13 @@ from __future__ import annotations
 import argparse
 from datetime import datetime, timezone, timedelta
 import json
+import re
 import os
+from pathlib import Path
+import tempfile
 import subprocess
+
+from .attempts import DEFAULT_DIR
 
 from .attempts import read_attempts
 from .deployments import inventory
@@ -72,6 +77,41 @@ def _issue(repo, name, kind, reason):
              "-f", f"title={title}", "-f", f"body={body}")
 
 
+def _dispatch_reservations(directory=DEFAULT_DIR):
+    path = Path(directory) / "watch-dispatches.json"
+    if not path.exists():
+        return {}
+    data = json.loads(path.read_text(encoding="utf-8"))
+    if not isinstance(data, dict) or any(
+        name not in dict(TARGETS) or not isinstance(sha, str) or
+        not re.fullmatch(r"[0-9a-f]{40}", sha) for name, sha in data.items()
+    ):
+        raise ValueError("invalid appliance watch dispatch journal")
+    return data
+
+
+def _reserve_dispatch(name, sha, directory=DEFAULT_DIR):
+    """Write before API dispatch so network ambiguity cannot cause repeats."""
+    directory = Path(directory)
+    data = _dispatch_reservations(directory)
+    if data.get(name) == sha:
+        return False
+    data[name] = sha
+    directory.mkdir(parents=True, exist_ok=True)
+    fd, tmp = tempfile.mkstemp(prefix=".watch-", dir=directory)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as out:
+            json.dump(data, out, sort_keys=True)
+            out.write("\\n")
+            out.flush()
+            os.fsync(out.fileno())
+        os.replace(tmp, directory / "watch-dispatches.json")
+    finally:
+        if os.path.exists(tmp):
+            os.unlink(tmp)
+    return True
+
+
 def _github_client():
     token = os.getenv("GH_TOKEN") or os.getenv("GITHUB_TOKEN")
     if not token:
@@ -89,6 +129,7 @@ def check(*, apply=False, client=None, now=None):
     client = client if client is not None else _github_client()
     now = now or datetime.now(timezone.utc)
     attempts = read_attempts()  # Corrupt evidence aborts, never triggers installs.
+    reserved = _dispatch_reservations()
     report = inventory(client=client, attempts=attempts)
     observations = {x["name"]: x for x in diagnose()["components"]}
     decisions = []
@@ -112,7 +153,9 @@ def check(*, apply=False, client=None, now=None):
             continue
         ci = ci_for_head(client, sources[name], row["latest_sha"])
         arrival = main_arrival(client, sources[name], row["latest_sha"])
-        if eligible(row, ci, arrival, now):
+        if reserved.get(name) == row["latest_sha"]:
+            decisions.append({"name": name, "state": "previously-dispatched"})
+        elif eligible(row, ci, arrival, now):
             pending.append(name)
             decisions.append({"name": name, "state": "ready"})
         else:
@@ -124,6 +167,9 @@ def check(*, apply=False, client=None, now=None):
             # Only one request per tick. The existing workflow owns serialization.
             dispatched = pending[0]
             try:
+                if not _reserve_dispatch(dispatched, next(row["latest_sha"] for row in report["components"] if row["name"] == dispatched)):
+                    return {"schema": "gway-remote/watch/v1", "checked_at": now.isoformat(),
+                            "decisions": decisions, "dispatched": None}
                 dispatch(dispatched)
             except (OSError, RuntimeError, subprocess.CalledProcessError) as exc:
                 _issue("arthexis/gway-remote", dispatched, "dispatch-failure",
