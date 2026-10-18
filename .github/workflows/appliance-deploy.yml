@@ -160,6 +160,37 @@ jobs:
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
+      - name: Summarize independent deployment outcomes
+        shell: bash
+        env:
+          SELECTED_REPOSITORY: ${{ inputs.repository }}
+          JOB_RESULTS: ${{ toJSON(needs) }}
+        run: |
+          python3 - <<'PY'
+          import json
+          import os
+
+          jobs = {
+              "ocpp_csms": "ocpp-csms",
+              "ocpp_reports": "ocpp-reports",
+              "ocpp_simulator": "ocpp-simulator",
+              "gway_lcd_sound": "gway-lcd-sound",
+              "gway_agent_ops": "gway-agent-ops",
+              "gway_ap_kiosk": "gway-ap-kiosk",
+              "gway_rfid": "gway-rfid",
+          }
+          results = json.loads(os.environ["JOB_RESULTS"])
+          selected = os.environ["SELECTED_REPOSITORY"]
+          lines = ["### Deployment job outcomes", "", "| Repository | Outcome |",
+                   "|---|---|"]
+          for job, repository in jobs.items():
+              outcome = results[job]["result"]
+              if outcome == "skipped" and selected not in ("all", repository):
+                  outcome = "not selected"
+              lines.append(f"| {repository} | {outcome} |")
+          with open(os.environ["GITHUB_STEP_SUMMARY"], "a", encoding="utf-8") as out:
+              out.write("\n".join(lines) + "\n\n")
+          PY
       - name: Export read-only sanitized report
         shell: bash
         run: |
