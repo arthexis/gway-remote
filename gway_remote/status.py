@@ -17,6 +17,27 @@ from .probe_registry import probe_for
 def installed_revision(name):
     """Read a registered active release, never infer from deployment attempts."""
     spec = probe_for(name)
+    if spec.revision_file:
+        evidence = Path(spec.revision_file)
+        try:
+            if evidence.is_symlink() or not evidence.is_file():
+                return None
+            candidate = evidence.read_text(encoding="ascii").strip()
+        except (OSError, UnicodeError):
+            return None
+        return candidate if re.fullmatch(r"[0-9a-f]{40}", candidate) else None
+    if spec.revision_from_executable and spec.executable:
+        link = Path.home() / spec.executable
+        if not link.is_symlink():
+            return None
+        try:
+            resolved = link.resolve(strict=True)
+        except (OSError, RuntimeError):
+            return None
+        for parent in resolved.parents:
+            if parent.parent.name == "releases" and re.fullmatch(r"[0-9a-f]{40}", parent.name):
+                return parent.name
+        return None
     if not spec.release or not spec.revision_pattern:
         return None
     link = Path.home() / spec.release

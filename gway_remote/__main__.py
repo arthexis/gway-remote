@@ -282,6 +282,8 @@ def main() -> None:
     diagnose_parser.add_argument("component", nargs="?", choices=tuple(name for name, _ in DEPLOYMENT_TARGETS))
     diagnose_parser.add_argument("--json", action="store_true")
     diagnose_parser.add_argument("--lines", type=int, default=30)
+    watch_parser = subparsers.add_parser("watch", help="One bounded appliance reconciliation tick")
+    watch_parser.add_argument("--apply", action="store_true", help="Dispatch eligible deployments and file incidents")
     status_parser = subparsers.add_parser("status", help="Inspect local attempts and health")
     status_parser.add_argument("--json", action="store_true")
     subparsers.add_parser("probe-csms", help="Read-only CSMS health diagnosis")
@@ -422,6 +424,10 @@ def main() -> None:
             print(json.dumps(report, indent=2, sort_keys=True) if args.json else format_diagnosis(report))
         except (OSError, ValueError) as exc:
             parser.exit(1, f"gway-remote: diagnosis unavailable: {exc}\\n")
+        return
+    if args.command == "watch":
+        from .appliance_watch import check
+        print(json.dumps(check(apply=args.apply), indent=2, sort_keys=True))
         return
     if args.command == "status":
         from .status import status, format_status
