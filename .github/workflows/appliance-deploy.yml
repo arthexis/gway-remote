@@ -19,6 +19,7 @@ on:
 
 permissions:
   contents: read
+  issues: write
 
 concurrency:
   group: gway-001-appliance
@@ -197,6 +198,25 @@ jobs:
           set -euo pipefail
           python3 -m gway_remote report-bundle --output "$RUNNER_TEMP/gway-remote-report"
           cat "$RUNNER_TEMP/gway-remote-report/summary.md" >> "$GITHUB_STEP_SUMMARY"
+      - name: Open or refresh deployment failure issues
+        if: ${{ always() }}
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SELECTED_REPOSITORY: ${{ inputs.repository }}
+          JOB_RESULTS: ${{ toJSON(needs) }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          if [ -f "$RUNNER_TEMP/gway-remote-report/summary.json" ]; then
+            python3 -m gway_remote.deploy_failure_issues \
+              --repo "$GITHUB_REPOSITORY" \
+              --run-url "$RUN_URL" \
+              --selected "$SELECTED_REPOSITORY" \
+              --job-results "$JOB_RESULTS" \
+              --report-dir "$RUNNER_TEMP/gway-remote-report"
+          else
+            echo "::warning::Report bundle missing; unable to publish failure issue"
+          fi
       - name: Upload report and bounded sanitized logs
         if: always()
         uses: actions/upload-artifact@v4
