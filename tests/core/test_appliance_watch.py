@@ -27,8 +27,11 @@ class WatchTests(unittest.TestCase):
         self.assertTrue(missing_installation(row, {"health": "unhealthy"}, "executable-missing"))
         self.assertFalse(missing_installation(row, {"health": "healthy"}, "executable-missing"))
         self.assertFalse(missing_installation(row, {"health": "unhealthy"}, "executable-present"))
-        self.assertFalse(missing_installation({**row, "name": "gway-ap-kiosk"},
-                                              {"health": "unhealthy"}, "unsupported"))
+        kiosk = {**row, "name": "gway-ap-kiosk"}
+        self.assertFalse(missing_installation(kiosk, {"health": "unhealthy"}, "unsupported"))
+        self.assertTrue(missing_installation(kiosk, {"health": "unhealthy",
+                                                    "systemd": {"LoadState": "not-found"}},
+                                             "unsupported"))
         self.assertFalse(missing_installation({**row, "installed_sha": "a" * 40},
                                               {"health": "unhealthy"}, "executable-missing"))
 
