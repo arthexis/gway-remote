@@ -6,6 +6,7 @@ import re
 from .attempts import DEFAULT_DIR
 from .logs import export_log, sanitize
 from .status import status
+from .diagnostics import diagnose
 
 _VALID_LOG = re.compile(r"[0-9]{8}T[0-9]{12}Z-[a-z0-9-]+-[0-9a-f]{12}\.log")
 
@@ -29,6 +30,9 @@ def bundle(destination, directory=DEFAULT_DIR, probe=None):
                 export_log(source, logs / filename)
         public["components"].append(entry)
     (destination / "status.json").write_text(json.dumps(public, indent=2) + "\n", encoding="utf-8")
+    # Every workflow report also carries automatic generic troubleshooting evidence.
+    diagnostics = diagnose(directory=directory)
+    (destination / "diagnostics.json").write_text(json.dumps(diagnostics, indent=2) + "\n", encoding="utf-8")
     (destination / "summary.json").write_text(json.dumps({
         "schema": "gway-remote/report/v1", "node": public["node"],
         "checked_at": public["checked_at"],

@@ -278,6 +278,10 @@ def main() -> None:
     execute.add_argument("--sha", default="")
     inspection = subparsers.add_parser("reconcile", help="Read-only appliance deployment report")
     inspection.add_argument("--dry-run", action="store_true", help="Do not deploy (always read-only)")
+    diagnose_parser = subparsers.add_parser("diagnose", help="Read-only appliance deployment troubleshooting")
+    diagnose_parser.add_argument("component", nargs="?", choices=tuple(name for name, _ in DEPLOYMENT_TARGETS))
+    diagnose_parser.add_argument("--json", action="store_true")
+    diagnose_parser.add_argument("--lines", type=int, default=30)
     status_parser = subparsers.add_parser("status", help="Inspect local attempts and health")
     status_parser.add_argument("--json", action="store_true")
     subparsers.add_parser("probe-csms", help="Read-only CSMS health diagnosis")
@@ -410,6 +414,14 @@ def main() -> None:
             print(bundle(args.output))
         except (OSError, ValueError) as exc:
             parser.exit(1, f"gway-remote: report unavailable: {exc}\\n")
+        return
+    if args.command == "diagnose":
+        from .diagnostics import diagnose, format_diagnosis
+        try:
+            report = diagnose(args.component, lines=args.lines)
+            print(json.dumps(report, indent=2, sort_keys=True) if args.json else format_diagnosis(report))
+        except (OSError, ValueError) as exc:
+            parser.exit(1, f"gway-remote: diagnosis unavailable: {exc}\\n")
         return
     if args.command == "status":
         from .status import status, format_status

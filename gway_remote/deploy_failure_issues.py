@@ -20,7 +20,7 @@ REPOSITORIES = {
 MARKER = "<!-- gway-remote:deployment-failure:{name} -->"
 
 
-def issue_body(name, outcome, run_url, summary, log_excerpt=""):
+def issue_body(name, outcome, run_url, summary, log_excerpt="", diagnosis=None):
     marker = MARKER.format(name=name)
     body = [
         marker,
@@ -40,6 +40,9 @@ def issue_body(name, outcome, run_url, summary, log_excerpt=""):
         body.extend(["", "### Sanitized recent installer output", "", "```text",
                      log_excerpt[-6000:], "```"])
     body.extend(["", "Full bounded sanitized logs are in the run's report artifact."])
+    if diagnosis:
+        body.extend(["", "### Appliance diagnosis", "", "```json",
+                     json.dumps(diagnosis, indent=2)[:3500], "```"])
     return "\n".join(body)
 
 
@@ -71,6 +74,11 @@ def report_failures(repo, run_url, selected, job_results, report_dir):
     summary = (directory / "summary.md").read_text(encoding="utf-8")
     report = json.loads((directory / "summary.json").read_text(encoding="utf-8"))
     components = {c["name"]: c for c in report["components"]}
+    diag_path = directory / "diagnostics.json"
+    diagnostics = {}
+    if diag_path.is_file() and not diag_path.is_symlink():
+        evidence = json.loads(diag_path.read_text(encoding="utf-8"))
+        diagnostics = {c["name"]: c for c in evidence.get("components", [])}
     for job, name in REPOSITORIES.items():
         if selected != "all" and selected != name:
             continue
@@ -84,7 +92,9 @@ def report_failures(repo, run_url, selected, job_results, report_dir):
             path = directory / "logs" / logfile
             if path.is_file() and not path.is_symlink():
                 excerpt = path.read_text(encoding="utf-8", errors="replace")
-        body = issue_body(name, outcome, run_url, summary, excerpt)
+        evidence = diagnostics.get(name, {})
+        concise = {key: evidence[key] for key in ("diagnosis", "health", "installation", "installed_sha", "systemd") if key in evidence}
+        body = issue_body(name, outcome, run_url, summary, excerpt, concise)
         issue = upsert(repo, name, body)
         print(f"{name}: {issue['html_url']}")
 
