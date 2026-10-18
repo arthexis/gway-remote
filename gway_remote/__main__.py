@@ -265,6 +265,9 @@ def main() -> None:
     logs_parser.add_argument("--lines", type=int, default=None)
     report_parser = subparsers.add_parser("report-bundle", help="Export sanitized artifact report")
     report_parser.add_argument("--output", required=True)
+    deploy_parser = subparsers.add_parser("deploy", help="Trigger GitHub Appliance Deploy workflow")
+    from .deploy_dispatch import TARGETS
+    deploy_parser.add_argument("repository", nargs="?", choices=TARGETS, default="all")
     batch_parser = subparsers.add_parser("deploy-batch", help="Deploy appliance revisions")
     batch_parser.add_argument("--target", choices=("ocpp-csms", "ocpp-simulator", "gway-lcd-sound", "gway-agent-ops", "gway-ap-kiosk", "ocpp-reports"), default=None)
     batch_parser.add_argument("--all", action="store_true", help="Explicitly reinstall all latest main revisions regardless of prior attempts or CI")
@@ -395,6 +398,13 @@ def main() -> None:
             print(json.dumps(report(GitHub(), attempts=attempted_shas()), indent=2, sort_keys=True))
         except Exception as exc:
             parser.exit(1, f"gway-remote: reconciliation unavailable: {exc}\n")
+        return
+    if args.command == "deploy":
+        from .deploy_dispatch import dispatch
+        try:
+            print(dispatch(args.repository))
+        except (ValueError, RuntimeError) as exc:
+            parser.exit(1, f"gway-remote: {exc}\n")
         return
     if args.command == "deploy-batch":
         if args.target and not args.all:
