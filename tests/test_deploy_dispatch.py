@@ -22,6 +22,10 @@ class DeployDispatchTests(unittest.TestCase):
                 ])
                 self.assertTrue(kwargs["check"])
 
+    def test_target_is_required(self):
+        with self.assertRaises(TypeError):
+            dispatch()
+
     @patch("gway_remote.deploy_dispatch.subprocess.run")
     def test_invalid_target_cannot_dispatch(self, run):
         with self.assertRaises(ValueError):
@@ -31,7 +35,7 @@ class DeployDispatchTests(unittest.TestCase):
     @patch("gway_remote.deploy_dispatch.subprocess.run", side_effect=FileNotFoundError())
     def test_missing_gh_is_actionable(self, run):
         with self.assertRaisesRegex(RuntimeError, "gh"):
-            dispatch()
+            dispatch("ocpp-csms")
 
     @patch("gway_remote.deploy_dispatch.subprocess.run")
     @patch.dict("os.environ", {"GITHUB_TOKEN": "token-for-test"}, clear=True)
