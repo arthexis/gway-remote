@@ -22,6 +22,7 @@ def installed_revision(name):
     links = {
         "ocpp-csms": home / ".local/share/ocpp-csms/current",
         "gway-lcd-sound": home / ".local/share/gway-lcd-sound/current",
+        "gway-rfid": home / ".local/share/gway-rfid/current",
     }
     link = links.get(name)
     if link is None or not link.is_symlink():
@@ -30,6 +31,8 @@ def installed_revision(name):
         candidate = link.resolve(strict=True).name
     except (OSError, RuntimeError):
         return None
+    if name == "gway-rfid":
+        return candidate if re.fullmatch(r"[0-9a-f]{40}", candidate) else None
     return candidate if _RELEASE.fullmatch(candidate) else None
 
 def status(directory=DEFAULT_DIR, probe=component_health, *, depth="deep"):
