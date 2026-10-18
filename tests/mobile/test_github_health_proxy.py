@@ -9,7 +9,7 @@ class GitHubHealthProxyTests(unittest.TestCase):
     def test_both_public_paths_forward_to_existing_private_route(self):
         config = (ROOT / "deploy/nginx/gway-remote-locations.conf").read_text()
         for route in ("/api/v1/github-health", "/api/v1/nodes/gway-001/github-health"):
-            block = config.split("location = " + route + " {", 1)[1].split("\\nlocation", 1)[0]
+            block = config.split("location = " + route + " {", 1)[1].split("\nlocation", 1)[0]
             self.assertIn("limit_except GET", block)
             self.assertIn("proxy_pass http://10.90.0.2:8765/api/v1/github-health;", block)
             self.assertIn("proxy_set_header Authorization $http_authorization;", block)
