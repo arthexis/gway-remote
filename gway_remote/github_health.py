@@ -60,6 +60,7 @@ def read_snapshot(path=None, now=None):
         # Never return unvalidated source fields to the mobile client.
         return {"schema_version": 1, "status": "available",
                 "completed_at": document["completed_at"], "repositories": repos,
-                "alerts": alerts}
+                "alerts": alerts,
+                "classification_status": document.get("classification_status", "not_implemented")}
     except (OSError, ValueError, TypeError, KeyError, AttributeError):
         return unavailable("invalid_or_missing")
