@@ -20,7 +20,7 @@ class PRBlockerTests(unittest.TestCase):
         self.assertEqual(reconcile_prs(self.db, self.rows(), "2026-10-18T12:59:00Z"), [])
         alerts = reconcile_prs(self.db, self.rows(), "2026-10-18T13:00:00Z")
         self.assertEqual(alerts[0]["category"], "CI_FAILURE_STUCK")
-        self.assertEqual(reconcile_prs(self.db, self.rows(sha="new"), "2026-10-18T13:01:00Z"), [])
+        self.assertEqual(reconcile_prs(self.db, self.rows(sha="new"), "2026-10-18T13:01:00Z")[0]["resolution_kind"], "superseded")
 
     def test_active_episode_resolves_once_on_new_head(self):
         self.rows()
