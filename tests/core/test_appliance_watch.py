@@ -4,7 +4,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from unittest.mock import patch
 
-from gway_remote.appliance_watch import eligible, check, _issue, _busy, _reserve_dispatch, _dispatch_reservations
+from gway_remote.appliance_watch import eligible, check, _issue, _busy, _reserve_dispatch, _dispatch_reservations, missing_installation
 from gway_remote.status import installed_revision
 
 
@@ -21,6 +21,28 @@ class WatchTests(unittest.TestCase):
         self.assertFalse(eligible(self.row, "success", self.now, self.now))
         self.assertFalse(eligible({**self.row, "attempted_sha": "b" * 40}, "success", old, self.now))
         self.assertFalse(eligible({**self.row, "revision_status": "unknown"}, "success", old, self.now))
+
+    def test_missing_installations_require_explicit_absence_and_nonhealthy_probe(self):
+        row = {"name": "ocpp-reports", "revision_status": "unknown", "installed_sha": None}
+        self.assertTrue(missing_installation(row, {"health": "unhealthy"}, "executable-missing"))
+        self.assertFalse(missing_installation(row, {"health": "healthy"}, "executable-missing"))
+        self.assertFalse(missing_installation(row, {"health": "unhealthy"}, "executable-present"))
+        kiosk = {**row, "name": "gway-ap-kiosk"}
+        self.assertFalse(missing_installation(kiosk, {"health": "unhealthy"}, "unsupported"))
+        self.assertTrue(missing_installation(kiosk, {"health": "unhealthy",
+                                                    "systemd": {"LoadState": "not-found"}},
+                                             "unsupported"))
+        self.assertFalse(missing_installation({**row, "installed_sha": "a" * 40},
+                                              {"health": "unhealthy"}, "executable-missing"))
+
+    def test_missing_bootstrap_is_ci_gated_and_once_per_revision(self):
+        row = {**self.row, "revision_status": "missing", "attempted_sha": None,
+               "attempt_status": "never-attempted"}
+        old = self.now - timedelta(minutes=11)
+        self.assertTrue(eligible(row, "success", old, self.now))
+        self.assertFalse(eligible(row, "pending", old, self.now))
+        self.assertFalse(eligible({**row, "attempted_sha": row["latest_sha"]},
+                                  "success", old, self.now))
 
     def test_tick_is_dry_run_by_default(self):
         with patch("gway_remote.appliance_watch.read_attempts", return_value={}):

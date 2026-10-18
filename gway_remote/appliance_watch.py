@@ -21,6 +21,7 @@ from .deployments import inventory
 from .deploy_dispatch import dispatch
 from .github_state import GitHub, ci_for_head, main_arrival
 from .diagnostics import diagnose
+from .health import quick_component_check
 from .reconcile import TARGETS
 
 ISSUE_MARKER = "<!-- gway-remote:appliance-watch:{name}:{kind} -->"
@@ -29,7 +30,7 @@ COOLDOWN = timedelta(minutes=10)
 
 def eligible(row, ci, merged_at, now):
     """Conservative pure decision; never redeploy an attempted revision."""
-    if row["revision_status"] != "behind":
+    if row["revision_status"] not in {"behind", "missing"}:
         return False
     if row["attempted_sha"] and row["attempted_sha"].lower() == row["latest_sha"].lower():
         return False
@@ -38,6 +39,26 @@ def eligible(row, ci, merged_at, now):
     if ci != "success" or merged_at is None:
         return False
     return now - merged_at.astimezone(timezone.utc) >= COOLDOWN
+
+
+# Explicit absence signals. An unknown SHA is never enough to infer absence.
+MISSING_EVIDENCE = {
+    "ocpp-reports": {"executable-missing"},
+    "ocpp-simulator": {"executable-missing"},
+    "gway-agent-ops": {"executable-missing"},
+    "gway-rfid": {"release-missing"},
+    "gway-lcd-sound": {"installation-incomplete"},
+}
+
+
+def missing_installation(row, observation, evidence):
+    """Unknown revision plus explicit missing artifact and nonhealthy runtime."""
+    absent = evidence in MISSING_EVIDENCE.get(row["name"], set())
+    if row["name"] == "gway-ap-kiosk":
+        absent = observation.get("systemd", {}).get("LoadState") == "not-found"
+    return (row["revision_status"] == "unknown"
+            and not row.get("installed_sha")
+            and absent and observation.get("health") != "healthy")
 
 
 def _api(*args, input_text=None):
@@ -139,13 +160,15 @@ def check(*, apply=False, client=None, now=None):
         name = row["name"]
         observation = observations[name]
         category = observation["diagnosis"]
-        if category in {"runtime-failed", "health-check-failed"}:
+        evidence = quick_component_check(name)
+        missing = missing_installation(row, observation, evidence)
+        if category in {"runtime-failed", "health-check-failed"} and not missing:
             decisions.append({"name": name, "state": "intrinsic-failure"})
             if apply:
                 _issue(sources[name], name, "runtime-failure",
                        observation.get("diagnosis_reason", "Runtime check failed"))
             continue
-        if row["revision_status"] == "unknown":
+        if row["revision_status"] == "unknown" and not missing:
             decisions.append({"name": name, "state": "unverified-revision"})
             continue
         if row["revision_status"] == "current":
@@ -157,7 +180,8 @@ def check(*, apply=False, client=None, now=None):
             decisions.append({"name": name, "state": "previously-dispatched"})
         elif eligible(row, ci, arrival, now):
             pending.append(name)
-            decisions.append({"name": name, "state": "ready"})
+            decisions.append({"name": name, "state": "ready",
+                              "reason": "missing installation" if missing else "new main revision"})
         else:
             decisions.append({"name": name, "state": "blocked",
                               "reason": "CI, cooldown or already-attempted revision"})
