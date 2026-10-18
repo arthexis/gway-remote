@@ -38,6 +38,28 @@ def _systemd(unit):
     return values or {"state": "unavailable"}
 
 
+def classify(component, systemd):
+    """Prioritized, evidence-based diagnosis; never infer installation from attempts."""
+    installation = component.get("installation")
+    health = component.get("health")
+    attempted = component.get("attempted_sha")
+    installed = component.get("installed_sha")
+    if installation in {"failed", "interrupted"}:
+        return "installation-failed", "Latest installation attempt did not complete successfully"
+    if attempted and installed and attempted[:12].lower() != installed[:12].lower():
+        return "revision-mismatch", "Installed release differs from latest attempted revision"
+    if systemd.get("ActiveState") in {"failed", "activating", "deactivating", "inactive"}:
+        if systemd.get("LoadState") == "loaded" and health == "unhealthy":
+            return "runtime-failed", "Systemd service is not active"
+    if health == "unhealthy":
+        return "health-check-failed", "Configured runtime probe returned failure"
+    if health == "unknown":
+        return "runtime-not-verified", "Runtime probe unavailable or inconclusive"
+    if health == "healthy":
+        return "healthy", "Configured runtime probe passed"
+    return "unknown", "Insufficient evidence"
+
+
 def diagnose(name=None, *, directory=None, lines=30):
     """Return compact, sanitised diagnostics; all target names come from TARGETS."""
     names = {target for target, _ in TARGETS}
@@ -55,14 +77,7 @@ def diagnose(name=None, *, directory=None, lines=30):
         snippet = read_log(name=target, lines=lines) if directory is None else read_log(directory, name=target, lines=lines)
         item["recent_installer_log"] = sanitize(snippet or "")[-MAX_OUTPUT:]
         item["systemd"] = _systemd(probe_for(target).service)
-        if item["installation"] in {"failed", "interrupted"}:
-            item["diagnosis"] = "installation-failed"
-        elif item["health"] == "unhealthy":
-            item["diagnosis"] = "runtime-unhealthy"
-        elif item["health"] == "unknown":
-            item["diagnosis"] = "runtime-not-verified"
-        else:
-            item["diagnosis"] = "healthy"
+        item["diagnosis"], item["diagnosis_reason"] = classify(item, item["systemd"])
         findings.append(item)
     return {"schema": "gway-remote/diagnosis/v1", "node": report["node"],
             "checked_at": report["checked_at"], "components": findings}
@@ -74,7 +89,8 @@ def format_diagnosis(report):
         lines += ["", f"{item['name']}: {item['diagnosis']}",
                   f"  installation={item['installation']} runtime={item['health']}",
                   f"  attempted={(item['attempted_sha'] or 'unknown')[:12]} installed={(item['installed_sha'] or 'unknown')[:12]}",
-                  f"  systemd={json.dumps(item['systemd'], sort_keys=True)}"]
+                  f"  systemd={json.dumps(item['systemd'], sort_keys=True)}",
+                  f"  reason={item.get('diagnosis_reason', 'not available')}"]
         if item.get("error"):
             lines.append(f"  error={sanitize(str(item['error']))[:200]}")
         if item["recent_installer_log"]:
