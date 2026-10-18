@@ -42,7 +42,7 @@ class DiagnosticTests(unittest.TestCase):
     def test_systemd_inspection_is_read_only(self, run):
         from gway_remote.diagnostics import _systemd
         run.return_value.returncode = 0
-        run.return_value.stdout = "ActiveState=active\\nNRestarts=1\\n"
+        run.return_value.stdout = "ActiveState=active\nNRestarts=1\n"
         self.assertEqual(_systemd("gway-rfid.service")["ActiveState"], "active")
         args = run.call_args.args[0]
         self.assertEqual(args[:2], ["systemctl", "show"])
