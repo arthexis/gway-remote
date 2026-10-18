@@ -28,8 +28,9 @@ def component_health(name: str) -> bool:
     home = Path.home()
     spec = probe_for(name)
     if spec.kind == "executable":
-        executable = home / spec.executable
-        return executable.is_file() and _command([str(executable), "--help"])
+        executable = (home / spec.executable) if not spec.executable.startswith("/") else Path(spec.executable)
+        command = [str(executable), "status", "--json"] if name == "ocpp-reports" else [str(executable), "--help"]
+        return executable.is_file() and _command(command)
     if spec.kind == "lcd":
         prefix = home / spec.release
         unit = home / ".config/systemd/user/gway-app-observer.service"
@@ -59,7 +60,8 @@ def quick_component_check(name: str):
     home = Path.home()
     spec = probe_for(name)
     if spec.kind == "executable":
-        return "executable-present" if (home / spec.executable).is_file() else "executable-missing"
+        executable = (home / spec.executable) if not spec.executable.startswith("/") else Path(spec.executable)
+        return "executable-present" if executable.is_file() else "executable-missing"
     if spec.kind == "lcd":
         prefix = home / spec.release
         observer = home / spec.executable
