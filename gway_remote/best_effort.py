@@ -5,16 +5,19 @@ from pathlib import Path
 
 from .attempt_policy import plan
 from .attempts import DEFAULT_DIR, attempted_shas, read_attempts, mark
-from .github_state import collect, main_head
+from .github_state import collect, main_head, ci_for_head
 from .logs import capture_log, log_filename
 from .reconcile import TARGETS
 
 LOCK_PATH = DEFAULT_DIR / "appliance.lock"
 INSTALLERS = {
     "ocpp-csms": "deploy_csms",
+    "ocpp-reports": "deploy_reports",
     "ocpp-simulator": "deploy_simulator",
     "gway-lcd-sound": "deploy_lcd_sound",
     "gway-agent-ops": "deploy_agent_ops",
+    "gway-ap-kiosk": "deploy_ap_kiosk",
+    "gway-rfid": "deploy_rfid",
 }
 
 
@@ -33,14 +36,56 @@ def appliance_lock(path=LOCK_PATH):
             fcntl.flock(handle, fcntl.LOCK_UN)
 
 
-def execute(client, now, installers, directory=DEFAULT_DIR, lock_path=None, *, bypass_quiet=False, retry_failed=False):
+def execute(client, now, installers, directory=DEFAULT_DIR, lock_path=None, *, bypass_quiet=False, retry_failed=False, verify=None, deploy_all=False, target=None):
     """Call only under a trusted runner. Installer errors are recorded and isolated.
 
     Re-check all main heads before each component. A changing head aborts the
     remaining batch rather than deploying a stale revision.
     """
+    if target is not None and target not in dict(TARGETS):
+        raise ValueError("unknown deployment target")
+    if target is not None and not deploy_all:
+        raise ValueError("target selection requires explicit --all")
     directory = Path(directory)
     with appliance_lock(lock_path or directory / "appliance.lock"):
+        if deploy_all:
+            # Explicit --all bypasses the quiet period, never main-branch CI.
+            snapshot = tuple((name, repo, main_head(client, repo)) for name, repo in TARGETS
+                             if target is None or name == target)
+            results = []
+            for name, repo, sha in snapshot:
+                try:
+                    ci = ci_for_head(client, repo, sha)
+                    if ci != "success":
+                        results.append({"name": name, "sha": sha, "status": "blocked",
+                                        "reason": f"main CI {ci}; successful main CI required"})
+                        continue
+                    if main_head(client, repo).lower() != sha.lower():
+                        results.append({"name": name, "sha": sha, "status": "blocked",
+                                        "reason": "main SHA changed during deployment"})
+                        continue
+                    filename = log_filename(name, sha)
+                    mark(name, sha, "started", directory, log=filename)
+                    try:
+                        with capture_log(directory, filename):
+                            installers[name](sha)
+                            if verify is not None:
+                                verify(name, sha)
+                    except Exception as exc:
+                        mark(name, sha, "failed", directory, error=exc, log=filename)
+                        results.append({"name": name, "sha": sha, "status": "failed",
+                                        "log": filename, "reason": str(exc)[:500]})
+                        continue
+                    mark(name, sha, "installed", directory, log=filename)
+                    results.append({"name": name, "sha": sha, "status": "installed", "log": filename})
+                except Exception as exc:
+                    results.append({"name": name, "sha": sha, "status": "blocked",
+                                    "reason": f"preflight unavailable: {str(exc)[:400]}"})
+            unsuccessful = [row for row in results if row["status"] != "installed"]
+            return {"decision": "partial" if unsuccessful else "completed",
+                    "reason": (f"{len(unsuccessful)} of {len(results)} repositories not deployed"
+                               if unsuccessful else "all selected repositories deployed"),
+                    "results": results}
         attempted = attempted_shas(directory)
         if retry_failed:
             if not bypass_quiet:
@@ -64,6 +109,8 @@ def execute(client, now, installers, directory=DEFAULT_DIR, lock_path=None, *, b
             try:
                 with capture_log(directory, filename):
                     installers[name](sha)
+                    if verify is not None:
+                        verify(name, sha)
             except Exception as exc:
                 mark(name, sha, "failed", directory, error=exc, log=filename)
                 results.append({"name": name, "sha": sha, "status": "failed",

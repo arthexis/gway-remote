@@ -19,6 +19,8 @@ class GitHub:
         for repo, sha in self.heads.items():
             if path == f"repos/{repo}/branches/main":
                 return {"commit": {"sha": sha}}
+            if path == f"repos/{repo}/commits/{sha}":
+                return {"commit": {"committer": {"date": (NOW - timedelta(minutes=21)).isoformat()}}}
             if path.startswith(f"repos/{repo}/actions/runs?"):
                 return {"workflow_runs": [{
                     "head_sha": sha,
@@ -44,6 +46,28 @@ class BestEffortTests(unittest.TestCase):
             return deploy
         return {name: make(name) for name, _ in TARGETS}
 
+    def test_manual_all_reinstalls_every_ci_approved_head(self):
+        first = execute(self.client, NOW, self.installers(), self.path, deploy_all=True)
+        second = execute(self.client, NOW, self.installers(), self.path, deploy_all=True)
+        self.assertEqual(first["decision"], "completed")
+        self.assertEqual(second["decision"], "completed")
+        self.assertEqual(self.calls, [name for name, _ in TARGETS] * 2)
+
+    def test_manual_all_failure_identifies_component_and_continues(self):
+        result = execute(self.client, NOW, self.installers(("ocpp-simulator",)), self.path, deploy_all=True)
+        self.assertEqual(result["decision"], "partial")
+        failed = next(item for item in result["results"] if item["name"] == "ocpp-simulator")
+        self.assertEqual(failed["sha"], SHA)
+        self.assertEqual(failed["status"], "failed")
+        self.assertIn("simulated failure", failed["reason"])
+        self.assertEqual(self.calls, [name for name, _ in TARGETS])
+
+    def test_manual_all_fetches_latest_main_head_each_invocation(self):
+        execute(self.client, NOW, self.installers(), self.path, deploy_all=True)
+        self.client.heads[TARGETS[0][1]] = "b" * 40
+        result = execute(self.client, NOW, self.installers(), self.path, deploy_all=True)
+        self.assertEqual(result["results"][0]["sha"], "b" * 40)
+
     def test_ordered_once_and_durable(self):
         result = execute(self.client, NOW, self.installers(), self.path)
         self.assertEqual(result["decision"], "completed")
@@ -53,7 +77,7 @@ class BestEffortTests(unittest.TestCase):
 
     def test_failure_stops_batch_without_retry(self):
         execute(self.client, NOW, self.installers(("ocpp-simulator",)), self.path)
-        self.assertEqual(self.calls, ["ocpp-csms", "ocpp-simulator"])
+        self.assertEqual(self.calls, [name for name, _ in TARGETS[:next(i for i, (name, _) in enumerate(TARGETS) if name == "ocpp-simulator") + 1]])
         self.assertEqual(read_attempts(self.path)["ocpp-simulator"]["status"], "failed")
         execute(self.client, NOW, self.installers(), self.path)
         self.assertEqual(self.calls, [name for name, _ in TARGETS])

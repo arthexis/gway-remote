@@ -13,9 +13,12 @@ from typing import Sequence
 QUIET_PERIOD = timedelta(minutes=10)
 TARGETS = (
     ("ocpp-csms", "arthexis/ocpp-csms"),
+    ("ocpp-reports", "arthexis/ocpp-reports"),
     ("ocpp-simulator", "arthexis/ocpp-simulator"),
     ("gway-lcd-sound", "arthexis/gway-lcd-sound"),
     ("gway-agent-ops", "arthexis/gway-agent-ops"),
+    ("gway-ap-kiosk", "arthexis/gway-ap-kiosk"),
+    ("gway-rfid", "arthexis/gway-rfid"),
 )
 _SHA = re.compile(r"[0-9a-fA-F]{40}")
 _GOOD_CI = "success"

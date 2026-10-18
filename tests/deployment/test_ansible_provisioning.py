@@ -16,6 +16,14 @@ class ProvisioningTests(unittest.TestCase):
         self.assertIn("hosts: gway_remote", playbook)
         self.assertIn("gway_remote", playbook)
 
+    def test_sound_helper_is_provisioned_root_owned(self):
+        tasks = Path("ansible/roles/gway_remote/tasks/main.yml").read_text()
+        self.assertIn("scripts/gway-promote-sound", tasks)
+        self.assertIn("dest: /usr/local/sbin/gway-promote-sound", tasks)
+        self.assertIn("validate: \"/usr/sbin/visudo -cf %s\"", tasks)
+        self.assertIn("gway_remote_runner_user", tasks)
+        self.assertIn('mode: "0440"', tasks)
+
 
 if __name__ == "__main__":
     unittest.main()

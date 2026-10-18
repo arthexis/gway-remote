@@ -7,12 +7,16 @@ import subprocess
 import sys
 import tempfile
 from pathlib import Path
+from .reconcile import TARGETS as DEPLOYMENT_TARGETS
 
 ALLOWED_REPOSITORY = "arthexis/ocpp-csms"
+REPORTS_REPOSITORY = "arthexis/ocpp-reports"
 LCD_REPOSITORY = "arthexis/gway-lcd-sound"
 SIM_REPOSITORY = "arthexis/ocpp-simulator"
 AGENT_REPOSITORY = "arthexis/gway-agent-ops"
-TASKS = ("system-health", "ocpp-simulator", "lcd-sound-deploy", "ocpp-csms-deploy", "ocpp-simulator-deploy", "agent-ops-deploy")
+KIOSK_REPOSITORY = "arthexis/gway-ap-kiosk"
+RFID_REPOSITORY = "arthexis/gway-rfid"
+TASKS = ("system-health", "ocpp-simulator", "lcd-sound-deploy", "ocpp-csms-deploy", "ocpp-reports-deploy", "ocpp-simulator-deploy", "agent-ops-deploy", "ap-kiosk-deploy", "rfid-deploy")
 
 
 def validate(task: str, repository: str = "", sha: str = "") -> None:
@@ -24,7 +28,10 @@ def validate(task: str, repository: str = "", sha: str = "") -> None:
         return
     expected = {"lcd-sound-deploy": LCD_REPOSITORY,
                 "ocpp-simulator-deploy": SIM_REPOSITORY,
-                "agent-ops-deploy": AGENT_REPOSITORY}.get(task, ALLOWED_REPOSITORY)
+                "agent-ops-deploy": AGENT_REPOSITORY,
+                "ap-kiosk-deploy": KIOSK_REPOSITORY,
+                "rfid-deploy": RFID_REPOSITORY,
+                "ocpp-reports-deploy": REPORTS_REPOSITORY}.get(task, ALLOWED_REPOSITORY)
     if repository != expected:
         raise ValueError("Repository not allowed")
     if len(sha) != 40 or not all(c in "0123456789abcdefABCDEF" for c in sha):
@@ -42,19 +49,25 @@ def run(task: str, repository: str = "", sha: str = "") -> None:
         }, sort_keys=True))
         return
 
-    if task in ("lcd-sound-deploy", "ocpp-csms-deploy", "ocpp-simulator-deploy", "agent-ops-deploy"):
+    if task in ("lcd-sound-deploy", "ocpp-csms-deploy", "ocpp-reports-deploy", "ocpp-simulator-deploy", "agent-ops-deploy", "ap-kiosk-deploy", "rfid-deploy"):
         from .best_effort import manual_execute
         from .github_state import GitHub
         installer = {
             "lcd-sound-deploy": deploy_lcd_sound,
             "ocpp-csms-deploy": deploy_csms,
+            "ocpp-reports-deploy": deploy_reports,
             "ocpp-simulator-deploy": deploy_simulator,
             "agent-ops-deploy": deploy_agent_ops,
+            "ap-kiosk-deploy": deploy_ap_kiosk,
+            "rfid-deploy": deploy_rfid,
         }[task]
         name = {"lcd-sound-deploy": "gway-lcd-sound",
                 "ocpp-csms-deploy": "ocpp-csms",
+                "ocpp-reports-deploy": "ocpp-reports",
                 "ocpp-simulator-deploy": "ocpp-simulator",
-                "agent-ops-deploy": "gway-agent-ops"}[task]
+                "agent-ops-deploy": "gway-agent-ops",
+                "ap-kiosk-deploy": "gway-ap-kiosk",
+                "rfid-deploy": "gway-rfid"}[task]
         print(json.dumps(manual_execute(GitHub(), name, sha, installer), sort_keys=True))
         return
 
@@ -114,6 +127,22 @@ def deploy_csms(sha: str) -> None:
         subprocess.run(["sh", "./deploy.sh"], cwd=source, check=True, timeout=900)
 
 
+def deploy_reports(sha: str) -> None:
+    """Deploy pinned Reports main through its canonical wrapper."""
+    with tempfile.TemporaryDirectory(prefix="reports-deploy-") as directory:
+        source = Path(directory) / "source"
+        subprocess.run(["git", "clone", "--quiet", "--no-checkout",
+                        "https://github.com/arthexis/ocpp-reports.git", str(source)],
+                       check=True, timeout=180)
+        subprocess.run(["git", "-C", str(source), "checkout", "--detach", sha],
+                       check=True, timeout=60)
+        actual = subprocess.check_output(["git", "-C", str(source), "rev-parse", "HEAD"],
+                                         text=True, timeout=20).strip()
+        if actual.lower() != sha.lower():
+            raise ValueError("Reports checkout SHA mismatch")
+        subprocess.run(["bash", "./deploy.sh"], cwd=source, check=True, timeout=900)
+
+
 def deploy_agent_ops(sha: str) -> None:
     """Install a pinned Agent Ops CLI without running Codex or adopting credentials."""
     with tempfile.TemporaryDirectory(prefix="agent-ops-deploy-") as directory:
@@ -161,6 +190,38 @@ def deploy_agent_ops(sha: str) -> None:
         # Deliberately do not run agent adopt, Codex, or issue execution here.
 
 
+def deploy_ap_kiosk(sha: str) -> None:
+    """Deploy the pinned kiosk main revision via its standalone Ansible wrapper."""
+    with tempfile.TemporaryDirectory(prefix="ap-kiosk-deploy-") as directory:
+        source = Path(directory) / "source"
+        subprocess.run(["git", "clone", "--quiet", "--no-checkout",
+                        "https://github.com/arthexis/gway-ap-kiosk.git", str(source)],
+                       check=True, timeout=180)
+        subprocess.run(["git", "-C", str(source), "checkout", "--detach", sha],
+                       check=True, timeout=60)
+        actual = subprocess.check_output(["git", "-C", str(source), "rev-parse", "HEAD"],
+                                         text=True, timeout=20).strip()
+        if actual.lower() != sha.lower():
+            raise ValueError("AP kiosk checkout SHA mismatch")
+        subprocess.run(["bash", "./deploy.sh"], cwd=source, check=True, timeout=600)
+
+
+def deploy_rfid(sha: str) -> None:
+    """Deploy the approved RFID release using its canonical Ansible wrapper."""
+    with tempfile.TemporaryDirectory(prefix="rfid-deploy-") as directory:
+        source = Path(directory) / "source"
+        subprocess.run(["git", "clone", "--quiet", "--no-checkout",
+                        "https://github.com/arthexis/gway-rfid.git", str(source)],
+                       check=True, timeout=180)
+        subprocess.run(["git", "-C", str(source), "checkout", "--detach", sha],
+                       check=True, timeout=60)
+        actual = subprocess.check_output(["git", "-C", str(source), "rev-parse", "HEAD"],
+                                         text=True, timeout=20).strip()
+        if actual.lower() != sha.lower():
+            raise ValueError("RFID checkout SHA mismatch")
+        subprocess.run(["sh", "./deploy.sh"], cwd=source, check=True, timeout=900)
+
+
 def user_systemd_env() -> dict[str, str]:
     """Locate the persistent user's systemd bus in a non-login runner service."""
     runtime = Path(f"/run/user/{os.getuid()}")
@@ -200,11 +261,12 @@ def deploy_lcd_sound(sha: str) -> None:
                        cwd=source, check=True, timeout=120)
         subprocess.run(["bash", "scripts/deploy/install.sh", "verify"],
                        cwd=source, check=True, timeout=60)
-        # Never switch modes; the installed service definition is shadow-only.
+        from gway_remote.public_sound import promote
+        checksum = promote(sha)
+        print(f"Public sound player: sha256={checksum} release={sha}")
         subprocess.run(["systemctl", "--user", "daemon-reload"],
                        env=user_systemd_env(), check=True, timeout=20)
-        subprocess.run(["systemctl", "--user", "try-restart", "gway-app-observer.service"],
-                       env=user_systemd_env(), check=True, timeout=30)
+
 
 
 def main() -> None:
@@ -220,11 +282,20 @@ def main() -> None:
     status_parser.add_argument("--json", action="store_true")
     subparsers.add_parser("probe-csms", help="Read-only CSMS health diagnosis")
     logs_parser = subparsers.add_parser("logs", help="Inspect local installation logs")
-    logs_parser.add_argument("component", nargs="?", choices=("ocpp-csms", "ocpp-simulator", "gway-lcd-sound", "gway-agent-ops"))
+    logs_parser.add_argument("component", nargs="?", choices=tuple(name for name, _ in DEPLOYMENT_TARGETS))
     logs_parser.add_argument("--lines", type=int, default=None)
     report_parser = subparsers.add_parser("report-bundle", help="Export sanitized artifact report")
     report_parser.add_argument("--output", required=True)
-    batch_parser = subparsers.add_parser("deploy-batch", help="Run eligible merged revisions once")
+    deployments_parser = subparsers.add_parser("deployments", help="Inspect configured appliance deployments")
+    deployments_parser.add_argument("repository", nargs="?", choices=[name for name, _ in DEPLOYMENT_TARGETS])
+    deployments_parser.add_argument("--json", action="store_true")
+    deploy_parser = subparsers.add_parser("deploy", help="Trigger GitHub Appliance Deploy workflow")
+    from .deploy_dispatch import TARGETS
+    deploy_parser.add_argument("repository", nargs="?", choices=TARGETS[1:])
+    deploy_parser.add_argument("--all", action="store_true", help="Deploy all repositories")
+    batch_parser = subparsers.add_parser("deploy-batch", help="Deploy appliance revisions")
+    batch_parser.add_argument("--target", choices=tuple(name for name, _ in DEPLOYMENT_TARGETS), default=None)
+    batch_parser.add_argument("--all", action="store_true", help="Explicitly reinstall all latest main revisions regardless of prior attempts or CI")
     batch_parser.add_argument("--now", action="store_true", help="Bypass quiet period for operator-requested batch")
     batch_parser.add_argument("--retry-failed", action="store_true", help="Explicitly retry failed revisions, never installed or interrupted ones")
     worker_parser = subparsers.add_parser("codex", aliases=["codex-worker"], help="Codex worker and task inspection")
@@ -353,20 +424,58 @@ def main() -> None:
         except Exception as exc:
             parser.exit(1, f"gway-remote: reconciliation unavailable: {exc}\n")
         return
+    if args.command == "deployments":
+        from .deployments import inventory, format_inventory
+        try:
+            result = inventory(args.repository)
+            print(json.dumps(result, indent=2, sort_keys=True) if args.json else format_inventory(result))
+        except (OSError, ValueError, RuntimeError, KeyError) as exc:
+            parser.exit(1, f"gway-remote: deployments unavailable: {exc}\\n")
+        return
+    if args.command == "deploy":
+        if args.all == bool(args.repository):
+            parser.error("deploy requires either a repository or --all (not both)")
+        from .deploy_dispatch import dispatch
+        try:
+            print(dispatch("all" if args.all else args.repository))
+        except (ValueError, RuntimeError) as exc:
+            parser.exit(1, f"gway-remote: {exc}\n")
+        return
     if args.command == "deploy-batch":
+        if args.target and not args.all:
+            parser.error("--target requires --all")
+        if args.all and (args.now or args.retry_failed):
+            parser.error("--all cannot be combined with legacy eligibility flags")
         if args.retry_failed and not args.now:
             parser.error("--retry-failed requires --now")
         from datetime import datetime, timezone
         from .best_effort import execute
         from .github_state import GitHub
         try:
+            from .status import installed_revision
+            def verify_release(name, sha):
+                if name == "gway-lcd-sound":
+                    installed = installed_revision(name)
+                    if installed != sha[:12]:
+                        raise RuntimeError(
+                            f"LCD Sound installed revision mismatch: expected {sha[:12]}, observed {installed or 'unknown'}"
+                        )
             result = execute(GitHub(), datetime.now(timezone.utc), {
                 "ocpp-csms": deploy_csms,
+                "ocpp-reports": deploy_reports,
                 "ocpp-simulator": deploy_simulator,
                 "gway-lcd-sound": deploy_lcd_sound,
                 "gway-agent-ops": deploy_agent_ops,
-            }, bypass_quiet=args.now, retry_failed=args.retry_failed)
+                "gway-ap-kiosk": deploy_ap_kiosk,
+                "gway-rfid": deploy_rfid,
+            }, bypass_quiet=args.now, retry_failed=args.retry_failed, verify=verify_release, deploy_all=args.all, target=args.target)
             print(json.dumps(result, indent=2, sort_keys=True))
+            if result["decision"] == "failed":
+                parser.exit(1, "gway-remote: installation failed: {} at {}\\n".format(result["failed_component"], result["failed_sha"]))
+            if args.all and result["decision"] != "completed":
+                parser.exit(1, "gway-remote: manual deployment incomplete: {} ({})\\n".format(result["decision"], result.get("reason", "unknown")))
+            if result["decision"] == "blocked":
+                parser.exit(1, "gway-remote: batch blocked\\n")
             if args.now and result["decision"] in ("waiting", "blocked", "stale", "idle"):
                 parser.exit(1, "gway-remote: manual batch not deployed ({}: {})\\n".format(result["decision"], result.get("reason", "unknown")))
             if any(item["status"] == "failed" for item in result["results"]):
