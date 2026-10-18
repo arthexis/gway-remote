@@ -287,7 +287,6 @@ def main() -> None:
     report_parser = subparsers.add_parser("report-bundle", help="Export sanitized artifact report")
     report_parser.add_argument("--output", required=True)
     deployments_parser = subparsers.add_parser("deployments", help="Inspect configured appliance deployments")
-    from .reconcile import TARGETS as DEPLOYMENT_TARGETS
     deployments_parser.add_argument("repository", nargs="?", choices=[name for name, _ in DEPLOYMENT_TARGETS])
     deployments_parser.add_argument("--json", action="store_true")
     deploy_parser = subparsers.add_parser("deploy", help="Trigger GitHub Appliance Deploy workflow")
