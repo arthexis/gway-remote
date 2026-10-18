@@ -19,6 +19,7 @@ from .github_health_publish import publish
 from .github_health_episodes import reconcile
 from .github_health_prs import reconcile_prs
 from .github_health_categories import reconcile_extra
+from .github_health_pending import reconcile_pending
 
 API = "https://api.github.com"
 CATEGORIES = {"CI_FAILURE_STUCK", "CI_MISSING", "CI_ABNORMALLY_LONG",
@@ -198,6 +199,7 @@ def store_observation(db_path, completed_at, repositories):
         alerts = reconcile(connection, repositories, completed_at)
         alerts.extend(reconcile_prs(connection, repositories, completed_at))
         alerts.extend(reconcile_extra(connection, repositories, completed_at))
+        alerts.extend(reconcile_pending(connection, repositories, completed_at))
         return alerts
 
 
