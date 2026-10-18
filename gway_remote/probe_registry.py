@@ -24,7 +24,10 @@ PROBES = {
     "gway-lcd-sound": Probe("lcd", executable=".local/bin/gway-app-observer",
                             release=".local/share/gway-lcd-sound/current",
                             revision_pattern=r"[0-9a-f]{12}(?:-dev)?"),
-    "ocpp-reports": Probe("executable", executable="/usr/local/bin/ocpp-reports"),\n    "gway-agent-ops": Probe("executable", executable=".local/bin/agent"),\n    "gway-ap-kiosk": Probe("systemd", service="gway-kiosk-status.service"),\n    "gway-rfid": Probe("systemd", service="gway-rfid.service",
+    "ocpp-reports": Probe("executable", executable="/usr/local/bin/ocpp-reports"),
+    "gway-agent-ops": Probe("executable", executable=".local/bin/agent"),
+    "gway-ap-kiosk": Probe("systemd", service="gway-kiosk-status.service"),
+    "gway-rfid": Probe("systemd", service="gway-rfid.service",
                        release=".local/share/gway-rfid/current",
                        revision_pattern=r"[0-9a-f]{40}"),
 }
