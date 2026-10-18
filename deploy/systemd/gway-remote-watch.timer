@@ -1,0 +1,11 @@
+[Unit]
+Description=Periodically reconcile GWay appliance deployment state
+
+[Timer]
+OnBootSec=15min
+OnUnitInactiveSec=15min
+Persistent=true
+Unit=gway-remote-watch.service
+
+[Install]
+WantedBy=timers.target
