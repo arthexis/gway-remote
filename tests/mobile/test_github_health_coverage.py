@@ -51,6 +51,20 @@ class CoverageTests(unittest.TestCase):
                                   "2026-10-18T13:02:00Z")
         self.assertEqual(results[0]["resolution_kind"], "closed_without_verified_fix")
 
+    def test_missing_from_bounded_list_does_not_clear(self):
+        pending = [{"name": REPO, "pending_runs": [
+            {"id": 125, "name": "Python checks", "status": "in_progress",
+             "created_at": "2026-10-18T10:00:00Z",
+             "url": "https://github.com/arthexis/gway-remote/actions/runs/125"}]}]
+        reconcile_pending(self.db, pending, self.t2)
+        missing = reconcile_pending(self.db, [{"name": REPO, "pending_runs": [],
+                                                "completed_run_ids": []}],
+                                    "2026-10-18T13:02:00Z")
+        self.assertEqual(missing[0]["state"], "ACTIVE")
+        self.assertEqual(reconcile_pending(self.db, [{"name": REPO, "pending_runs": [],
+                                                      "completed_run_ids": [125]}],
+                                           "2026-10-18T13:03:00Z")[0]["state"], "RESOLVED")
+
     def test_long_running_ci_notified_once_on_clearance(self):
         pending = [{"name": REPO, "pending_runs": [
             {"id": 123, "name": "Python checks", "status": "in_progress",
@@ -58,9 +72,9 @@ class CoverageTests(unittest.TestCase):
              "url": "https://github.com/arthexis/gway-remote/actions/runs/123"}]}]
         active = reconcile_pending(self.db, pending, self.t2)
         self.assertEqual(active[0]["category"], "STALE_IN_PROGRESS")
-        done = [{"name": REPO, "pending_runs": []}]
+        done = [{"name": REPO, "pending_runs": [], "completed_run_ids": [123]}]
         resolved = reconcile_pending(self.db, done, "2026-10-18T13:02:00Z")
-        self.assertEqual(resolved[0]["resolution_kind"], "no_longer_observed")
+        self.assertEqual(resolved[0]["resolution_kind"], "completed_unverified_outcome")
         self.assertEqual(reconcile_pending(self.db, done, "2026-10-18T13:03:00Z"), [])
 
 

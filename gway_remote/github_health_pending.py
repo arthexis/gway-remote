@@ -13,6 +13,7 @@ def reconcile_pending(connection, repositories, completed_at):
     for repo in repositories:
         name = repo["name"]
         seen = set()
+        completed_ids = set(repo.get('completed_run_ids', []))
         for run in repo.get("pending_runs", []):
             if not run.get("created_at"):
                 continue
@@ -46,12 +47,22 @@ def reconcile_pending(connection, repositories, completed_at):
         for identity, category, url in current:
             if identity in seen:
                 continue
-            # No longer pending in the bounded listing does not prove success.
+            # Bounded-list disappearance is not completion evidence.
+            try:
+                run_id = json.loads(identity)[2]
+            except (ValueError, IndexError, TypeError):
+                continue
+            if run_id not in completed_ids:
+                alerts.append({"id": identity, "repository": name, "state": "ACTIVE",
+                               "category": category, "title": "Workflow status unverified",
+                               "evidence_url": url,
+                               "next_action": "Verify workflow conclusion"})
+                continue
             connection.execute(
                 "UPDATE pending_ci_alerts SET state='RESOLVED', resolved_at=? WHERE id=?",
                 (completed_at, identity))
             alerts.append({"id": identity, "repository": name, "state": "RESOLVED",
                            "category": category, "title": "Workflow no longer outstanding",
-                           "resolution_kind": "no_longer_observed",
+                           "resolution_kind": "completed_unverified_outcome",
                            "evidence_url": url, "next_action": "Verify workflow conclusion"})
     return alerts

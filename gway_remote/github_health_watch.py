@@ -80,6 +80,12 @@ def collect(api):
                 raise
         pr_evidence = []
         for pr in pulls:
+            # The list API does not reliably include mergeable_state.
+            # Fetch the individual PR before treating mergeability as evidence.
+            detail = api.get("/repos/" + encoded + "/pulls/" + str(pr["number"]))
+            if not isinstance(detail, dict) or detail.get("number") != pr["number"]:
+                raise ValueError("Incomplete PR detail evidence")
+            pr = detail
             head = pr.get("head") or {}
             sha = head.get("sha")
             if not isinstance(sha, str) or not sha:
@@ -177,6 +183,9 @@ def collect(api):
             "open_pr_count": len(pulls), "recent_run_count": len(workflow_runs),
             "ci_lanes": ci_lanes, "pr_evidence": pr_evidence,
             "pending_runs": pending_runs,
+            "completed_run_ids": [r["id"] for r in workflow_runs
+                                  if r.get("status") == "completed" and
+                                  isinstance(r.get("id"), int)],
             "recent_failed_runs": [f for f in findings if f["repository"] == repo],
         })
     return results
