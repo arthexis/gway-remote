@@ -4,7 +4,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from unittest.mock import patch
 
-from gway_remote.appliance_watch import eligible, check, _issue, _busy
+from gway_remote.appliance_watch import eligible, check, _issue, _busy, _reserve_dispatch, _dispatch_reservations
 from gway_remote.status import installed_revision
 
 
@@ -42,6 +42,21 @@ class WatchTests(unittest.TestCase):
             {"number": 42, "body": body}]) as api:
             _issue("arthexis/gway-rfid", "gway-rfid", "runtime-failure", "Reader service stopped")
         self.assertEqual(api.call_count, 1)
+
+    def test_durable_dispatch_reservation_prevents_duplicate_workflows(self):
+        with tempfile.TemporaryDirectory() as folder:
+            sha = "b" * 40
+            self.assertTrue(_reserve_dispatch("ocpp-csms", sha, folder))
+            self.assertFalse(_reserve_dispatch("ocpp-csms", sha, folder))
+            self.assertEqual(_dispatch_reservations(folder)["ocpp-csms"], sha)
+            self.assertTrue(_reserve_dispatch("ocpp-csms", "c" * 40, folder))
+            self.assertEqual(_dispatch_reservations(folder)["ocpp-csms"], "c" * 40)
+
+    def test_invalid_dispatch_journal_fails_closed(self):
+        with tempfile.TemporaryDirectory() as folder:
+            (Path(folder) / "watch-dispatches.json").write_text("invalid")
+            with self.assertRaises(ValueError):
+                _dispatch_reservations(folder)
 
     def test_reports_and_agent_sha_read_from_verified_release_symlink(self):
         with tempfile.TemporaryDirectory() as folder:
