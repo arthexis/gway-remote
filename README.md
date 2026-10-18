@@ -64,6 +64,29 @@ Prerequisites on the runner: user `arthe` (same home and user systemd manager as
 
 **Note:** The caller's dispatch job confirms submission, not deployment success. Inspect the corresponding Gway Remote Actions run for the final result; do not treat a successful dispatch as a successful installation.
 
+## Trigger appliance deployment from Gway-001
+
+Use the globally installed CLI to request the existing GitHub **Appliance Deploy**
+workflow (this command does not install anything locally):
+
+```sh
+gway-remote deploy                   # all components
+gway-remote deploy ocpp-csms         # one component
+gway-remote deploy ocpp-reports
+gway-remote deploy gway-ap-kiosk
+```
+
+The CLI requires the GitHub CLI (`gh`) installed and authenticated as an
+account authorized to dispatch workflows in `arthexis/gway-remote`.
+Use `gh auth login`, or provide `GH_TOKEN` / `GITHUB_TOKEN` with
+Actions write permission. GitHub's workflow also checks that the actor is
+`arthexis`; a different authenticated user can submit the request but
+the workflow will not run deployment jobs. The command targets `main` and
+uses the workflow's fixed list of deployment targets.
+
+A successful command indicates only that GitHub accepted the request.
+Inspect the Actions workflow run to determine installation success.
+
 ## Local appliance status
 
 Run `python3 -m gway_remote status` or `python3 -m gway_remote status --json`.
