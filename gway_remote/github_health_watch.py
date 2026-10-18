@@ -63,6 +63,19 @@ def collect(api):
         for pr in pulls:
             if not isinstance(pr, dict) or "number" not in pr:
                 raise ValueError("Incomplete PR evidence")
+        # Branch protection identifies required checks; inaccessible protection
+        # leaves PR blockers unverified rather than inventing failures.
+        required = set()
+        try:
+            protection = api.get("/repos/" + encoded +
+                                 "/branches/main/protection/required_status_checks")
+            if isinstance(protection, dict):
+                required.update(x for x in protection.get("contexts", []) if isinstance(x, str))
+                required.update(x.get("context") for x in protection.get("checks", [])
+                                if isinstance(x, dict) and isinstance(x.get("context"), str))
+        except urllib.error.HTTPError as exc:
+            if exc.code not in (403, 404):
+                raise
         pr_evidence = []
         for pr in pulls:
             head = pr.get("head") or {}
@@ -77,6 +90,10 @@ def collect(api):
             failing = any(c.get("status") == "completed" and
                           c.get("conclusion") in ("failure", "timed_out", "action_required")
                           for c in head_runs)
+            required_failed = any(c.get("name") in required and
+                                  c.get("status") == "completed" and
+                                  c.get("conclusion") in ("failure", "timed_out", "action_required")
+                                  for c in head_runs)
             pending = any(c.get("status") != "completed" for c in head_runs)
             labels = {label.get("name") for label in pr.get("labels", [])
                       if isinstance(label, dict)}
@@ -88,7 +105,7 @@ def collect(api):
                 "head_check": "pending" if pending else "failure" if failing else "other",
                 # GitHub check-runs alone do not establish branch-protection
                 # requirements. Never claim a required-check blocker yet.
-                "required_check_verified": False,
+                "required_check_verified": required_failed,
             })
         # Pass B: retain failed-run evidence, but never infer root cause from
         # a single failure, nor compare non-equivalent lanes.
@@ -153,7 +170,7 @@ def check(api, db_path, snapshot_path):
     # observations do not count as active or resolved alert episodes.
     snapshot = {"schema_version": 1, "status": "available",
                 "completed_at": completed_at, "repositories": repositories,
-                "alerts": alerts, "classification_status": "partial_ci_episodes"}
+                "alerts": alerts, "classification_status": "partial_verified_checks"}
     destination = Path(snapshot_path)
     destination.parent.mkdir(parents=True, exist_ok=True)
     temporary = None
