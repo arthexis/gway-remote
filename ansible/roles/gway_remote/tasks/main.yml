@@ -67,3 +67,34 @@
     validate: "/usr/sbin/visudo -cf %s"
     content: |
       {{ gway_remote_runner_user }} ALL=(root) NOPASSWD: /usr/local/sbin/gway-promote-sound *
+
+- name: Create durable watch state directory
+  ansible.builtin.file:
+    path: "/home/{{ gway_remote_runner_user }}/.local/state/gway-remote"
+    state: directory
+    owner: "{{ gway_remote_runner_user }}"
+    group: "{{ gway_remote_runner_user }}"
+    mode: "0700"
+
+- name: Install appliance watch systemd units
+  ansible.builtin.copy:
+    src: "{{ playbook_dir }}/../deploy/systemd/{{ item }}"
+    dest: "/etc/systemd/system/{{ item }}"
+    owner: root
+    group: root
+    mode: "0644"
+  loop:
+    - gway-remote-watch.service
+    - gway-remote-watch.timer
+  register: watch_units
+
+- name: Reload systemd for new appliance watch units
+  ansible.builtin.systemd_service:
+    daemon_reload: true
+  when: watch_units.changed
+
+- name: Enable periodic GWay Remote appliance watch
+  ansible.builtin.systemd_service:
+    name: gway-remote-watch.timer
+    enabled: true
+    state: started
