@@ -8,7 +8,7 @@ from __future__ import annotations
 import argparse
 from datetime import datetime, timezone, timedelta
 import json
-import re
+import os
 import subprocess
 
 from .attempts import read_attempts
@@ -72,8 +72,21 @@ def _issue(repo, name, kind, reason):
              "-f", f"title={title}", "-f", f"body={body}")
 
 
+def _github_client():
+    token = os.getenv("GH_TOKEN") or os.getenv("GITHUB_TOKEN")
+    if not token:
+        # Systemd sessions do not automatically export the gh token.
+        # Never log or print the credential returned by this command.
+        response = subprocess.run(["gh", "auth", "token"], capture_output=True,
+                                  text=True, check=True, timeout=10)
+        token = response.stdout.strip()
+    if not token:
+        raise RuntimeError("GitHub authentication unavailable for appliance watch")
+    return GitHub(token=token)
+
+
 def check(*, apply=False, client=None, now=None):
-    client = client or GitHub()
+    client = client if client is not None else _github_client()
     now = now or datetime.now(timezone.utc)
     attempts = read_attempts()  # Corrupt evidence aborts, never triggers installs.
     report = inventory(client=client, attempts=attempts)
