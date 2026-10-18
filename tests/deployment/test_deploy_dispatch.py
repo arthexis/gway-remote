@@ -16,11 +16,26 @@ class DeployDispatchTests(unittest.TestCase):
                 self.assertIn("pending", message)
                 args, kwargs = run.call_args
                 self.assertEqual(args[0], [
-                    "gh", "workflow", "run", "appliance-deploy.yml",
-                    "--repo", "arthexis/gway-remote", "--ref", "main",
-                    "-f", f"repository={target}",
+                    "gh", "api", "--method", "POST",
+                    "repos/arthexis/gway-remote/actions/workflows/appliance-deploy.yml/dispatches",
+                    "-f", "ref=main", "-f", f"inputs[repository]={target}",
+                    "-F", "return_run_details=true",
                 ])
                 self.assertTrue(kwargs["check"])
+
+    @patch("gway_remote.deploy_dispatch.subprocess.run")
+    def test_exact_run_id_is_displayed(self, run):
+        run.return_value.stdout = '{"workflow_run_id":39106912358,"html_url":"https://github.com/arthexis/gway-remote/actions/runs/39106912358"}'
+        message = dispatch("ocpp-reports")
+        self.assertIn("workflow run 39106912358", message)
+        self.assertIn("/actions/runs/39106912358", message)
+
+    @patch("gway_remote.deploy_dispatch.subprocess.run")
+    def test_no_run_id_does_not_guess(self, run):
+        run.return_value.stdout = ""
+        message = dispatch("ocpp-reports")
+        self.assertIn("run ID unavailable", message)
+        self.assertNotIn("/actions/runs/", message)
 
     def test_target_is_required(self):
         with self.assertRaises(TypeError):
