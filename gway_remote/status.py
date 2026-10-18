@@ -11,29 +11,22 @@ _LOG = logging.getLogger(__name__)
 from .attempts import DEFAULT_DIR, read_attempts
 from .health import component_health, quick_component_check
 from .reconcile import TARGETS
-
-
-_RELEASE = re.compile(r"^[0-9a-f]{12}(?:-dev)?$")
+from .probe_registry import probe_for
 
 
 def installed_revision(name):
-    """Read a versioned active-release symlink, never infer from attempt journal."""
-    home = Path.home()
-    links = {
-        "ocpp-csms": home / ".local/share/ocpp-csms/current",
-        "gway-lcd-sound": home / ".local/share/gway-lcd-sound/current",
-        "gway-rfid": home / ".local/share/gway-rfid/current",
-    }
-    link = links.get(name)
-    if link is None or not link.is_symlink():
+    """Read a registered active release, never infer from deployment attempts."""
+    spec = probe_for(name)
+    if not spec.release or not spec.revision_pattern:
+        return None
+    link = Path.home() / spec.release
+    if not link.is_symlink():
         return None
     try:
         candidate = link.resolve(strict=True).name
     except (OSError, RuntimeError):
         return None
-    if name == "gway-rfid":
-        return candidate if re.fullmatch(r"[0-9a-f]{40}", candidate) else None
-    return candidate if _RELEASE.fullmatch(candidate) else None
+    return candidate if re.fullmatch(spec.revision_pattern, candidate) else None
 
 def status(directory=DEFAULT_DIR, probe=component_health, *, depth="deep"):
     if depth not in ("deep", "quick"):
