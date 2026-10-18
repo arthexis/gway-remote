@@ -53,10 +53,12 @@ MISSING_EVIDENCE = {
 
 def missing_installation(row, observation, evidence):
     """Unknown revision plus explicit missing artifact and nonhealthy runtime."""
+    absent = evidence in MISSING_EVIDENCE.get(row["name"], set())
+    if row["name"] == "gway-ap-kiosk":
+        absent = observation.get("systemd", {}).get("LoadState") == "not-found"
     return (row["revision_status"] == "unknown"
             and not row.get("installed_sha")
-            and evidence in MISSING_EVIDENCE.get(row["name"], set())
-            and observation.get("health") != "healthy")
+            and absent and observation.get("health") != "healthy")
 
 
 def _api(*args, input_text=None):
