@@ -41,6 +41,18 @@ class ApiTests(LocalApiCase):
         self.assertIn("status", {c["name"] for c in body["commands"]})
         self.assertIn("probe-csms", {c["name"] for c in body["commands"]})
 
+    def test_github_health_is_read_only_and_authenticated(self):
+        with patch("gway_remote.api.github_health.read_snapshot",
+                   return_value={"status": "available", "repositories": [], "alerts": []}) as reader:
+            status, body = self.request("GET", "/api/v1/github-health")
+            self.assertEqual(status, 200)
+            self.assertEqual(body["status"], "available")
+            reader.assert_called_once_with()
+        with patch("gway_remote.api.github_health.read_snapshot") as reader:
+            self.assertEqual(self.request("GET", "/api/v1/github-health", token="bad")[0], 401)
+            self.assertEqual(self.request("POST", "/api/v1/github-health", b'{}')[0], 404)
+            reader.assert_not_called()
+
     def test_authentication(self):
         self.assertEqual(self.request("GET", "/api/v1/commands", token="bad")[0], 401)
         self.assertEqual(self.request("POST", "/api/v1/execute", b'{}', token="bad")[0], 401)
