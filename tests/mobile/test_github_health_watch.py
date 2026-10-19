@@ -4,7 +4,7 @@ import unittest
 from pathlib import Path
 
 from gway_remote.github_health import REPOSITORIES, read_snapshot
-from gway_remote.github_health_watch import collect, check
+from gway_remote.github_health_watch import collect, check, _pr_for_sha
 
 
 class FakeAPI:
@@ -21,6 +21,49 @@ class FakeAPI:
         if "/protection/required_status_checks" in path:
             return {"contexts": [], "checks": []}
         return {"workflow_runs": []}
+
+
+class ShaLookupAPI:
+    def __init__(self, candidates, details):
+        self.candidates = candidates
+        self.details = details
+        self.paths = []
+
+    def get(self, path):
+        self.paths.append(path)
+        if "/commits/" in path and "/pulls?" in path:
+            page = int(path.split("page=")[-1])
+            return self.candidates.get(page, [])
+        return self.details[int(path.rsplit("/", 1)[-1])]
+
+
+class ShaCorrelationTests(unittest.TestCase):
+    SHA = "a" * 40
+
+    def test_empty_run_links_match_unique_exact_sha(self):
+        api = ShaLookupAPI({1: [{"number": 13}]}, {
+            13: {"number": 13, "state": "closed", "head": {"sha": self.SHA}}})
+        self.assertEqual(_pr_for_sha(api, "arthexis/gway-ap-kiosk", self.SHA), (13, "closed"))
+
+    def test_reused_branch_and_nonmatching_head_are_not_inferred(self):
+        api = ShaLookupAPI({1: [{"number": 1}, {"number": 13}]}, {
+            1: {"number": 1, "state": "closed", "head": {"sha": "b" * 40}},
+            13: {"number": 13, "state": "closed", "head": {"sha": self.SHA}}})
+        self.assertEqual(_pr_for_sha(api, "arthexis/gway-ap-kiosk", self.SHA), (13, "closed"))
+        api.details[1]["head"]["sha"] = self.SHA
+        self.assertIsNone(_pr_for_sha(api, "arthexis/gway-ap-kiosk", self.SHA))
+
+    def test_unverified_or_open_pr_is_not_closed(self):
+        api = ShaLookupAPI({1: [{"number": 13}]}, {
+            13: {"number": 13, "state": "open", "head": {"sha": self.SHA}}})
+        self.assertEqual(_pr_for_sha(api, "arthexis/gway-ap-kiosk", self.SHA), (13, "open"))
+        api.details[13]["state"] = "unexpected"
+        self.assertIsNone(_pr_for_sha(api, "arthexis/gway-ap-kiosk", self.SHA))
+        self.assertIsNone(_pr_for_sha(api, "arthexis/gway-ap-kiosk", "bad"))
+
+    def test_incomplete_page_fails_closed(self):
+        api = ShaLookupAPI({1: None}, {})
+        self.assertIsNone(_pr_for_sha(api, "arthexis/gway-ap-kiosk", self.SHA))
 
 
 class WatchTests(unittest.TestCase):
