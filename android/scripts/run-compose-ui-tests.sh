@@ -2,7 +2,8 @@
 # Runs inside android-emulator-runner, while adb still has a live emulator.
 set -euo pipefail
 profile="${1:-phone}"
-diagnostics="android/build/compose-ui-diagnostics"
+repo_root="$(pwd)"
+diagnostics="$repo_root/android/build/compose-ui-diagnostics"
 mkdir -p "$diagnostics"
 
 case "$profile" in
