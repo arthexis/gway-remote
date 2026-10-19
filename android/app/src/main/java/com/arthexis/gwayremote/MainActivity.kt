@@ -64,7 +64,7 @@ fun CompanionScreen(store: SecretStore) {
     val agentObserveLoading = agentModel.observeLoading
     val agentObserveResult = agentModel.observeResult
     val agentObserveError = agentModel.observeError
-    var endpoint by remember { mutableStateOf(store.endpoint) }
+    var endpoint by remember { mutableStateOf(store.endpoint.ifBlank { "https://remote.arthexis.com" }) }
     var token by remember { mutableStateOf(store.token) }
     var result by remember { mutableStateOf("Configure HTTPS endpoint and token") }
     var commands by remember { mutableStateOf(listOf<String>()) }
