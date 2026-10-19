@@ -34,6 +34,7 @@ internal fun OperationPanelHost(
     simulatorStatus: String,
     onSimulatorCommand: (String, JSONObject) -> Unit,
     onSimulatorRead: (String, JSONObject) -> Unit,
+    onSelectSimulatorRead: (String) -> Unit,
     onSelectSimulatorPeer: (String, String) -> Unit,
     onInspectTask: (String) -> Unit,
     taskDetail: String?,
@@ -103,7 +104,8 @@ internal fun OperationPanelHost(
                         status = simulatorStatus,
                         onInput = onInput,
                         onRead = onSimulatorRead,
-                        onCommand = onSimulatorCommand
+                        onCommand = onSimulatorCommand,
+                        onSelectRead = onSelectSimulatorRead
                     )
                 }
                 if (spec.policy == ExecutionPolicy.AUTO_READ || panel.id == "task-detail" || panel.id == "csms-view" || panel.id == "lcd" || panel.id == "sound" || panel.id == "simulator") {

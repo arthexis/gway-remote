@@ -504,6 +504,7 @@ fun CompanionScreen(store: SecretStore, appearance: AppearanceMode = AppearanceM
             simulatorStatus = simulatorStatus,
             onSimulatorCommand = operationModel::runConfirmedSimulator,
             onSimulatorRead = operationModel::simulatorRead,
+            onSelectSimulatorRead = operationModel::selectSimulatorRead,
             motifs = availableMotifs,
             lcdNotification = operationModel.lcdNotification,
             soundNotification = operationModel.soundNotification,

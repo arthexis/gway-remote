@@ -14,7 +14,8 @@ internal fun SimulatorUnifiedPanel(
     status: String,
     onInput: (String, String, String) -> Unit,
     onRead: (String, JSONObject) -> Unit,
-    onCommand: (String, JSONObject) -> Unit
+    onCommand: (String, JSONObject) -> Unit,
+    onSelectRead: (String) -> Unit = {}
 ) {
     var selected by remember(panel.id) { mutableStateOf("Status") }
     var pending by remember(panel.id) { mutableStateOf<Pair<String, JSONObject>?>(null) }
@@ -27,7 +28,11 @@ internal fun SimulatorUnifiedPanel(
                 row.forEach { name ->
                     OutlinedButton(
                         modifier = Modifier.weight(1f),
-                        onClick = { selected = name }
+                        onClick = {
+                            selected = name
+                            if (name == "Status") onSelectRead("simulator-status")
+                            else if (name == "Results") onSelectRead("simulator-results")
+                        }
                     ) { Text(name, maxLines = 2) }
                 }
             }

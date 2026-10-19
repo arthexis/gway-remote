@@ -167,6 +167,12 @@ class OperationViewModel(
         }
     }
 
+    fun selectSimulatorRead(view: String) {
+        if (panels.panels.any { it.id == "simulator" } && view in setOf("simulator-status", "simulator-results")) {
+            simulatorReadView = view
+        }
+    }
+
     fun close(id: String) {
         panels = panels.close(id)
         if (id == "csms") csmsView = null
