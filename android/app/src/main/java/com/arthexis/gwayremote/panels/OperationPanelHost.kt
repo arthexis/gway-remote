@@ -17,12 +17,14 @@ internal fun OperationPanelHost(
     onClose: (String) -> Unit,
     onMove: (String, Int) -> Unit,
     onRefresh: (String) -> Unit,
+    onCsmsInspect: (String) -> Unit,
     onInput: (String, String, String) -> Unit,
     onExecute: (String, Map<String, String>) -> Unit,
     motifs: List<String>,
     benchmarkContent: @Composable () -> Unit,
     simulatorStatus: String,
     onSimulatorCommand: (String, JSONObject) -> Unit,
+    onSimulatorRead: (String, JSONObject) -> Unit,
     onSelectSimulatorPeer: (String, String) -> Unit,
     onInspectTask: (String) -> Unit,
     taskDetail: String?,
@@ -49,7 +51,9 @@ internal fun OperationPanelHost(
             onMove = onMove,
             onClose = onClose
         ) {
-                if (panel.id == "tasks") {
+                if (panel.id == "csms") {
+                    CsmsUnifiedPanel(panel, onRefresh, onCsmsInspect)
+                } else if (panel.id == "tasks") {
                     TasksUnifiedPanel(panel, taskDetail, taskDetailLoading, taskDetailError, taskDetailSelection, onInspectTask)
                 } else PanelContent(
                     panel = panel,
@@ -64,8 +68,17 @@ internal fun OperationPanelHost(
                     agentObserveError = agentObserveError,
                     onAgentObserve = onAgentObserve
                 )
-                PanelActions(spec = spec, panel = panel, onRefresh = onRefresh, onInput = onInput, onExecute = onExecute, motifs = motifs)
-                if (spec.policy == ExecutionPolicy.AUTO_READ || panel.id == "task-detail" || panel.id == "csms-view" || panel.id == "lcd" || panel.id == "sound") {
+                if (panel.id != "csms" && panel.id != "tasks") PanelActions(spec = spec, panel = panel, onRefresh = onRefresh, onInput = onInput, onExecute = onExecute, motifs = motifs)
+                if (panel.id == "simulator") {
+                    SimulatorUnifiedPanel(
+                        panel = panel,
+                        status = simulatorStatus,
+                        onInput = onInput,
+                        onRead = onSimulatorRead,
+                        onCommand = onSimulatorCommand
+                    )
+                }
+                if (spec.policy == ExecutionPolicy.AUTO_READ || panel.id == "task-detail" || panel.id == "csms-view" || panel.id == "lcd" || panel.id == "sound" || panel.id == "simulator") {
                     // Common read and task-detail actions are rendered by PanelActions.
                 } else if (panel.id == "simulator-discover") {
                     val discovered = remember(panel.output) {

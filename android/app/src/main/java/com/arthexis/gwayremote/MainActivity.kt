@@ -108,8 +108,7 @@ fun CompanionScreen(store: SecretStore) {
                     ApiClient(endpoint.trim(), token).request(
                         "/api/v1/execute", "sound-motifs", JSONObject())
                 }
-                val array = response.optJSONObject("result")?.optJSONObject("data")
-                    ?.optJSONArray("motifs")
+                val array = response.optJSONObject("result")?.optJSONArray("motifs")
                 availableMotifs = if (array == null) emptyList()
                     else (0 until array.length()).map { array.getString(it) }
             } catch (_: Exception) {
@@ -437,13 +436,14 @@ fun CompanionScreen(store: SecretStore) {
             Text("Update available: ${update!!.version}", style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.primary)
         }
-        val unmatchedCommands = commands.filter { it !in OperationRegistry.operations.mapNotNull { spec -> spec.command }.toSet() }
+        val unmatchedCommands = commands.filter { it !in OperationRegistry.operations.mapNotNull { spec -> spec.command }.toSet() && it != "sound-motifs" }
         OperationPalette(
             state = panelState,
             onOpen = operationModel::open,
             onClose = operationModel::close,
             onMove = operationModel::move,
             onRefresh = operationModel::refresh,
+            onCsmsInspect = operationModel::inspectCsms,
             agentSendLoading = agentSendLoading,
             agentSendResult = agentSendResult,
             agentSendError = agentSendError,
@@ -467,6 +467,7 @@ fun CompanionScreen(store: SecretStore) {
             benchmarkContent = benchmarkPanelContent,
             simulatorStatus = simulatorStatus,
             onSimulatorCommand = operationModel::runConfirmedSimulator,
+            onSimulatorRead = operationModel::simulatorRead,
             motifs = availableMotifs,
             onInput = operationModel::input,
             onExecute = operationModel::execute,

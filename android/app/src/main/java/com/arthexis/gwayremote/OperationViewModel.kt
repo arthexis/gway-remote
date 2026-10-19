@@ -26,7 +26,16 @@ class OperationViewModel : ViewModel() {
         if (result.shouldAutoRun) refresh(id)
     }
 
-    fun close(id: String) { panels = panels.close(id); if (id == "tasks") { taskDetailRequest++; taskDetail = null; taskDetailLoading = false; taskDetailError = null; taskDetailSelection = null } }
+    fun close(id: String) {
+        panels = panels.close(id)
+        if (id == "tasks") {
+            taskDetailRequest++
+            taskDetail = null
+            taskDetailLoading = false
+            taskDetailError = null
+            taskDetailSelection = null
+        }
+    }
     fun move(id: String, index: Int) { panels = panels.move(id, index) }
     fun input(id: String, key: String, value: String) { panels = panels.input(id, key, value) }
     var taskDetail by mutableStateOf<String?>(null)
@@ -67,9 +76,9 @@ class OperationViewModel : ViewModel() {
         }
     }
     fun selectSimulatorPeer(host: String, port: String) {
-        panels = panels.open("simulator-start").state
-            .input("simulator-start", "host", host)
-            .input("simulator-start", "port", port)
+        panels = panels.open("simulator").state
+            .input("simulator", "host", host)
+            .input("simulator", "port", port)
     }
     fun updateSimulatorStatus(response: JSONObject) {
         val detail = response.optJSONObject("result")
@@ -78,7 +87,7 @@ class OperationViewModel : ViewModel() {
     }
     fun runConfirmedSimulator(command: String, args: JSONObject) {
         val operationId = if (command == "simulator-stop") "simulator-stop" else "simulator-start"
-        val id = if (panels.panels.any { it.id == operationId }) operationId else "simulator-start"
+        val id = if (panels.panels.any { it.id == "simulator" }) "simulator" else operationId
         if (command !in setOf("simulator-start", "simulator-stop") ||
             !PanelExecution.canRun(operationId, true, true, true) ||
             panels.panels.none { it.id == id && !it.loading }) return
@@ -102,6 +111,30 @@ class OperationViewModel : ViewModel() {
             }
         }
     }
+    /** Read-only actions share the same visible Simulator panel and stale-result guard. */
+    fun simulatorRead(command: String, args: JSONObject = JSONObject()) {
+        if (command !in setOf("simulator-status", "simulator-results", "simulator-discover")) return
+        val id = "simulator"
+        if (panels.panels.none { it.id == id && !it.loading }) return
+        panels = panels.start(id)
+        val revision = panels.panels.first { it.id == id }.revision
+        val (endpoint, token) = credentials()
+        viewModelScope.launch {
+            try {
+                val response = OperationExecutor.execute(endpoint, token,
+                    OperationRequest("/api/v1/execute", command, argsToMap(args)))
+                val current = panels.panels.any { it.id == id && it.loading && it.revision == revision }
+                panels = panels.complete(id, revision, response.toString(2))
+                if (current && command == "simulator-status") updateSimulatorStatus(response)
+            } catch (e: CancellationException) {
+                panels = panels.fail(id, revision, "Cancelled")
+                throw e
+            } catch (e: Exception) {
+                panels = panels.fail(id, revision, e.message ?: "Simulator query failed")
+            }
+        }
+    }
+
     private fun argsToMap(args: JSONObject): Map<String, Any> =
         args.keys().asSequence().associateWith { args.get(it) }
 
@@ -110,6 +143,12 @@ class OperationViewModel : ViewModel() {
 
     /** Credentials are retrieved when a run begins, never retained in a request. */
     fun bindCredentials(provider: () -> Pair<String, String>) { credentials = provider }
+
+    fun inspectCsms(view: String) {
+        val request = OperationRequests.explicit("csms-view", mapOf("view" to view)) ?: return
+        if (panels.panels.none { it.id == "csms" }) return
+        run("csms", request, "CSMS inspection failed")
+    }
 
     fun refresh(id: String) {
         val request = OperationRequests.automatic(id)
