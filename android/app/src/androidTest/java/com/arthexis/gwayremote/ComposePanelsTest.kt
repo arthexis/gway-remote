@@ -93,12 +93,12 @@ class ComposePanelsTest {
             MaterialTheme {
                 SimulatorUnifiedPanel(panel, "unknown", onInput = { _, _, _ -> },
                     onRead = { command, _ -> reads.add(command) },
-                    onCommand = { command, _ -> commands.add(command) })
+                    onCommand = { command, _ -> commands.add(command) },
+                    onSelectRead = { reads.add(it) })
             }
         }
-        rule.onNodeWithText("Refresh status").performClick()
+        rule.onNodeWithText("Status").performClick()
         rule.onNodeWithText("Results").performClick()
-        rule.onNodeWithText("Load results").performClick()
         rule.runOnIdle {
             assertEquals(listOf("simulator-status", "simulator-results"), reads)
             assertTrue(commands.isEmpty())
