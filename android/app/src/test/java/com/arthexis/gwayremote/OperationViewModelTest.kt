@@ -27,7 +27,7 @@ class OperationViewModelTest {
         val model = OperationViewModel()
         model.selectSimulatorPeer("192.0.2.10", "9000")
         val panel = model.panels.panels.single()
-        assertEquals("simulator-start", panel.id)
+        assertEquals("simulator", panel.id)
         assertEquals("192.0.2.10", panel.inputs["host"])
         assertFalse(panel.loading)
     }
