@@ -10,7 +10,7 @@ class FeatureRegistryTest {
         assertEquals(OperationRegistry.operations.count { it.visibility == OperationVisibility.PALETTE } +
             features.count { it.kind == FeatureKind.LOCAL_PANEL }, features.size)
         assertEquals(FeatureKind.LOCAL_PANEL, FeatureRegistry.get("app-update")?.kind)
-        assertEquals(FeatureKind.LOCAL_PANEL, FeatureRegistry.get("legacy-assignments")?.kind)
+        assertNull(FeatureRegistry.get("legacy-assignments"))
         assertEquals(FeatureKind.OPERATION, FeatureRegistry.get("csms")?.kind)
         assertEquals(FeatureKind.OPERATION, FeatureRegistry.get("tasks")?.kind)
         assertEquals(FeatureKind.OPERATION, FeatureRegistry.get("simulator")?.kind)
@@ -21,13 +21,13 @@ class FeatureRegistryTest {
 
     @Test fun unifiedPanelsHideInternalActionsWithoutRemovingBackendContracts() {
         val hidden = listOf("simulator-status", "simulator-discover", "simulator-start",
-            "simulator-stop", "simulator-results", "csms-view", "task-detail")
+            "simulator-stop", "simulator-results", "csms-view", "task-detail", "agent-assignments")
         hidden.forEach { id ->
             assertNull("Internal operation $id must not appear in the palette", FeatureRegistry.get(id))
             assertNotNull("Backend contract $id must remain registered", OperationRegistry.get(id))
             assertEquals(OperationVisibility.INTERNAL, OperationRegistry.get(id)?.visibility)
         }
-        listOf("simulator", "csms", "tasks").forEach { id ->
+        listOf("simulator", "csms", "tasks", "agent-ops").forEach { id ->
             assertNotNull(FeatureRegistry.get(id))
         }
         assertTrue(FeatureRegistry.features.none { it.id in hidden })
