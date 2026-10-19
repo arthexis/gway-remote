@@ -463,6 +463,7 @@ fun CompanionScreen(store: SecretStore) {
             benchmarkContent = benchmarkPanelContent,
             simulatorStatus = simulatorStatus,
             onSimulatorCommand = operationModel::runConfirmedSimulator,
+            onSimulatorRead = operationModel::simulatorRead,
             motifs = availableMotifs,
             onInput = operationModel::input,
             onExecute = operationModel::execute,
