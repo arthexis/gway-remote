@@ -36,10 +36,12 @@ data class OperationSpec(
  */
 object OperationRegistry {
     val operations: List<OperationSpec> = listOf(
+        OperationSpec("system", "System", "monitor",
+            setOf("api", "health", "status", "connection", "node"), ExecutionPolicy.AUTO_READ),
         OperationSpec("api-health", "API health", "heart-pulse", setOf("test", "connection", "health"),
-            ExecutionPolicy.AUTO_READ),
+            ExecutionPolicy.AUTO_READ, visibility = OperationVisibility.INTERNAL),
         OperationSpec("status", "Status", "monitor", setOf("health", "node", "connection"),
-            ExecutionPolicy.AUTO_READ, "status-quick"),
+            ExecutionPolicy.AUTO_READ, "status-quick", visibility = OperationVisibility.INTERNAL),
         OperationSpec("csms", "CSMS", "plug", setOf("charger", "ocpp", "transactions"),
             ExecutionPolicy.AUTO_READ, "probe-csms"),
         OperationSpec("csms-view", "CSMS details", "file-text", setOf("events", "status", "diagnostics"),
