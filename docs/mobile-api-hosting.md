@@ -30,3 +30,55 @@ The service is bound to `127.0.0.1:8765`. Verify with `ss -ltn` and an authentic
 5. Avoid putting tokens into URL parameters, screenshots, shell history, or logs.
 
 **No production HTTPS route is installed or enabled by this PR.** This is the smallest safe deployment foundation until the real endpoint and network route are confirmed.
+
+
+## Public TLS gateway handoff — production diagnosis
+
+The private mobile API runs on GWAY-001 at `10.90.0.2:8765`.
+The public TLS name `remote.arthexis.com` previously resolved to
+`54.161.177.151` (historical observation, recheck DNS before acting).
+Do not assume that Nginx on GWAY-001 serves the public name. The
+GWAY-001 `nginx -T` reported only `server_name _`.
+
+The repository's `deploy/nginx/gway-remote-locations.conf` is a
+**template** to include inside the actual TLS `server` block; it is
+not installed onto the remote gateway by the backend workflow.
+It contains the exact GET-only `/api/v1/github-health` and
+`/api/v1/nodes/gway-001/github-health` forwarding locations,
+preserving the Authorization header.
+
+The collector already produced an available snapshot (five repos), and
+unauthenticated `curl -i http://10.90.0.2:8765/api/v1/github-health`
+returned the expected JSON HTTP 401. In contrast, the public HTTPS
+request returned Nginx's HTML HTTP 404. This points to the public
+gateway routing until proven otherwise.
+
+**Agent procedure:** identify the authoritative HTTPS host from current
+DNS, hosting inventory, and SSH access. On that host, inspect
+`sudo nginx -T` for `server_name remote.arthexis.com`, the
+`github-health` location, conflicting includes and upstream addresses.
+Check private WireGuard reachability to `10.90.0.2:8765` from the
+gateway. Capture only HTTP statuses and redacted headers/bodies;
+never disclose bearer tokens. Test `nginx -t` before a narrowly scoped
+reload. Verify anonymous public GET yields JSON HTTP 401, then
+authenticated GET yields HTTP 200 with five repositories and the
+published timestamp. Confirm Android refresh works.
+
+**Debug decisions:**
+- HTML 404: wrong virtual host, absent active location, stale proxy
+  include or request sent to another Nginx. Confirm using `nginx -T`
+  and `curl --resolve` against the verified gateway address.
+- JSON 404: inspect the API service version and exact route.
+- 401: route reachable; verify the Android *mobile API* bearer token,
+  which is distinct from the collector's `GITHUB_TOKEN`.
+- 502/504: troubleshoot the gateway's private WireGuard path and
+  upstream listener without exposing port 8765 publicly.
+- HTTP 200 with `status: unavailable`: inspect collector timer,
+  source snapshot, permissions and age, not Nginx routing.
+- HTTP 200 with `status: available`: confirm app endpoint base URL,
+  scope/filter rendering and fresh cached timestamp.
+
+Do not reconfigure DNS, replace unrelated Nginx vhosts, change TLS
+termination, broaden firewall rules, or leak credentials. Host-specific
+changes require an operational execution step: merging this document
+does not modify production Nginx.
