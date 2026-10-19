@@ -40,6 +40,8 @@ object OperationRegistry {
             ExecutionPolicy.AUTO_READ, "probe-csms"),
         OperationSpec("csms-view", "CSMS details", "file-text", setOf("events", "status", "diagnostics"),
             ExecutionPolicy.EXPLICIT_INPUT, "csms-view"),
+        OperationSpec("simulator", "Simulator", "activity", setOf("simulation", "discover", "start", "stop", "results", "status"),
+            ExecutionPolicy.EXPLICIT_INPUT),
         OperationSpec("simulator-status", "Simulator status", "activity", setOf("charging", "session", "state"),
             ExecutionPolicy.AUTO_READ, "simulator-status"),
         OperationSpec("simulator-discover", "Discover simulator", "search", setOf("network", "peers", "ethernet"),

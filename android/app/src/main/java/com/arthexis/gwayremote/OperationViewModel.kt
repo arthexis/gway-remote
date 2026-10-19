@@ -33,9 +33,9 @@ class OperationViewModel : ViewModel() {
         panels = panels.open("task-detail").state.input("task-detail", "task_id", taskId)
     }
     fun selectSimulatorPeer(host: String, port: String) {
-        panels = panels.open("simulator-start").state
-            .input("simulator-start", "host", host)
-            .input("simulator-start", "port", port)
+        panels = panels.open("simulator").state
+            .input("simulator", "host", host)
+            .input("simulator", "port", port)
     }
     fun updateSimulatorStatus(response: JSONObject) {
         val detail = response.optJSONObject("result")
@@ -44,7 +44,7 @@ class OperationViewModel : ViewModel() {
     }
     fun runConfirmedSimulator(command: String, args: JSONObject) {
         val operationId = if (command == "simulator-stop") "simulator-stop" else "simulator-start"
-        val id = if (panels.panels.any { it.id == operationId }) operationId else "simulator-start"
+        val id = if (panels.panels.any { it.id == "simulator" }) "simulator" else operationId
         if (command !in setOf("simulator-start", "simulator-stop") ||
             !PanelExecution.canRun(operationId, true, true, true) ||
             panels.panels.none { it.id == id && !it.loading }) return
@@ -68,6 +68,30 @@ class OperationViewModel : ViewModel() {
             }
         }
     }
+    /** Read-only actions share the same visible Simulator panel and stale-result guard. */
+    fun simulatorRead(command: String, args: JSONObject = JSONObject()) {
+        if (command !in setOf("simulator-status", "simulator-results", "simulator-discover")) return
+        val id = "simulator"
+        if (panels.panels.none { it.id == id && !it.loading }) return
+        panels = panels.start(id)
+        val revision = panels.panels.first { it.id == id }.revision
+        val (endpoint, token) = credentials()
+        viewModelScope.launch {
+            try {
+                val response = OperationExecutor.execute(endpoint, token,
+                    OperationRequest("/api/v1/execute", command, argsToMap(args)))
+                val current = panels.panels.any { it.id == id && it.loading && it.revision == revision }
+                panels = panels.complete(id, revision, response.toString(2))
+                if (current && command == "simulator-status") updateSimulatorStatus(response)
+            } catch (e: CancellationException) {
+                panels = panels.fail(id, revision, "Cancelled")
+                throw e
+            } catch (e: Exception) {
+                panels = panels.fail(id, revision, e.message ?: "Simulator query failed")
+            }
+        }
+    }
+
     private fun argsToMap(args: JSONObject): Map<String, Any> =
         args.keys().asSequence().associateWith { args.get(it) }
 

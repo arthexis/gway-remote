@@ -7,10 +7,13 @@ class FeatureRegistryTest {
     @Test fun stableIdsAndKnownKinds() {
         val features = FeatureRegistry.features
         assertEquals(features.size, features.map { it.id }.distinct().size)
-        assertEquals(OperationRegistry.operations.size + 3, features.size)
+        assertEquals(OperationRegistry.operations.size - 5 + 3, features.size)
         assertEquals(FeatureKind.LOCAL_PANEL, FeatureRegistry.get("app-update")?.kind)
         assertEquals(FeatureKind.LOCAL_PANEL, FeatureRegistry.get("legacy-assignments")?.kind)
         assertEquals(FeatureKind.OPERATION, FeatureRegistry.get("csms")?.kind)
+        assertEquals(FeatureKind.OPERATION, FeatureRegistry.get("simulator")?.kind)
+        assertNull(FeatureRegistry.get("simulator-start"))
+        assertNull(FeatureRegistry.get("simulator-status"))
         assertEquals(FeatureKind.LOCAL_PANEL, FeatureRegistry.get("github-health")?.kind)
         assertNull(FeatureRegistry.get("github-health")?.operation)
         assertNull(FeatureRegistry.get("arbitrary-shell"))
@@ -25,9 +28,10 @@ class FeatureRegistryTest {
     @Test fun localFeaturesCannotClaimBackendOperations() {
         assertTrue(FeatureRegistry.features.filter { it.kind == FeatureKind.LOCAL_PANEL }
             .all { it.operation == null })
-        assertEquals("simulator-start",
-            FeatureRegistry.get("simulator-start")?.operation?.id)
-        assertTrue(FeatureRegistry.get("simulator-start")!!.operation!!.requiresConfirmation)
+        assertNull(FeatureRegistry.get("simulator-start"))
+        assertEquals("simulator", FeatureRegistry.get("simulator")?.operation?.id)
+        assertTrue(OperationRegistry.get("simulator-start")!!.requiresConfirmation)
+        assertTrue(OperationRegistry.get("simulator-stop")!!.requiresConfirmation)
     }
 
     @Test(expected = IllegalArgumentException::class)
