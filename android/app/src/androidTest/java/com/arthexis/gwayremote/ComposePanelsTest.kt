@@ -50,10 +50,12 @@ class ComposePanelsTest {
 
     @Test fun csmsSelectorKeepsInspectionInsideUnifiedCard() {
         var inspected: String? = null
+        var selected by mutableStateOf<String?>(null)
         rule.setContent {
             val panel = OperationPanelState().open("csms").state.panels.single()
             MaterialTheme {
-                CsmsUnifiedPanel(panel, onRefresh = {}, onInspect = { inspected = it })
+                CsmsUnifiedPanel(panel, onRefresh = {}, onInspect = { inspected = it },
+                    selectedView = selected, onSelectView = { selected = it })
             }
         }
         rule.onNodeWithText("Inspect: status", substring = true).performClick()
