@@ -33,14 +33,8 @@ internal fun SimulatorUnifiedPanel(
             }
         }
         when (selected) {
-            "Status" -> Button(
-                enabled = !panel.loading,
-                onClick = { onRead("simulator-status", JSONObject()) }
-            ) { Text("Refresh status") }
-            "Results" -> Button(
-                enabled = !panel.loading,
-                onClick = { onRead("simulator-results", JSONObject()) }
-            ) { Text("Load results") }
+            "Status" -> Text("Pull down to refresh simulator status", style = MaterialTheme.typography.bodySmall)
+            "Results" -> Text("Pull down to reload simulator results", style = MaterialTheme.typography.bodySmall)
             "Discover" -> {
                 val host = panel.inputs["host"].orEmpty()
                 val port = panel.inputs["port"] ?: "9000"
