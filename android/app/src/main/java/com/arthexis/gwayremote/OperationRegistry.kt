@@ -34,8 +34,6 @@ object OperationRegistry {
     val operations: List<OperationSpec> = listOf(
         OperationSpec("api-health", "API health", "heart-pulse", setOf("test", "connection", "health"),
             ExecutionPolicy.AUTO_READ),
-        OperationSpec("api-commands", "Available commands", "list", setOf("api", "catalog", "read"),
-            ExecutionPolicy.AUTO_READ),
         OperationSpec("status", "Status", "monitor", setOf("health", "node", "connection"),
             ExecutionPolicy.AUTO_READ, "status-quick"),
         OperationSpec("csms", "CSMS", "plug", setOf("charger", "ocpp", "transactions"),
