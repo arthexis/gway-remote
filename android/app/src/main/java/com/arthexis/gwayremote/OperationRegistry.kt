@@ -70,7 +70,7 @@ object OperationRegistry {
         OperationSpec("task-detail", "Task detail", "clipboard-check", setOf("task", "result", "execution", "id"),
             ExecutionPolicy.EXPLICIT_INPUT, "codex-task", visibility = OperationVisibility.INTERNAL),
         OperationSpec("agent-assignments", "Agent assignments", "list-check", setOf("github", "issues", "codex"),
-            ExecutionPolicy.AUTO_READ, "codex-issues")
+            ExecutionPolicy.AUTO_READ, "codex-issues", visibility = OperationVisibility.INTERNAL)
     )
 
     private val byId = operations.associateBy(OperationSpec::id)
