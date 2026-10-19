@@ -232,8 +232,7 @@ fun CompanionScreen(store: SecretStore) {
                 }
                 if (command == "simulator-status" || command == "simulator-start" || command == "simulator-stop") {
                     val data = response.optJSONObject("result")
-                    simulatorStatus = "${data?.optString("state") ?: "unknown"} — " +
-                        (data?.optString("target") ?: "")
+                    operationModel.updateSimulatorStatus(response)
                 }
                 result = response.toString(2)
             } catch (e: Exception) {
@@ -515,45 +514,11 @@ fun CompanionScreen(store: SecretStore) {
                     }
                 }
             },
-            onInspectTask = { taskId ->
-                panelState = panelState.open("task-detail").state
-                    .input("task-detail", "task_id", taskId)
-                // Selecting a row does not send commands or execute an issue.
-            },
-            onSelectSimulatorPeer = { host, port ->
-                val opened = panelState.open("simulator-start")
-                panelState = opened.state.input("simulator-start", "host", host)
-                    .input("simulator-start", "port", port)
-                // Target selection only updates parameters; it never starts a simulation.
-            },
+            onInspectTask = operationModel::inspectTask,
+            onSelectSimulatorPeer = operationModel::selectSimulatorPeer,
             benchmarkContent = benchmarkPanelContent,
             simulatorStatus = simulatorStatus,
-            onSimulatorCommand = { command, args ->
-                val operationId = if (command == "simulator-stop") "simulator-stop" else "simulator-start"
-                val id = if (panelState.panels.any { it.id == operationId }) operationId else "simulator-start"
-                if (command in setOf("simulator-start", "simulator-stop") &&
-                    PanelExecution.canRun(operationId, true, true, true) &&
-                    panelState.panels.any { it.id == id && !it.loading }) {
-                    panelState = panelState.start(id)
-                    val revision = panelState.panels.first { it.id == id }.revision
-                    val targetEndpoint = endpoint.trim()
-                    val targetToken = token
-                    scope.launch {
-                        try {
-                            val response = withContext(Dispatchers.IO) {
-                                ApiClient(targetEndpoint, targetToken).request(
-                                    "/api/v1/execute", command, args)
-                            }
-                            panelState = panelState.complete(id, revision, response.toString(2))
-                            val payload = response.optJSONObject("result")
-                            simulatorStatus = "${payload?.optString("state") ?: "unknown"} — " +
-                                (payload?.optString("target") ?: "")
-                        } catch (e: Exception) {
-                            panelState = panelState.fail(id, revision, e.message ?: "Simulator command failed")
-                        }
-                    }
-                }
-            },
+            onSimulatorCommand = operationModel::runConfirmedSimulator,
             motifs = availableMotifs,
             onInput = operationModel::input,
             onExecute = operationModel::execute,
