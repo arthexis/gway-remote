@@ -62,6 +62,60 @@ class OperationViewModel(
         }
     }
 
+    data class NotificationRun(
+        val inputs: Map<String, String> = emptyMap(),
+        val loading: Boolean = false,
+        val output: String? = null,
+        val error: String? = null
+    )
+    var lcdNotification by mutableStateOf(NotificationRun())
+        private set
+    var soundNotification by mutableStateOf(NotificationRun())
+        private set
+    private var notificationSession = 0L
+    private var lcdNotificationRevision = 0L
+    private var soundNotificationRevision = 0L
+
+    fun notificationInput(kind: String, key: String, value: String) {
+        if (panels.panels.none { it.id == "notifications" }) return
+        when (kind) {
+            "lcd" -> lcdNotification = lcdNotification.copy(inputs = lcdNotification.inputs + (key to value))
+            "sound" -> soundNotification = soundNotification.copy(inputs = soundNotification.inputs + (key to value))
+        }
+    }
+
+    fun executeNotification(kind: String, inputs: Map<String, String>) {
+        if (panels.panels.none { it.id == "notifications" } || kind !in setOf("lcd", "sound")) return
+        val state = if (kind == "lcd") lcdNotification else soundNotification
+        if (state.loading) return
+        val request = OperationRequests.explicit(kind, inputs) ?: return
+        val revision = if (kind == "lcd") ++lcdNotificationRevision else ++soundNotificationRevision
+        val session = notificationSession
+        val (endpoint, token) = credentials()
+        if (kind == "lcd") lcdNotification = state.copy(loading = true, error = null, output = null)
+        else soundNotification = state.copy(loading = true, error = null, output = null)
+        requestScope.launch {
+            try {
+                val response = runner.execute(endpoint, token, request)
+                if (session == notificationSession && panels.panels.any { it.id == "notifications" } &&
+                    revision == (if (kind == "lcd") lcdNotificationRevision else soundNotificationRevision)) {
+                    val result = (if (kind == "lcd") lcdNotification else soundNotification)
+                        .copy(loading = false, output = response.toString(2))
+                    if (kind == "lcd") lcdNotification = result else soundNotification = result
+                }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                if (session == notificationSession && panels.panels.any { it.id == "notifications" } &&
+                    revision == (if (kind == "lcd") lcdNotificationRevision else soundNotificationRevision)) {
+                    val result = (if (kind == "lcd") lcdNotification else soundNotification)
+                        .copy(loading = false, error = e.message ?: "Notification failed")
+                    if (kind == "lcd") lcdNotification = result else soundNotification = result
+                }
+            }
+        }
+    }
+
     var simulatorStatus by mutableStateOf("Not checked")
         private set
 
@@ -74,6 +128,13 @@ class OperationViewModel(
 
     fun close(id: String) {
         panels = panels.close(id)
+        if (id == "notifications") {
+            notificationSession++
+            lcdNotificationRevision++
+            soundNotificationRevision++
+            lcdNotification = NotificationRun()
+            soundNotification = NotificationRun()
+        }
         if (id == "system") {
             systemSession++
             apiRevision++
