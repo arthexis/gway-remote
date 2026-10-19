@@ -7,11 +7,13 @@ class FeatureRegistryTest {
     @Test fun stableIdsAndKnownKinds() {
         val features = FeatureRegistry.features
         assertEquals(features.size, features.map { it.id }.distinct().size)
-        assertEquals(OperationRegistry.operations.size - 6 + 3, features.size)
+        assertEquals(OperationRegistry.operations.size - 7 + 3, features.size)
         assertEquals(FeatureKind.LOCAL_PANEL, FeatureRegistry.get("app-update")?.kind)
         assertEquals(FeatureKind.LOCAL_PANEL, FeatureRegistry.get("legacy-assignments")?.kind)
         assertEquals(FeatureKind.OPERATION, FeatureRegistry.get("csms")?.kind)
         assertNull(FeatureRegistry.get("csms-view"))
+        assertEquals(FeatureKind.OPERATION, FeatureRegistry.get("tasks")?.kind)
+        assertNull(FeatureRegistry.get("task-detail"))
         assertEquals(FeatureKind.OPERATION, FeatureRegistry.get("simulator")?.kind)
         assertNull(FeatureRegistry.get("simulator-start"))
         assertNull(FeatureRegistry.get("simulator-status"))
