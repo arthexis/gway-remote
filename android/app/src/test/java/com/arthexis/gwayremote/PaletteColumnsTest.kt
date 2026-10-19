@@ -4,10 +4,12 @@ import org.junit.Assert.assertEquals
 import org.junit.Test
 
 class PaletteColumnsTest {
-    @Test fun phoneWidthUsesFullWidthButtons() {
-        assertEquals(1, paletteColumns(360f))
-        assertEquals(1, paletteColumns(480f))
-        assertEquals(1, paletteColumns(519f))
+    @Test fun phoneWidthUsesTwoColumns() {
+        assertEquals(1, paletteColumns(319f))
+        assertEquals(2, paletteColumns(320f))
+        assertEquals(2, paletteColumns(360f))
+        assertEquals(2, paletteColumns(480f))
+        assertEquals(2, paletteColumns(519f))
     }
 
     @Test fun tabletWidthAllowsMoreReadableColumns() {
