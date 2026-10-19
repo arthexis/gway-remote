@@ -14,13 +14,15 @@ class OperationViewModelTest {
         assertTrue(model.panels.panels.single().inputs.isEmpty())
     }
 
-    @Test fun taskSelectionDoesNotExecute() {
+    @Test fun taskInspectionDoesNotOpenIndependentPanel() {
         val model = OperationViewModel()
+        // Inspection is only available inside an already open Tasks panel.
         model.inspectTask("123")
-        val panel = model.panels.panels.single()
-        assertEquals("task-detail", panel.id)
-        assertEquals("123", panel.inputs["task_id"])
-        assertFalse(panel.loading)
+        assertTrue(model.panels.panels.isEmpty())
+        assertNull(model.taskDetailSelection)
+        assertNull(model.taskDetail)
+        assertFalse(model.taskDetailLoading)
+        assertNull(model.taskDetailError)
     }
 
     @Test fun peerSelectionIsInputOnly() {
