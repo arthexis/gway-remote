@@ -167,10 +167,32 @@ def collect(api):
                 "url": run.get("html_url") or "",
                 "created_at": run.get("created_at") or ""})
         ci_lanes = []
+        pr_states = {}
+        for run in workflow_runs:
+            if run.get("event") != "pull_request":
+                continue
+            key = (run.get("name"), run.get("event"), run.get("head_branch"))
+            for reference in run.get("pull_requests") or []:
+                number = reference.get("number") if isinstance(reference, dict) else None
+                if isinstance(number, int) and number > 0:
+                    pr_states.setdefault(key, set()).add(number)
         for (workflow, trigger, branch), lane_runs in lanes.items():
             lane_runs.sort(key=lambda item: (item["created_at"], item["id"]), reverse=True)
-            ci_lanes.append({"workflow": workflow, "trigger": trigger,
-                             "branch": branch, "completed_runs": lane_runs})
+            lane = {"workflow": workflow, "trigger": trigger,
+                    "branch": branch, "completed_runs": lane_runs}
+            references = pr_states.get((workflow, trigger, branch), set())
+            if trigger == "pull_request" and references:
+                states = []
+                for number in sorted(references):
+                    detail = api.get("/repos/" + encoded + "/pulls/" + str(number))
+                    if not isinstance(detail, dict) or detail.get("number") != number:
+                        raise ValueError("Incomplete PR lifecycle evidence")
+                    if detail.get("state") not in {"open", "closed"}:
+                        raise ValueError("Unknown PR lifecycle state")
+                    states.append(detail["state"])
+                lane["pr_lifecycle"] = "closed" if all(
+                    state == "closed" for state in states) else "open"
+            ci_lanes.append(lane)
         pending_runs = [{
             "id": r["id"], "name": r.get("name") or "",
             "event": r.get("event") or "", "branch": r.get("head_branch") or "",
