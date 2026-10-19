@@ -77,7 +77,7 @@ fun FeatureButton(action: PaletteAction, modifier: Modifier = Modifier) {
                 Icon(
                     imageVector = Icons.Filled.Circle,
                     contentDescription = "Update available",
-                    tint = MaterialTheme.colorScheme.primary,
+                    tint = Color(0xFFFF9800), // Amber/orange update indicator across light and dark themes.
                     modifier = Modifier.size(12.dp)
                 )
             }

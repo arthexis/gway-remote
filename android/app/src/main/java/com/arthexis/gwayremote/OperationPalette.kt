@@ -401,9 +401,9 @@ private fun AgentBudgetWindow(label: String, window: JSONObject?) {
     }
 }
 
-/** Reserve room for icon, readable label and accessibility font scaling. */
+/** Use two buttons per row on ordinary phones, falling back only on very narrow layouts. */
 internal fun paletteColumns(availableWidthDp: Float): Int = when {
     availableWidthDp >= 840f -> 3
-    availableWidthDp >= 520f -> 2
+    availableWidthDp >= 320f -> 2
     else -> 1
 }
