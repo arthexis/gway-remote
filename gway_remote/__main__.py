@@ -276,6 +276,8 @@ def main() -> None:
     execute.add_argument("task", choices=TASKS)
     execute.add_argument("--repository", default="")
     execute.add_argument("--sha", default="")
+    export_parser = subparsers.add_parser("deploy-targets", help="Export authoritative deployment targets")
+    export_parser.add_argument("--json", action="store_true")
     inspection = subparsers.add_parser("reconcile", help="Read-only appliance deployment report")
     inspection.add_argument("--dry-run", action="store_true", help="Do not deploy (always read-only)")
     diagnose_parser = subparsers.add_parser("diagnose", help="Read-only appliance deployment troubleshooting")
@@ -317,6 +319,12 @@ def main() -> None:
     api_parser.add_argument("--host", default="127.0.0.1")
     api_parser.add_argument("--port", type=int, default=8765)
     args = parser.parse_args()
+    if args.command == "deploy-targets":
+        from .target_export import export_targets
+        data = export_targets()
+        print(json.dumps(data, sort_keys=True) if args.json else
+              "\\n".join(row["repository"] for row in data["targets"]))
+        return
     if args.command in ("codex", "codex-worker"):
         if args.action in ("approve", "next"):
             if args.action == "approve" and not args.task_id:
