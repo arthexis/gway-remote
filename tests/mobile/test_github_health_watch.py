@@ -66,6 +66,60 @@ class ShaCorrelationTests(unittest.TestCase):
         self.assertIsNone(_pr_for_sha(api, "arthexis/gway-ap-kiosk", self.SHA))
 
 
+class LaneEvidenceAPI:
+    def __init__(self, run_shas, matched):
+        self.run_shas = run_shas
+        self.matched = matched
+
+    def get(self, path):
+        if path.endswith("/pulls?state=open&per_page=100"):
+            return []
+        if "/actions/runs?" in path:
+            return {"workflow_runs": [
+                {"id": 100 - i, "name": "Kiosk CI", "event": "pull_request",
+                 "head_branch": "reused-branch", "head_sha": sha,
+                 "pull_requests": [], "created_at": "2026-10-18T00:00:00Z",
+                 "status": "completed", "conclusion": "failure"}
+                for i, sha in enumerate(self.run_shas)]}
+        if path.endswith("/protection/required_status_checks"):
+            return {"contexts": [], "checks": []}
+        if "/commits/" in path and "/pulls?" in path:
+            sha = path.split("/commits/")[1].split("/")[0]
+            return [{"number": self.matched[sha][0]}] if sha in self.matched else []
+        if "/pulls/" in path:
+            number = int(path.split("/")[-1])
+            for sha, (pr, state) in self.matched.items():
+                if pr == number:
+                    return {"number": pr, "state": state, "head": {"sha": sha}}
+        raise AssertionError(path)
+
+
+class LaneCorrelationTests(unittest.TestCase):
+    def test_closed_pr_with_empty_run_links(self):
+        sha = "a" * 40
+        repo = collect(LaneEvidenceAPI([sha, sha], {sha: (13, "closed")}))[0]
+        self.assertEqual(repo["ci_lanes"][0]["pr_lifecycle"], "closed")
+
+    def test_branch_reuse_cannot_resolve_entire_lane(self):
+        a, b = "a" * 40, "b" * 40
+        repo = collect(LaneEvidenceAPI([a, b], {a: (13, "closed"), b: (1, "closed")}))[0]
+        self.assertNotIn("pr_lifecycle", repo["ci_lanes"][0])
+
+    def test_push_run_never_uses_closed_pr_evidence(self):
+        sha = "a" * 40
+        api = LaneEvidenceAPI([sha, sha], {sha: (13, "closed")})
+        original_get = api.get
+        def get(path):
+            result = original_get(path)
+            if "/actions/runs?" in path:
+                for run in result["workflow_runs"]:
+                    run["event"] = "push"
+            return result
+        api.get = get
+        repo = collect(api)[0]
+        self.assertNotIn("pr_lifecycle", repo["ci_lanes"][0])
+
+
 class WatchTests(unittest.TestCase):
     def test_three_read_only_requests_per_repo(self):
         api = FakeAPI()
