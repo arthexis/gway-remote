@@ -25,6 +25,10 @@ internal fun OperationPanelHost(
     onSimulatorCommand: (String, JSONObject) -> Unit,
     onSelectSimulatorPeer: (String, String) -> Unit,
     onInspectTask: (String) -> Unit,
+    taskDetail: String?,
+    taskDetailLoading: Boolean,
+    taskDetailError: String?,
+    taskDetailSelection: String?,
     agentSendLoading: Boolean,
     agentSendResult: String?,
     agentSendError: String?,
@@ -45,7 +49,9 @@ internal fun OperationPanelHost(
             onMove = onMove,
             onClose = onClose
         ) {
-                PanelContent(
+                if (panel.id == "tasks") {
+                    TasksUnifiedPanel(panel, taskDetail, taskDetailLoading, taskDetailError, taskDetailSelection, onInspectTask)
+                } else PanelContent(
                     panel = panel,
                     onInspectTask = onInspectTask,
                     agentSendLoading = agentSendLoading,
