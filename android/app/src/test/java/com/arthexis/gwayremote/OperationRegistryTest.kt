@@ -34,7 +34,7 @@ class OperationRegistryTest {
     }
 
     @Test fun filterMatchesNamesAndKeywordsWithoutChangingRegistry() {
-        assertEquals("sound", OperationRegistry.search("audio").single().id)
+        assertEquals(setOf("sound", "notifications"), OperationRegistry.search("audio").map { it.id }.toSet())
         assertTrue(OperationRegistry.search("charging session").any { it.id == "simulator-start" })
         assertEquals(OperationRegistry.operations.size, OperationRegistry.search(" ").size)
         assertTrue(OperationRegistry.search("missing-feature").isEmpty())

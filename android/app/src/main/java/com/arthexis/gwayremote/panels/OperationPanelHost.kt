@@ -24,6 +24,10 @@ internal fun OperationPanelHost(
     onInput: (String, String, String) -> Unit,
     onExecute: (String, Map<String, String>) -> Unit,
     motifs: List<String>,
+    lcdNotification: OperationViewModel.NotificationRun,
+    soundNotification: OperationViewModel.NotificationRun,
+    onNotificationInput: (String, String, String) -> Unit,
+    onExecuteNotification: (String, Map<String, String>) -> Unit,
     benchmarkContent: @Composable () -> Unit,
     simulatorStatus: String,
     onSimulatorCommand: (String, JSONObject) -> Unit,
@@ -59,7 +63,10 @@ internal fun OperationPanelHost(
             onMove = onMove,
             onClose = onClose
         ) {
-                if (panel.id == "system") {
+                if (panel.id == "notifications") {
+                    NotificationsUnifiedPanel(lcdNotification, soundNotification, motifs,
+                        onNotificationInput, onExecuteNotification)
+                } else if (panel.id == "system") {
                     SystemUnifiedPanel(apiHealth, systemStatus, onRefreshSystem)
                 } else if (panel.id == "csms") {
                     CsmsUnifiedPanel(panel, onRefresh, onCsmsInspect)
@@ -87,7 +94,7 @@ internal fun OperationPanelHost(
                         onError = onAgentAssignmentsError
                     )
                 }
-                if (panel.id != "system" && panel.id != "csms" && panel.id != "tasks") PanelActions(spec = spec, panel = panel, onRefresh = onRefresh, onInput = onInput, onExecute = onExecute, motifs = motifs)
+                if (panel.id != "notifications" && panel.id != "system" && panel.id != "csms" && panel.id != "tasks") PanelActions(spec = spec, panel = panel, onRefresh = onRefresh, onInput = onInput, onExecute = onExecute, motifs = motifs)
                 if (panel.id == "simulator") {
                     SimulatorUnifiedPanel(
                         panel = panel,
