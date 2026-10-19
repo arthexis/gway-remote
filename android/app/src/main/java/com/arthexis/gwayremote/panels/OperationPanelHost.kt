@@ -31,6 +31,11 @@ internal fun OperationPanelHost(
     taskDetailLoading: Boolean,
     taskDetailError: String?,
     taskDetailSelection: String?,
+    agentAssignments: List<JSONObject>,
+    agentAssignmentsLoading: Boolean,
+    agentAssignmentsError: String,
+    onRefreshAgentAssignments: () -> Unit,
+    onAgentAssignmentsError: (String) -> Unit,
     agentSendLoading: Boolean,
     agentSendResult: String?,
     agentSendError: String?,
@@ -68,6 +73,15 @@ internal fun OperationPanelHost(
                     agentObserveError = agentObserveError,
                     onAgentObserve = onAgentObserve
                 )
+                if (panel.id == "agent-ops") {
+                    AgentAssignmentsSection(
+                        issues = agentAssignments,
+                        loading = agentAssignmentsLoading,
+                        error = agentAssignmentsError,
+                        onRefresh = onRefreshAgentAssignments,
+                        onError = onAgentAssignmentsError
+                    )
+                }
                 if (panel.id != "csms" && panel.id != "tasks") PanelActions(spec = spec, panel = panel, onRefresh = onRefresh, onInput = onInput, onExecute = onExecute, motifs = motifs)
                 if (panel.id == "simulator") {
                     SimulatorUnifiedPanel(

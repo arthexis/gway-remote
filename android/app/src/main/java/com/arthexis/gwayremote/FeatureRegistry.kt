@@ -36,9 +36,7 @@ object FeatureRegistry {
         FeatureSpec("github-health", "GitHub Health", "github",
             setOf("github", "ci", "alerts", "watch"), FeatureKind.LOCAL_PANEL),
         FeatureSpec("app-update", "App update", "update",
-            setOf("apk", "release", "install", "upgrade"), FeatureKind.LOCAL_PANEL),
-        FeatureSpec("legacy-assignments", "Assignments", "list-check",
-            setOf("agent", "issues", "pending"), FeatureKind.LOCAL_PANEL)
+            setOf("apk", "release", "install", "upgrade"), FeatureKind.LOCAL_PANEL)
     )
 
     init {
