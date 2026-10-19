@@ -489,8 +489,7 @@ fun CompanionScreen(store: SecretStore) {
                     onClick = { if (update == null) checkUpdates() else downloadUpdate() },
                     enabled = !updating,
                     attention = update != null
-                ),
-
+                )
             ) + unmatchedCommands.map { name ->
                 PaletteAction("server-" + name, name, "list", { perform("/api/v1/execute", name) }, !busy)
             }
