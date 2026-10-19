@@ -443,6 +443,7 @@ fun CompanionScreen(store: SecretStore) {
             onClose = operationModel::close,
             onMove = operationModel::move,
             onRefresh = operationModel::refresh,
+            onCsmsInspect = operationModel::inspectCsms,
             agentSendLoading = agentSendLoading,
             agentSendResult = agentSendResult,
             agentSendError = agentSendError,

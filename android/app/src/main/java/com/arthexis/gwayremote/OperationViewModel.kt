@@ -101,6 +101,12 @@ class OperationViewModel : ViewModel() {
     /** Credentials are retrieved when a run begins, never retained in a request. */
     fun bindCredentials(provider: () -> Pair<String, String>) { credentials = provider }
 
+    fun inspectCsms(view: String) {
+        val request = OperationRequests.explicit("csms-view", mapOf("view" to view)) ?: return
+        if (panels.panels.none { it.id == "csms" }) return
+        run("csms", request, "CSMS inspection failed")
+    }
+
     fun refresh(id: String) {
         val request = OperationRequests.automatic(id)
         if (request == null && id != "agent-ops") return
