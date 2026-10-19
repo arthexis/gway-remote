@@ -57,22 +57,23 @@ fun CompanionScreen(store: SecretStore) {
     val agentUiContext = LocalContext.current
     val operationModel: OperationViewModel = viewModel()
     val panelState = operationModel.panels
-    var agentSendLoading by remember { mutableStateOf(false) }
-    var agentSendResult by remember { mutableStateOf<String?>(null) }
-    var agentSendError by remember { mutableStateOf<String?>(null) }
-    var agentObserveLoading by remember { mutableStateOf(false) }
-    var agentObserveResult by remember { mutableStateOf<String?>(null) }
-    var agentObserveError by remember { mutableStateOf<String?>(null) }
+    val agentModel: AgentOpsViewModel = viewModel()
+    val agentSendLoading = agentModel.sendLoading
+    val agentSendResult = agentModel.sendResult
+    val agentSendError = agentModel.sendError
+    val agentObserveLoading = agentModel.observeLoading
+    val agentObserveResult = agentModel.observeResult
+    val agentObserveError = agentModel.observeError
     var endpoint by remember { mutableStateOf(store.endpoint) }
     var token by remember { mutableStateOf(store.token) }
     var result by remember { mutableStateOf("Configure HTTPS endpoint and token") }
     var commands by remember { mutableStateOf(listOf<String>()) }
     var busy by remember { mutableStateOf(false) }
     var refreshing by remember { mutableStateOf(false) }
-    var agentIssues by remember { mutableStateOf(listOf<JSONObject>()) }
-    var agentIssuesError by remember { mutableStateOf("") }
+    val agentIssues = agentModel.issues
+    val agentIssuesError = agentModel.issuesError
     var agentIssuesExpanded by remember { mutableStateOf(false) }
-    var agentIssuesLoading by remember { mutableStateOf(false) }
+    val agentIssuesLoading = agentModel.issuesLoading
     var refreshStatus by remember { mutableStateOf("") }
     val simulatorStatus = operationModel.simulatorStatus
     var expandedWriteOperation by remember { mutableStateOf<String?>(null) }
@@ -97,6 +98,7 @@ fun CompanionScreen(store: SecretStore) {
     val benchmarkStop = remember { java.util.concurrent.atomic.AtomicBoolean(false) }
 
     operationModel.bindCredentials { endpoint to token }
+    agentModel.bindCredentials { endpoint to token }
     val scope = rememberCoroutineScope()
     LaunchedEffect(endpoint, token, panelState.panels.any { it.id == "sound" }) {
         if (endpoint.isNotBlank() && token.isNotBlank() &&
@@ -239,26 +241,6 @@ fun CompanionScreen(store: SecretStore) {
                 result = e.message ?: "Connection failed"
                 if (path.endsWith("/commands")) commands = emptyList()
             } finally { busy = false }
-        }
-    }
-
-    fun refreshAgentIssues() {
-        if (agentIssuesLoading) return
-        agentIssuesLoading = true
-        scope.launch {
-            try {
-                val response = withContext(Dispatchers.IO) {
-                    ApiClient(endpoint.trim(), token).request(
-                        "/api/v1/execute", "codex-issues", JSONObject())
-                }
-                val entries = response.getJSONObject("result").getJSONArray("issues")
-                agentIssues = (0 until entries.length()).map { entries.getJSONObject(it) }
-                agentIssuesError = ""
-            } catch (e: Exception) {
-                agentIssuesError = e.message ?: "Assignments unavailable"
-            } finally {
-                agentIssuesLoading = false
-            }
         }
     }
 
@@ -445,75 +427,14 @@ fun CompanionScreen(store: SecretStore) {
             agentObserveLoading = agentObserveLoading,
             agentObserveResult = agentObserveResult,
             agentObserveError = agentObserveError,
-            onAgentObserve = { ref, at ->
-                if (!agentObserveLoading) {
-                    agentObserveLoading = true
-                    agentObserveResult = null
-                    agentObserveError = null
-                    val targetEndpoint = endpoint.trim()
-                    val targetToken = token
-                    scope.launch {
-                        try {
-                            val args = JSONObject().put("ref", ref).put("at", at)
-                            val response = withContext(Dispatchers.IO) {
-                                ApiClient(targetEndpoint, targetToken).request(
-                                    "/api/v1/execute", "agent-observe", args)
-                            }
-                            agentObserveResult = response.optJSONObject("result")
-                                ?.optJSONObject("data")?.optString("state", "unknown")
-                                ?: "unknown"
-                        } catch (e: Exception) {
-                            agentObserveError = e.message ?: "Observation unavailable"
-                        } finally {
-                            agentObserveLoading = false
-                        }
-                    }
-                }
-            },
+            onAgentObserve = agentModel::observe,
             onAgentCopyPrompt = { ref ->
-                val targetEndpoint = endpoint.trim()
-                val targetToken = token
-                scope.launch {
-                    try {
-                        val response = withContext(Dispatchers.IO) {
-                            ApiClient(targetEndpoint, targetToken).request(
-                                "/api/v1/execute", "agent-preview", JSONObject().put("ref", ref))
-                        }
-                        val prompt = response.optJSONObject("result")?.optJSONObject("data")
-                            ?.optString("prompt", "").orEmpty()
-                        if (prompt.isBlank()) throw IllegalStateException("Prompt preview unavailable")
-                        val clipboard = agentUiContext.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-                        clipboard.setPrimaryClip(ClipData.newPlainText("Agent issue prompt", prompt))
-                        agentSendResult = "Prompt copied for $ref; no issue was submitted."
-                    } catch (e: Exception) {
-                        agentSendError = e.message ?: "Prompt preview unavailable"
-                    }
+                agentModel.preview(ref) { prompt ->
+                    val clipboard = agentUiContext.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                    clipboard.setPrimaryClip(ClipData.newPlainText("Agent issue prompt", prompt))
                 }
             },
-            onAgentSend = { ref, at ->
-                if (!agentSendLoading) {
-                    agentSendLoading = true
-                    agentSendResult = null
-                    agentSendError = null
-                    val targetEndpoint = endpoint.trim()
-                    val targetToken = token
-                    scope.launch {
-                        try {
-                            val args = JSONObject().put("ref", ref).put("at", at)
-                            val response = withContext(Dispatchers.IO) {
-                                ApiClient(targetEndpoint, targetToken).request(
-                                    "/api/v1/execute", "agent-issue", args, timeoutMs = 30000)
-                            }
-                            agentSendResult = response.optJSONObject("result")?.toString(2)
-                                ?: response.toString(2)
-                        } catch (e: Exception) {
-                            agentSendError = e.message ?: "Agent submission unavailable"
-                        } finally {
-                            agentSendLoading = false
-                        }
-                    }
-                }
-            },
+            onAgentSend = agentModel::send,
             onInspectTask = operationModel::inspectTask,
             onSelectSimulatorPeer = operationModel::selectSimulatorPeer,
             benchmarkContent = benchmarkPanelContent,
@@ -540,10 +461,10 @@ fun CompanionScreen(store: SecretStore) {
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
             TextButton(onClick = {
                 agentIssuesExpanded = !agentIssuesExpanded
-                if (agentIssuesExpanded) refreshAgentIssues()
+                if (agentIssuesExpanded) agentModel.refreshAssignments()
             }) { Text(if (agentIssuesExpanded) "Agent assignments ▾" else "Agent assignments ▸") }
             if (agentIssuesExpanded) TextButton(
-                onClick = { refreshAgentIssues() }, enabled = !agentIssuesLoading
+                onClick = { agentModel.refreshAssignments() }, enabled = !agentIssuesLoading
             ) { Text("Refresh") }
         }
         if (agentIssuesExpanded) {
@@ -573,7 +494,7 @@ fun CompanionScreen(store: SecretStore) {
                     Column(Modifier.weight(1f)) {
                         TextButton(onClick = {
                             try { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url))) }
-                            catch (_: Exception) { agentIssuesError = "Unable to open GitHub" }
+                            catch (_: Exception) { agentModel.reportAssignmentsError("Unable to open GitHub") }
                         }) { Text("#${issue.optInt("number")} ${issue.optString("title")}") }
                         Text("${issue.optString("repository")} · $status",
                             style = MaterialTheme.typography.bodySmall)
