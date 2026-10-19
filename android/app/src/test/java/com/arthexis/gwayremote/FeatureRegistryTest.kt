@@ -11,15 +11,24 @@ class FeatureRegistryTest {
         assertEquals(FeatureKind.LOCAL_PANEL, FeatureRegistry.get("app-update")?.kind)
         assertEquals(FeatureKind.LOCAL_PANEL, FeatureRegistry.get("legacy-assignments")?.kind)
         assertEquals(FeatureKind.OPERATION, FeatureRegistry.get("csms")?.kind)
-        assertNull(FeatureRegistry.get("csms-view"))
         assertEquals(FeatureKind.OPERATION, FeatureRegistry.get("tasks")?.kind)
-        assertNull(FeatureRegistry.get("task-detail"))
         assertEquals(FeatureKind.OPERATION, FeatureRegistry.get("simulator")?.kind)
-        assertNull(FeatureRegistry.get("simulator-start"))
-        assertNull(FeatureRegistry.get("simulator-status"))
         assertEquals(FeatureKind.LOCAL_PANEL, FeatureRegistry.get("github-health")?.kind)
         assertNull(FeatureRegistry.get("github-health")?.operation)
         assertNull(FeatureRegistry.get("arbitrary-shell"))
+    }
+
+    @Test fun unifiedPanelsHideInternalActionsWithoutRemovingBackendContracts() {
+        val hidden = listOf("simulator-status", "simulator-discover", "simulator-start",
+            "simulator-stop", "simulator-results", "csms-view", "task-detail")
+        hidden.forEach { id ->
+            assertNull("Internal operation $id must not appear in the palette", FeatureRegistry.get(id))
+            assertNotNull("Backend contract $id must remain registered", OperationRegistry.get(id))
+        }
+        listOf("simulator", "csms", "tasks").forEach { id ->
+            assertNotNull(FeatureRegistry.get(id))
+        }
+        assertTrue(FeatureRegistry.features.none { it.id in hidden })
     }
 
     @Test fun searchIncludesLocalFeatureAndOperationKeywords() {
@@ -31,7 +40,6 @@ class FeatureRegistryTest {
     @Test fun localFeaturesCannotClaimBackendOperations() {
         assertTrue(FeatureRegistry.features.filter { it.kind == FeatureKind.LOCAL_PANEL }
             .all { it.operation == null })
-        assertNull(FeatureRegistry.get("simulator-start"))
         assertEquals("simulator", FeatureRegistry.get("simulator")?.operation?.id)
         assertTrue(OperationRegistry.get("simulator-start")!!.requiresConfirmation)
         assertTrue(OperationRegistry.get("simulator-stop")!!.requiresConfirmation)
