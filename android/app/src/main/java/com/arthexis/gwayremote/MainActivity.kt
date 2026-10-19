@@ -6,6 +6,7 @@ import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.ui.platform.LocalContext
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -22,6 +23,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.foundation.background
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.toArgb
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsControllerCompat
 import androidx.compose.material3.*
@@ -40,20 +42,38 @@ import org.json.JSONObject
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        window.statusBarColor = android.graphics.Color.BLACK
         WindowCompat.setDecorFitsSystemWindows(window, false)
-        WindowInsetsControllerCompat(window, window.decorView).isAppearanceLightStatusBars = false
         window.setSoftInputMode(android.view.WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE)
         UpdateNotifications.createChannel(this)
         UpdateNotifications.schedule(this)
         val store = SecretStore(this)
-        setContent { MaterialTheme { CompanionScreen(store) } }
+        setContent {
+            val appearancePrefs = remember { getSharedPreferences("appearance", Context.MODE_PRIVATE) }
+            var appearance by remember { mutableStateOf(AppearanceMode.fromStored(appearancePrefs.getString("mode", null))) }
+            val dark = appearance.isDark(isSystemInDarkTheme())
+            GwayRemoteTheme(darkTheme = dark) {
+                val surfaceColor = MaterialTheme.colorScheme.background.toArgb()
+                SideEffect {
+                    window.statusBarColor = surfaceColor
+                    window.navigationBarColor = surfaceColor
+                    WindowInsetsControllerCompat(window, window.decorView).apply {
+                        isAppearanceLightStatusBars = !dark
+                        isAppearanceLightNavigationBars = !dark
+                    }
+                }
+                CompanionScreen(store, appearance) { next ->
+                    appearance = next
+                    appearancePrefs.edit().putString("mode", next.name).apply()
+                }
+            }
+        }
     }
 }
 
 @OptIn(ExperimentalLayoutApi::class, ExperimentalMaterial3Api::class)
 @Composable
-fun CompanionScreen(store: SecretStore) {
+fun CompanionScreen(store: SecretStore, appearance: AppearanceMode = AppearanceMode.SYSTEM,
+    onAppearanceChange: (AppearanceMode) -> Unit = {}) {
     val agentUiContext = LocalContext.current
     val operationModel: OperationViewModel = viewModel()
     val panelState = operationModel.panels
@@ -402,7 +422,7 @@ fun CompanionScreen(store: SecretStore) {
     }
 
     PullToRefreshBox(isRefreshing = refreshing, onRefresh = { refreshAll() },
-        modifier = Modifier.fillMaxSize().background(Color.Black).statusBarsPadding().navigationBarsPadding()) {
+        modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background).statusBarsPadding().navigationBarsPadding()) {
     Column(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background).imePadding().verticalScroll(rememberScrollState()).padding(20.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp)) {
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
@@ -414,6 +434,12 @@ fun CompanionScreen(store: SecretStore) {
         }
         if (settingsOpen) {
             HorizontalDivider()
+            Text("Appearance", style = MaterialTheme.typography.titleMedium)
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                AppearanceMode.entries.forEach { mode ->
+                    FilterChip(selected = appearance == mode, onClick = { onAppearanceChange(mode) }, label = { Text(mode.label) })
+                }
+            }
             Text("API settings", style = MaterialTheme.typography.titleMedium)
             OutlinedTextField(endpoint, { endpoint = it }, label = { Text("HTTPS endpoint") },
                 modifier = Modifier.fillMaxWidth(), singleLine = true)
