@@ -29,6 +29,48 @@ class OperationViewModel : ViewModel() {
     fun close(id: String) { panels = panels.close(id) }
     fun move(id: String, index: Int) { panels = panels.move(id, index) }
     fun input(id: String, key: String, value: String) { panels = panels.input(id, key, value) }
+    fun inspectTask(taskId: String) {
+        panels = panels.open("task-detail").state.input("task-detail", "task_id", taskId)
+    }
+    fun selectSimulatorPeer(host: String, port: String) {
+        panels = panels.open("simulator-start").state
+            .input("simulator-start", "host", host)
+            .input("simulator-start", "port", port)
+    }
+    fun updateSimulatorStatus(response: JSONObject) {
+        val detail = response.optJSONObject("result")
+        simulatorStatus = "${detail?.optString("state") ?: "unknown"} — " +
+            (detail?.optString("target") ?: "")
+    }
+    fun runConfirmedSimulator(command: String, args: JSONObject) {
+        val operationId = if (command == "simulator-stop") "simulator-stop" else "simulator-start"
+        val id = if (panels.panels.any { it.id == operationId }) operationId else "simulator-start"
+        if (command !in setOf("simulator-start", "simulator-stop") ||
+            !PanelExecution.canRun(operationId, true, true, true) ||
+            panels.panels.none { it.id == id && !it.loading }) return
+        panels = panels.start(id)
+        val revision = panels.panels.first { it.id == id }.revision
+        val (endpoint, token) = credentials()
+        viewModelScope.launch {
+            try {
+                val response = OperationExecutor.execute(endpoint, token,
+                    OperationRequest("/api/v1/execute", command, argsToMap(args)))
+                val current = panels.panels.any {
+                    it.id == id && it.loading && it.revision == revision
+                }
+                panels = panels.complete(id, revision, response.toString(2))
+                if (current) updateSimulatorStatus(response)
+            } catch (e: CancellationException) {
+                panels = panels.fail(id, revision, "Cancelled")
+                throw e
+            } catch (e: Exception) {
+                panels = panels.fail(id, revision, e.message ?: "Simulator command failed")
+            }
+        }
+    }
+    private fun argsToMap(args: JSONObject): Map<String, Any> =
+        args.keys().asSequence().associateWith { args.get(it) }
+
 
     private var credentials: () -> Pair<String, String> = { "" to "" }
 
