@@ -18,8 +18,8 @@ class OperationExecutorTest {
         val discover = OperationRequests.explicit("simulator-discover",
             mapOf("port" to "9000", "host" to "192.0.2.5"))!!
         assertEquals("simulator-discover", discover.command)
-        assertEquals(9000, discover.args.getInt("port"))
-        assertEquals("192.0.2.5", discover.args.getString("host"))
+        assertEquals(9000, discover.parameters["port"])
+        assertEquals("192.0.2.5", discover.parameters["host"])
         assertNull(OperationRequests.explicit("task-detail", mapOf("task_id" to "bogus")))
         assertEquals("sound-play", OperationRequests.explicit("sound",
             mapOf("sound" to "notice", "motif" to "start"))?.command)
