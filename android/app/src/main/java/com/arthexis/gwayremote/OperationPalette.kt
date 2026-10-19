@@ -150,18 +150,24 @@ fun OperationPalette(
             label = { Text("Filter operations") }, singleLine = true,
             modifier = Modifier.fillMaxWidth()
         )
-        val operationActions = state.unopened(filter).map { spec ->
-            PaletteAction(spec.id, spec.label, spec.icon, { onOpen(spec.id) })
-        }
-        val query = filter.trim()
-        val featureActions = extraActions.filter { action ->
-            query.isEmpty() || action.label.contains(query, ignoreCase = true) ||
-                action.id.contains(query, ignoreCase = true)
+        val unopenedIds = state.unopened("").map { it.id }.toSet()
+        val localActions = extraActions.associateBy { it.id }
+        val actions = FeatureRegistry.search(filter).mapNotNull { feature ->
+            when (feature.kind) {
+                FeatureKind.OPERATION -> {
+                    if (feature.id !in unopenedIds) null
+                    else PaletteAction(feature.id, feature.label, feature.icon,
+                        { onOpen(feature.id) })
+                }
+                FeatureKind.LOCAL_PANEL -> localActions[feature.id]?.let { action ->
+                    action.copy(icon = feature.icon)
+                }
+            }
         }
         BoxWithConstraints(Modifier.fillMaxWidth()) {
             // Use a conservative minimum button width to avoid tiny targets.
             val columns = (maxWidth.value / 152f).toInt().coerceIn(1, 4)
-            PaletteActionRows(operationActions + featureActions, columns)
+            PaletteActionRows(actions, columns)
         }
     }
 }
