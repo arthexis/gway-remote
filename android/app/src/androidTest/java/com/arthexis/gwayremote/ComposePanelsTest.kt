@@ -67,7 +67,7 @@ class ComposePanelsTest {
         val history = JSONObject().put("result", JSONObject().put("tasks",
             org.json.JSONArray().put(JSONObject().put("task",
                 JSONObject().put("id", id).put("state", "done"))))).toString()
-        var selected: String? = null
+        var selected by mutableStateOf<String?>(null)
         rule.setContent {
             val raw = OperationPanelState().open("tasks").state
             val panel = raw.start("tasks").let { started ->
