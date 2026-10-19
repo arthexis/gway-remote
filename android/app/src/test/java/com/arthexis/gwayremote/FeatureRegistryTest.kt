@@ -39,7 +39,7 @@ class FeatureRegistryTest {
 
     @Test fun searchIncludesLocalFeatureAndOperationKeywords() {
         assertEquals("github-health", FeatureRegistry.search("ci alerts").single().id)
-        assertEquals("sound", FeatureRegistry.search("audio").single().id)
+        assertEquals("notifications", FeatureRegistry.search("audio").single().id)
         assertEquals(FeatureRegistry.features.size, FeatureRegistry.search(" ").size)
     }
 
