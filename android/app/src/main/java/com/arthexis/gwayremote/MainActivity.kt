@@ -11,6 +11,7 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.compose.setContent
+import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
@@ -54,7 +55,8 @@ class MainActivity : ComponentActivity() {
 @Composable
 fun CompanionScreen(store: SecretStore) {
     val agentUiContext = LocalContext.current
-    var panelState by remember { mutableStateOf(OperationPanelState()) }
+    val operationModel: OperationViewModel = viewModel()
+    val panelState = operationModel.panels
     var agentSendLoading by remember { mutableStateOf(false) }
     var agentSendResult by remember { mutableStateOf<String?>(null) }
     var agentSendError by remember { mutableStateOf<String?>(null) }
@@ -72,7 +74,7 @@ fun CompanionScreen(store: SecretStore) {
     var agentIssuesExpanded by remember { mutableStateOf(false) }
     var agentIssuesLoading by remember { mutableStateOf(false) }
     var refreshStatus by remember { mutableStateOf("") }
-    var simulatorStatus by remember { mutableStateOf("Not checked") }
+    val simulatorStatus = operationModel.simulatorStatus
     var expandedWriteOperation by remember { mutableStateOf<String?>(null) }
     var lcdDuration by remember { mutableFloatStateOf(30f) }
     var lcdLine1 by remember { mutableStateOf("") }
@@ -94,6 +96,7 @@ fun CompanionScreen(store: SecretStore) {
     var benchmarkError by remember { mutableStateOf("") }
     val benchmarkStop = remember { java.util.concurrent.atomic.AtomicBoolean(false) }
 
+    operationModel.bindCredentials { endpoint to token }
     val scope = rememberCoroutineScope()
     LaunchedEffect(endpoint, token, panelState.panels.any { it.id == "sound" }) {
         if (endpoint.isNotBlank() && token.isNotBlank() &&
@@ -306,47 +309,6 @@ fun CompanionScreen(store: SecretStore) {
         }
     }
 
-    fun runPanelRead(id: String) {
-        val request = OperationRequests.automatic(id)
-        if (request == null && id != "agent-ops") return
-        panelState = panelState.start(id)
-        val revision = panelState.panels.firstOrNull { it.id == id }?.revision ?: return
-        val targetEndpoint = endpoint.trim()
-        val targetToken = token
-        scope.launch {
-            try {
-                val response = if (id == "agent-ops") {
-                    withContext(Dispatchers.IO) {
-                        val client = ApiClient(targetEndpoint, targetToken)
-                        val merged = JSONObject()
-                        // Read each source independently: one failure must not erase the other.
-                        for (command in listOf("agent-issues", "agent-status")) {
-                            val key = if (command == "agent-issues") "issues" else "status"
-                            try {
-                                merged.put(key, client.request("/api/v1/execute", command).opt("result"))
-                            } catch (e: Exception) {
-                                merged.put(key + "_error", e.message ?: "Unavailable")
-                            }
-                        }
-                        JSONObject().put("result", merged)
-                    }
-                } else OperationExecutor.execute(targetEndpoint, targetToken, requireNotNull(request))
-                val stillCurrent = panelState.panels.any {
-                    it.id == id && it.loading && it.revision == revision
-                }
-                panelState = panelState.complete(id, revision, response.toString(2))
-                if (id == "simulator-status" && stillCurrent) {
-                    val detail = response.optJSONObject("result")
-                    simulatorStatus = if (detail == null) "unknown" else
-                        "${detail.optString("state", "unknown")} — " +
-                            detail.optString("target", "")
-                }
-            } catch (e: Exception) {
-                panelState = panelState.fail(id, revision, e.message ?: "Connection failed")
-            }
-        }
-    }
-
     val benchmarkPanelContent: @Composable () -> Unit = {
         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Text("Authenticated echo and read-only status · connected node", style = MaterialTheme.typography.bodySmall)
@@ -474,14 +436,10 @@ fun CompanionScreen(store: SecretStore) {
         var githubHealthOpen by remember { mutableStateOf(false) }
         OperationPalette(
             state = panelState,
-            onOpen = { id ->
-                val opened = panelState.open(id)
-                panelState = opened.state
-                if (opened.shouldAutoRun) runPanelRead(id)
-            },
-            onClose = { id -> panelState = panelState.close(id) },
-            onMove = { id, index -> panelState = panelState.move(id, index) },
-            onRefresh = { id -> runPanelRead(id) },
+            onOpen = operationModel::open,
+            onClose = operationModel::close,
+            onMove = operationModel::move,
+            onRefresh = operationModel::refresh,
             agentSendLoading = agentSendLoading,
             agentSendResult = agentSendResult,
             agentSendError = agentSendError,
@@ -597,24 +555,8 @@ fun CompanionScreen(store: SecretStore) {
                 }
             },
             motifs = availableMotifs,
-            onInput = { id, key, value -> panelState = panelState.input(id, key, value) },
-            onExecute = { id, inputs ->
-                val request = OperationRequests.explicit(id, inputs)
-                if (request != null) {
-                    panelState = panelState.start(id)
-                    val revision = panelState.panels.first { it.id == id }.revision
-                    val targetEndpoint = endpoint.trim()
-                    val targetToken = token
-                    scope.launch {
-                        try {
-                            val response = OperationExecutor.execute(targetEndpoint, targetToken, request)
-                            panelState = panelState.complete(id, revision, response.toString(2))
-                        } catch (e: Exception) {
-                            panelState = panelState.fail(id, revision, e.message ?: "Execution failed")
-                        }
-                    }
-                }
-            },
+            onInput = operationModel::input,
+            onExecute = operationModel::execute,
             extraActions = listOf(
                 PaletteAction(
                     id = "github-health",
