@@ -414,6 +414,24 @@ fun CompanionScreen(store: SecretStore) {
                 Text("⚙", style = MaterialTheme.typography.headlineMedium)
             }
         }
+        if (settingsOpen) {
+            HorizontalDivider()
+            Text("API settings", style = MaterialTheme.typography.titleMedium)
+            OutlinedTextField(endpoint, { endpoint = it }, label = { Text("HTTPS endpoint") },
+                modifier = Modifier.fillMaxWidth(), singleLine = true)
+            OutlinedTextField(token, { token = it }, label = { Text("Bearer token") },
+                visualTransformation = androidx.compose.ui.text.input.PasswordVisualTransformation(),
+                modifier = Modifier.fillMaxWidth(), singleLine = true)
+            Button(onClick = {
+                try {
+                    ApiClient(endpoint.trim(), token)
+                    store.endpoint = endpoint.trim()
+                    store.token = token
+                    settingsOpen = false
+                    result = "Connection settings saved"
+                } catch (e: Exception) { result = e.message ?: "Invalid settings" }
+            }) { Text("Save settings") }
+        }
         var githubHealthOpen by remember { mutableStateOf(false) }
         if (update != null) {
             Text("Update available: ${update!!.version}", style = MaterialTheme.typography.bodySmall,
@@ -533,24 +551,7 @@ fun CompanionScreen(store: SecretStore) {
             !updateStatus.startsWith("Update available:")) {
             Text(updateStatus, style = MaterialTheme.typography.bodySmall)
         }
-        if (settingsOpen) {
-            HorizontalDivider()
-            Text("API settings", style = MaterialTheme.typography.titleMedium)
-            OutlinedTextField(endpoint, { endpoint = it }, label = { Text("HTTPS endpoint") },
-                modifier = Modifier.fillMaxWidth(), singleLine = true)
-            OutlinedTextField(token, { token = it }, label = { Text("Bearer token") },
-                visualTransformation = androidx.compose.ui.text.input.PasswordVisualTransformation(),
-                modifier = Modifier.fillMaxWidth(), singleLine = true)
-            Button(onClick = {
-                try {
-                    ApiClient(endpoint.trim(), token)
-                    store.endpoint = endpoint.trim()
-                    store.token = token
-                    settingsOpen = false
-                    result = "Connection settings saved"
-                } catch (e: Exception) { result = e.message ?: "Invalid settings" }
-            }) { Text("Save settings") }
-        }
+
         if (busy) LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
         Text("Response", style = MaterialTheme.typography.titleMedium)
         Text(result)
