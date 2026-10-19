@@ -28,6 +28,9 @@ fun OperationPalette(
     onMove: (String, Int) -> Unit,
     onRefresh: (String) -> Unit,
     onCsmsInspect: (String) -> Unit,
+    apiHealth: OperationViewModel.SystemCheck,
+    systemStatus: OperationViewModel.SystemCheck,
+    onRefreshSystem: (String?) -> Unit,
     onInput: (String, String, String) -> Unit,
     onExecute: (String, Map<String, String>) -> Unit,
     motifs: List<String>,
@@ -62,6 +65,7 @@ fun OperationPalette(
         OperationPanelHost(
             state = state, onClose = onClose, onMove = onMove,
             onRefresh = onRefresh, onCsmsInspect = onCsmsInspect,
+            apiHealth = apiHealth, systemStatus = systemStatus, onRefreshSystem = onRefreshSystem,
             onInput = onInput, onExecute = onExecute,
             motifs = motifs, benchmarkContent = benchmarkContent,
             simulatorStatus = simulatorStatus,

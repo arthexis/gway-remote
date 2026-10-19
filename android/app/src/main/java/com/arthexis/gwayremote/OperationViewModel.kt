@@ -21,17 +21,66 @@ class OperationViewModel(
     var panels by mutableStateOf(OperationPanelState())
         private set
 
+    data class SystemCheck(val loading: Boolean = false, val output: String? = null, val error: String? = null)
+    var apiHealth by mutableStateOf(SystemCheck())
+        private set
+    var systemStatus by mutableStateOf(SystemCheck())
+        private set
+    private var systemSession = 0L
+    private var apiRevision = 0L
+    private var statusRevision = 0L
+
+    /** Run each read independently: one failure must not hide the other result. */
+    fun refreshSystem(check: String? = null) {
+        if (panels.panels.none { it.id == "system" }) return
+        if (check != null && check !in setOf("api-health", "status")) return
+        val session = systemSession
+        val (endpoint, token) = credentials()
+        for (id in listOf("api-health", "status").filter { check == null || it == check }) {
+            val request = OperationRequests.automatic(id) ?: continue
+            val revision = if (id == "api-health") ++apiRevision else ++statusRevision
+            if (id == "api-health") apiHealth = apiHealth.copy(loading = true, error = null)
+            else systemStatus = systemStatus.copy(loading = true, error = null)
+            requestScope.launch {
+                try {
+                    val response = runner.execute(endpoint, token, request)
+                    if (session == systemSession && panels.panels.any { it.id == "system" } &&
+                        revision == (if (id == "api-health") apiRevision else statusRevision)) {
+                        val result = SystemCheck(output = response.toString(2))
+                        if (id == "api-health") apiHealth = result else systemStatus = result
+                    }
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    if (session == systemSession && panels.panels.any { it.id == "system" } &&
+                        revision == (if (id == "api-health") apiRevision else statusRevision)) {
+                        val result = SystemCheck(error = e.message ?: "Connection failed")
+                        if (id == "api-health") apiHealth = result else systemStatus = result
+                    }
+                }
+            }
+        }
+    }
+
     var simulatorStatus by mutableStateOf("Not checked")
         private set
 
     fun open(id: String) {
         val result = panels.open(id)
         panels = result.state
-        if (result.shouldAutoRun) refresh(id)
+        if (id == "system") { if (result.shouldAutoRun) refreshSystem() }
+        else if (result.shouldAutoRun) refresh(id)
     }
 
     fun close(id: String) {
         panels = panels.close(id)
+        if (id == "system") {
+            systemSession++
+            apiRevision++
+            statusRevision++
+            apiHealth = SystemCheck()
+            systemStatus = SystemCheck()
+        }
         if (id == "tasks") {
             taskDetailRequest++
             taskDetail = null
@@ -155,6 +204,7 @@ class OperationViewModel(
     }
 
     fun refresh(id: String) {
+        if (id == "system") { refreshSystem(); return }
         val request = OperationRequests.automatic(id)
         if (request == null && id != "agent-ops") return
         run(id, request, "Connection failed")
