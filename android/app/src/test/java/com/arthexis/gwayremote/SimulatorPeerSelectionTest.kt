@@ -4,16 +4,17 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class SimulatorPeerSelectionTest {
-    @Test fun selectingTargetUpdatesStartInputsWithoutExecution() {
-        val state = OperationPanelState().open("simulator-discover").state
-        val selected = state.open("simulator-start").state
-            .input("simulator-start", "host", "192.0.2.25")
-            .input("simulator-start", "port", "9000")
-        val start = selected.panels.first { it.id == "simulator-start" }
-        assertEquals("192.0.2.25", start.inputs["host"])
-        assertEquals("9000", start.inputs["port"])
-        assertFalse(start.loading)
-        assertFalse(start.output != null)
+    @Test fun selectingTargetUpdatesUnifiedPanelInputsWithoutExecution() {
+        val model = OperationViewModel()
+        model.selectSimulatorPeer("192.0.2.25", "9000")
+        val panel = model.panels.panels.single()
+        assertEquals("simulator", panel.id)
+        assertEquals("192.0.2.25", panel.inputs["host"])
+        assertEquals("9000", panel.inputs["port"])
+        assertFalse(panel.loading)
+        assertNull(panel.output)
+        assertNull(FeatureRegistry.get("simulator-discover"))
+        assertNull(FeatureRegistry.get("simulator-start"))
     }
 
     @Test fun startStillRequiresConfirmation() {
