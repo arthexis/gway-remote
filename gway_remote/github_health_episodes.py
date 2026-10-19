@@ -42,7 +42,18 @@ def reconcile(connection, repositories, completed_at):
             current = connection.execute(
                 "SELECT id, state, opened_at, resolved_at, resolution_kind, evidence_url "
                 "FROM ci_episodes WHERE id=? AND state='ACTIVE'", (identity,)).fetchone()
-            if current and fresh and latest["conclusion"] == "success":
+            retired = trigger == "pull_request" and lane.get("pr_lifecycle") == "closed"
+            if current and retired:
+                connection.execute(
+                    "UPDATE ci_episodes SET state='RESOLVED', resolved_at=?, "
+                    "resolution_kind='pr_closed', evidence_url=? WHERE id=?",
+                    (completed_at, current[5], identity))
+                alerts.append({
+                    "id": identity, "repository": name, "state": "RESOLVED",
+                    "category": "CI_ANOMALY", "title": workflow + " on closed PR",
+                    "resolution_kind": "pr_closed", "evidence_url": current[5],
+                    "next_action": "No active PR remains for this workflow lane"})
+            elif current and fresh and latest["conclusion"] == "success":
                 connection.execute(
                     "UPDATE ci_episodes SET state='RESOLVED', resolved_at=?, "
                     "resolution_kind='fixed', evidence_url=? WHERE id=?",
@@ -58,7 +69,7 @@ def reconcile(connection, repositories, completed_at):
                     "category": "CI_ANOMALY", "title": workflow + " repeatedly failing",
                     "evidence_url": current[5],
                     "next_action": "Inspect failed workflow"})
-            elif (fresh and previous is not None and latest["conclusion"] in BAD
+            elif (not retired and fresh and previous is not None and latest["conclusion"] in BAD
                   and previous["conclusion"] in BAD):
                 connection.execute(
                     "INSERT INTO ci_episodes "

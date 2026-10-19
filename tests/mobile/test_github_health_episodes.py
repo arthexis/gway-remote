@@ -36,6 +36,32 @@ class EpisodeTests(unittest.TestCase):
         reconcile(self.db, self.rows(["success", "failure"], newest_id=12), "t2")
         self.assertEqual(reconcile(self.db, self.rows(["failure", "failure"], newest_id=11), "t3"), [])
 
+    def test_closed_pr_resolves_active_failure_without_claiming_ci_fixed(self):
+        rows = self.rows(["failure", "failure"])
+        lane = rows[0]["ci_lanes"][0]
+        lane.update(trigger="pull_request", branch="feature/old-pr", pr_lifecycle="open")
+        self.assertEqual(reconcile(self.db, rows, "t1")[0]["state"], "ACTIVE")
+        lane["pr_lifecycle"] = "closed"
+        resolved = reconcile(self.db, rows, "t2")
+        self.assertEqual(resolved[0]["state"], "RESOLVED")
+        self.assertEqual(resolved[0]["resolution_kind"], "pr_closed")
+        self.assertEqual(reconcile(self.db, rows, "t3"), [])
+
+    def test_open_or_unverified_pr_remains_active(self):
+        rows = self.rows(["failure", "failure"])
+        lane = rows[0]["ci_lanes"][0]
+        lane.update(trigger="pull_request", branch="feature/ongoing")
+        reconcile(self.db, rows, "t1")
+        self.assertEqual(reconcile(self.db, rows, "t2")[0]["state"], "ACTIVE")
+        lane["pr_lifecycle"] = "open"
+        self.assertEqual(reconcile(self.db, rows, "t3")[0]["state"], "ACTIVE")
+
+    def test_main_lane_is_not_retired(self):
+        rows = self.rows(["failure", "failure"])
+        rows[0]["ci_lanes"][0]["pr_lifecycle"] = "closed"
+        reconcile(self.db, rows, "t1")
+        self.assertEqual(reconcile(self.db, rows, "t2")[0]["state"], "ACTIVE")
+
     def test_single_failure_is_not_an_alert(self):
         self.assertEqual(reconcile(self.db, self.rows(["failure", "success"]), "t1"), [])
 
