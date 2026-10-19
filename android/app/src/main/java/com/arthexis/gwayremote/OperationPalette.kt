@@ -87,7 +87,7 @@ fun OperationPalette(
         }
         BoxWithConstraints(Modifier.fillMaxWidth()) {
             // Use a conservative minimum button width to avoid tiny targets.
-            val columns = (maxWidth.value / 152f).toInt().coerceIn(1, 4)
+            val columns = (maxWidth.value / 170f).toInt().coerceIn(1, 3)
             PaletteActionRows(actions, columns)
         }
     }
