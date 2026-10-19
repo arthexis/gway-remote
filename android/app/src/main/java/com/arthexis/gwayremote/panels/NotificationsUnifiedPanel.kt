@@ -3,6 +3,7 @@ package com.arthexis.gwayremote
 import androidx.compose.foundation.layout.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 
 /** Reuses the existing LCD/Sound controls and validation inside one card. */
