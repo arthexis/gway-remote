@@ -307,14 +307,8 @@ fun CompanionScreen(store: SecretStore) {
     }
 
     fun runPanelRead(id: String) {
-        val spec = OperationRegistry.get(id) ?: return
-        if (spec.policy != ExecutionPolicy.AUTO_READ) return
-        val path = when (id) {
-            "api-health" -> "/api/v1/health"
-            "api-commands" -> "/api/v1/commands"
-            else -> "/api/v1/execute"
-        }
-        if (path == "/api/v1/execute" && spec.command == null && id != "agent-ops") return
+        val request = OperationRequests.automatic(id)
+        if (request == null && id != "agent-ops") return
         panelState = panelState.start(id)
         val revision = panelState.panels.firstOrNull { it.id == id }?.revision ?: return
         val targetEndpoint = endpoint.trim()
@@ -336,9 +330,7 @@ fun CompanionScreen(store: SecretStore) {
                         }
                         JSONObject().put("result", merged)
                     }
-                } else withContext(Dispatchers.IO) {
-                    ApiClient(targetEndpoint, targetToken).request(path, spec.command)
-                }
+                } else OperationExecutor.execute(targetEndpoint, targetToken, requireNotNull(request))
                 val stillCurrent = panelState.panels.any {
                     it.id == id && it.loading && it.revision == revision
                 }
@@ -607,45 +599,15 @@ fun CompanionScreen(store: SecretStore) {
             motifs = availableMotifs,
             onInput = { id, key, value -> panelState = panelState.input(id, key, value) },
             onExecute = { id, inputs ->
-                val command = when (id) {
-                    "lcd" -> "lcd-message"
-                    "sound" -> "sound-play"
-                    "csms-view" -> "csms-view"
-                    "task-detail" -> "codex-task"
-                    "simulator-discover" -> "simulator-discover"
-                    else -> null
-                }
-                if (command != null && PanelExecution.canRun(id, true, false, true)) {
-                    val args = JSONObject()
-                    if (id == "lcd") {
-                        args.put("line1", inputs["line1"].orEmpty())
-                        args.put("line2", inputs["line2"].orEmpty())
-                        args.put("duration_seconds", inputs["duration"]?.toIntOrNull() ?: 30)
-                    } else if (id == "simulator-discover") {
-                        val port = inputs["port"]?.toIntOrNull()
-                        if (port == null || port !in 1..65535) return@OperationPalette
-                        args.put("port", port)
-                        inputs["host"]?.trim()?.takeIf { it.isNotEmpty() }?.let { args.put("host", it) }
-                    } else if (id == "task-detail") {
-                        val taskId = inputs["task_id"].orEmpty()
-                        if (!Regex("[0-9a-fA-F]{8}(-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12}").matches(taskId)) return@OperationPalette
-                        args.put("task_id", taskId)
-                    } else if (id == "csms-view") {
-                        args.put("view", inputs["view"] ?: "status")
-                    } else {
-                        args.put("sound", inputs["sound"] ?: "notice")
-                        inputs["motif"]?.takeIf { it.isNotBlank() }?.let { args.put("motif", it) }
-                    }
+                val request = OperationRequests.explicit(id, inputs)
+                if (request != null) {
                     panelState = panelState.start(id)
                     val revision = panelState.panels.first { it.id == id }.revision
                     val targetEndpoint = endpoint.trim()
                     val targetToken = token
                     scope.launch {
                         try {
-                            val response = withContext(Dispatchers.IO) {
-                                ApiClient(targetEndpoint, targetToken).request(
-                                    "/api/v1/execute", command, args)
-                            }
+                            val response = OperationExecutor.execute(targetEndpoint, targetToken, request)
                             panelState = panelState.complete(id, revision, response.toString(2))
                         } catch (e: Exception) {
                             panelState = panelState.fail(id, revision, e.message ?: "Execution failed")
