@@ -7,7 +7,8 @@ class FeatureRegistryTest {
     @Test fun stableIdsAndKnownKinds() {
         val features = FeatureRegistry.features
         assertEquals(features.size, features.map { it.id }.distinct().size)
-        assertEquals(OperationRegistry.operations.size - 7 + 3, features.size)
+        assertEquals(OperationRegistry.operations.count { it.visibility == OperationVisibility.PALETTE } +
+            features.count { it.kind == FeatureKind.LOCAL_PANEL }, features.size)
         assertEquals(FeatureKind.LOCAL_PANEL, FeatureRegistry.get("app-update")?.kind)
         assertEquals(FeatureKind.LOCAL_PANEL, FeatureRegistry.get("legacy-assignments")?.kind)
         assertEquals(FeatureKind.OPERATION, FeatureRegistry.get("csms")?.kind)
@@ -24,11 +25,14 @@ class FeatureRegistryTest {
         hidden.forEach { id ->
             assertNull("Internal operation $id must not appear in the palette", FeatureRegistry.get(id))
             assertNotNull("Backend contract $id must remain registered", OperationRegistry.get(id))
+            assertEquals(OperationVisibility.INTERNAL, OperationRegistry.get(id)?.visibility)
         }
         listOf("simulator", "csms", "tasks").forEach { id ->
             assertNotNull(FeatureRegistry.get(id))
         }
         assertTrue(FeatureRegistry.features.none { it.id in hidden })
+        assertEquals(OperationRegistry.operations.filter { it.visibility == OperationVisibility.PALETTE }.map { it.id }.toSet(),
+            FeatureRegistry.features.filter { it.kind == FeatureKind.OPERATION }.map { it.id }.toSet())
     }
 
     @Test fun searchIncludesLocalFeatureAndOperationKeywords() {
