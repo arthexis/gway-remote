@@ -80,7 +80,8 @@ def _pr_for_sha(api, encoded, sha):
             return None
         if detail.get("state") not in {"open", "closed"}:
             return None
-        if (detail.get("head") or {}).get("sha", "").lower() == sha.lower():
+        head_sha = (detail.get("head") or {}).get("sha")
+        if isinstance(head_sha, str) and head_sha.lower() == sha.lower():
             exact.append((number, detail["state"]))
     return exact[0] if len(exact) == 1 else None
 
