@@ -2,7 +2,10 @@ package com.arthexis.gwayremote
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
@@ -19,6 +22,7 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.text.style.TextOverflow
 
 /** A palette action is either an operation or an independent feature. */
 data class PaletteAction(
@@ -84,10 +88,29 @@ fun FeatureButton(action: PaletteAction, modifier: Modifier = Modifier) {
 @Composable
 fun PaletteActionRows(actions: List<PaletteAction>, columns: Int) {
     val count = columns.coerceAtLeast(1)
-    actions.chunked(count).forEach { group ->
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-            group.forEach { action ->
-                FeatureButton(action = action, modifier = Modifier.weight(1f))
+    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        actions.chunked(count).forEach { group ->
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                group.forEach { action ->
+                    // Weight belongs to a constrained cell, not the Material button:
+                    // Material's intrinsic minimum can otherwise exceed its share
+                    // of the row and cause adjacent button contents to overlap.
+                    Box(Modifier.weight(1f)) {
+                        OutlinedButton(
+                            modifier = Modifier.fillMaxWidth(),
+                            enabled = action.enabled,
+                            contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 8.dp, vertical = 8.dp),
+                            onClick = action.onClick
+                        ) {
+                            Text(
+                                text = paletteIcon(action.icon) + " " + action.label,
+                                maxLines = 2,
+                                overflow = TextOverflow.Ellipsis,
+                                softWrap = true
+                            )
+                        }
+                    }
+                }
             }
         }
     }
