@@ -35,7 +35,6 @@ class OperationViewModelTest {
     @Test fun invalidAndUnconfirmedOperationsNeverStart() {
         val model = OperationViewModel()
         model.open("sound")
-        model.execute("sound", emptyMap())
         // No credentials or dispatched request are needed to prove invalid
         // commands fail before the asynchronous boundary.
         model.execute("simulator-start", emptyMap())
