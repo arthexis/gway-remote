@@ -31,7 +31,7 @@ data class FeatureSpec(
 object FeatureRegistry {
     private val registered = OperationRegistry.operations.filterNot { it.id in setOf(
         "simulator-status", "simulator-discover", "simulator-start", "simulator-stop", "simulator-results",
-        "csms-view"
+        "csms-view", "task-detail"
     ) }.map { operation ->
         FeatureSpec(operation.id, operation.label, operation.icon, operation.keywords,
             FeatureKind.OPERATION, operation)

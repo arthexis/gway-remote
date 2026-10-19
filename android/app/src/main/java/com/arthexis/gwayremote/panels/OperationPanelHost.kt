@@ -27,6 +27,10 @@ internal fun OperationPanelHost(
     onSimulatorRead: (String, JSONObject) -> Unit,
     onSelectSimulatorPeer: (String, String) -> Unit,
     onInspectTask: (String) -> Unit,
+    taskDetail: String?,
+    taskDetailLoading: Boolean,
+    taskDetailError: String?,
+    taskDetailSelection: String?,
     agentSendLoading: Boolean,
     agentSendResult: String?,
     agentSendError: String?,
@@ -49,6 +53,8 @@ internal fun OperationPanelHost(
         ) {
                 if (panel.id == "csms") {
                     CsmsUnifiedPanel(panel, onRefresh, onCsmsInspect)
+                } else if (panel.id == "tasks") {
+                    TasksUnifiedPanel(panel, taskDetail, taskDetailLoading, taskDetailError, taskDetailSelection, onInspectTask)
                 } else PanelContent(
                     panel = panel,
                     onInspectTask = onInspectTask,
@@ -62,7 +68,7 @@ internal fun OperationPanelHost(
                     agentObserveError = agentObserveError,
                     onAgentObserve = onAgentObserve
                 )
-                if (panel.id != "csms") PanelActions(spec = spec, panel = panel, onRefresh = onRefresh, onInput = onInput, onExecute = onExecute, motifs = motifs)
+                if (panel.id != "csms" && panel.id != "tasks") PanelActions(spec = spec, panel = panel, onRefresh = onRefresh, onInput = onInput, onExecute = onExecute, motifs = motifs)
                 if (panel.id == "simulator") {
                     SimulatorUnifiedPanel(
                         panel = panel,
