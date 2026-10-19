@@ -49,6 +49,8 @@ class AgentOpsViewModel : ViewModel() {
     var issues by mutableStateOf(listOf<JSONObject>())
         private set
 
+    fun reportAssignmentsError(message: String) { issuesError = message }
+
     private suspend fun request(intent: OperationRequest, timeoutMs: Int = 10000): JSONObject {
         val (endpoint, token) = credentials()
         return withContext(Dispatchers.IO) {
