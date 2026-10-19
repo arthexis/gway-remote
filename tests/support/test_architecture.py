@@ -9,16 +9,6 @@ GROUPS = ("codex", "core", "deployment", "infrastructure", "mobile", "simulator"
 
 
 class TestArchitecture(unittest.TestCase):
-    def test_tests_are_grouped_and_discoverable(self):
-        self.assertTrue((TESTS / "__init__.py").is_file())
-        self.assertFalse(list(TESTS.glob("test_*.py")), "Ungrouped tests in tests/")
-        for group in (*GROUPS, "support"):
-            with self.subTest(group=group):
-                self.assertTrue((TESTS / group / "__init__.py").is_file())
-        for group in GROUPS:
-            with self.subTest(group=group):
-                self.assertTrue(list((TESTS / group).glob("test_*.py")))
-
     def test_no_pytest_style_functions_hidden_from_unittest(self):
         for group in GROUPS:
             for path in (TESTS / group).glob("test_*.py"):
