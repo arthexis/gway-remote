@@ -51,26 +51,34 @@ fun FeatureButton(action: PaletteAction, modifier: Modifier = Modifier) {
         contentPadding = PaddingValues(horizontal = 8.dp, vertical = 8.dp),
         onClick = action.onClick
     ) {
-        Box(Modifier.fillMaxWidth().heightIn(min = 28.dp)) {
+        // A Row measures icon and label as separate siblings. The previous
+        // overlaid Box allowed both to paint into the same space, especially
+        // with larger font scales and two-line labels.
+        Row(
+            modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
             Icon(
                 imageVector = AppIconRegistry.get(action.icon),
                 contentDescription = null,
-                modifier = Modifier.align(Alignment.CenterStart)
+                modifier = Modifier.size(24.dp)
             )
             Text(
                 text = action.label,
-                modifier = Modifier.fillMaxWidth().align(Alignment.Center)
-                    .padding(start = 28.dp, end = if (action.attention) 28.dp else 28.dp),
+                modifier = Modifier.weight(1f),
                 textAlign = TextAlign.Center,
                 maxLines = 2,
-                overflow = TextOverflow.Ellipsis
+                softWrap = true,
+                overflow = TextOverflow.Ellipsis,
+                lineHeight = MaterialTheme.typography.labelLarge.lineHeight
             )
             if (action.attention) {
                 Icon(
                     imageVector = Icons.Filled.Circle,
                     contentDescription = "Update available",
                     tint = MaterialTheme.colorScheme.primary,
-                    modifier = Modifier.align(Alignment.CenterEnd).size(12.dp)
+                    modifier = Modifier.size(12.dp)
                 )
             }
         }

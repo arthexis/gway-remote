@@ -91,7 +91,7 @@ fun OperationPalette(
         }
         BoxWithConstraints(Modifier.fillMaxWidth()) {
             // Use a conservative minimum button width to avoid tiny targets.
-            val columns = (maxWidth.value / 170f).toInt().coerceIn(1, 3)
+            val columns = paletteColumns(maxWidth.value)
             PaletteActionRows(actions + dynamicActions, columns)
         }
     }
@@ -387,4 +387,11 @@ private fun AgentBudgetWindow(label: String, window: JSONObject?) {
         window?.optString("resets_at")?.takeIf { it.isNotBlank() && it != "null" }
             ?.let { Text("Resets: $it", style = MaterialTheme.typography.bodySmall) }
     }
+}
+
+/** Reserve room for icon, readable label and accessibility font scaling. */
+internal fun paletteColumns(availableWidthDp: Float): Int = when {
+    availableWidthDp >= 840f -> 3
+    availableWidthDp >= 520f -> 2
+    else -> 1
 }
