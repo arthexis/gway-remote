@@ -24,6 +24,7 @@ internal fun OperationPanelHost(
     benchmarkContent: @Composable () -> Unit,
     simulatorStatus: String,
     onSimulatorCommand: (String, JSONObject) -> Unit,
+    onSimulatorRead: (String, JSONObject) -> Unit,
     onSelectSimulatorPeer: (String, String) -> Unit,
     onInspectTask: (String) -> Unit,
     agentSendLoading: Boolean,
@@ -62,7 +63,16 @@ internal fun OperationPanelHost(
                     onAgentObserve = onAgentObserve
                 )
                 if (panel.id != "csms") PanelActions(spec = spec, panel = panel, onRefresh = onRefresh, onInput = onInput, onExecute = onExecute, motifs = motifs)
-                if (spec.policy == ExecutionPolicy.AUTO_READ || panel.id == "task-detail" || panel.id == "csms-view" || panel.id == "lcd" || panel.id == "sound") {
+                if (panel.id == "simulator") {
+                    SimulatorUnifiedPanel(
+                        panel = panel,
+                        status = simulatorStatus,
+                        onInput = onInput,
+                        onRead = onSimulatorRead,
+                        onCommand = onSimulatorCommand
+                    )
+                }
+                if (spec.policy == ExecutionPolicy.AUTO_READ || panel.id == "task-detail" || panel.id == "csms-view" || panel.id == "lcd" || panel.id == "sound" || panel.id == "simulator") {
                     // Common read and task-detail actions are rendered by PanelActions.
                 } else if (panel.id == "simulator-discover") {
                     val discovered = remember(panel.output) {
