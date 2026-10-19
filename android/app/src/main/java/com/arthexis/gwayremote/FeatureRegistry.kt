@@ -29,7 +29,7 @@ data class FeatureSpec(
 }
 
 object FeatureRegistry {
-    private val registered = OperationRegistry.operations.map { operation ->
+    private val registered = OperationRegistry.operations.filterNot { it.id == "task-detail" }.map { operation ->
         FeatureSpec(operation.id, operation.label, operation.icon, operation.keywords,
             FeatureKind.OPERATION, operation)
     } + listOf(
