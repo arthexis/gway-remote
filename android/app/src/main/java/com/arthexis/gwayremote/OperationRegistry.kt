@@ -13,13 +13,17 @@ enum class ExecutionPolicy {
     CONFIRM
 }
 
+/** Palette visibility does not grant execution permission. */
+enum class OperationVisibility { PALETTE, INTERNAL }
+
 data class OperationSpec(
     val id: String,
     val label: String,
     val icon: String,
     val keywords: Set<String>,
     val policy: ExecutionPolicy,
-    val command: String? = null
+    val command: String? = null,
+    val visibility: OperationVisibility = OperationVisibility.PALETTE
 ) {
     val autoExecuteOnOpen: Boolean get() = policy == ExecutionPolicy.AUTO_READ
     val requiresConfirmation: Boolean get() = policy == ExecutionPolicy.CONFIRM
@@ -39,19 +43,19 @@ object OperationRegistry {
         OperationSpec("csms", "CSMS", "plug", setOf("charger", "ocpp", "transactions"),
             ExecutionPolicy.AUTO_READ, "probe-csms"),
         OperationSpec("csms-view", "CSMS details", "file-text", setOf("events", "status", "diagnostics"),
-            ExecutionPolicy.EXPLICIT_INPUT, "csms-view"),
+            ExecutionPolicy.EXPLICIT_INPUT, "csms-view", visibility = OperationVisibility.INTERNAL),
         OperationSpec("simulator", "Simulator", "activity", setOf("simulation", "discover", "start", "stop", "results", "status"),
             ExecutionPolicy.EXPLICIT_INPUT),
         OperationSpec("simulator-status", "Simulator status", "activity", setOf("charging", "session", "state"),
-            ExecutionPolicy.AUTO_READ, "simulator-status"),
+            ExecutionPolicy.AUTO_READ, "simulator-status", visibility = OperationVisibility.INTERNAL),
         OperationSpec("simulator-discover", "Discover simulator", "search", setOf("network", "peers", "ethernet"),
-            ExecutionPolicy.EXPLICIT_INPUT, "simulator-discover"),
+            ExecutionPolicy.EXPLICIT_INPUT, "simulator-discover", visibility = OperationVisibility.INTERNAL),
         OperationSpec("simulator-start", "Start simulator", "play", setOf("charging", "session", "start"),
-            ExecutionPolicy.CONFIRM, "simulator-start"),
+            ExecutionPolicy.CONFIRM, "simulator-start", visibility = OperationVisibility.INTERNAL),
         OperationSpec("simulator-stop", "Stop simulator", "square", setOf("charging", "session", "stop"),
-            ExecutionPolicy.CONFIRM, "simulator-stop"),
+            ExecutionPolicy.CONFIRM, "simulator-stop", visibility = OperationVisibility.INTERNAL),
         OperationSpec("simulator-results", "Simulator results", "clipboard-list", setOf("logs", "outcome", "history"),
-            ExecutionPolicy.AUTO_READ, "simulator-results"),
+            ExecutionPolicy.AUTO_READ, "simulator-results", visibility = OperationVisibility.INTERNAL),
         OperationSpec("benchmark", "Benchmark", "gauge", setOf("latency", "rtt", "speed"),
             ExecutionPolicy.EXPLICIT_INPUT),
         OperationSpec("lcd", "LCD message", "monitor", setOf("display", "text", "duration"),
@@ -64,7 +68,7 @@ object OperationRegistry {
         OperationSpec("tasks", "Tasks", "list-todo", setOf("codex", "jobs", "executions", "history", "detail", "task"),
             ExecutionPolicy.AUTO_READ, "codex-tasks"),
         OperationSpec("task-detail", "Task detail", "clipboard-check", setOf("task", "result", "execution", "id"),
-            ExecutionPolicy.EXPLICIT_INPUT, "codex-task"),
+            ExecutionPolicy.EXPLICIT_INPUT, "codex-task", visibility = OperationVisibility.INTERNAL),
         OperationSpec("agent-assignments", "Agent assignments", "list-check", setOf("github", "issues", "codex"),
             ExecutionPolicy.AUTO_READ, "codex-issues")
     )
