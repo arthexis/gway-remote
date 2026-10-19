@@ -494,7 +494,7 @@ fun CompanionScreen(store: SecretStore) {
                     Column(Modifier.weight(1f)) {
                         TextButton(onClick = {
                             try { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url))) }
-                            catch (_: Exception) { agentIssuesError = "Unable to open GitHub" }
+                            catch (_: Exception) { agentModel.reportAssignmentsError("Unable to open GitHub") }
                         }) { Text("#${issue.optInt("number")} ${issue.optString("title")}") }
                         Text("${issue.optString("repository")} · $status",
                             style = MaterialTheme.typography.bodySmall)
