@@ -22,7 +22,9 @@ class PanelHostStructureTests(unittest.TestCase):
     def test_search_and_actions_remain_in_palette(self):
         palette = (ANDROID / "OperationPalette.kt").read_text()
         self.assertIn("FeatureRegistry.search(filter)", palette)
-        self.assertIn("PaletteActionRows(actions, columns)", palette)
+        self.assertIn("PaletteActionRows(actions + dynamicActions, columns)", palette)
+        self.assertIn("FeatureRegistry.get(action.id) == null", palette)
+        self.assertIn("action.label.contains(filter, ignoreCase = true)", palette)
 
 
 if __name__ == "__main__":
