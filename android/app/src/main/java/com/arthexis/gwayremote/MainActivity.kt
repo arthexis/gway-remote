@@ -480,12 +480,6 @@ fun CompanionScreen(store: SecretStore) {
             }
         }
         var githubHealthOpen by remember { mutableStateOf(false) }
-        OutlinedButton(onClick = { githubHealthOpen = !githubHealthOpen }) {
-            Text(if (githubHealthOpen) "Hide GitHub Health" else "GitHub Health")
-        }
-        if (githubHealthOpen) {
-            GitHubHealthPanel(endpoint = endpoint, token = token)
-        }
         OperationPalette(
             state = panelState,
             onOpen = { id ->
@@ -658,8 +652,19 @@ fun CompanionScreen(store: SecretStore) {
                         }
                     }
                 }
-            }
+            },
+            extraActions = listOf(
+                PaletteAction(
+                    id = "github-health",
+                    label = if (githubHealthOpen) "Hide GitHub Health" else "GitHub Health",
+                    icon = "github",
+                    onClick = { githubHealthOpen = !githubHealthOpen }
+                )
+            )
         )
+        if (githubHealthOpen) {
+            GitHubHealthPanel(endpoint = endpoint, token = token)
+        }
         HorizontalDivider()
         Text("Legacy controls pending parity", style = MaterialTheme.typography.titleSmall)
         if (refreshStatus.isNotBlank()) Text(refreshStatus, style = MaterialTheme.typography.bodySmall)
