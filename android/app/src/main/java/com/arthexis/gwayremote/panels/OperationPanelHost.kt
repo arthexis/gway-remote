@@ -18,6 +18,8 @@ internal fun OperationPanelHost(
     onMove: (String, Int) -> Unit,
     onRefresh: (String) -> Unit,
     onCsmsInspect: (String) -> Unit,
+    csmsView: String?,
+    onSelectCsmsView: (String) -> Unit,
     apiHealth: OperationViewModel.SystemCheck,
     systemStatus: OperationViewModel.SystemCheck,
     onRefreshSystem: (String?) -> Unit,
@@ -69,7 +71,7 @@ internal fun OperationPanelHost(
                 } else if (panel.id == "system") {
                     SystemUnifiedPanel(apiHealth, systemStatus, onRefreshSystem)
                 } else if (panel.id == "csms") {
-                    CsmsUnifiedPanel(panel, onRefresh, onCsmsInspect)
+                    CsmsUnifiedPanel(panel, onRefresh, onCsmsInspect, csmsView, onSelectCsmsView)
                 } else if (panel.id == "tasks") {
                     TasksUnifiedPanel(panel, taskDetail, taskDetailLoading, taskDetailError, taskDetailSelection, onInspectTask)
                 } else PanelContent(

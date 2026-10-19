@@ -126,8 +126,51 @@ class OperationViewModel(
         else if (result.shouldAutoRun) refresh(id)
     }
 
+    /** The selected read-only CSMS view lives in the ViewModel, not Composable memory. */
+    var csmsView by mutableStateOf<String?>(null)
+        private set
+    var simulatorReadView by mutableStateOf("simulator-status")
+        private set
+
+    fun selectCsmsView(view: String) {
+        if (panels.panels.none { it.id == "csms" } || view !in setOf(
+            "status", "chargers", "charge-points", "transactions", "events",
+            "alerts", "rfid-report", "report"
+        )) return
+        csmsView = view
+        // A new selection invalidates an older in-flight inspection response.
+        panels = panels.start("csms")
+        val revision = panels.panels.first { it.id == "csms" }.revision
+        panels = panels.fail("csms", revision, "")
+    }
+
+    /** Dispatch only safe reads on currently opened panels. */
+    fun refreshOpenPanels() {
+        RefreshRegistry.targets(panels).forEach { target ->
+            when (target.kind) {
+                RefreshKind.SYSTEM -> if (!apiHealth.loading && !systemStatus.loading) refreshSystem()
+                RefreshKind.CSMS -> {
+                    if (panels.panels.firstOrNull { it.id == "csms" }?.loading == false) {
+                        val view = csmsView
+                        if (view == null) refresh("csms") else inspectCsms(view)
+                    }
+                }
+                RefreshKind.STANDARD, RefreshKind.AGENT_OPS -> {
+                    if (panels.panels.firstOrNull { it.id == target.panelId }?.loading == false)
+                        refresh(target.panelId)
+                }
+                RefreshKind.SIMULATOR -> {
+                    if (panels.panels.firstOrNull { it.id == "simulator" }?.loading == false)
+                        simulatorRead(simulatorReadView)
+                }
+            }
+        }
+    }
+
     fun close(id: String) {
         panels = panels.close(id)
+        if (id == "csms") csmsView = null
+        if (id == "simulator") simulatorReadView = "simulator-status"
         if (id == "notifications") {
             notificationSession++
             lcdNotificationRevision++
@@ -228,6 +271,7 @@ class OperationViewModel(
     /** Read-only actions share the same visible Simulator panel and stale-result guard. */
     fun simulatorRead(command: String, args: JSONObject = JSONObject()) {
         if (command !in setOf("simulator-status", "simulator-results", "simulator-discover")) return
+        if (command in setOf("simulator-status", "simulator-results")) simulatorReadView = command
         val id = "simulator"
         if (panels.panels.none { it.id == id && !it.loading }) return
         panels = panels.start(id)

@@ -266,6 +266,7 @@ fun CompanionScreen(store: SecretStore, appearance: AppearanceMode = AppearanceM
         if (refreshing || busy || benchmarkRunning || updating) return
         refreshing = true
         refreshStatus = "Refreshing…"
+        operationModel.refreshOpenPanels()
         val targetEndpoint = endpoint.trim()
         val targetToken = token
         scope.launch {
@@ -469,6 +470,8 @@ fun CompanionScreen(store: SecretStore, appearance: AppearanceMode = AppearanceM
             onMove = operationModel::move,
             onRefresh = operationModel::refresh,
             onCsmsInspect = operationModel::inspectCsms,
+            csmsView = operationModel.csmsView,
+            onSelectCsmsView = operationModel::selectCsmsView,
             apiHealth = operationModel.apiHealth,
             systemStatus = operationModel.systemStatus,
             onRefreshSystem = operationModel::refreshSystem,
