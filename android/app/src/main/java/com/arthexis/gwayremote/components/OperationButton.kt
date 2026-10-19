@@ -1,35 +1,29 @@
 package com.arthexis.gwayremote
 
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.heightIn
-import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.*
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
-import androidx.compose.material3.Icon
-import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.Text
+import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 
-/** A palette action is either an operation or an independent feature. */
 data class PaletteAction(
     val id: String,
     val label: String,
     val icon: String,
     val onClick: () -> Unit,
-    val enabled: Boolean = true
+    val enabled: Boolean = true,
+    val attention: Boolean = false
 )
 
-/** Keep icon selection centralized; unknown features remain visually usable. */
 internal object AppIconRegistry {
     fun get(name: String): ImageVector = when (name) {
         "heart-pulse" -> Icons.Filled.Favorite
@@ -44,20 +38,17 @@ internal object AppIconRegistry {
         "gauge" -> Icons.Filled.Speed
         "volume-2" -> Icons.Filled.VolumeUp
         "github" -> Icons.Filled.Code
+        "update" -> Icons.Filled.SystemUpdate
         else -> Icons.Filled.Extension
     }
 }
 
-/**
- * Single visual contract for operations and UI-only feature actions.
- * A symmetric trailing inset balances the fixed left icon so text is centered
- * relative to the button, not centered in the remaining space.
- */
 @Composable
 fun FeatureButton(action: PaletteAction, modifier: Modifier = Modifier) {
     OutlinedButton(
         modifier = modifier.semantics { contentDescription = action.label },
         enabled = action.enabled,
+        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 8.dp),
         onClick = action.onClick
     ) {
         Box(Modifier.fillMaxWidth().heightIn(min = 28.dp)) {
@@ -69,25 +60,33 @@ fun FeatureButton(action: PaletteAction, modifier: Modifier = Modifier) {
             Text(
                 text = action.label,
                 modifier = Modifier.fillMaxWidth().align(Alignment.Center)
-                    .padding(horizontal = 28.dp),
+                    .padding(start = 28.dp, end = if (action.attention) 28.dp else 28.dp),
                 textAlign = TextAlign.Center,
-                maxLines = 2
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis
             )
+            if (action.attention) {
+                Icon(
+                    imageVector = Icons.Filled.Circle,
+                    contentDescription = "Update available",
+                    tint = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.align(Alignment.CenterEnd).size(12.dp)
+                )
+            }
         }
     }
 }
 
-/**
- * Buttons evenly occupy each row, including a partially filled final row.
- * Column selection is controlled by the palette's available-width calculation.
- */
 @Composable
 fun PaletteActionRows(actions: List<PaletteAction>, columns: Int) {
-    val count = columns.coerceAtLeast(1)
-    actions.chunked(count).forEach { group ->
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-            group.forEach { action ->
-                FeatureButton(action = action, modifier = Modifier.weight(1f))
+    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        actions.chunked(columns.coerceAtLeast(1)).forEach { group ->
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                group.forEach { action ->
+                    Box(Modifier.weight(1f)) {
+                        FeatureButton(action, Modifier.fillMaxWidth())
+                    }
+                }
             }
         }
     }

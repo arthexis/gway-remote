@@ -64,7 +64,7 @@ fun CompanionScreen(store: SecretStore) {
     val agentObserveLoading = agentModel.observeLoading
     val agentObserveResult = agentModel.observeResult
     val agentObserveError = agentModel.observeError
-    var endpoint by remember { mutableStateOf(store.endpoint) }
+    var endpoint by remember { mutableStateOf(store.endpoint.ifBlank { "https://remote.arthexis.com" }) }
     var token by remember { mutableStateOf(store.token) }
     var result by remember { mutableStateOf("Configure HTTPS endpoint and token") }
     var commands by remember { mutableStateOf(listOf<String>()) }
@@ -414,7 +414,30 @@ fun CompanionScreen(store: SecretStore) {
                 Text("⚙", style = MaterialTheme.typography.headlineMedium)
             }
         }
+        if (settingsOpen) {
+            HorizontalDivider()
+            Text("API settings", style = MaterialTheme.typography.titleMedium)
+            OutlinedTextField(endpoint, { endpoint = it }, label = { Text("HTTPS endpoint") },
+                modifier = Modifier.fillMaxWidth(), singleLine = true)
+            OutlinedTextField(token, { token = it }, label = { Text("Bearer token") },
+                visualTransformation = androidx.compose.ui.text.input.PasswordVisualTransformation(),
+                modifier = Modifier.fillMaxWidth(), singleLine = true)
+            Button(onClick = {
+                try {
+                    ApiClient(endpoint.trim(), token)
+                    store.endpoint = endpoint.trim()
+                    store.token = token
+                    settingsOpen = false
+                    result = "Connection settings saved"
+                } catch (e: Exception) { result = e.message ?: "Invalid settings" }
+            }) { Text("Save settings") }
+        }
         var githubHealthOpen by remember { mutableStateOf(false) }
+        if (update != null) {
+            Text("Update available: ${update!!.version}", style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.primary)
+        }
+        val unmatchedCommands = commands.filter { it !in OperationRegistry.operations.mapNotNull { spec -> spec.command }.toSet() }
         OperationPalette(
             state = panelState,
             onOpen = operationModel::open,
@@ -449,23 +472,35 @@ fun CompanionScreen(store: SecretStore) {
                     label = if (githubHealthOpen) "Hide GitHub Health" else "GitHub Health",
                     icon = "github",
                     onClick = { githubHealthOpen = !githubHealthOpen }
+                ),
+                PaletteAction(
+                    id = "app-update",
+                    label = if (updating) "Updating…" else "App update",
+                    icon = "update",
+                    onClick = { if (update == null) checkUpdates() else downloadUpdate() },
+                    enabled = !updating,
+                    attention = update != null
+                ),
+                PaletteAction(
+                    id = "legacy-assignments",
+                    label = if (agentIssuesExpanded) "Hide assignments" else "Assignments",
+                    icon = "list-check",
+                    onClick = {
+                        agentIssuesExpanded = !agentIssuesExpanded
+                        if (agentIssuesExpanded) agentModel.refreshAssignments()
+                    }
                 )
-            )
+            ) + unmatchedCommands.map { name ->
+                PaletteAction("server-" + name, name, "list", { perform("/api/v1/execute", name) }, !busy)
+            }
         )
         if (githubHealthOpen) {
             GitHubHealthPanel(endpoint = endpoint, token = token)
         }
         HorizontalDivider()
-        Text("Legacy controls pending parity", style = MaterialTheme.typography.titleSmall)
         if (refreshStatus.isNotBlank()) Text(refreshStatus, style = MaterialTheme.typography.bodySmall)
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-            TextButton(onClick = {
-                agentIssuesExpanded = !agentIssuesExpanded
-                if (agentIssuesExpanded) agentModel.refreshAssignments()
-            }) { Text(if (agentIssuesExpanded) "Agent assignments ▾" else "Agent assignments ▸") }
-            if (agentIssuesExpanded) TextButton(
-                onClick = { agentModel.refreshAssignments() }, enabled = !agentIssuesLoading
-            ) { Text("Refresh") }
+        if (agentIssuesExpanded && !agentIssuesLoading) {
+            TextButton(onClick = { agentModel.refreshAssignments() }) { Text("Refresh assignments") }
         }
         if (agentIssuesExpanded) {
             if (agentIssuesLoading) LinearProgressIndicator(Modifier.fillMaxWidth())
@@ -512,51 +547,11 @@ fun CompanionScreen(store: SecretStore) {
             }
         }
 
-        if (update != null) {
-            Text("Update available: ${update!!.version} (code ${update!!.versionCode}); installed code $installedCode")
-            Button(enabled = !updating, onClick = { downloadUpdate() }) { Text("Update app") }
+        if (updateStatus.isNotBlank() && !updateStatus.startsWith("App is up to date") &&
+            !updateStatus.startsWith("Update available:")) {
+            Text(updateStatus, style = MaterialTheme.typography.bodySmall)
         }
-        if (updateStatus.isNotBlank() && (update != null || !updateStatus.startsWith("App is up to date"))) {
-            Text(updateStatus)
-        }
-        if (settingsOpen) {
-            HorizontalDivider()
-            Text("API settings", style = MaterialTheme.typography.titleMedium)
-            OutlinedTextField(endpoint, { endpoint = it }, label = { Text("HTTPS endpoint") },
-                modifier = Modifier.fillMaxWidth(), singleLine = true)
-            OutlinedTextField(token, { token = it }, label = { Text("Bearer token") },
-                visualTransformation = androidx.compose.ui.text.input.PasswordVisualTransformation(),
-                modifier = Modifier.fillMaxWidth(), singleLine = true)
-            Button(onClick = {
-                try {
-                    ApiClient(endpoint.trim(), token)
-                    store.endpoint = endpoint.trim()
-                    store.token = token
-                    settingsOpen = false
-                    result = "Connection settings saved"
-                } catch (e: Exception) { result = e.message ?: "Invalid settings" }
-            }) { Text("Save settings") }
-        }
-        HorizontalDivider()
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            Button(enabled = !busy, onClick = { perform("/api/v1/health") }) { Text("Test") }
-            Button(enabled = !busy, onClick = { perform("/api/v1/commands") }) { Text("Commands") }
-        }
-        // The server may advertise additional parameterless read commands not yet
-        // registered as stable operation panels. Retain them until UI-4 parity.
-        val panelCommands = OperationRegistry.operations.mapNotNull { it.command }.toSet()
-        val unmatchedCommands = commands.filter { it !in panelCommands }
-        if (unmatchedCommands.isNotEmpty()) {
-            Text("Additional server read commands", style = MaterialTheme.typography.titleSmall)
-            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp),
-                verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                unmatchedCommands.forEach { name ->
-                    OutlinedButton(enabled = !busy, onClick = { perform("/api/v1/execute", name) }) {
-                        Text(name)
-                    }
-                }
-            }
-        }
+
         if (busy) LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
         Text("Response", style = MaterialTheme.typography.titleMedium)
         Text(result)

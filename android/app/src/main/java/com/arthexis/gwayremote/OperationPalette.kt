@@ -85,10 +85,14 @@ fun OperationPalette(
                 }
             }
         }
+        val dynamicActions = extraActions.filter { action ->
+            FeatureRegistry.get(action.id) == null &&
+                (filter.isBlank() || action.label.contains(filter, ignoreCase = true))
+        }
         BoxWithConstraints(Modifier.fillMaxWidth()) {
             // Use a conservative minimum button width to avoid tiny targets.
-            val columns = (maxWidth.value / 152f).toInt().coerceIn(1, 4)
-            PaletteActionRows(actions, columns)
+            val columns = (maxWidth.value / 170f).toInt().coerceIn(1, 3)
+            PaletteActionRows(actions + dynamicActions, columns)
         }
     }
 }
