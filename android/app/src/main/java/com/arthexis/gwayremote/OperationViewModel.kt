@@ -13,7 +13,11 @@ import org.json.JSONObject
  * Owns panel lifecycle and request execution across Activity recompositions.
  * Revision tokens ensure that a closed/reopened panel never receives stale data.
  */
-class OperationViewModel : ViewModel() {
+class OperationViewModel(
+    private val runner: OperationRunner = ProductionOperationRunner,
+    private val scopeOverride: kotlinx.coroutines.CoroutineScope? = null
+) : ViewModel() {
+    private val requestScope get() = scopeOverride ?: viewModelScope
     var panels by mutableStateOf(OperationPanelState())
         private set
 
@@ -57,9 +61,9 @@ class OperationViewModel : ViewModel() {
         taskDetailError = null
         taskDetail = null
         val (endpoint, token) = credentials()
-        viewModelScope.launch {
+        requestScope.launch {
             try {
-                val response = OperationExecutor.execute(endpoint, token, request)
+                val response = runner.execute(endpoint, token, request)
                 if (selection == taskDetailRequest && panels.panels.any { it.id == "tasks" }) {
                     taskDetail = response.toString(2)
                     taskDetailLoading = false
@@ -94,9 +98,9 @@ class OperationViewModel : ViewModel() {
         panels = panels.start(id)
         val revision = panels.panels.first { it.id == id }.revision
         val (endpoint, token) = credentials()
-        viewModelScope.launch {
+        requestScope.launch {
             try {
-                val response = OperationExecutor.execute(endpoint, token,
+                val response = runner.execute(endpoint, token,
                     OperationRequest("/api/v1/execute", command, argsToMap(args)))
                 val current = panels.panels.any {
                     it.id == id && it.loading && it.revision == revision
@@ -119,9 +123,9 @@ class OperationViewModel : ViewModel() {
         panels = panels.start(id)
         val revision = panels.panels.first { it.id == id }.revision
         val (endpoint, token) = credentials()
-        viewModelScope.launch {
+        requestScope.launch {
             try {
-                val response = OperationExecutor.execute(endpoint, token,
+                val response = runner.execute(endpoint, token,
                     OperationRequest("/api/v1/execute", command, argsToMap(args)))
                 val current = panels.panels.any { it.id == id && it.loading && it.revision == revision }
                 panels = panels.complete(id, revision, response.toString(2))
@@ -166,7 +170,7 @@ class OperationViewModel : ViewModel() {
         panels = panels.start(id)
         val revision = panels.panels.firstOrNull { it.id == id }?.revision ?: return
         val (endpoint, token) = credentials()
-        viewModelScope.launch {
+        requestScope.launch {
             try {
                 val response = if (id == "agent-ops") {
                     kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
@@ -182,7 +186,7 @@ class OperationViewModel : ViewModel() {
                         }
                         JSONObject().put("result", merged)
                     }
-                } else OperationExecutor.execute(endpoint, token, requireNotNull(request))
+                } else runner.execute(endpoint, token, requireNotNull(request))
                 val current = panels.panels.any {
                     it.id == id && it.loading && it.revision == revision
                 }

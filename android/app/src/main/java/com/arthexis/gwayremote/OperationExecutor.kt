@@ -73,6 +73,16 @@ object OperationExecutor {
         }
 }
 
+/** Injectable IO boundary. Visibility and execution policy remain enforced by request planners. */
+fun interface OperationRunner {
+    suspend fun execute(endpoint: String, token: String, request: OperationRequest): JSONObject
+}
+
+object ProductionOperationRunner : OperationRunner {
+    override suspend fun execute(endpoint: String, token: String, request: OperationRequest): JSONObject =
+        OperationExecutor.execute(endpoint, token, request)
+}
+
 /** Lifecycle-safe reducer: stale completions are rejected by OperationPanelState. */
 class PanelRunState(initial: OperationPanelState = OperationPanelState()) {
     var current: OperationPanelState = initial
