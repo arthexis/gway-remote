@@ -6,6 +6,7 @@ publishes a healthy snapshot or resolves historical alerts.
 import argparse
 import json
 import os
+import re
 import sqlite3
 import tempfile
 import urllib.error
@@ -44,6 +45,44 @@ class GitHubReadOnly:
                                  "User-Agent": "gway-remote-health"})
         with urllib.request.urlopen(request, timeout=20) as response:
             return json.load(response)
+
+
+def _pr_for_sha(api, encoded, sha):
+    """Resolve one historical PR by exact head SHA; ambiguous evidence is unknown.
+
+    The commit/pulls endpoint may associate a commit with multiple PRs.
+    Its association alone is not proof that the commit is the PR head.
+    """
+    if not isinstance(sha, str) or not re.fullmatch(r"[0-9a-fA-F]{40}", sha):
+        return None
+    matches = {}
+    for page in range(1, 4):
+        items = api.get("/repos/" + encoded + "/commits/" + sha +
+                        "/pulls?per_page=100&page=" + str(page))
+        if not isinstance(items, list):
+            return None
+        for item in items:
+            if not isinstance(item, dict):
+                return None
+            number = item.get("number")
+            if not isinstance(number, int) or number <= 0:
+                return None
+            matches[number] = True
+        if len(items) < 100:
+            break
+    else:
+        # A truncated response may conceal an additional matching PR.
+        return None
+    exact = []
+    for number in matches:
+        detail = api.get("/repos/" + encoded + "/pulls/" + str(number))
+        if not isinstance(detail, dict) or detail.get("number") != number:
+            return None
+        if detail.get("state") not in {"open", "closed"}:
+            return None
+        if (detail.get("head") or {}).get("sha", "").lower() == sha.lower():
+            exact.append((number, detail["state"]))
+    return exact[0] if len(exact) == 1 else None
 
 
 def collect(api):
@@ -165,33 +204,30 @@ def collect(api):
             lanes.setdefault((workflow, trigger, branch), []).append({
                 "id": run["id"], "conclusion": run["conclusion"],
                 "url": run.get("html_url") or "",
-                "created_at": run.get("created_at") or ""})
+                "created_at": run.get("created_at") or "",
+                "head_sha": run.get("head_sha"),
+                "pull_requests": run.get("pull_requests")})
         ci_lanes = []
-        pr_states = {}
-        for run in workflow_runs:
-            if run.get("event") != "pull_request":
-                continue
-            key = (run.get("name"), run.get("event"), run.get("head_branch"))
-            for reference in run.get("pull_requests") or []:
-                number = reference.get("number") if isinstance(reference, dict) else None
-                if isinstance(number, int) and number > 0:
-                    pr_states.setdefault(key, set()).add(number)
+        sha_cache = {}
         for (workflow, trigger, branch), lane_runs in lanes.items():
             lane_runs.sort(key=lambda item: (item["created_at"], item["id"]), reverse=True)
             lane = {"workflow": workflow, "trigger": trigger,
                     "branch": branch, "completed_runs": lane_runs}
-            references = pr_states.get((workflow, trigger, branch), set())
-            if trigger == "pull_request" and references:
-                states = []
-                for number in sorted(references):
-                    detail = api.get("/repos/" + encoded + "/pulls/" + str(number))
-                    if not isinstance(detail, dict) or detail.get("number") != number:
-                        raise ValueError("Incomplete PR lifecycle evidence")
-                    if detail.get("state") not in {"open", "closed"}:
-                        raise ValueError("Unknown PR lifecycle state")
-                    states.append(detail["state"])
-                lane["pr_lifecycle"] = "closed" if all(
-                    state == "closed" for state in states) else "open"
+            if trigger == "pull_request":
+                verified = []
+                for run in lane_runs:
+                    sha = run.get("head_sha")
+                    if sha not in sha_cache:
+                        # Exact commit correlation only. No branch-name fallback.
+                        sha_cache[sha] = _pr_for_sha(api, encoded, sha)
+                    verified.append(sha_cache[sha])
+                # A reused branch can contain multiple PRs. Retire only when
+                # every observed run belongs to the same exact closed PR.
+                if verified and all(item is not None for item in verified):
+                    numbers = {item[0] for item in verified}
+                    if len(numbers) == 1:
+                        lane["pr_lifecycle"] = ("closed" if all(
+                            item[1] == "closed" for item in verified) else "open")
             ci_lanes.append(lane)
         pending_runs = [{
             "id": r["id"], "name": r.get("name") or "",
