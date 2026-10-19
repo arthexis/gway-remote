@@ -17,6 +17,7 @@ internal fun OperationPanelHost(
     onClose: (String) -> Unit,
     onMove: (String, Int) -> Unit,
     onRefresh: (String) -> Unit,
+    onCsmsInspect: (String) -> Unit,
     onInput: (String, String, String) -> Unit,
     onExecute: (String, Map<String, String>) -> Unit,
     motifs: List<String>,
@@ -45,7 +46,9 @@ internal fun OperationPanelHost(
             onMove = onMove,
             onClose = onClose
         ) {
-                PanelContent(
+                if (panel.id == "csms") {
+                    CsmsUnifiedPanel(panel, onRefresh, onCsmsInspect)
+                } else PanelContent(
                     panel = panel,
                     onInspectTask = onInspectTask,
                     agentSendLoading = agentSendLoading,
@@ -58,7 +61,7 @@ internal fun OperationPanelHost(
                     agentObserveError = agentObserveError,
                     onAgentObserve = onAgentObserve
                 )
-                PanelActions(spec = spec, panel = panel, onRefresh = onRefresh, onInput = onInput, onExecute = onExecute, motifs = motifs)
+                if (panel.id != "csms") PanelActions(spec = spec, panel = panel, onRefresh = onRefresh, onInput = onInput, onExecute = onExecute, motifs = motifs)
                 if (spec.policy == ExecutionPolicy.AUTO_READ || panel.id == "task-detail" || panel.id == "csms-view" || panel.id == "lcd" || panel.id == "sound") {
                     // Common read and task-detail actions are rendered by PanelActions.
                 } else if (panel.id == "simulator-discover") {
