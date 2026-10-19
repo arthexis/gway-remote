@@ -27,6 +27,7 @@ fun OperationPalette(
     onClose: (String) -> Unit,
     onMove: (String, Int) -> Unit,
     onRefresh: (String) -> Unit,
+    onCsmsInspect: (String) -> Unit,
     onInput: (String, String, String) -> Unit,
     onExecute: (String, Map<String, String>) -> Unit,
     motifs: List<String>,
@@ -50,7 +51,8 @@ fun OperationPalette(
     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
         OperationPanelHost(
             state = state, onClose = onClose, onMove = onMove,
-            onRefresh = onRefresh, onInput = onInput, onExecute = onExecute,
+            onRefresh = onRefresh, onCsmsInspect = onCsmsInspect,
+            onInput = onInput, onExecute = onExecute,
             motifs = motifs, benchmarkContent = benchmarkContent,
             simulatorStatus = simulatorStatus,
             onSimulatorCommand = onSimulatorCommand,
