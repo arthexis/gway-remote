@@ -43,7 +43,8 @@ fun OperationPalette(
     agentObserveLoading: Boolean,
     agentObserveResult: String?,
     agentObserveError: String?,
-    onAgentObserve: (String, String) -> Unit
+    onAgentObserve: (String, String) -> Unit,
+    extraActions: List<PaletteAction> = emptyList()
 ) {
     var filter by remember { mutableStateOf("") }
     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -149,11 +150,18 @@ fun OperationPalette(
             label = { Text("Filter operations") }, singleLine = true,
             modifier = Modifier.fillMaxWidth()
         )
-        FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp),
-                verticalArrangement = Arrangement.spacedBy(6.dp)) {
-            state.unopened(filter).forEach { spec ->
-                OperationButton(spec = spec, onOpen = onOpen)
-            }
+        val operationActions = state.unopened(filter).map { spec ->
+            PaletteAction(spec.id, spec.label, spec.icon, { onOpen(spec.id) })
+        }
+        val query = filter.trim()
+        val featureActions = extraActions.filter { action ->
+            query.isEmpty() || action.label.contains(query, ignoreCase = true) ||
+                action.id.contains(query, ignoreCase = true)
+        }
+        BoxWithConstraints(Modifier.fillMaxWidth()) {
+            // Use a conservative minimum button width to avoid tiny targets.
+            val columns = (maxWidth.value / 152f).toInt().coerceIn(1, 4)
+            PaletteActionRows(operationActions + featureActions, columns)
         }
     }
 }
