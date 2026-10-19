@@ -476,6 +476,10 @@ fun CompanionScreen(store: SecretStore) {
             onSimulatorCommand = operationModel::runConfirmedSimulator,
             onSimulatorRead = operationModel::simulatorRead,
             motifs = availableMotifs,
+            lcdNotification = operationModel.lcdNotification,
+            soundNotification = operationModel.soundNotification,
+            onNotificationInput = operationModel::notificationInput,
+            onExecuteNotification = operationModel::executeNotification,
             onInput = operationModel::input,
             onExecute = operationModel::execute,
             extraActions = listOf(
