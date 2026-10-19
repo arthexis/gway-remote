@@ -46,6 +46,8 @@ internal fun OperationPanelHost(
     agentAssignmentsError: String,
     onRefreshAgentAssignments: () -> Unit,
     onAgentAssignmentsError: (String) -> Unit,
+    agentAssignmentsExpanded: Boolean,
+    onAgentAssignmentsExpanded: (Boolean) -> Unit,
     agentSendLoading: Boolean,
     agentSendResult: String?,
     agentSendError: String?,
@@ -94,7 +96,9 @@ internal fun OperationPanelHost(
                         loading = agentAssignmentsLoading,
                         error = agentAssignmentsError,
                         onRefresh = onRefreshAgentAssignments,
-                        onError = onAgentAssignmentsError
+                        onError = onAgentAssignmentsError,
+                        expanded = agentAssignmentsExpanded,
+                        onExpandedChange = onAgentAssignmentsExpanded
                     )
                 }
                 if (panel.id != "notifications" && panel.id != "system" && panel.id != "csms" && panel.id != "tasks") PanelActions(spec = spec, panel = panel, onRefresh = onRefresh, onInput = onInput, onExecute = onExecute, motifs = motifs)

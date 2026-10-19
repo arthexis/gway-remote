@@ -90,6 +90,7 @@ fun CompanionScreen(store: SecretStore, appearance: AppearanceMode = AppearanceM
     var commands by remember { mutableStateOf(listOf<String>()) }
     var busy by remember { mutableStateOf(false) }
     var refreshing by remember { mutableStateOf(false) }
+    var agentAssignmentsExpanded by remember { mutableStateOf(false) }
     val agentIssues = agentModel.issues
     val agentIssuesError = agentModel.issuesError
     val agentIssuesLoading = agentModel.issuesLoading
@@ -267,6 +268,8 @@ fun CompanionScreen(store: SecretStore, appearance: AppearanceMode = AppearanceM
         refreshing = true
         refreshStatus = "Refreshing…"
         operationModel.refreshOpenPanels()
+        if (agentAssignmentsExpanded && operationModel.panels.panels.any { it.id == "agent-ops" } && !agentModel.issuesLoading)
+            agentModel.refreshAssignments()
         val targetEndpoint = endpoint.trim()
         val targetToken = token
         scope.launch {
@@ -480,6 +483,8 @@ fun CompanionScreen(store: SecretStore, appearance: AppearanceMode = AppearanceM
             agentAssignmentsError = agentIssuesError,
             onRefreshAgentAssignments = agentModel::refreshAssignments,
             onAgentAssignmentsError = agentModel::reportAssignmentsError,
+            agentAssignmentsExpanded = agentAssignmentsExpanded,
+            onAgentAssignmentsExpanded = { agentAssignmentsExpanded = it },
             agentSendLoading = agentSendLoading,
             agentSendResult = agentSendResult,
             agentSendError = agentSendError,

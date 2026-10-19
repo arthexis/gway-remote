@@ -22,16 +22,16 @@ internal fun AgentAssignmentsSection(
     loading: Boolean,
     error: String,
     onRefresh: () -> Unit,
-    onError: (String) -> Unit
+    onError: (String) -> Unit,
+    expanded: Boolean,
+    onExpandedChange: (Boolean) -> Unit
 ) {
-    var expanded by remember { mutableStateOf(false) }
     val context = LocalContext.current
     OutlinedButton(onClick = {
-        expanded = !expanded
-        if (expanded) onRefresh()
+        onExpandedChange(!expanded)
+        if (!expanded) onRefresh()
     }) { Text(if (expanded) "Hide assignments" else "Assignments") }
     if (!expanded) return
-    TextButton(onClick = onRefresh, enabled = !loading) { Text("Refresh assignments") }
     if (loading) LinearProgressIndicator(Modifier.fillMaxWidth())
     if (error.isNotBlank()) Text(error, color = MaterialTheme.colorScheme.error)
     issues.forEach { issue ->
