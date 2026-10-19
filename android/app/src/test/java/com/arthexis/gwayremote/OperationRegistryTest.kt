@@ -12,6 +12,15 @@ class OperationRegistryTest {
         assertNull(OperationRegistry.get("arbitrary-shell"))
     }
 
+    @Test fun visibilityIsIndependentOfExecutionPolicy() {
+        assertEquals(OperationVisibility.PALETTE, OperationRegistry.get("simulator")?.visibility)
+        assertEquals(OperationVisibility.INTERNAL, OperationRegistry.get("simulator-start")?.visibility)
+        assertEquals(OperationVisibility.INTERNAL, OperationRegistry.get("simulator-status")?.visibility)
+        assertEquals(ExecutionPolicy.CONFIRM, OperationRegistry.get("simulator-start")?.policy)
+        assertEquals(ExecutionPolicy.AUTO_READ, OperationRegistry.get("simulator-status")?.policy)
+        assertEquals(OperationVisibility.PALETTE, OperationSpec("example", "Example", "activity", emptySet(), ExecutionPolicy.EXPLICIT_INPUT).visibility)
+    }
+
     @Test fun readOnlyAutoExecutionOnly() {
         listOf("status", "csms", "simulator-status", "agent-assignments", "agent-ops").forEach {
             assertTrue(OperationRegistry.get(it)!!.autoExecuteOnOpen)
