@@ -16,11 +16,17 @@ class FakeGitHub:
     def get(self, path):
         if path.endswith("/branches/main"):
             return {"commit": {"sha": "a" * 40}}
+        if path.endswith("/pulls"):
+            repository = path.split("/commits/", 1)[0].removeprefix("repos/")
+            return [{"number": 17, "merged_at": "2026-10-09T11:00:00Z",
+                     "merge_commit_sha": "a" * 40,
+                     "base": {"ref": "main", "repo": {"full_name": repository}},
+                     "head": {"sha": "b" * 40, "repo": {"full_name": repository}}}]
         if "/commits/" in path:
             return {"commit": {"committer": {"date": "2026-10-09T11:00:00Z"}}}
         if "/actions/runs?" in path:
             return {"workflow_runs": [{
-                "head_sha": "a" * 40, "created_at": "2026-10-09T11:00:00Z",
+                "event": "pull_request", "head_sha": "b" * 40, "pull_requests": [], "created_at": "2026-10-09T11:00:00Z",
                 "status": "completed", "conclusion": "success",
             }]}
         if "/deployments?" in path:
@@ -73,7 +79,7 @@ class TestGitHubState(unittest.TestCase):
         result = report(Missing(), datetime(2026, 10, 9, 12, tzinfo=timezone.utc))
         self.assertEqual(result["decision"], "ready")
 
-    def test_no_main_push_evidence_blocks(self):
+    def test_no_pr_ci_evidence_blocks(self):
         class NoRun(FakeGitHub):
             def get(self, path):
                 if "/actions/runs?" in path:
