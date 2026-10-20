@@ -16,10 +16,15 @@ class FakeGitHub:
 
     def get(self, path):
         self.paths.append(path)
+        if path.endswith("/pulls"):
+            return [{"number": 1, "merged_at": "2026-10-15T12:30:00Z",
+                     "merge_commit_sha": SHA,
+                     "base": {"ref": "main", "repo": {"full_name": "arthexis/gway-lcd-sound"}},
+                     "head": {"sha": "b" * 40, "repo": {"full_name": "arthexis/gway-lcd-sound"}}}]
         if "/commits/" in path:
             return {"commit": {"committer": {"date": "2026-10-15T12:30:00Z"}}}
         return {"workflow_runs": [
-            {"head_sha": SHA, "status": "completed", "conclusion": "success"}
+            {"event": "pull_request", "head_sha": "b" * 40, "pull_requests": [], "status": "completed", "conclusion": "success"}
         ]}
 
 
@@ -33,7 +38,8 @@ class RevisionDiscoveryTests(unittest.TestCase):
     def test_ci_queries_exact_sha_not_latest_fifty_runs(self):
         client = FakeGitHub()
         self.assertEqual(ci_for_head(client, "arthexis/gway-lcd-sound", SHA), "success")
-        self.assertIn(f"head_sha={SHA}", client.paths[0])
+        self.assertIn(f"commits/{SHA}/pulls", client.paths[0])
+        self.assertIn(f"head_sha={\"b\" * 40}", client.paths[1])
 
     def test_missing_commit_date_identifies_component(self):
         now = datetime(2026, 10, 16, tzinfo=timezone.utc)
