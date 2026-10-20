@@ -3,7 +3,7 @@ import subprocess
 import unittest
 from unittest.mock import patch
 
-from gway_remote.deploy_dispatch import TARGETS, dispatch
+from gway_remote.deploy_dispatch import TARGETS, dispatch, follow_run
 
 
 class DeployDispatchTests(unittest.TestCase):
@@ -36,6 +36,25 @@ class DeployDispatchTests(unittest.TestCase):
         message = dispatch("ocpp-reports")
         self.assertIn("run ID unavailable", message)
         self.assertNotIn("/actions/runs/", message)
+
+    @patch("gway_remote.deploy_dispatch.subprocess.run")
+    def test_follow_watches_exact_run_and_propagates_failure(self, run):
+        message = ("Requested ocpp-csms deployment: workflow run 39106912358\n"
+                   "https://github.com/arthexis/gway-remote/actions/runs/39106912358")
+        follow_run(message)
+        self.assertEqual(run.call_args.args[0], [
+            "gh", "run", "watch", "39106912358", "--repo",
+            "arthexis/gway-remote", "--exit-status", "--interval", "3"])
+        self.assertTrue(run.call_args.kwargs["check"])
+        run.side_effect = subprocess.CalledProcessError(1, ["gh"])
+        with self.assertRaisesRegex(RuntimeError, "39106912358"):
+            follow_run(message)
+
+    @patch("gway_remote.deploy_dispatch.subprocess.run")
+    def test_follow_never_guesses_missing_run_id(self, run):
+        with self.assertRaisesRegex(RuntimeError, "run ID"):
+            follow_run("Requested deployment; run ID unavailable")
+        run.assert_not_called()
 
     def test_target_is_required(self):
         with self.assertRaises(TypeError):
