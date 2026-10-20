@@ -218,8 +218,12 @@ internal fun CsmsInspectionPanel(output: String?) {
         Text("Output truncated to 64 KB", color = MaterialTheme.colorScheme.error)
     }
     val content = result.optString("output", "")
-    Text(if (content.isBlank()) "No inspection output returned" else content,
-        style = MaterialTheme.typography.bodySmall)
+    val view = remember(output) {
+        runCatching { JSONObject(output).optJSONObject("arguments")?.optString("view") }.getOrNull()
+            ?.takeIf { it.isNotBlank() }
+            ?: "status"
+    }
+    CsmsCompactInspection(view, content)
 }
 
 internal val TASK_UUID = Regex("[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}")
