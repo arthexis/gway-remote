@@ -39,7 +39,7 @@ class RevisionDiscoveryTests(unittest.TestCase):
         client = FakeGitHub()
         self.assertEqual(ci_for_head(client, "arthexis/gway-lcd-sound", SHA), "success")
         self.assertIn(f"commits/{SHA}/pulls", client.paths[0])
-        self.assertIn(f"head_sha={\"b\" * 40}", client.paths[1])
+        self.assertIn("head_sha=" + "b" * 40, client.paths[1])
 
     def test_missing_commit_date_identifies_component(self):
         now = datetime(2026, 10, 16, tzinfo=timezone.utc)
