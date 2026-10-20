@@ -32,7 +32,17 @@ class ApiClient(private val endpoint: String, private val token: String) {
                 connection.outputStream.use { it.write(payload.toString().toByteArray(Charsets.UTF_8)) }
             }
             val code = connection.responseCode
-            if (code !in 200..299) throw ApiException(code)
+            if (code !in 200..299) {
+                val errorCode = runCatching {
+                    connection.errorStream?.bufferedReader()?.use { reader ->
+                        val body = reader.readText().take(512)
+                        JSONObject(body).optString("error").takeIf {
+                            it.matches(Regex("[a-z][a-z0-9_]{0,63}"))
+                        }
+                    }
+                }.getOrNull()
+                throw ApiException(code, errorCode)
+            }
             val response = connection.inputStream.bufferedReader().use { it.readText() }
             return JSONObject(response)
         } finally {
@@ -41,10 +51,10 @@ class ApiClient(private val endpoint: String, private val token: String) {
     }
 }
 
-class ApiException(val status: Int) : Exception(
+class ApiException(val status: Int, val errorCode: String? = null) : Exception(
     when (status) {
         401 -> "Unauthorized: check your token"
         403 -> "Access denied"
-        else -> "Server returned HTTP $status"
+        else -> "Server returned HTTP $status" + (errorCode?.let { ": $it" } ?: "")
     }
 )
