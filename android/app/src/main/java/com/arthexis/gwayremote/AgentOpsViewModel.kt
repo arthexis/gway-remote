@@ -99,6 +99,8 @@ class AgentOpsViewModel : ViewModel() {
     fun send(ref: String, at: String) {
         if (sendLoading) return
         sendLoading = true
+        observeResult = null
+        observeError = null
         sendResult = null
         sendError = null
         viewModelScope.launch {
