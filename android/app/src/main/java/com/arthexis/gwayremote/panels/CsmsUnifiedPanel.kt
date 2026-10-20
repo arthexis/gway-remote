@@ -44,7 +44,7 @@ internal fun CsmsUnifiedPanel(
                 runCatching { JSONObject(output) }.getOrNull()
             }
             if (response?.optString("command") == "csms-view") {
-                CsmsInspectionPanel(output)
+                CsmsInspectionPanel(output, visibleView)
             } else {
                 CsmsHealthPanel(output)
             }
