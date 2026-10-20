@@ -46,6 +46,7 @@ def run(status="completed", conclusion="success", **changes):
 class PRCIDeployTests(unittest.TestCase):
     def test_exact_merged_pr_success(self):
         self.assertEqual(ci_for_head(FakeClient([merged_pr()], [run()]), REPO, MAIN), "success")
+        self.assertEqual(ci_for_head(FakeClient([merged_pr()], [run(pull_requests=[])]), REPO, MAIN), "success")
 
     def test_fails_closed_when_provenance_missing_or_ambiguous(self):
         cases = [
