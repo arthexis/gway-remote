@@ -29,10 +29,17 @@ def _run(arguments):
     # A synchronous issue invocation can run longer than the read APIs.
     # Do not automatically retry timeouts: the dispatch may have been accepted.
     timeout = 20 if command in ("issues", "status", "observe", "submit", "preview") else 1800
+    env = os.environ.copy()
+    if command == "issues":
+        from .target_export import export_targets
+        targets = export_targets()["targets"]
+        if not targets:
+            raise AgentOpsError("agent_repository_allowlist_missing")
+        env["GWAY_AGENT_ALLOWED_REPOS"] = ",".join(row["repository"] for row in targets)
     try:
         completed = subprocess.run(
             [_agent_path(), *arguments, "--json"],
-            capture_output=True, text=True, timeout=timeout, check=False)
+            capture_output=True, text=True, timeout=timeout, check=False, env=env)
     except subprocess.TimeoutExpired as exc:
         raise AgentOpsError("agent_result_unconfirmed" if command in ("issue", "submit")
                             else "agent_cli_timeout") from exc
