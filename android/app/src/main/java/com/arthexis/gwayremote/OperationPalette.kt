@@ -323,10 +323,44 @@ internal fun AgentOpsPanel(
             }
         }
     }
+    if (attempted != null) {
+        val status = observation?.let(AgentSubmissionStatus::parse)
+        val statusLabel = when {
+            observing -> "Checking status…"
+            status != null -> status.label
+            sendError != null -> "Submission unconfirmed"
+            sending -> "Submitting…"
+            sendResult != null -> "Submission response received"
+            else -> "Awaiting verification"
+        }
+        val statusColor = when (status) {
+            AgentSubmissionStatus.FINISHED -> MaterialTheme.colorScheme.primary
+            AgentSubmissionStatus.CODEX_FAILED, AgentSubmissionStatus.INTERRUPTED ->
+                MaterialTheme.colorScheme.error
+            AgentSubmissionStatus.REQUESTED, AgentSubmissionStatus.ACCEPTED,
+            AgentSubmissionStatus.RELEASED -> MaterialTheme.colorScheme.tertiary
+            else -> MaterialTheme.colorScheme.onSurfaceVariant
+        }
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text("Agent Ops:", style = MaterialTheme.typography.labelMedium)
+            Text(statusLabel, color = statusColor, style = MaterialTheme.typography.labelMedium)
+        }
+        Text(
+            if (status?.terminal == true) "Execution outcome reported by Agent Ops"
+            else "Submission does not confirm execution; use Check submission to verify",
+            style = MaterialTheme.typography.bodySmall
+        )
+    }
     if (observing) LinearProgressIndicator(Modifier.fillMaxWidth())
-    if (observationError != null) Text("Observation unavailable: $observationError")
-    if (observation != null) Text("Observation: $observation", style = MaterialTheme.typography.bodySmall)
-    if (sendResult != null) Text("Request response: $sendResult", style = MaterialTheme.typography.bodySmall)
+    if (observationError != null) Text("Observation unavailable: $observationError",
+        color = MaterialTheme.colorScheme.error)
+    if (sendResult != null) {
+        var showResponse by remember(sendResult) { mutableStateOf(false) }
+        TextButton(onClick = { showResponse = !showResponse }) {
+            Text(if (showResponse) "Hide submission response" else "Show submission response")
+        }
+        if (showResponse) Text(sendResult, style = MaterialTheme.typography.bodySmall)
+    }
 
     if (output == null) return
     val data = remember(output) {
