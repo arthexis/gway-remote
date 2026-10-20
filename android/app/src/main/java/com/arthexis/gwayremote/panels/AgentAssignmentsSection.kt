@@ -96,7 +96,8 @@ internal fun AgentAssignmentsSection(
         val labels = issue.optJSONArray("labels")
         val names = (0 until (labels?.length() ?: 0)).map { labels!!.optString(it) }.toSet()
         val instanceMatches = when (instanceFilter) {
-            "*" -> true\n            "" -> false
+            "*" -> true
+            "" -> false
             "-" -> names.none { targetPattern.matches(it) }
             else -> instanceFilter in names
         }
