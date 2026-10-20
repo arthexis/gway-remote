@@ -57,7 +57,7 @@ def follow_run(message: str) -> None:
     No fallback to an ambiguous 'latest run' is permitted.
     """
     import re
-    match = re.search(r"workflow run ([1-9][0-9]*)\\n", message)
+    match = re.search(r"workflow run ([1-9][0-9]*)\n", message)
     if match is None:
         raise RuntimeError(
             "Cannot follow deployment: GitHub did not return a workflow run ID. "
