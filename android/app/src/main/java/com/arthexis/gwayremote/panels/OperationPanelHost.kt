@@ -42,6 +42,7 @@ internal fun OperationPanelHost(
     taskDetailError: String?,
     taskDetailSelection: String?,
     agentAssignments: List<JSONObject>,
+    agentInstance: String,
     agentAssignmentsLoading: Boolean,
     agentAssignmentsError: String,
     onRefreshAgentAssignments: () -> Unit,
@@ -93,6 +94,7 @@ internal fun OperationPanelHost(
                 if (panel.id == "agent-ops") {
                     AgentAssignmentsSection(
                         issues = agentAssignments,
+                        localAgent = agentInstance,
                         loading = agentAssignmentsLoading,
                         error = agentAssignmentsError,
                         onRefresh = onRefreshAgentAssignments,
