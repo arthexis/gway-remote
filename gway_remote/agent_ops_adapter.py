@@ -60,6 +60,10 @@ def _run(arguments):
     status = payload["status"]
     if completed.returncode != 0 or status not in ("ok", "finished"):
         codes = {"busy": "agent_busy", "duplicate": "agent_duplicate"}
+        detail = payload.get("error")
+        reason = detail.get("code") if isinstance(detail, dict) else None
+        if isinstance(reason, str) and re.fullmatch(r"[a-z][a-z0-9_]{0,63}", reason):
+            raise AgentOpsError(reason if reason.startswith("agent_") else "agent_" + reason)
         raise AgentOpsError(codes.get(status, "agent_execution_failed"))
     if command == "issue" and status != "finished":
         raise AgentOpsError("agent_result_unconfirmed")

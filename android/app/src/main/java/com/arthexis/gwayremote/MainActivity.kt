@@ -28,6 +28,7 @@ import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsControllerCompat
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
@@ -465,7 +466,7 @@ fun CompanionScreen(store: SecretStore, appearance: AppearanceMode = AppearanceM
             Text("Update available: ${update!!.version}", style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.primary)
         }
-        val unmatchedCommands = commands.filter { it !in OperationRegistry.operations.mapNotNull { spec -> spec.command }.toSet() && it != "sound-motifs" }
+        val unmatchedCommands = emptyList<String>() // Discovered commands are not palette actions
         OperationPalette(
             state = panelState,
             onOpen = operationModel::open,
@@ -547,7 +548,16 @@ fun CompanionScreen(store: SecretStore, appearance: AppearanceMode = AppearanceM
         }
 
         if (busy) LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
-        Text("Response", style = MaterialTheme.typography.titleMedium)
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically) {
+            Text("Response", style = MaterialTheme.typography.titleMedium)
+            IconButton(enabled = result.isNotBlank(), onClick = {
+                val clipboard = agentUiContext.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                clipboard.setPrimaryClip(ClipData.newPlainText("GWay Remote response", result))
+            }, modifier = Modifier.semantics { contentDescription = "Copy response" }) {
+                Text("⧉", style = MaterialTheme.typography.titleLarge)
+            }
+        }
         Text(result)
         Spacer(Modifier.height(LocalConfiguration.current.screenHeightDp.dp / 2))
     }

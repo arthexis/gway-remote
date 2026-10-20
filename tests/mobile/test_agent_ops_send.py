@@ -13,6 +13,13 @@ class AgentIssueSendTests(unittest.TestCase):
         self.assertFalse(spec["read_only"])
         self.assertEqual(set(spec["arguments"]), {"ref", "at"})
 
+    @patch.object(agent_ops_adapter, "_agent_path", return_value="/usr/bin/agent")
+    @patch.object(agent_ops_adapter.subprocess, "run")
+    def test_cli_failure_preserves_safe_error_code(self, run, _path):
+        run.return_value = Mock(returncode=1, stdout='{"schema_version":1,"command":"issues","status":"error","data":{},"error":{"code":"repository_registry_unavailable"}}')
+        with self.assertRaisesRegex(agent_ops_adapter.AgentOpsError, "agent_repository_registry_unavailable"):
+            agent_ops_adapter.issues({})
+
     def test_invalid_ref_and_timestamp_never_launch(self):
         valid = {"ref": "arthexis/gway-agent-ops#16", "at": "2026-10-13T15:00:00Z"}
         invalid = [
