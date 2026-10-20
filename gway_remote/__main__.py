@@ -301,6 +301,7 @@ def main() -> None:
     from .deploy_dispatch import TARGETS
     deploy_parser.add_argument("repository", nargs="?", choices=TARGETS[1:])
     deploy_parser.add_argument("--all", action="store_true", help="Deploy all repositories")
+    deploy_parser.add_argument("--follow", action="store_true", help="Watch the dispatched workflow until completion")
     batch_parser = subparsers.add_parser("deploy-batch", help="Deploy appliance revisions")
     batch_parser.add_argument("--target", choices=tuple(name for name, _ in DEPLOYMENT_TARGETS), default=None)
     batch_parser.add_argument("--all", action="store_true", help="Explicitly reinstall all latest main revisions regardless of prior attempts or CI")
@@ -461,9 +462,12 @@ def main() -> None:
     if args.command == "deploy":
         if args.all == bool(args.repository):
             parser.error("deploy requires either a repository or --all (not both)")
-        from .deploy_dispatch import dispatch
+        from .deploy_dispatch import dispatch, follow_run
         try:
-            print(dispatch("all" if args.all else args.repository))
+            message = dispatch("all" if args.all else args.repository)
+            print(message, flush=True)
+            if args.follow:
+                follow_run(message)
         except (ValueError, RuntimeError) as exc:
             parser.exit(1, f"gway-remote: {exc}\n")
         return
