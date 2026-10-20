@@ -6,7 +6,7 @@ from pathlib import Path
 from .attempt_policy import plan
 from .attempts import DEFAULT_DIR, attempted_shas, read_attempts, mark
 from .github_state import collect, main_head, ci_for_head
-from .logs import capture_log, log_filename
+from .logs import capture_log, log_filename, read_log
 from .reconcile import TARGETS
 
 LOCK_PATH = DEFAULT_DIR / "appliance.lock"
@@ -73,6 +73,9 @@ def execute(client, now, installers, directory=DEFAULT_DIR, lock_path=None, *, b
                                 verify(name, sha)
                     except Exception as exc:
                         mark(name, sha, "failed", directory, error=exc, log=filename)
+                        tail = read_log(directory, name=name, lines=40)
+                        if tail:
+                            print(f"Installer failure tail for {name} ({filename}):\n{tail}", flush=True)
                         results.append({"name": name, "sha": sha, "status": "failed",
                                         "log": filename, "reason": str(exc)[:500]})
                         continue
