@@ -207,7 +207,7 @@ internal fun CsmsHealthPanel(output: String?) {
 }
 
 @Composable
-internal fun CsmsInspectionPanel(output: String?) {
+internal fun CsmsInspectionPanel(output: String?, view: String = "status") {
     if (output == null) return
     val result = remember(output) { runCatching { JSONObject(output).optJSONObject("result") }.getOrNull() }
     if (result == null) {
@@ -218,11 +218,6 @@ internal fun CsmsInspectionPanel(output: String?) {
         Text("Output truncated to 64 KB", color = MaterialTheme.colorScheme.error)
     }
     val content = result.optString("output", "")
-    val view = remember(output) {
-        runCatching { JSONObject(output).optJSONObject("arguments")?.optString("view") }.getOrNull()
-            ?.takeIf { it.isNotBlank() }
-            ?: "status"
-    }
     CsmsCompactInspection(view, content)
 }
 
