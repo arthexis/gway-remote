@@ -51,10 +51,33 @@ def main_arrival(client: GitHub, repository: str, sha: str):
 
 
 def ci_for_head(client: GitHub, repository: str, sha: str):
-    """Conservative status: all completed push workflow runs for this SHA must pass."""
-    data = client.get(f"repos/{repository}/actions/runs?branch=main&event=push&head_sha={sha}&per_page=100")
+    """Verify successful PR CI of the exact PR merged to this main commit.
+
+    No push CI is required. Fail closed if the merge/PR provenance or CI
+    result is unavailable or ambiguous.
+    """
+    pulls = client.get(f"repos/{repository}/commits/{sha}/pulls")
+    if not isinstance(pulls, list):
+        return "unknown"
+    matches = [pr for pr in pulls
+               if pr.get("merged_at")
+               and (pr.get("merge_commit_sha") or "").lower() == sha.lower()
+               and (pr.get("base") or {}).get("ref") == "main"
+               and (pr.get("base") or {}).get("repo", {}).get("full_name") == repository
+               and (pr.get("head") or {}).get("repo", {}).get("full_name") == repository]
+    if len(matches) != 1:
+        return "unknown"
+    pr = matches[0]
+    head_sha = (pr.get("head") or {}).get("sha") or ""
+    number = pr.get("number")
+    if len(head_sha) != 40 or not all(c in "0123456789abcdefABCDEF" for c in head_sha) or type(number) is not int:
+        return "unknown"
+    data = client.get(
+        f"repos/{repository}/actions/runs?event=pull_request&head_sha={head_sha}&per_page=100")
     runs = [r for r in data.get("workflow_runs", [])
-            if r.get("head_sha", "").lower() == sha.lower()]
+            if r.get("event") == "pull_request"
+            and r.get("head_sha", "").lower() == head_sha.lower()
+            and (not r.get("pull_requests") or any(p.get("number") == number for p in r.get("pull_requests", [])))]
     if not runs:
         return "unknown"
     if any(r.get("status") != "completed" for r in runs):
