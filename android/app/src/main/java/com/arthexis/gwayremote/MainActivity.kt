@@ -465,7 +465,7 @@ fun CompanionScreen(store: SecretStore, appearance: AppearanceMode = AppearanceM
             Text("Update available: ${update!!.version}", style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.primary)
         }
-        val unmatchedCommands = commands.filter { it !in OperationRegistry.operations.mapNotNull { spec -> spec.command }.toSet() && it != "sound-motifs" }
+        val unmatchedCommands = emptyList<String>() // Discovered commands are not palette actions
         OperationPalette(
             state = panelState,
             onOpen = operationModel::open,
@@ -547,7 +547,16 @@ fun CompanionScreen(store: SecretStore, appearance: AppearanceMode = AppearanceM
         }
 
         if (busy) LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
-        Text("Response", style = MaterialTheme.typography.titleMedium)
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically) {
+            Text("Response", style = MaterialTheme.typography.titleMedium)
+            IconButton(enabled = result.isNotBlank(), onClick = {
+                val clipboard = agentUiContext.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                clipboard.setPrimaryClip(ClipData.newPlainText("GWay Remote response", result))
+            }, modifier = Modifier.semantics { contentDescription = "Copy response" }) {
+                Icon(androidx.compose.material.icons.Icons.Filled.ContentCopy, contentDescription = null)
+            }
+        }
         Text(result)
         Spacer(Modifier.height(LocalConfiguration.current.screenHeightDp.dp / 2))
     }
