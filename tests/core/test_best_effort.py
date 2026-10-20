@@ -21,9 +21,13 @@ class GitHub:
                 return {"commit": {"sha": sha}}
             if path == f"repos/{repo}/commits/{sha}":
                 return {"commit": {"committer": {"date": (NOW - timedelta(minutes=21)).isoformat()}}}
+            if path == f"repos/{repo}/commits/{sha}/pulls":
+                return [{"number": 1, "merged_at": "2026-10-09T19:00:00Z",
+                         "merge_commit_sha": sha, "base": {"ref": "main", "repo": {"full_name": repo}},
+                         "head": {"sha": "c" * 40, "repo": {"full_name": repo}}}]
             if path.startswith(f"repos/{repo}/actions/runs?"):
                 return {"workflow_runs": [{
-                    "head_sha": sha,
+                    "event": "pull_request", "head_sha": "c" * 40, "pull_requests": [],
                     "created_at": (NOW - timedelta(minutes=21)).isoformat(),
                     "status": "completed", "conclusion": "success"}]}
         raise AssertionError(path)
