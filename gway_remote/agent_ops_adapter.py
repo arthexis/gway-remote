@@ -1,5 +1,6 @@
 """Narrow adapter to the installed Agent Ops CLI, without shell or queue access."""
 import json
+import os
 import re
 from datetime import datetime, timezone
 from pathlib import Path
