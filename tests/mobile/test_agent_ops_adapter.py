@@ -26,6 +26,10 @@ class AgentOpsAdapterTests(unittest.TestCase):
         self.assertEqual(run.call_args.args[0], ["/usr/local/bin/agent", "issues", "--json"])
         self.assertEqual(run.call_args.kwargs["timeout"], 20)
         self.assertFalse(run.call_args.kwargs["check"])
+        from gway_remote.target_export import export_targets
+        expected = ",".join(t["repository"] for t in export_targets()["targets"])
+        self.assertEqual(run.call_args.kwargs["env"]["GWAY_AGENT_ALLOWED_REPOS"], expected)
+
 
     @patch.object(agent_ops_adapter, "_agent_path", return_value="/usr/local/bin/agent")
     @patch.object(agent_ops_adapter.subprocess, "run")
