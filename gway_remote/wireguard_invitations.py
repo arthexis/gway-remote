@@ -39,6 +39,8 @@ class InvitationStore:
     def __init__(self, database: Path):
         self.database = Path(database)
         self.database.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+        if self.database.is_symlink():
+            raise ValueError("unsafe invitation database")
         self.connection = sqlite3.connect(self.database, timeout=30, isolation_level=None)
         self.connection.row_factory = sqlite3.Row
         self.connection.executescript(SCHEMA)
@@ -79,7 +81,9 @@ class InvitationStore:
     def redeem(self, identity: str, secret: str, *, now: datetime | None = None) -> str | None:
         """Atomically consume a grant. Does not provision any WireGuard peer."""
         now = (now or utcnow()).isoformat()
-        if not isinstance(secret, str) or not isinstance(identity, str):
+        if (not isinstance(secret, str) or not isinstance(identity, str) or
+                not re.fullmatch(r"[A-Za-z0-9_-]{32,128}", secret) or
+                not re.fullmatch(r"[0-9a-f]{32}", identity)):
             return None
         with self.connection:
             self.connection.execute("BEGIN IMMEDIATE")
