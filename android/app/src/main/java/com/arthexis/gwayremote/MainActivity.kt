@@ -28,6 +28,7 @@ import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsControllerCompat
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
@@ -554,7 +555,7 @@ fun CompanionScreen(store: SecretStore, appearance: AppearanceMode = AppearanceM
                 val clipboard = agentUiContext.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
                 clipboard.setPrimaryClip(ClipData.newPlainText("GWay Remote response", result))
             }, modifier = Modifier.semantics { contentDescription = "Copy response" }) {
-                Icon(androidx.compose.material.icons.Icons.Filled.ContentCopy, contentDescription = null)
+                Text("⧉", style = MaterialTheme.typography.titleLarge)
             }
         }
         Text(result)
