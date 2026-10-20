@@ -46,18 +46,17 @@ internal fun AgentAssignmentsSection(
         localAgent.takeIf { targetPattern.matches(it) }.orEmpty())
         .filter { it.isNotBlank() }.distinct().sorted()
     val otherLabels = availableLabels.filterNot { targetPattern.matches(it) }.sorted()
-    var instanceFilter by remember { mutableStateOf("") }
+    // Default to the backend's identity, never to the unrestricted view.
+    // Preserve a user-selected alternative across refreshes of the same agent.
+    var instanceFilter by remember(localAgent) { mutableStateOf(localAgent) }
     var labelFilter by remember { mutableStateOf("") }
-    LaunchedEffect(localAgent) {
-        if (localAgent.isNotBlank() && instanceFilter.isBlank()) instanceFilter = localAgent
-    }
     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         Box(Modifier.weight(1f)) {
             var expandedInstances by remember { mutableStateOf(false) }
             OutlinedButton(
                 onClick = { expandedInstances = true },
                 modifier = Modifier.fillMaxWidth()
-            ) { Text(when (instanceFilter) { "", "*" -> "All instances"; "-" -> "Unassigned"; else -> instanceFilter },
+            ) { Text(when (instanceFilter) { "*" -> "All instances"; "" -> "Agent unavailable"; "-" -> "Unassigned"; else -> instanceFilter },
                      maxLines = 1) }
             DropdownMenu(expanded = expandedInstances,
                          onDismissRequest = { expandedInstances = false }) {
@@ -97,7 +96,7 @@ internal fun AgentAssignmentsSection(
         val labels = issue.optJSONArray("labels")
         val names = (0 until (labels?.length() ?: 0)).map { labels!!.optString(it) }.toSet()
         val instanceMatches = when (instanceFilter) {
-            "*", "" -> true
+            "*" -> true\n            "" -> false
             "-" -> names.none { targetPattern.matches(it) }
             else -> instanceFilter in names
         }
