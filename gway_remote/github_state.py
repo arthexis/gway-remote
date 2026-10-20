@@ -77,7 +77,7 @@ def ci_for_head(client: GitHub, repository: str, sha: str):
     runs = [r for r in data.get("workflow_runs", [])
             if r.get("event") == "pull_request"
             and r.get("head_sha", "").lower() == head_sha.lower()
-            and any(p.get("number") == number for p in r.get("pull_requests", []))]
+            and (not r.get("pull_requests") or any(p.get("number") == number for p in r.get("pull_requests", [])))]
     if not runs:
         return "unknown"
     if any(r.get("status") != "completed" for r in runs):
