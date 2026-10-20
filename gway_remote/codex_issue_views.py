@@ -23,7 +23,8 @@ def list_assignments(*, token=None, ledger_path=None, fetcher=fetch_issues):
         for repo in sorted(ALLOWED):
             # GitHub is the source of truth: never substitute cached local tasks.
             issues = list(fetcher(repo, token))
-            labels_by_number = {issue.get("number"): issue.get("labels", []) for issue in issues\n                                if isinstance(issue, dict)}
+            labels_by_number = {issue.get("number"): issue.get("labels", []) for issue in issues
+                                if isinstance(issue, dict)}
             for row in ordered_issues(issues, repo, ledger):
                 row["repository"] = repo
                 row["labels"] = sorted({label["name"] for label in labels_by_number.get(row["number"], [])
