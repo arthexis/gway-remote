@@ -39,7 +39,7 @@ class DeployDispatchTests(unittest.TestCase):
 
     @patch("gway_remote.deploy_dispatch.subprocess.run")
     def test_follow_watches_exact_run_and_propagates_failure(self, run):
-        message = ("Requested ocpp-csms deployment: workflow run 39106912358\\n"
+        message = ("Requested ocpp-csms deployment: workflow run 39106912358\n"
                    "https://github.com/arthexis/gway-remote/actions/runs/39106912358")
         follow_run(message)
         self.assertEqual(run.call_args.args[0], [
