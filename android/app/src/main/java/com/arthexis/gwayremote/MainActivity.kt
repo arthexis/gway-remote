@@ -480,6 +480,7 @@ fun CompanionScreen(store: SecretStore, appearance: AppearanceMode = AppearanceM
             systemStatus = operationModel.systemStatus,
             onRefreshSystem = operationModel::refreshSystem,
             agentAssignments = agentIssues,
+            agentInstance = agentModel.localAgent,
             agentAssignmentsLoading = agentIssuesLoading,
             agentAssignmentsError = agentIssuesError,
             onRefreshAgentAssignments = agentModel::refreshAssignments,
