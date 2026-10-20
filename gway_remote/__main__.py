@@ -307,6 +307,10 @@ def main() -> None:
     batch_parser.add_argument("--all", action="store_true", help="Explicitly reinstall all latest main revisions regardless of prior attempts or CI")
     batch_parser.add_argument("--now", action="store_true", help="Bypass quiet period for operator-requested batch")
     batch_parser.add_argument("--retry-failed", action="store_true", help="Explicitly retry failed revisions, never installed or interrupted ones")
+    wg_parser = subparsers.add_parser("wireguard", help="Configure WireGuard registration origin")
+    wg_parser.add_argument("action", choices=("endpoint",))
+    wg_parser.add_argument("operation", choices=("show", "set"))
+    wg_parser.add_argument("value", nargs="?")
     worker_parser = subparsers.add_parser("codex", aliases=["codex-worker"], help="Codex worker and task inspection")
     worker_parser.add_argument("action", choices=("serve", "status", "tasks", "task", "submit", "discover", "veto", "unveto", "approve", "next"))
     worker_parser.add_argument("task_id", nargs="?")
@@ -320,6 +324,18 @@ def main() -> None:
     api_parser.add_argument("--host", default="127.0.0.1")
     api_parser.add_argument("--port", type=int, default=8765)
     args = parser.parse_args()
+    if args.command == "wireguard":
+        from .wireguard_endpoint import endpoint, set_endpoint
+        if args.operation == "set" and not args.value:
+            parser.error("wireguard endpoint set requires an HTTPS origin")
+        if args.operation == "show" and args.value:
+            parser.error("wireguard endpoint show takes no value")
+        try:
+            result = set_endpoint(args.value) if args.operation == "set" else endpoint()
+        except (ValueError, OSError) as exc:
+            parser.exit(1, f"gway-remote: WireGuard endpoint unavailable: {exc}\\n")
+        print(json.dumps(result, sort_keys=True))
+        return
     if args.command == "deploy-targets":
         from .target_export import export_targets
         data = export_targets()
