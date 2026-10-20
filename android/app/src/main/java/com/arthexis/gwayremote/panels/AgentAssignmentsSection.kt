@@ -19,6 +19,7 @@ import org.json.JSONObject
 @Composable
 internal fun AgentAssignmentsSection(
     issues: List<JSONObject>,
+    localAgent: String,
     loading: Boolean,
     error: String,
     onRefresh: () -> Unit,
@@ -34,7 +35,76 @@ internal fun AgentAssignmentsSection(
     if (!expanded) return
     if (loading) LinearProgressIndicator(Modifier.fillMaxWidth())
     if (error.isNotBlank()) Text(error, color = MaterialTheme.colorScheme.error)
-    issues.forEach { issue ->
+    val targetPattern = remember { Regex("^gway-[0-9]+$") }
+    val availableLabels = issues.flatMap { issue ->
+        val labels = issue.optJSONArray("labels")
+        (0 until (labels?.length() ?: 0)).mapNotNull { index ->
+            labels?.optString(index)?.takeIf { it.isNotBlank() }
+        }
+    }.toSet()
+    val instances = (availableLabels.filter { targetPattern.matches(it) } +
+        localAgent.takeIf { targetPattern.matches(it) }.orEmpty())
+        .filter { it.isNotBlank() }.distinct().sorted()
+    val otherLabels = availableLabels.filterNot { targetPattern.matches(it) }.sorted()
+    var instanceFilter by remember { mutableStateOf("") }
+    var labelFilter by remember { mutableStateOf("") }
+    LaunchedEffect(localAgent) {
+        if (localAgent.isNotBlank() && instanceFilter.isBlank()) instanceFilter = localAgent
+    }
+    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        Box(Modifier.weight(1f)) {
+            var expandedInstances by remember { mutableStateOf(false) }
+            OutlinedButton(
+                onClick = { expandedInstances = true },
+                modifier = Modifier.fillMaxWidth()
+            ) { Text(when (instanceFilter) { "", "*" -> "All instances"; "-" -> "Unassigned"; else -> instanceFilter },
+                     maxLines = 1) }
+            DropdownMenu(expanded = expandedInstances,
+                         onDismissRequest = { expandedInstances = false }) {
+                DropdownMenuItem(text = { Text("All instances") }, onClick = {
+                    instanceFilter = "*"; expandedInstances = false
+                })
+                DropdownMenuItem(text = { Text("Unassigned") }, onClick = {
+                    instanceFilter = "-"; expandedInstances = false
+                })
+                instances.forEach { name ->
+                    DropdownMenuItem(text = { Text(name) }, onClick = {
+                        instanceFilter = name; expandedInstances = false
+                    })
+                }
+            }
+        }
+        Box(Modifier.weight(1f)) {
+            var expandedLabels by remember { mutableStateOf(false) }
+            OutlinedButton(onClick = { expandedLabels = true },
+                           modifier = Modifier.fillMaxWidth()) {
+                Text(if (labelFilter.isBlank()) "All labels" else labelFilter, maxLines = 1)
+            }
+            DropdownMenu(expanded = expandedLabels,
+                         onDismissRequest = { expandedLabels = false }) {
+                DropdownMenuItem(text = { Text("All labels") }, onClick = {
+                    labelFilter = ""; expandedLabels = false
+                })
+                otherLabels.forEach { name ->
+                    DropdownMenuItem(text = { Text(name) }, onClick = {
+                        labelFilter = name; expandedLabels = false
+                    })
+                }
+            }
+        }
+    }
+    val visibleIssues = issues.filter { issue ->
+        val labels = issue.optJSONArray("labels")
+        val names = (0 until (labels?.length() ?: 0)).map { labels!!.optString(it) }.toSet()
+        val instanceMatches = when (instanceFilter) {
+            "*", "" -> true
+            "-" -> names.none { targetPattern.matches(it) }
+            else -> instanceFilter in names
+        }
+        instanceMatches && (labelFilter.isBlank() || labelFilter in names)
+    }
+    Text("${visibleIssues.size} of ${issues.size} issues", style = MaterialTheme.typography.bodySmall)
+    visibleIssues.forEach { issue ->
         val url = issue.optString("url")
         val state = issue.optString("state", "queued")
         val sent = issue.optString("sent_at")

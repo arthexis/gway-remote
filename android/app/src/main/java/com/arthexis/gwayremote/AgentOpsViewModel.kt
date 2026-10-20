@@ -46,6 +46,8 @@ class AgentOpsViewModel : ViewModel() {
         private set
     var issuesError by mutableStateOf("")
         private set
+    var localAgent by mutableStateOf("")
+        private set
     var issues by mutableStateOf(listOf<JSONObject>())
         private set
 
@@ -123,7 +125,9 @@ class AgentOpsViewModel : ViewModel() {
         viewModelScope.launch {
             try {
                 val response = request(AgentOpsRequests.assignments())
-                val entries = response.getJSONObject("result").getJSONArray("issues")
+                val data = response.getJSONObject("result")
+                localAgent = data.optString("agent", "").lowercase()
+                val entries = data.getJSONArray("issues")
                 issues = (0 until entries.length()).map { entries.getJSONObject(it) }
                 issuesError = ""
             } catch (e: CancellationException) {

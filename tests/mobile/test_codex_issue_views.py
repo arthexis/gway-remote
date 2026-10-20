@@ -40,6 +40,20 @@ class MobileIssueTests(unittest.TestCase):
             self.assertEqual(attended["comments"], 3)
             self.assertEqual(attended["url"], f"https://github.com/{REPO}/issues/41")
 
+    def test_labels_and_instance_are_projected_without_dispatch_changes(self):
+        from unittest.mock import patch
+        with tempfile.TemporaryDirectory() as root:
+            target = issue(72)
+            target["labels"] += [{"name": "gway-001"}, {"name": "bug"}]
+            def fetch(repo, token):
+                return [target] if repo == REPO else []
+            with patch("gway_remote.codex_issue_views.socket.gethostname", return_value="GWAY-001"):
+                payload = list_assignments(token="test", ledger_path=Path(root)/"dispatch.sqlite",
+                                           fetcher=fetch)
+            self.assertEqual(payload["agent"], "gway-001")
+            self.assertEqual(payload["issues"][0]["labels"], ["bug", "gway-001", "local-agent"])
+            self.assertEqual(payload["issues"][0]["state"], "queued")
+
     def test_missing_token_and_failed_fetch_do_not_return_old_local_results(self):
         with self.assertRaisesRegex(RuntimeError, "github_token"):
             list_assignments(token="")
