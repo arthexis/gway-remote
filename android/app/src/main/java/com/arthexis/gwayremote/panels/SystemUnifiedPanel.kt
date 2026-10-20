@@ -24,8 +24,5 @@ internal fun SystemUnifiedPanel(
     if (check.loading) LinearProgressIndicator(Modifier.fillMaxWidth())
     check.error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
     check.output?.let { GenericResultRenderer(it) }
-    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        OutlinedButton(onClick = { refresh(selected) }) { Text("Refresh $title") }
-        OutlinedButton(onClick = { refresh(null) }) { Text("Refresh both") }
-    }
+
 }

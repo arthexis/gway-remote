@@ -50,10 +50,12 @@ class ComposePanelsTest {
 
     @Test fun csmsSelectorKeepsInspectionInsideUnifiedCard() {
         var inspected: String? = null
+        var selected by mutableStateOf<String?>(null)
         rule.setContent {
             val panel = OperationPanelState().open("csms").state.panels.single()
             MaterialTheme {
-                CsmsUnifiedPanel(panel, onRefresh = {}, onInspect = { inspected = it })
+                CsmsUnifiedPanel(panel, onRefresh = {}, onInspect = { inspected = it },
+                    selectedView = selected, onSelectView = { selected = it })
             }
         }
         rule.onNodeWithText("Inspect: status", substring = true).performClick()
@@ -91,12 +93,12 @@ class ComposePanelsTest {
             MaterialTheme {
                 SimulatorUnifiedPanel(panel, "unknown", onInput = { _, _, _ -> },
                     onRead = { command, _ -> reads.add(command) },
-                    onCommand = { command, _ -> commands.add(command) })
+                    onCommand = { command, _ -> commands.add(command) },
+                    onSelectRead = { reads.add(it) })
             }
         }
-        rule.onNodeWithText("Refresh status").performClick()
+        rule.onNodeWithText("Status").performClick()
         rule.onNodeWithText("Results").performClick()
-        rule.onNodeWithText("Load results").performClick()
         rule.runOnIdle {
             assertEquals(listOf("simulator-status", "simulator-results"), reads)
             assertTrue(commands.isEmpty())

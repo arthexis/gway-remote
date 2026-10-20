@@ -12,40 +12,39 @@ import org.json.JSONObject
 internal fun CsmsUnifiedPanel(
     panel: OperationPanel,
     onRefresh: (String) -> Unit,
-    onInspect: (String) -> Unit
+    onInspect: (String) -> Unit,
+    selectedView: String?,
+    onSelectView: (String) -> Unit
 ) {
     val views = listOf("status", "chargers", "charge-points", "transactions",
         "events", "alerts", "rfid-report", "report")
-    var selectedView by remember(panel.id) { mutableStateOf("status") }
+    val visibleView = selectedView ?: "status"
     var menuOpen by remember(panel.id) { mutableStateOf(false) }
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            Button(enabled = !panel.loading, onClick = { onRefresh(panel.id) }) {
-                Text("Health")
-            }
             Box {
                 OutlinedButton(onClick = { menuOpen = true }) {
-                    Text("Inspect: $selectedView ▾", maxLines = 2)
+                    Text("Inspect: $visibleView ▾", maxLines = 2)
                 }
                 DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
                     views.forEach { view ->
                         DropdownMenuItem(text = { Text(view) }, onClick = {
-                            selectedView = view
+                            onSelectView(view)
                             menuOpen = false
                         })
                     }
                 }
             }
         }
-        Button(enabled = !panel.loading, onClick = { onInspect(selectedView) }) {
-            Text("Inspect $selectedView")
+        Button(enabled = !panel.loading, onClick = { onInspect(visibleView) }) {
+            Text("Inspect $visibleView")
         }
         panel.output?.let { output ->
             val response = remember(output) {
                 runCatching { JSONObject(output) }.getOrNull()
             }
             if (response?.optString("command") == "csms-view") {
-                CsmsInspectionPanel(output)
+                CsmsInspectionPanel(output, visibleView)
             } else {
                 CsmsHealthPanel(output)
             }

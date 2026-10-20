@@ -28,6 +28,8 @@ fun OperationPalette(
     onMove: (String, Int) -> Unit,
     onRefresh: (String) -> Unit,
     onCsmsInspect: (String) -> Unit,
+    csmsView: String?,
+    onSelectCsmsView: (String) -> Unit,
     apiHealth: OperationViewModel.SystemCheck,
     systemStatus: OperationViewModel.SystemCheck,
     onRefreshSystem: (String?) -> Unit,
@@ -42,6 +44,7 @@ fun OperationPalette(
     simulatorStatus: String,
     onSimulatorCommand: (String, JSONObject) -> Unit,
     onSimulatorRead: (String, JSONObject) -> Unit,
+    onSelectSimulatorRead: (String) -> Unit,
     onSelectSimulatorPeer: (String, String) -> Unit,
     onInspectTask: (String) -> Unit,
     taskDetail: String?,
@@ -53,6 +56,8 @@ fun OperationPalette(
     agentAssignmentsError: String,
     onRefreshAgentAssignments: () -> Unit,
     onAgentAssignmentsError: (String) -> Unit,
+    agentAssignmentsExpanded: Boolean,
+    onAgentAssignmentsExpanded: (Boolean) -> Unit,
     agentSendLoading: Boolean,
     agentSendResult: String?,
     agentSendError: String?,
@@ -69,6 +74,7 @@ fun OperationPalette(
         OperationPanelHost(
             state = state, onClose = onClose, onMove = onMove,
             onRefresh = onRefresh, onCsmsInspect = onCsmsInspect,
+            csmsView = csmsView, onSelectCsmsView = onSelectCsmsView,
             apiHealth = apiHealth, systemStatus = systemStatus, onRefreshSystem = onRefreshSystem,
             onInput = onInput, onExecute = onExecute,
             motifs = motifs,
@@ -78,6 +84,7 @@ fun OperationPalette(
             simulatorStatus = simulatorStatus,
             onSimulatorCommand = onSimulatorCommand,
             onSimulatorRead = onSimulatorRead,
+            onSelectSimulatorRead = onSelectSimulatorRead,
             onSelectSimulatorPeer = onSelectSimulatorPeer,
             onInspectTask = onInspectTask,
             taskDetail = taskDetail,
@@ -89,6 +96,8 @@ fun OperationPalette(
             agentAssignmentsError = agentAssignmentsError,
             onRefreshAgentAssignments = onRefreshAgentAssignments,
             onAgentAssignmentsError = onAgentAssignmentsError,
+            agentAssignmentsExpanded = agentAssignmentsExpanded,
+            onAgentAssignmentsExpanded = onAgentAssignmentsExpanded,
             agentSendLoading = agentSendLoading,
             agentSendResult = agentSendResult,
             agentSendError = agentSendError,
@@ -198,7 +207,7 @@ internal fun CsmsHealthPanel(output: String?) {
 }
 
 @Composable
-internal fun CsmsInspectionPanel(output: String?) {
+internal fun CsmsInspectionPanel(output: String?, view: String = "status") {
     if (output == null) return
     val result = remember(output) { runCatching { JSONObject(output).optJSONObject("result") }.getOrNull() }
     if (result == null) {
@@ -209,8 +218,7 @@ internal fun CsmsInspectionPanel(output: String?) {
         Text("Output truncated to 64 KB", color = MaterialTheme.colorScheme.error)
     }
     val content = result.optString("output", "")
-    Text(if (content.isBlank()) "No inspection output returned" else content,
-        style = MaterialTheme.typography.bodySmall)
+    CsmsCompactInspection(view, content)
 }
 
 internal val TASK_UUID = Regex("[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}")

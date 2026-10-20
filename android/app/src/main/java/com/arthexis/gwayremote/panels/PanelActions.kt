@@ -16,10 +16,7 @@ internal fun PanelActions(
     motifs: List<String>
 ) {
     when (spec.policy) {
-        ExecutionPolicy.AUTO_READ ->
-            TextButton(onClick = { onRefresh(panel.id) }, enabled = !panel.loading) {
-                Text("Refresh")
-            }
+        ExecutionPolicy.AUTO_READ -> Unit // Pull-to-refresh owns safe reads.
         ExecutionPolicy.EXPLICIT_INPUT -> {
             if (panel.id == "task-detail") {
                 val taskId = panel.inputs["task_id"].orEmpty()

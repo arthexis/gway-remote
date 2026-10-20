@@ -18,6 +18,8 @@ internal fun OperationPanelHost(
     onMove: (String, Int) -> Unit,
     onRefresh: (String) -> Unit,
     onCsmsInspect: (String) -> Unit,
+    csmsView: String?,
+    onSelectCsmsView: (String) -> Unit,
     apiHealth: OperationViewModel.SystemCheck,
     systemStatus: OperationViewModel.SystemCheck,
     onRefreshSystem: (String?) -> Unit,
@@ -32,6 +34,7 @@ internal fun OperationPanelHost(
     simulatorStatus: String,
     onSimulatorCommand: (String, JSONObject) -> Unit,
     onSimulatorRead: (String, JSONObject) -> Unit,
+    onSelectSimulatorRead: (String) -> Unit,
     onSelectSimulatorPeer: (String, String) -> Unit,
     onInspectTask: (String) -> Unit,
     taskDetail: String?,
@@ -43,6 +46,8 @@ internal fun OperationPanelHost(
     agentAssignmentsError: String,
     onRefreshAgentAssignments: () -> Unit,
     onAgentAssignmentsError: (String) -> Unit,
+    agentAssignmentsExpanded: Boolean,
+    onAgentAssignmentsExpanded: (Boolean) -> Unit,
     agentSendLoading: Boolean,
     agentSendResult: String?,
     agentSendError: String?,
@@ -69,7 +74,7 @@ internal fun OperationPanelHost(
                 } else if (panel.id == "system") {
                     SystemUnifiedPanel(apiHealth, systemStatus, onRefreshSystem)
                 } else if (panel.id == "csms") {
-                    CsmsUnifiedPanel(panel, onRefresh, onCsmsInspect)
+                    CsmsUnifiedPanel(panel, onRefresh, onCsmsInspect, csmsView, onSelectCsmsView)
                 } else if (panel.id == "tasks") {
                     TasksUnifiedPanel(panel, taskDetail, taskDetailLoading, taskDetailError, taskDetailSelection, onInspectTask)
                 } else PanelContent(
@@ -91,7 +96,9 @@ internal fun OperationPanelHost(
                         loading = agentAssignmentsLoading,
                         error = agentAssignmentsError,
                         onRefresh = onRefreshAgentAssignments,
-                        onError = onAgentAssignmentsError
+                        onError = onAgentAssignmentsError,
+                        expanded = agentAssignmentsExpanded,
+                        onExpandedChange = onAgentAssignmentsExpanded
                     )
                 }
                 if (panel.id != "notifications" && panel.id != "system" && panel.id != "csms" && panel.id != "tasks") PanelActions(spec = spec, panel = panel, onRefresh = onRefresh, onInput = onInput, onExecute = onExecute, motifs = motifs)
@@ -101,7 +108,8 @@ internal fun OperationPanelHost(
                         status = simulatorStatus,
                         onInput = onInput,
                         onRead = onSimulatorRead,
-                        onCommand = onSimulatorCommand
+                        onCommand = onSimulatorCommand,
+                        onSelectRead = onSelectSimulatorRead
                     )
                 }
                 if (spec.policy == ExecutionPolicy.AUTO_READ || panel.id == "task-detail" || panel.id == "csms-view" || panel.id == "lcd" || panel.id == "sound" || panel.id == "simulator") {
