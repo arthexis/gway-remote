@@ -58,7 +58,7 @@ def execute(client, now, installers, directory=DEFAULT_DIR, lock_path=None, *, b
                     ci = ci_for_head(client, repo, sha)
                     if ci != "success":
                         results.append({"name": name, "sha": sha, "status": "blocked",
-                                        "reason": f"main CI {ci}; successful main CI required"})
+                                        "reason": f"merged PR CI {ci}; successful merged PR CI required"})
                         continue
                     if main_head(client, repo).lower() != sha.lower():
                         results.append({"name": name, "sha": sha, "status": "blocked",
