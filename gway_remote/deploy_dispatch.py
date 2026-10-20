@@ -48,3 +48,31 @@ def dispatch(target: str) -> str:
     return (f"Requested {target} deployment through "
             f"https://github.com/{REPOSITORY}/actions/workflows/{WORKFLOW}"
             " (request accepted; run ID unavailable; installation result pending)")
+
+
+def follow_run(message: str) -> None:
+    """Watch only the exact run returned by the dispatch response.
+
+    GitHub CLI renders live job/step progress to the operator's terminal.
+    No fallback to an ambiguous 'latest run' is permitted.
+    """
+    import re
+    match = re.search(r"workflow run ([1-9][0-9]*)\n", message)
+    if match is None:
+        raise RuntimeError(
+            "Cannot follow deployment: GitHub did not return a workflow run ID. "
+            "Use the workflow URL above to inspect the request."
+        )
+    run_id = match.group(1)
+    try:
+        subprocess.run(
+            ["gh", "run", "watch", run_id, "--repo", REPOSITORY,
+             "--exit-status", "--interval", "3"],
+            check=True, timeout=7200,
+        )
+    except FileNotFoundError as exc:
+        raise RuntimeError("GitHub CLI (gh) is required to follow deployments") from exc
+    except subprocess.TimeoutExpired as exc:
+        raise RuntimeError(f"Timed out following deployment run {run_id}; it may still be running") from exc
+    except subprocess.CalledProcessError as exc:
+        raise RuntimeError(f"Deployment run {run_id} failed or could not be watched (exit {exc.returncode})") from exc
