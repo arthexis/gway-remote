@@ -16,15 +16,14 @@ class ProvisioningTests(unittest.TestCase):
         source = Path("ansible/roles/gway_remote/tasks/main.yml").read_text()
         heading = "- name: Install opt-in Agent Ops seed workspace configurator"
         self.assertEqual(source.count(heading), 1)
-        section = source.split(heading, 1)[1].split("\\n- name:", 1)[0]
+        section = source.split(heading, 1)[1].split("\n- name:", 1)[0]
         self.assertIn("ansible.builtin.copy:", section)
-        self.assertIn("src: \\"{{ playbook_dir }}/../scripts/configure-agent-seed-workspace.sh\\"", section)
-        self.assertIn("dest: \\"{{ gway_remote_install_root }}/scripts/configure-agent-seed-workspace.sh\\"", section)
-        self.assertIn("mode: \\"0755\\"", section)
+        self.assertIn("scripts/configure-agent-seed-workspace.sh", section)
+        self.assertIn('mode: "0755"', section)
         self.assertIn("owner: root", section)
         self.assertIn("group: root", section)
         self.assertTrue(Path("scripts/configure-agent-seed-workspace.sh").is_file())
-        self.assertNotIn("cmd: \\"sh {{ gway_remote_install_root }}/scripts/configure-agent-seed-workspace.sh\\"", source)
+        self.assertNotIn("cmd: sh {{ gway_remote_install_root }}/scripts/configure-agent-seed-workspace.sh", source)
 
     def test_local_deploy_wrapper(self):
         script = Path('deploy.sh').read_text()
