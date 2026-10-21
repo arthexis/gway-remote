@@ -85,6 +85,7 @@ fun CompanionScreen(store: SecretStore, appearance: AppearanceMode = AppearanceM
     val agentObserveLoading = agentModel.observeLoading
     val agentObserveResult = agentModel.observeResult
     val agentObserveError = agentModel.observeError
+    var deploymentsOpen by remember { mutableStateOf(false) }
     var endpoint by remember { mutableStateOf(store.endpoint.ifBlank { "https://remote.arthexis.com" }) }
     var token by remember { mutableStateOf(store.token) }
     var result by remember { mutableStateOf("Configure HTTPS endpoint and token") }
@@ -538,6 +539,9 @@ fun CompanionScreen(store: SecretStore, appearance: AppearanceMode = AppearanceM
                 PaletteAction("server-" + name, name, "list", { perform("/api/v1/execute", name) }, !busy)
             }
         )
+        if (deploymentsOpen) {
+            DeploymentsPanel(endpoint = endpoint, token = token)
+        }
         if (githubHealthOpen) {
             GitHubHealthPanel(endpoint = endpoint, token = token)
         }
