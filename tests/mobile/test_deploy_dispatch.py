@@ -18,7 +18,7 @@ class DeploymentDispatchTests(unittest.TestCase):
             self.assertEqual(first["state"], "unconfirmed")
             self.assertIsNone(first["run_id"])
             self.assertEqual(dispatch(args, sender=sender, journal=journal, lock=lock), first)
-            sender.assert_called_once_with("all")
+            sender.assert_called_once_with("all", KEY)
             with self.assertRaisesRegex(ValueError, "deployment_dispatch_unresolved"):
                 dispatch({**args, "request_id": "b" * 32},
                          sender=sender, journal=journal, lock=lock)
