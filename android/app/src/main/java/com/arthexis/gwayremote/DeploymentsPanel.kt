@@ -14,6 +14,7 @@ import org.json.JSONObject
 import java.util.UUID
 
 /** Manual deployment control; polling never dispatches. */
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun DeploymentsPanel(endpoint: String, token: String) {
     val context = LocalContext.current
