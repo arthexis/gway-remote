@@ -153,7 +153,7 @@ jobs:
           python3 -m gway_remote deploy-batch --all --target gway-rfid
 
   gway_bastion:
-    name: Stage gway-bastion (inactive)
+    name: Deploy gway-bastion (stage-only)
     needs: gway_rfid
     if: ${{ always() && github.event_name == 'workflow_dispatch' && github.actor == 'arthexis' && (inputs.repository == 'all' || inputs.repository == 'gway-bastion') }}
     runs-on: [self-hosted, Linux, ARM64, gway-001]
