@@ -8,7 +8,7 @@ class AgentOpsRequestsTest {
         assertEquals("agent-observe", AgentOpsRequests.observe("owner/repo#12", "now").command)
         assertEquals("agent-preview", AgentOpsRequests.preview("owner/repo#12").command)
         assertEquals("agent-issue", AgentOpsRequests.send("owner/repo#12", "now").command)
-        assertEquals("codex-issues", AgentOpsRequests.assignments().command)
+        assertEquals("agent-issues", AgentOpsRequests.assignments().command)
         assertEquals("/api/v1/execute", AgentOpsRequests.assignments().path)
     }
 
