@@ -482,8 +482,7 @@ internal fun AgentOpsPanel(
                     val validUrl = expectedUrl.isNotEmpty() && issueUrl == expectedUrl
                     // A cached projection is advisory; Agent Ops independently
                     // rechecks fresh labels before submission and execution.
-                    val eligible = issue.optBoolean("eligible", false) &&
-                        labels(issue).contains("gway-001")
+                    val eligible = agentIssueEligible(issue)
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         TextButton(enabled = validUrl, onClick = {
                             runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(issueUrl))) }
