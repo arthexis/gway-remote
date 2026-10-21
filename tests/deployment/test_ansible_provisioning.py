@@ -11,6 +11,15 @@ class ProvisioningTests(unittest.TestCase):
         self.assertNotIn("deploy-batch", tasks)
         self.assertNotIn("systemctl", tasks)
 
+    def test_agent_workspace_installer_is_shipped_but_not_executed(self):
+        tasks = Path("ansible/roles/gway_remote/tasks/main.yml").read_text()
+        script = "configure-agent-seed-workspace.sh"
+        self.assertTrue((Path("scripts") / script).is_file())
+        self.assertIn('src: "{{ playbook_dir }}/../scripts/' + script + '"', tasks)
+        self.assertIn('dest: "{{ gway_remote_install_root }}/scripts/' + script + '"', tasks)
+        self.assertIn('mode: "0755"', tasks)
+        self.assertNotIn("sh {{ gway_remote_install_root }}/scripts/" + script, tasks)
+
     def test_local_deploy_wrapper(self):
         script = Path('deploy.sh').read_text()
         self.assertIn('ansible-playbook', script)
