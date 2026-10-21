@@ -16,7 +16,8 @@ SIM_REPOSITORY = "arthexis/ocpp-simulator"
 AGENT_REPOSITORY = "arthexis/gway-agent-ops"
 KIOSK_REPOSITORY = "arthexis/gway-ap-kiosk"
 RFID_REPOSITORY = "arthexis/gway-rfid"
-TASKS = ("system-health", "ocpp-simulator", "lcd-sound-deploy", "ocpp-csms-deploy", "ocpp-reports-deploy", "ocpp-simulator-deploy", "agent-ops-deploy", "ap-kiosk-deploy", "rfid-deploy")
+BASTION_REPOSITORY = "arthexis/gway-bastion"
+TASKS = ("system-health", "ocpp-simulator", "lcd-sound-deploy", "ocpp-csms-deploy", "ocpp-reports-deploy", "ocpp-simulator-deploy", "agent-ops-deploy", "ap-kiosk-deploy", "rfid-deploy", "bastion-deploy")
 
 
 def validate(task: str, repository: str = "", sha: str = "") -> None:
@@ -31,6 +32,7 @@ def validate(task: str, repository: str = "", sha: str = "") -> None:
                 "agent-ops-deploy": AGENT_REPOSITORY,
                 "ap-kiosk-deploy": KIOSK_REPOSITORY,
                 "rfid-deploy": RFID_REPOSITORY,
+                "bastion-deploy": BASTION_REPOSITORY,
                 "ocpp-reports-deploy": REPORTS_REPOSITORY}.get(task, ALLOWED_REPOSITORY)
     if repository != expected:
         raise ValueError("Repository not allowed")
@@ -49,7 +51,7 @@ def run(task: str, repository: str = "", sha: str = "") -> None:
         }, sort_keys=True))
         return
 
-    if task in ("lcd-sound-deploy", "ocpp-csms-deploy", "ocpp-reports-deploy", "ocpp-simulator-deploy", "agent-ops-deploy", "ap-kiosk-deploy", "rfid-deploy"):
+    if task in ("lcd-sound-deploy", "ocpp-csms-deploy", "ocpp-reports-deploy", "ocpp-simulator-deploy", "agent-ops-deploy", "ap-kiosk-deploy", "rfid-deploy", "bastion-deploy"):
         from .best_effort import manual_execute
         from .github_state import GitHub
         installer = {
@@ -60,6 +62,7 @@ def run(task: str, repository: str = "", sha: str = "") -> None:
             "agent-ops-deploy": deploy_agent_ops,
             "ap-kiosk-deploy": deploy_ap_kiosk,
             "rfid-deploy": deploy_rfid,
+            "bastion-deploy": deploy_bastion,
         }[task]
         name = {"lcd-sound-deploy": "gway-lcd-sound",
                 "ocpp-csms-deploy": "ocpp-csms",
@@ -67,7 +70,8 @@ def run(task: str, repository: str = "", sha: str = "") -> None:
                 "ocpp-simulator-deploy": "ocpp-simulator",
                 "agent-ops-deploy": "gway-agent-ops",
                 "ap-kiosk-deploy": "gway-ap-kiosk",
-                "rfid-deploy": "gway-rfid"}[task]
+                "rfid-deploy": "gway-rfid",
+                "bastion-deploy": "gway-bastion"}[task]
         print(json.dumps(manual_execute(GitHub(), name, sha, installer), sort_keys=True))
         return
 
@@ -220,6 +224,27 @@ def deploy_rfid(sha: str) -> None:
         if actual.lower() != sha.lower():
             raise ValueError("RFID checkout SHA mismatch")
         subprocess.run(["sh", "./deploy.sh"], cwd=source, check=True, timeout=900)
+
+
+
+def deploy_bastion(sha: str) -> None:
+    """Stage Bastion only; never switch active security commands or services."""
+    with tempfile.TemporaryDirectory(prefix="bastion-deploy-") as directory:
+        source = Path(directory) / "source"
+        subprocess.run(["git", "clone", "--quiet", "--no-checkout",
+                        "https://github.com/arthexis/gway-bastion.git", str(source)],
+                       check=True, timeout=180)
+        subprocess.run(["git", "-C", str(source), "checkout", "--detach", sha],
+                       check=True, timeout=60)
+        actual = subprocess.check_output(["git", "-C", str(source), "rev-parse", "HEAD"],
+                                         text=True, timeout=20).strip()
+        if actual.lower() != sha.lower():
+            raise ValueError("Bastion checkout SHA mismatch")
+        subprocess.run(["bash", "./deploy.sh"], cwd=source, check=True, timeout=900)
+        revision = Path("/opt/gway-bastion/releases") / sha / "REVISION"
+        if not revision.is_file() or revision.is_symlink() or revision.read_text().strip() != sha:
+            raise RuntimeError("Bastion staged revision cannot be verified")
+        print("Bastion release staged only; active runtime unchanged", flush=True)
 
 
 def user_systemd_env() -> dict[str, str]:
@@ -514,6 +539,7 @@ def main() -> None:
                 "gway-agent-ops": deploy_agent_ops,
                 "gway-ap-kiosk": deploy_ap_kiosk,
                 "gway-rfid": deploy_rfid,
+                "gway-bastion": deploy_bastion,
             }, bypass_quiet=args.now, retry_failed=args.retry_failed, verify=verify_release, deploy_all=args.all, target=args.target)
             print(json.dumps(result, indent=2, sort_keys=True))
             if result["decision"] == "failed":

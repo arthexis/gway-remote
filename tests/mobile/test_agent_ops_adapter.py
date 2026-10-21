@@ -28,6 +28,7 @@ class AgentOpsAdapterTests(unittest.TestCase):
         self.assertFalse(run.call_args.kwargs["check"])
         from gway_remote.target_export import export_targets
         expected = ",".join(t["repository"] for t in export_targets()["targets"])
+        self.assertIn("arthexis/gway-bastion", expected)
         self.assertEqual(run.call_args.kwargs["env"]["GWAY_AGENT_ALLOWED_REPOS"], expected)
 
 

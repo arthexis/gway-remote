@@ -18,6 +18,7 @@ INSTALLERS = {
     "gway-agent-ops": "deploy_agent_ops",
     "gway-ap-kiosk": "deploy_ap_kiosk",
     "gway-rfid": "deploy_rfid",
+    "gway-bastion": "deploy_bastion",
 }
 
 
@@ -79,12 +80,13 @@ def execute(client, now, installers, directory=DEFAULT_DIR, lock_path=None, *, b
                         results.append({"name": name, "sha": sha, "status": "failed",
                                         "log": filename, "reason": str(exc)[:500]})
                         continue
-                    mark(name, sha, "installed", directory, log=filename)
-                    results.append({"name": name, "sha": sha, "status": "installed", "log": filename})
+                    outcome = "staged" if name == "gway-bastion" else "installed"
+                    mark(name, sha, outcome, directory, log=filename)
+                    results.append({"name": name, "sha": sha, "status": outcome, "log": filename})
                 except Exception as exc:
                     results.append({"name": name, "sha": sha, "status": "blocked",
                                     "reason": f"preflight unavailable: {str(exc)[:400]}"})
-            unsuccessful = [row for row in results if row["status"] != "installed"]
+            unsuccessful = [row for row in results if row["status"] not in ("installed", "staged")]
             return {"decision": "partial" if unsuccessful else "completed",
                     "reason": (f"{len(unsuccessful)} of {len(results)} repositories not deployed"
                                if unsuccessful else "all selected repositories deployed"),
@@ -153,5 +155,6 @@ def manual_execute(client, name, sha, installer, directory=DEFAULT_DIR):
         except Exception as exc:
             mark(name, sha, "failed", directory, error=exc, log=filename)
             raise
-        mark(name, sha, "installed", directory, log=filename)
-        return {"decision": "completed", "name": name, "sha": sha, "status": "installed"}
+        outcome = "staged" if name == "gway-bastion" else "installed"
+        mark(name, sha, outcome, directory, log=filename)
+        return {"decision": "completed", "name": name, "sha": sha, "status": outcome}

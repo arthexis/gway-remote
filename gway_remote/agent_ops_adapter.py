@@ -33,10 +33,10 @@ def _run(arguments):
     env = os.environ.copy()
     if command == "issues":
         from .target_export import export_targets
-        targets = export_targets()["targets"]
-        if not targets:
+        repositories = tuple(row["repository"] for row in export_targets()["targets"])
+        if not repositories:
             raise AgentOpsError("agent_repository_allowlist_missing")
-        env["GWAY_AGENT_ALLOWED_REPOS"] = ",".join(row["repository"] for row in targets)
+        env["GWAY_AGENT_ALLOWED_REPOS"] = ",".join(repositories)
     try:
         completed = subprocess.run(
             [_agent_path(), *arguments, "--json"],

@@ -14,3 +14,4 @@ class TestTargetExport(unittest.TestCase):
             list(TARGETS),
         )
         self.assertEqual(snapshot, export_targets())
+        self.assertIn(("gway-bastion", "arthexis/gway-bastion"), TARGETS)
