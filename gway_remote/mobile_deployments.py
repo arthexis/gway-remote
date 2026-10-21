@@ -18,7 +18,7 @@ def validate_selection(arguments):
     target = arguments["target"]
     if type(target) is not str or target not in TARGET_NAMES | {"all"}:
         raise ValueError("invalid_deployment_target")
-    return {"target": target, "valid": True, "dispatch_enabled": False,
+    return {"target": target, "valid": True, "dispatch_enabled": True,
             "confirmation_required": True, "ci_required": True}
 
 
