@@ -2,8 +2,22 @@ package com.arthexis.gwayremote
 
 import org.junit.Assert.*
 import org.junit.Test
+import org.json.JSONArray
+import org.json.JSONObject
 
 class AgentSubmissionStatusTest {
+    @Test fun issueRoutingRequiresExactLabelAndServerEligibility() {
+        fun row(eligible: Boolean, vararg labels: String) = JSONObject()
+            .put("eligible", eligible)
+            .put("labels", JSONArray(labels.toList()))
+        assertTrue(agentIssueEligible(row(true, "bug", "gway-001")))
+        assertFalse(agentIssueEligible(row(false, "gway-001")))
+        assertFalse(agentIssueEligible(row(true, "GWAY-001")))
+        assertFalse(agentIssueEligible(row(true, "gway-001-extra")))
+        assertFalse(agentIssueEligible(row(true)))
+        assertFalse(agentIssueEligible(JSONObject().put("labels", JSONArray(listOf("gway-001")))))
+    }
+
     @Test fun actualObservationStatesHaveDistinctLabels() {
         assertEquals("Requested", AgentSubmissionStatus.parse("requested").label)
         assertEquals("Accepted", AgentSubmissionStatus.parse("accepted").label)
