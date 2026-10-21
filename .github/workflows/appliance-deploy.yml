@@ -16,6 +16,7 @@ on:
           - gway-agent-ops
           - gway-ap-kiosk
           - gway-rfid
+          - gway-bastion
 
 permissions:
   contents: read
@@ -151,9 +152,28 @@ jobs:
           set -euo pipefail
           python3 -m gway_remote deploy-batch --all --target gway-rfid
 
+  gway_bastion:
+    name: Stage gway-bastion (inactive)
+    needs: gway_rfid
+    if: ${{ always() && github.event_name == 'workflow_dispatch' && github.actor == 'arthexis' && (inputs.repository == 'all' || inputs.repository == 'gway-bastion') }}
+    runs-on: [self-hosted, Linux, ARM64, gway-001]
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Stage gway-bastion without activation
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GWAY_REMOTE_DISPATCH_TOKEN }}
+        run: |
+          set -euo pipefail
+          python3 -m gway_remote deploy-batch --all --target gway-bastion
+          echo "::notice::Bastion staged only; running services and keys unchanged"
+
   report:
     name: Export appliance deployment report
-    needs: [ocpp_csms, ocpp_reports, ocpp_simulator, gway_lcd_sound, gway_agent_ops, gway_ap_kiosk, gway_rfid]
+    needs: [ocpp_csms, ocpp_reports, ocpp_simulator, gway_lcd_sound, gway_agent_ops, gway_ap_kiosk, gway_rfid, gway_bastion]
     if: ${{ always() && github.event_name == 'workflow_dispatch' && github.actor == 'arthexis' }}
     runs-on: [self-hosted, Linux, ARM64, gway-001]
     timeout-minutes: 10
@@ -179,6 +199,7 @@ jobs:
               "gway_agent_ops": "gway-agent-ops",
               "gway_ap_kiosk": "gway-ap-kiosk",
               "gway_rfid": "gway-rfid",
+              "gway_bastion": "gway-bastion",
           }
           results = json.loads(os.environ["JOB_RESULTS"])
           selected = os.environ["SELECTED_REPOSITORY"]
