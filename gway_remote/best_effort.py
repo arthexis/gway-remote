@@ -18,6 +18,7 @@ INSTALLERS = {
     "gway-agent-ops": "deploy_agent_ops",
     "gway-ap-kiosk": "deploy_ap_kiosk",
     "gway-rfid": "deploy_rfid",
+    "gway-bastion": "deploy_bastion",
 }
 
 
