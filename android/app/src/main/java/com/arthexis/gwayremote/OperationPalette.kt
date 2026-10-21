@@ -379,11 +379,80 @@ internal fun AgentOpsPanel(
         val issues = data.opt("issues")
         when (issues) {
             is JSONObject -> {
-                val entries = issues.optJSONObject("data")?.optJSONArray("issues")
+                val issueData = issues.optJSONObject("data")
+                val entries = issueData?.optJSONArray("issues")
                 if (entries == null) Text("Issue list unavailable", style = MaterialTheme.typography.bodySmall)
-                else if (entries.length() == 0) Text("No issues reported")
-                else for (index in 0 until entries.length()) {
-                    val issue = entries.optJSONObject(index) ?: continue
+                else {
+                    val localAgent = issueData?.optString("agent", "")?.lowercase().orEmpty()
+                    val instancePattern = remember { Regex("^gway-[0-9]+$") }
+                    val rows = (0 until entries.length()).mapNotNull { entries.optJSONObject(it) }
+                    fun labels(row: JSONObject): Set<String> {
+                        val values = row.optJSONArray("labels")
+                        return (0 until (values?.length() ?: 0))
+                            .map { values!!.optString(it) }.filter { it.isNotBlank() }.toSet()
+                    }
+                    val allLabels = rows.flatMap { labels(it) }.toSet()
+                    val instances = (allLabels.filter { instancePattern.matches(it) } +
+                        listOf(localAgent).filter { instancePattern.matches(it) }).distinct().sorted()
+                    val categories = allLabels.filterNot { instancePattern.matches(it) }.sorted()
+                    var instanceFilter by remember(localAgent) { mutableStateOf(localAgent) }
+                    var categoryFilter by remember { mutableStateOf("") }
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Box(Modifier.weight(1f)) {
+                            var open by remember { mutableStateOf(false) }
+                            OutlinedButton(onClick = { open = true }, modifier = Modifier.fillMaxWidth()) {
+                                Text(when (instanceFilter) {
+                                    "*" -> "All instances"
+                                    "-" -> "Unassigned"
+                                    "" -> "Agent unavailable"
+                                    else -> instanceFilter
+                                }, maxLines = 1)
+                            }
+                            DropdownMenu(expanded = open, onDismissRequest = { open = false }) {
+                                DropdownMenuItem(text = { Text("All instances") }, onClick = {
+                                    instanceFilter = "*"; open = false
+                                })
+                                DropdownMenuItem(text = { Text("Unassigned") }, onClick = {
+                                    instanceFilter = "-"; open = false
+                                })
+                                instances.forEach { name ->
+                                    DropdownMenuItem(text = { Text(name) }, onClick = {
+                                        instanceFilter = name; open = false
+                                    })
+                                }
+                            }
+                        }
+                        Box(Modifier.weight(1f)) {
+                            var open by remember { mutableStateOf(false) }
+                            OutlinedButton(onClick = { open = true }, modifier = Modifier.fillMaxWidth()) {
+                                Text(if (categoryFilter.isBlank()) "All labels" else categoryFilter,
+                                    maxLines = 1)
+                            }
+                            DropdownMenu(expanded = open, onDismissRequest = { open = false }) {
+                                DropdownMenuItem(text = { Text("All labels") }, onClick = {
+                                    categoryFilter = ""; open = false
+                                })
+                                categories.forEach { name ->
+                                    DropdownMenuItem(text = { Text(name) }, onClick = {
+                                        categoryFilter = name; open = false
+                                    })
+                                }
+                            }
+                        }
+                    }
+                    val visible = rows.filter { row ->
+                        val names = labels(row)
+                        val instanceMatch = when (instanceFilter) {
+                            "*" -> true
+                            "-" -> names.none { instancePattern.matches(it) }
+                            "" -> false
+                            else -> instanceFilter in names
+                        }
+                        instanceMatch && (categoryFilter.isBlank() || categoryFilter in names)
+                    }
+                    Text("${visible.size} of ${rows.size} issues",
+                         style = MaterialTheme.typography.bodySmall)
+                    for (issue in visible) {
                     val issueRef = "${issue.optString("repository")}#${issue.optInt("number")}"
                     val issueUrl = issue.optString("url")
                     val expectedUrl = if (referencePattern.matches(issueRef))
@@ -406,6 +475,7 @@ internal fun AgentOpsPanel(
                     }
                     Text("${issue.optString("repository", "")} · ${agentIssueState(issue)} · ${issue.optInt("comments", 0)} comments",
                         style = MaterialTheme.typography.bodySmall)
+                    }
                 }
             }
             else -> Text("Issue list unavailable", style = MaterialTheme.typography.bodySmall)
