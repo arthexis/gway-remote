@@ -8,7 +8,7 @@ import subprocess
 import shutil
 
 from .benchmark import echo
-from . import agent_ops_adapter
+from . import agent_ops_adapter, mobile_deployments, mobile_deploy_dispatch
 from .codex_views import list_tasks, task_detail
 from .codex_issue_views import list_assignments
 from .csms_health import csms_probe
@@ -56,7 +56,18 @@ OPERATIONS = {"probe-csms": csms_probe, "status": status,
 
 
 def commands():
-    return ([{"name": "agent-preview", "read_only": True, "arguments": {
+    return ([{"name": "deployments-observe", "read_only": True, "arguments": {
+                 "request_id": {"type": "string", "required": True}}},
+             {"name": "deployments-dispatch", "read_only": False, "arguments": {
+                 "target": {"type": "choice", "choices": ["all"] + [name for name, _ in mobile_deployments.TARGETS], "required": True},
+                 "request_id": {"type": "string", "required": True},
+                 "confirm": {"type": "boolean", "required": True}}},
+             {"name": "deployments-overview", "read_only": True, "arguments": {}},
+             {"name": "deployments-progress", "read_only": True, "arguments": {}},
+             {"name": "deployments-validate", "read_only": True, "arguments": {
+                 "target": {"type": "choice", "choices": ["all"] + [name for name, _ in mobile_deployments.TARGETS],
+                            "required": True}}}]
+            + [{"name": "agent-preview", "read_only": True, "arguments": {
                 "ref": {"type": "string", "required": True}}}]
             + [{"name": name, "arguments": {}, "read_only": True} for name in OPERATIONS]
             + [{"name": "agent-observe", "read_only": True, "arguments": {
@@ -168,6 +179,16 @@ def codex_mobile(name, arguments):
 
 
 def execute(name, arguments):
+    if name == "deployments-observe":
+        return mobile_deploy_dispatch.observe(arguments)
+    if name == "deployments-dispatch":
+        return mobile_deploy_dispatch.dispatch(arguments)
+    if name == "deployments-overview":
+        return mobile_deployments.overview(arguments)
+    if name == "deployments-progress":
+        return mobile_deployments.progress(arguments)
+    if name == "deployments-validate":
+        return mobile_deployments.validate_selection(arguments)
     if name == "agent-preview":
         return agent_ops_adapter.preview_issue(arguments)
     if name == "agent-observe":
