@@ -32,11 +32,11 @@ def _run(arguments):
     timeout = 20 if command in ("issues", "status", "observe", "submit", "preview") else 1800
     env = os.environ.copy()
     if command == "issues":
-        from .target_export import export_targets
-        targets = export_targets()["targets"]
-        if not targets:
+        from .agent_issue_repositories import allowed_issue_repositories
+        repositories = allowed_issue_repositories()
+        if not repositories:
             raise AgentOpsError("agent_repository_allowlist_missing")
-        env["GWAY_AGENT_ALLOWED_REPOS"] = ",".join(row["repository"] for row in targets)
+        env["GWAY_AGENT_ALLOWED_REPOS"] = ",".join(repositories)
     try:
         completed = subprocess.run(
             [_agent_path(), *arguments, "--json"],
