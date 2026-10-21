@@ -103,4 +103,27 @@ def observe(arguments, *, finder=find_run, journal=JOURNAL):
         raise ValueError("deployment_request_not_found")
     record = dict(records[key])
     matched = finder(record)
-    return {**record, **matched} if matched else record
+    if not matched:
+        return record
+    result = {**record, **matched}
+    # A terminal GitHub workflow permits another manual request. Use the same
+    # lock as admission so observation cannot overwrite a concurrent dispatch.
+    if matched["state"] == "completed":
+        lock = journal.with_name("mobile-deploy-dispatch.lock")
+        with open(lock, "a+", encoding="utf-8") as guard:
+            fcntl.flock(guard, fcntl.LOCK_EX)
+            current = json.loads(journal.read_text())
+            if key in current and current[key].get("state") == "unconfirmed":
+                current[key] = result
+                fd, name = tempfile.mkstemp(prefix=".dispatch-", dir=journal.parent)
+                try:
+                    with os.fdopen(fd, "w") as output:
+                        os.fchmod(output.fileno(), 0o600)
+                        json.dump(current, output)
+                        output.flush()
+                        os.fsync(output.fileno())
+                    os.replace(name, journal)
+                finally:
+                    if os.path.exists(name):
+                        os.unlink(name)
+    return result
