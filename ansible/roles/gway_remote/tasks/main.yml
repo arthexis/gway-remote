@@ -33,6 +33,14 @@
     mode: "0755"
   register: gway_remote_installer
 
+- name: Install optional Agent Ops workspace configurator (never execute during deploy)
+  ansible.builtin.copy:
+    src: "{{ playbook_dir }}/../scripts/configure-agent-seed-workspace.sh"
+    dest: "{{ gway_remote_install_root }}/scripts/configure-agent-seed-workspace.sh"
+    owner: root
+    group: root
+    mode: "0755"
+
 - name: Install system-wide executable
   ansible.builtin.command:
     cmd: "sh {{ gway_remote_install_root }}/scripts/install-cli.sh"
