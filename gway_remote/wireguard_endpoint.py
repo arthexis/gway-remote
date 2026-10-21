@@ -6,7 +6,7 @@ import os
 from pathlib import Path
 from urllib.parse import urlsplit
 
-DEFAULT_ENDPOINT = "https://register.jelectric.com"
+DEFAULT_ENDPOINT = "https://register.gelectriic.com"
 
 
 def config_path() -> Path:
@@ -21,7 +21,7 @@ def normalize_endpoint(value: str) -> str:
             parsed.password or parsed.query or parsed.fragment or parsed.path not in ("", "/") or
             parsed.port not in (None, 443)):
         raise ValueError("registration endpoint must be a bare HTTPS origin")
-    if parsed.hostname.lower() != "register.jelectric.com":
+    if parsed.hostname.lower() != "register.gelectriic.com":
         raise ValueError("registration endpoint host is not allowlisted")
     return "https://" + parsed.hostname.lower()
 
@@ -35,6 +35,7 @@ def endpoint() -> dict:
     data = json.loads(path.read_text(encoding="utf-8"))
     if not isinstance(data, dict) or set(data) != {"endpoint"} or not isinstance(data["endpoint"], str):
         raise ValueError("invalid WireGuard endpoint config")
+    # A previously persisted (now incorrect) origin must fail closed.
     return {"endpoint": normalize_endpoint(data["endpoint"]), "configured": True}
 
 
