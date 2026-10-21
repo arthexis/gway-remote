@@ -70,3 +70,37 @@ def dispatch(arguments, *, sender=send, journal=JOURNAL, lock=LOCK):
                 os.unlink(name)
         sender(target, request_id)
         return record
+
+def find_run(record):
+    """Find exactly one matching workflow run; never infer identity from time alone."""
+    from .github_state import GitHub
+    runs = GitHub().get("repos/arthexis/gway-remote/actions/workflows/"
+                        "appliance-deploy.yml/runs?event=workflow_dispatch&per_page=100")
+    label = "Deploy " + record["target"] + " · " + record["request_id"]
+    matches = [run for run in runs.get("workflow_runs", [])
+               if run.get("display_title") == label and run.get("event") == "workflow_dispatch"]
+    if len(matches) != 1:
+        return None
+    item = matches[0]
+    if type(item.get("id")) is not int:
+        return None
+    return {"run_id": item["id"], "state": "queued" if item.get("status") == "queued" else
+            "running" if item.get("status") == "in_progress" else
+            "completed" if item.get("status") == "completed" else "unknown",
+            "workflow_url": item.get("html_url")}
+
+def observe(arguments, *, finder=find_run, journal=JOURNAL):
+    if type(arguments) is not dict or set(arguments) != {"request_id"}:
+        raise ValueError("invalid_deployment_arguments")
+    key = arguments["request_id"]
+    if type(key) is not str or not IDENTIFIER.fullmatch(key):
+        raise ValueError("invalid_deployment_request_id")
+    journal = Path(journal)
+    if journal.is_symlink():
+        raise RuntimeError("unsafe_dispatch_journal")
+    records = json.loads(journal.read_text()) if journal.exists() else {}
+    if key not in records:
+        raise ValueError("deployment_request_not_found")
+    record = dict(records[key])
+    matched = finder(record)
+    return {**record, **matched} if matched else record
