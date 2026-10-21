@@ -383,7 +383,7 @@ internal fun AgentOpsPanel(
                 val entries = issueData?.optJSONArray("issues")
                 if (entries == null) Text("Issue list unavailable", style = MaterialTheme.typography.bodySmall)
                 else {
-                    val localAgent = issueData.optString("agent", "").lowercase()
+                    val localAgent = issueData?.optString("agent", "")?.lowercase().orEmpty()
                     val instancePattern = remember { Regex("^gway-[0-9]+$") }
                     val rows = (0 until entries.length()).mapNotNull { entries.optJSONObject(it) }
                     fun labels(row: JSONObject): Set<String> {
