@@ -32,8 +32,8 @@ def _run(arguments):
     timeout = 20 if command in ("issues", "status", "observe", "submit", "preview") else 1800
     env = os.environ.copy()
     if command == "issues":
-        from .agent_issue_repositories import allowed_issue_repositories
-        repositories = allowed_issue_repositories()
+        from .target_export import export_targets
+        repositories = tuple(row["repository"] for row in export_targets()["targets"])
         if not repositories:
             raise AgentOpsError("agent_repository_allowlist_missing")
         env["GWAY_AGENT_ALLOWED_REPOS"] = ",".join(repositories)
