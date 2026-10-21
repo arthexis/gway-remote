@@ -11,6 +11,26 @@ class ProvisioningTests(unittest.TestCase):
         self.assertNotIn("deploy-batch", tasks)
         self.assertNotIn("systemctl", tasks)
 
+    def test_seed_installer_is_shipped_but_not_executed(self):
+        """Deployment must deliver the reviewed script without applying it."""
+        import yaml
+        tasks = yaml.safe_load(Path("ansible/roles/gway_remote/tasks/main.yml").read_text())
+        matches = [task for task in tasks if task.get("name") ==
+                   "Install opt-in Agent Ops seed workspace configurator"]
+        self.assertEqual(len(matches), 1)
+        copy = matches[0]["ansible.builtin.copy"]
+        self.assertTrue(copy["src"].endswith("/scripts/configure-agent-seed-workspace.sh"))
+        self.assertEqual(copy["dest"], "{{ gway_remote_install_root }}/scripts/configure-agent-seed-workspace.sh")
+        self.assertEqual(copy["mode"], "0755")
+        self.assertEqual(copy["owner"], "root")
+        self.assertEqual(copy["group"], "root")
+        self.assertTrue(Path("scripts/configure-agent-seed-workspace.sh").is_file())
+        for task in tasks:
+            if task is matches[0]:
+                continue
+            self.assertNotIn("configure-agent-seed-workspace.sh",
+                             str(task.get("ansible.builtin.command", "")))
+
     def test_local_deploy_wrapper(self):
         script = Path('deploy.sh').read_text()
         self.assertIn('ansible-playbook', script)
