@@ -14,13 +14,13 @@ JOURNAL = DEFAULT_DIR / "mobile-deploy-dispatch.json"
 LOCK = DEFAULT_DIR / "mobile-deploy-dispatch.lock"
 IDENTIFIER = re.compile(r"^[0-9a-f]{32}$")
 
-def send(target):
+def send(target, request_id):
     token = os.getenv("GWAY_REMOTE_DISPATCH_TOKEN") or os.getenv("GH_TOKEN")
     if not token:
         raise RuntimeError("deployment_token_unavailable")
     request = Request(
         "https://api.github.com/repos/arthexis/gway-remote/actions/workflows/appliance-deploy.yml/dispatches",
-        data=json.dumps({"ref": "main", "inputs": {"repository": target}}).encode(),
+        data=json.dumps({"ref": "main", "inputs": {"repository": target, "request_id": request_id}}).encode(),
         method="POST", headers={"Authorization": "Bearer " + token,
                                 "Accept": "application/vnd.github+json",
                                 "Content-Type": "application/json"})
@@ -68,5 +68,5 @@ def dispatch(arguments, *, sender=send, journal=JOURNAL, lock=LOCK):
         finally:
             if os.path.exists(name):
                 os.unlink(name)
-        sender(target)
+        sender(target, request_id)
         return record
