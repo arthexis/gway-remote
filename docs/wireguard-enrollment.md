@@ -8,13 +8,13 @@ Gway Remote owns this workflow. Agent Ops, Codex, GitHub Actions and the Android
 - The existing Jelectric/Lightsail hub runs interface `gway` at `10.90.0.1/24`, UDP 51820.
 - Existing `gway-001` is `10.90.0.2/32`; preserve keys, configuration and access.
 - `scripts/register-wireguard-peer.sh` and `ansible/playbooks/adopt-wireguard-peer.yml` are a *manual, single-peer* adoption path and must not be reused as a multi-peer allocator.
-- The operator-designated public origin is `https://register.jelectric.com`. Current ownership, HTTP routing, TLS termination, authentication and host filesystem deployment have **not** been verified. Do not replace that service blindly.
+- The operator-designated public origin is `https://register.gelectriic.com`. M1 field inspection confirmed Watchtower DNS, Nginx TLS and an existing exact /v1/enroll route owned by the active gway-wire-enroll service. Its request contract, authorization, IP allocation and logging policy still require source inspection; do not deploy a parallel daemon. Do not replace that service blindly.
 
 ## Implemented in this change
 
 ```sh
 gway-remote wireguard endpoint show
-gway-remote wireguard endpoint set https://register.jelectric.com
+gway-remote wireguard endpoint set https://register.gelectriic.com
 ```
 
 The first command returns a built-in default if no local config exists. The second writes a mode-0600 local config atomically. Only the currently reviewed host is allowed, with a bare HTTPS origin and no credentials, path or query. These commands perform **no network request, public registration, key generation or changes to WireGuard**.
@@ -56,7 +56,7 @@ The operator authenticates to the *private* management service over an existing 
 
 ## Deployment order
 
-1. Verify what currently serves `register.jelectric.com` (TLS, DNS, host owner, routes and backing services), without changing it.
+1. Verify what currently serves `register.gelectriic.com` (TLS, DNS, host owner, routes and backing services), without changing it.
 2. Add a reviewed hub-side installer/service and contract tests.
 3. Implement private control commands, invite/peer lifecycle, and a signed static bootstrap.
 4. Implement client installer (Trixie) and integration fixtures.
