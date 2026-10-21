@@ -34,6 +34,23 @@ class AgentOpsAdapterTests(unittest.TestCase):
 
     @patch.object(agent_ops_adapter, "_agent_path", return_value="/usr/local/bin/agent")
     @patch.object(agent_ops_adapter.subprocess, "run")
+    def test_issue_submission_and_preview_inherit_repository_allowlist(self, run, _path):
+        from gway_remote.target_export import export_targets
+        expected = ",".join(row["repository"] for row in export_targets()["targets"])
+        for command, argv in (
+            ("submit", ["submit", "arthexis/gway-bastion#2", "--at", "2026-10-21T03:00:00Z"]),
+            ("preview", ["preview", "arthexis/gway-bastion#2"]),
+        ):
+            with self.subTest(command=command):
+                run.return_value = Mock(returncode=0, stdout=(
+                    '{"schema_version":1,"command":"' + command +
+                    '","status":"ok","data":{"state":"requested"},"error":null}'))
+                agent_ops_adapter._run(argv)
+                self.assertEqual(run.call_args.kwargs["env"]["GWAY_AGENT_ALLOWED_REPOS"], expected)
+                self.assertIn("arthexis/gway-bastion", expected)
+
+    @patch.object(agent_ops_adapter, "_agent_path", return_value="/usr/local/bin/agent")
+    @patch.object(agent_ops_adapter.subprocess, "run")
     def test_invalid_json_is_an_error(self, run, _path):
         run.return_value = Mock(returncode=0, stdout="not-json")
         with self.assertRaisesRegex(RuntimeError, "agent_invalid_json"):

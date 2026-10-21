@@ -31,7 +31,7 @@ def _run(arguments):
     # Do not automatically retry timeouts: the dispatch may have been accepted.
     timeout = 20 if command in ("issues", "status", "observe", "submit", "preview") else 1800
     env = os.environ.copy()
-    if command == "issues":
+    if command in ("issues", "submit", "preview"):
         from .target_export import export_targets
         repositories = tuple(row["repository"] for row in export_targets()["targets"])
         if not repositories:
