@@ -129,7 +129,7 @@ class AgentOpsViewModel : ViewModel() {
         issuesLoading = true
         viewModelScope.launch {
             try {
-                val response = request(AgentOpsRequests.assignments())
+                val response = request(AgentOpsRequests.assignments(), timeoutMs = 30000)
                 // Agent Ops is the canonical issue projection. Its CLI envelope
                 // is {result: {data: {issues: [...]}}}, unlike legacy codex-issues.
                 val result = response.getJSONObject("result")

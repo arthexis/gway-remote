@@ -293,6 +293,20 @@ internal fun AgentOpsPanel(
     val prefs = remember(context) { context.getSharedPreferences("agent-ops-submission", Context.MODE_PRIVATE) }
     var attemptedRef by remember { mutableStateOf(prefs.getString("ref", "").orEmpty()) }
     var attemptedAt by remember { mutableStateOf(prefs.getString("at", "").orEmpty()) }
+    // Persist the server-confirmed identity, not only the locally proposed time.
+    LaunchedEffect(sendResult) {
+        val receipt = sendResult?.let { runCatching { JSONObject(it) }.getOrNull() }
+        val data = receipt?.optJSONObject("data")
+        val canonicalRef = data?.optString("issue", "").orEmpty()
+        val canonicalAt = data?.optString("at", "").orEmpty()
+        if (canonicalRef.isNotBlank() && canonicalAt.isNotBlank()) {
+            attemptedRef = canonicalRef
+            attemptedAt = canonicalAt
+            prefs.edit().putString("ref", canonicalRef).putString("at", canonicalAt).apply()
+        }
+    }
+    // A previous successful dispatch can be inspected without a new Send.
+    var lookupAt by remember { mutableStateOf("") }
     val attempted = if (attemptedRef.isNotBlank() && attemptedAt.isNotBlank()) attemptedRef to attemptedAt else null
     val referencePattern = remember { Regex("[A-Za-z0-9][A-Za-z0-9_.-]{0,99}/[A-Za-z0-9][A-Za-z0-9_.-]{0,99}#[1-9][0-9]*") }
     var confirmRef by remember { mutableStateOf<String?>(null) }
@@ -315,6 +329,14 @@ internal fun AgentOpsPanel(
         Text("Submission not confirmed: $sendError", color = MaterialTheme.colorScheme.error)
     }
     if (attempted != null) {
+        OutlinedTextField(value = lookupAt, onValueChange = { lookupAt = it },
+            label = { Text("Inspect another UTC timestamp (read-only)") },
+            singleLine = true, modifier = Modifier.fillMaxWidth())
+        if (lookupAt.isNotBlank()) {
+            TextButton(enabled = !observing && !sending, onClick = {
+                onObserve(attempted.first, lookupAt.trim())
+            }) { Text("Inspect timestamp without sending") }
+        }
         Text("Last requested: ${attempted.first} · ${attempted.second}", style = MaterialTheme.typography.bodySmall)
         TextButton(enabled = !observing && !sending, onClick = {
             onObserve(attempted.first, attempted.second)
