@@ -8,7 +8,7 @@ import subprocess
 import shutil
 
 from .benchmark import echo
-from . import agent_ops_adapter, mobile_deployments, mobile_deploy_dispatch
+from . import agent_ops_adapter, mobile_deployments, mobile_deploy_dispatch, mobile_deploy_follow
 from .codex_views import list_tasks, task_detail
 from .codex_issue_views import list_assignments
 from .csms_health import csms_probe
@@ -56,7 +56,9 @@ OPERATIONS = {"probe-csms": csms_probe, "status": status,
 
 
 def commands():
-    return ([{"name": "deployments-observe", "read_only": True, "arguments": {
+    return ([{"name": "deployments-follow", "read_only": True, "arguments": {
+                 "request_id": {"type": "string", "required": True}}},
+             {"name": "deployments-observe", "read_only": True, "arguments": {
                  "request_id": {"type": "string", "required": True}}},
              {"name": "deployments-dispatch", "read_only": False, "arguments": {
                  "target": {"type": "choice", "choices": ["all"] + [name for name, _ in mobile_deployments.TARGETS], "required": True},
@@ -179,6 +181,8 @@ def codex_mobile(name, arguments):
 
 
 def execute(name, arguments):
+    if name == "deployments-follow":
+        return mobile_deploy_follow.snapshot(arguments)
     if name == "deployments-observe":
         return mobile_deploy_dispatch.observe(arguments)
     if name == "deployments-dispatch":

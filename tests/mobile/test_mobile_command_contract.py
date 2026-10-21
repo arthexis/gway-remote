@@ -9,13 +9,13 @@ EXPECTED_COMMANDS = frozenset({
     "simulator-discover", "simulator-start", "simulator-stop",
     "simulator-status", "simulator-results", "csms-view", "benchmark-echo",
     "codex-tasks", "codex-task", "codex-issues", "agent-issues", "agent-status", "agent-observe", "agent-issue", "agent-preview",
-    "deployments-overview", "deployments-progress", "deployments-validate", "deployments-dispatch", "deployments-observe",
+    "deployments-overview", "deployments-progress", "deployments-validate", "deployments-dispatch", "deployments-observe", "deployments-follow",
 })
 READ_ONLY = frozenset({
     "status", "status-quick", "probe-csms", "sound-motifs", "simulator-discover",
     "simulator-status", "simulator-results", "csms-view", "benchmark-echo",
     "codex-tasks", "codex-task", "codex-issues", "agent-issues", "agent-status", "agent-observe", "agent-preview",
-    "deployments-overview", "deployments-progress", "deployments-validate", "deployments-observe",
+    "deployments-overview", "deployments-progress", "deployments-validate", "deployments-observe", "deployments-follow",
 })
 
 
