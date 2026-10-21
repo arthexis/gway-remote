@@ -8,7 +8,7 @@ import subprocess
 import shutil
 
 from .benchmark import echo
-from . import agent_ops_adapter, mobile_deployments
+from . import agent_ops_adapter, mobile_deployments, mobile_deploy_dispatch
 from .codex_views import list_tasks, task_detail
 from .codex_issue_views import list_assignments
 from .csms_health import csms_probe
@@ -56,7 +56,11 @@ OPERATIONS = {"probe-csms": csms_probe, "status": status,
 
 
 def commands():
-    return ([{"name": "deployments-overview", "read_only": True, "arguments": {}},
+    return ([{"name": "deployments-dispatch", "read_only": False, "arguments": {
+                 "target": {"type": "choice", "choices": ["all"] + [name for name, _ in mobile_deployments.TARGETS], "required": True},
+                 "request_id": {"type": "string", "required": True},
+                 "confirm": {"type": "boolean", "required": True}}},
+             {"name": "deployments-overview", "read_only": True, "arguments": {}},
              {"name": "deployments-progress", "read_only": True, "arguments": {}},
              {"name": "deployments-validate", "read_only": True, "arguments": {
                  "target": {"type": "choice", "choices": ["all"] + [name for name, _ in mobile_deployments.TARGETS],
@@ -173,6 +177,8 @@ def codex_mobile(name, arguments):
 
 
 def execute(name, arguments):
+    if name == "deployments-dispatch":
+        return mobile_deploy_dispatch.dispatch(arguments)
     if name == "deployments-overview":
         return mobile_deployments.overview(arguments)
     if name == "deployments-progress":
