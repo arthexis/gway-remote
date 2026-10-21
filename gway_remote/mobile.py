@@ -56,7 +56,9 @@ OPERATIONS = {"probe-csms": csms_probe, "status": status,
 
 
 def commands():
-    return ([{"name": "deployments-dispatch", "read_only": False, "arguments": {
+    return ([{"name": "deployments-observe", "read_only": True, "arguments": {
+                 "request_id": {"type": "string", "required": True}}},
+             {"name": "deployments-dispatch", "read_only": False, "arguments": {
                  "target": {"type": "choice", "choices": ["all"] + [name for name, _ in mobile_deployments.TARGETS], "required": True},
                  "request_id": {"type": "string", "required": True},
                  "confirm": {"type": "boolean", "required": True}}},
@@ -177,6 +179,8 @@ def codex_mobile(name, arguments):
 
 
 def execute(name, arguments):
+    if name == "deployments-observe":
+        return mobile_deploy_dispatch.observe(arguments)
     if name == "deployments-dispatch":
         return mobile_deploy_dispatch.dispatch(arguments)
     if name == "deployments-overview":
