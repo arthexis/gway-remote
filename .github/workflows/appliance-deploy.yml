@@ -1,7 +1,12 @@
 name: Appliance Deploy
+run-name: Deploy ${{ inputs.repository }} · ${{ inputs.request_id || 'manual' }}
 on:
   workflow_dispatch:
     inputs:
+      request_id:
+        description: Optional dispatch correlation ID
+        required: false
+        type: string
       repository:
         description: Repository to deploy
         type: choice
