@@ -19,7 +19,7 @@ internal object AgentOpsRequests {
         "/api/v1/execute", "agent-preview", mapOf("ref" to ref))
     fun send(ref: String, at: String) = OperationRequest(
         "/api/v1/execute", "agent-issue", mapOf("ref" to ref, "at" to at))
-    fun assignments() = OperationRequest("/api/v1/execute", "codex-issues")
+    fun assignments() = OperationRequest("/api/v1/execute", "agent-issues")
 }
 
 /**
@@ -125,10 +125,19 @@ class AgentOpsViewModel : ViewModel() {
         viewModelScope.launch {
             try {
                 val response = request(AgentOpsRequests.assignments())
-                val data = response.getJSONObject("result")
-                localAgent = data.optString("agent", "").lowercase()
+                // Agent Ops is the canonical issue projection. Its CLI envelope
+                // is {result: {data: {issues: [...]}}}, unlike legacy codex-issues.
+                val result = response.getJSONObject("result")
+                val data = result.getJSONObject("data")
                 val entries = data.getJSONArray("issues")
-                issues = (0 until entries.length()).map { entries.getJSONObject(it) }
+                val fresh = (0 until entries.length()).map { entries.getJSONObject(it) }
+                issues = fresh
+                // This appliance currently targets gway-001. The issue endpoint
+                // need not include an agent identity; preserve a valid one if it does.
+                localAgent = data.optString("agent", "").lowercase()
+                    .takeIf { Regex("^gway-[0-9]+$").matches(it) }
+                    ?: localAgent.takeIf { Regex("^gway-[0-9]+$").matches(it) }
+                    ?: "gway-001"
                 issuesError = ""
             } catch (e: CancellationException) {
                 throw e
