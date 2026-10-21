@@ -47,7 +47,7 @@ def _save(directory, data):
 
 
 def mark(name, sha, status, directory=DEFAULT_DIR, error=None, log=None):
-    if name not in NAMES or status not in ("started", "installed", "failed"):
+    if name not in NAMES or status not in ("started", "installed", "staged", "failed"):
         raise ValueError("invalid attempt")
     from .reconcile import _SHA
     if not _SHA.fullmatch(sha):
