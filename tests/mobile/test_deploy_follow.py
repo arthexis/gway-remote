@@ -1,4 +1,6 @@
 import unittest
+import tempfile
+from pathlib import Path
 from unittest.mock import Mock
 from gway_remote.mobile_deploy_follow import snapshot
 
@@ -33,6 +35,26 @@ class FollowTests(unittest.TestCase):
         self.assertEqual(len(out["repositories"][0]["steps"]), 24)
         self.assertNotIn("secret data", str(out))
 
+    def test_appliance_evidence_not_attributed_to_workflow(self):
+        with tempfile.TemporaryDirectory() as folder:
+            sha = "a" * 40
+            filename = "20261021T120000000000Z-gway-bastion-" + sha[:12] + ".log"
+            Path(folder, filename).write_text("TASK [secret=PRIVATE]\\nPLAY RECAP\\n")
+            client = Mock()
+            def get(path):
+                if path.endswith("/jobs?per_page=100"):
+                    return {"jobs": [{"name": "Deploy gway-bastion (stage-only)", "status": "completed", "conclusion": "success"}]}
+                return {"id": 42, "event": "workflow_dispatch", "status": "completed", "conclusion": "success"}
+            client.get.side_effect = get
+            result = snapshot({"request_id": KEY}, observer=lambda _: {"target": "gway-bastion", "state": "completed", "run_id": 42},
+                              client_factory=lambda: client,
+                              attempts_reader=lambda: {"gway-bastion": {"sha": sha, "status": "staged", "log": filename}},
+                              revision_reader=lambda _: None, log_root=folder)
+            row = result["repositories"][0]
+            self.assertEqual(row["last_appliance_attempt"]["state"], "staged")
+            self.assertFalse(row["last_appliance_attempt"]["associated_with_this_run"])
+            self.assertIsNone(row["installed_sha"])
+            self.assertNotIn("PRIVATE", str(result))
     def test_rejects_unauthorized_run_identity(self):
         client = Mock()
         client.get.return_value = {"id": 43, "event": "workflow_dispatch"}
