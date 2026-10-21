@@ -119,8 +119,13 @@ class AgentOpsViewModel : ViewModel() {
         }
     }
 
+    private var assignmentsRefreshPending = false
+
     fun refreshAssignments() {
-        if (issuesLoading) return
+        if (issuesLoading) {
+            assignmentsRefreshPending = true
+            return
+        }
         issuesLoading = true
         viewModelScope.launch {
             try {
@@ -142,9 +147,15 @@ class AgentOpsViewModel : ViewModel() {
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
+                // Never display a stale issue as if its labels were just refreshed.
+                issues = emptyList()
                 issuesError = e.message ?: "Assignments unavailable"
             } finally {
                 issuesLoading = false
+                if (assignmentsRefreshPending) {
+                    assignmentsRefreshPending = false
+                    refreshAssignments()
+                }
             }
         }
     }
