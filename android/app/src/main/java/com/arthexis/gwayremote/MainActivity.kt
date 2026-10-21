@@ -269,7 +269,7 @@ fun CompanionScreen(store: SecretStore, appearance: AppearanceMode = AppearanceM
         refreshing = true
         refreshStatus = "Refreshing…"
         operationModel.refreshOpenPanels()
-        if (agentAssignmentsExpanded && operationModel.panels.panels.any { it.id == "agent-ops" } && !agentModel.issuesLoading)
+        if (agentAssignmentsExpanded && operationModel.panels.panels.any { it.id == "agent-ops" })
             agentModel.refreshAssignments()
         val targetEndpoint = endpoint.trim()
         val targetToken = token
