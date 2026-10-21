@@ -33,6 +33,8 @@ object FeatureRegistry {
         FeatureSpec(operation.id, operation.label, operation.icon, operation.keywords,
             FeatureKind.OPERATION, operation)
     } + listOf(
+        FeatureSpec("deployments", "Deployments", "rocket",
+            setOf("deploy", "repositories", "follow", "release"), FeatureKind.LOCAL_PANEL),
         FeatureSpec("github-health", "GitHub Health", "github",
             setOf("github", "ci", "alerts", "watch"), FeatureKind.LOCAL_PANEL),
         FeatureSpec("app-update", "App update", "update",
