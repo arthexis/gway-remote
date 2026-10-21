@@ -2,7 +2,7 @@ import tempfile
 import unittest
 from pathlib import Path
 from unittest.mock import Mock
-from gway_remote.mobile_deploy_dispatch import dispatch
+from gway_remote.mobile_deploy_dispatch import dispatch, observe
 from gway_remote.mobile import commands
 
 KEY = "a" * 32
@@ -47,6 +47,25 @@ class DeploymentDispatchTests(unittest.TestCase):
                     dispatch(args, sender=sender, journal=Path(tmp) / "journal",
                              lock=Path(tmp) / "lock")
             sender.assert_not_called()
+
+    def test_observe_correlates_and_unlocks_only_terminal_runs(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            sender = Mock()
+            journal, lock = Path(tmp) / "requests.json", Path(tmp) / "mobile-deploy-dispatch.lock"
+            args = {"target": "gway-bastion", "request_id": KEY, "confirm": True}
+            dispatch(args, sender=sender, journal=journal, lock=lock)
+            running = observe({"request_id": KEY}, journal=journal,
+                              finder=lambda _: {"run_id": 42, "state": "running"})
+            self.assertEqual(running["run_id"], 42)
+            with self.assertRaisesRegex(ValueError, "deployment_dispatch_unresolved"):
+                dispatch({**args, "request_id": "b" * 32},
+                         sender=sender, journal=journal, lock=lock)
+            finished = observe({"request_id": KEY}, journal=journal,
+                               finder=lambda _: {"run_id": 42, "state": "completed"})
+            self.assertEqual(finished["state"], "completed")
+            dispatch({**args, "request_id": "b" * 32},
+                     sender=sender, journal=journal, lock=lock)
+            self.assertEqual(sender.call_count, 2)
 
     def test_advertised_mutating(self):
         spec = next(x for x in commands() if x["name"] == "deployments-dispatch")
