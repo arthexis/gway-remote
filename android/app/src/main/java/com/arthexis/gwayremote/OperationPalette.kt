@@ -480,6 +480,10 @@ internal fun AgentOpsPanel(
                     val expectedUrl = if (referencePattern.matches(issueRef))
                         "https://github.com/${issue.optString("repository")}/issues/${issue.optInt("number")}" else ""
                     val validUrl = expectedUrl.isNotEmpty() && issueUrl == expectedUrl
+                    // A cached projection is advisory; Agent Ops independently
+                    // rechecks fresh labels before submission and execution.
+                    val eligible = issue.optBoolean("eligible", false) &&
+                        labels(issue).contains("gway-001")
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         TextButton(enabled = validUrl, onClick = {
                             runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(issueUrl))) }
@@ -492,8 +496,13 @@ internal fun AgentOpsPanel(
                         }) { Text("⧉") }
                     }
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Button(enabled = validUrl && !sending, onClick = { confirmRef = issueRef }) { Text("Send to Agent") }
+                        Button(enabled = validUrl && eligible && !sending, onClick = { confirmRef = issueRef }) { Text("Send to Agent") }
                         OutlinedButton(enabled = validUrl, onClick = { onCopyPrompt(issueRef) }) { Text("Copy Prompt") }
+                    }
+                    if (!eligible) {
+                        Text("Not eligible: add the exact gway-001 label before sending.",
+                            color = MaterialTheme.colorScheme.error,
+                            style = MaterialTheme.typography.bodySmall)
                     }
                     Text("${issue.optString("repository", "")} · ${agentIssueState(issue)} · ${issue.optInt("comments", 0)} comments",
                         style = MaterialTheme.typography.bodySmall)
