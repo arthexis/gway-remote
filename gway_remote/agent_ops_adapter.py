@@ -105,7 +105,7 @@ def send_issue(arguments):
         raise ValueError("invalid_timestamp") from exc
     if parsed.strftime("%Y-%m-%dT%H:%M:%SZ") != at:
         raise ValueError("invalid_timestamp")
-    return _run(["submit", ref, "--at", at])
+    return _run(["submit", ref, "--at", at, "--origin", "remote-api"])
 
 def observe_issue(arguments):
     if type(arguments) is not dict or set(arguments) != {"ref", "at"}:
