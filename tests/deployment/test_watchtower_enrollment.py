@@ -11,7 +11,7 @@ from http.server import ThreadingHTTPServer
 from pathlib import Path
 
 from gway_remote.watchtower_enrollment import (
-    EnrollmentFailure, Ledger, Provisioner, SubprocessWireGuard, WireGuard, make_handler, render_managed_peer,
+    EnrollmentFailure, EnrollmentRejected, Ledger, Provisioner, SubprocessWireGuard, WireGuard, make_handler, render_managed_peer,
 )
 
 
@@ -65,34 +65,67 @@ class WatchtowerEnrollmentTests(unittest.TestCase):
         repeated = self.provisioner.enroll("gway-004", KEY, token)
         self.assertTrue(repeated.already_active)
         self.assertEqual(first.address, repeated.address)
-        with self.assertRaises(Exception):
+        with self.assertRaises(EnrollmentRejected):
             self.provisioner.enroll("gway-004", base64.b64encode(bytes(range(1, 33))).decode(), token)
 
-    def test_runtime_failure_restores_config_and_does_not_consume_invitation(self):
-        self.provisioner.wireguard = FakeWireGuard(fail_set=True)
+    def test_runtime_failure_retries_forward_without_consuming_token_early(self):
         token = self._grant()
+        self.wg.fail_set = True
         with self.assertRaises(EnrollmentFailure):
             self.provisioner.enroll("gway-004", KEY, token)
-        self.assertEqual(self.config.read_text(), ORIGINAL)
+        self.assertIn("# existing unmanaged peer", self.config.read_text())
         self.assertEqual(self.ledger.status()["invitations"], 1)
-        self.assertEqual(self.ledger.status()["devices"], 0)
+        self.assertEqual(self.ledger.status()["pending_operations"], 1)
+        self.wg.fail_set = False
+        self.assertEqual(self.provisioner.recover(), 1)
+        self.assertEqual(self.ledger.status()["pending_operations"], 0)
+        self.assertEqual(self.ledger.status()["devices"], 1)
+        self.assertEqual(self.provisioner.recover(), 0)
 
-    def test_failed_runtime_confirmation_restores_file_and_removes_peer(self):
-        self.provisioner.wireguard = FakeWireGuard(confirm=False)
+    def test_confirmation_failure_keeps_peer_for_forward_retry(self):
+        token = self._grant()
+        self.wg.confirm = False
         with self.assertRaises(EnrollmentFailure):
-            self.provisioner.enroll("gway-004", KEY, self._grant())
-        self.assertEqual(self.config.read_text(), ORIGINAL)
-        self.assertEqual(self.provisioner.wireguard.peers, {})
+            self.provisioner.enroll("gway-004", KEY, token)
+        self.assertEqual(self.wg.peers.get(KEY), "10.90.0.3/32")
+        self.wg.confirm = True
+        self.assertEqual(self.provisioner.recover(), 1)
+        self.assertEqual(self.wg.peers.get(KEY), "10.90.0.3/32")
 
-    def test_restart_recovery_restores_interrupted_config_operation(self):
+    def test_restart_after_config_write_before_receipt_advances_forward(self):
         token = self._grant()
         reserved = self.ledger.reserve(device="gway-004", public_key=KEY, token=token,
-                                       occupied={"10.90.0.2/32"})
-        backup = self.provisioner._write(render_managed_peer(ORIGINAL, reserved), reserved.operation_id)
-        self.ledger.advance(reserved.operation_id, "config_written", backup_path=str(backup))
+                                       occupied={"10.90.0.2/32"}, backup_directory=self.provisioner.backups)
+        operation = next(x for x in self.ledger.pending() if x["id"] == reserved.operation_id)
+        self.provisioner._prepare_backup(operation, ORIGINAL)
+        self.provisioner._write(render_managed_peer(ORIGINAL, reserved))
+        # Crash: operation remains reserved, but the config was replaced.
         self.assertEqual(self.provisioner.recover(), 1)
-        self.assertEqual(self.config.read_text(), ORIGINAL)
-        self.assertEqual(self.ledger.status()["devices"], 0)
+        self.assertEqual(self.ledger.status()["devices"], 1)
+        self.assertIn("# existing unmanaged peer", self.config.read_text())
+        self.assertTrue(self.wg.has_peer(KEY, reserved.address))
+
+    def test_missing_backup_with_unexpected_config_blocks_without_peer_removal(self):
+        token = self._grant()
+        reserved = self.ledger.reserve(device="gway-004", public_key=KEY, token=token,
+                                       occupied={"10.90.0.2/32"}, backup_directory=self.provisioner.backups)
+        self.config.write_text(render_managed_peer(ORIGINAL, reserved))
+        with self.assertRaises(EnrollmentFailure):
+            self.provisioner.recover()
+        self.assertIn("# existing unmanaged peer", self.config.read_text())
+        self.assertEqual(self.wg.peers, {})
+
+    def test_unrelated_config_edit_blocks_instead_of_restoring_snapshot(self):
+        token = self._grant()
+        self.wg.fail_set = True
+        with self.assertRaises(EnrollmentFailure):
+            self.provisioner.enroll("gway-004", KEY, token)
+        self.config.write_text(self.config.read_text() + "# unrelated operator edit\\n")
+        self.wg.fail_set = False
+        with self.assertRaises(EnrollmentFailure):
+            self.provisioner.recover()
+        self.assertIn("# unrelated operator edit", self.config.read_text())
+        self.assertEqual(self.ledger.status()["pending_operations"], 1)
 
     def test_concurrent_allocations_keep_both_managed_peers(self):
         grants = [("gway-004", KEY, self._grant("gway-004")),
