@@ -49,7 +49,7 @@ class AgentIssueSendTests(unittest.TestCase):
         self.assertEqual(run.call_count, 2)
         for call in run.call_args_list:
             self.assertEqual(call.args[0], [
-                "/usr/bin/agent", "submit", args["ref"], "--at", args["at"], "--json"])
+                "/usr/bin/agent", "submit", args["ref"], "--at", args["at"], "--origin", "remote-api", "--json"])
             self.assertFalse(call.kwargs.get("shell", False))
 
     @patch.object(agent_ops_adapter, "_agent_path", return_value="/usr/bin/agent")
