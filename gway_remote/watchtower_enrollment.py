@@ -252,7 +252,10 @@ class SubprocessWireGuard(WireGuard):
 
     def has_peer(self, public_key: str, address: str) -> bool:
         result = self._run("show", self.interface, "allowed-ips")
-        return any(\n            line.startswith(public_key + "\t") and address in {part.strip() for part in line.split("\t", 1)[1].split(",")}\n            for line in result.stdout.splitlines()\n        )
+        return any(
+            line.startswith(public_key + "\t") and address in {part.strip() for part in line.split("\t", 1)[1].split(",")}
+            for line in result.stdout.splitlines()
+        )
 
     def remove_peer(self, public_key: str) -> None:
         self._run("set", self.interface, "peer", public_key, "remove")
