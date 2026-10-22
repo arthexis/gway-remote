@@ -11,7 +11,7 @@ from http.server import ThreadingHTTPServer
 from pathlib import Path
 
 from gway_remote.watchtower_enrollment import (
-    EnrollmentFailure, Ledger, Provisioner, WireGuard, make_handler, render_managed_peer,
+    EnrollmentFailure, Ledger, Provisioner, SubprocessWireGuard, WireGuard, make_handler, render_managed_peer,
 )
 
 
@@ -119,6 +119,17 @@ class WatchtowerEnrollmentTests(unittest.TestCase):
         self.provisioner = Provisioner(self.ledger, self.config, Path(self.tmp.name) / "backups2", self.wg)
         with self.assertRaises(EnrollmentFailure):
             self.provisioner.enroll("gway-004", KEY, self._grant())
+
+    def test_live_peer_check_parses_comma_separated_allowed_ips(self):
+        from subprocess import CompletedProcess
+
+        def run(args, **_kwargs):
+            self.assertEqual(args[:4], ["wg", "show", "gway", "allowed-ips"])
+            return CompletedProcess(args, 0, KEY + "\\t10.90.0.3/32, 10.90.0.4/32\\n", "")
+
+        wg = SubprocessWireGuard(runner=run)
+        self.assertTrue(wg.has_peer(KEY, "10.90.0.4/32"))
+        self.assertFalse(wg.has_peer(KEY, "10.90.0.5/32"))
 
     def test_http_handler_rejects_non_json_and_does_not_echo_it(self):
         handler = make_handler(self.provisioner, public_url="https://register.gelectriic.com", wireguard_endpoint="approved.example:51820")
