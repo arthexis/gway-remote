@@ -11,6 +11,27 @@ from .reconcile import TARGETS as DEPLOYMENT_TARGETS
 TARGETS = ("all", *(name for name, _ in DEPLOYMENT_TARGETS))
 
 
+def resolve_targets(selector: str, targets: tuple[str, ...] | None = None) -> tuple[str, ...]:
+    """Resolve every approved repository matching whole, ordered name words."""
+    if targets is None:
+        targets = TARGETS[1:]
+    words = tuple(selector.lower().split("-")) if selector else ()
+    if not words or any(not word or not word.isalnum() for word in words):
+        raise ValueError(f"Invalid deployment selector: {selector!r}")
+    matches = []
+    for name in targets:
+        parts = name.lower().split("-")
+        it = iter(parts)
+        if all(any(part == word for part in it) for word in words):
+            matches.append(name)
+    if not matches:
+        raise ValueError(
+            f"No approved deployment targets match {selector!r}. "
+            f"Available: {', '.join(targets)}"
+        )
+    return tuple(dict.fromkeys(matches))
+
+
 def dispatch(target: str) -> str:
     """Request the existing workflow; do not execute installers locally."""
     if target not in TARGETS:

@@ -75,6 +75,10 @@ gway-remote deploy                    # error: explicit target required
 gway-remote deploy ocpp-csms         # one component
 gway-remote deploy ocpp-reports
 gway-remote deploy gway-ap-kiosk
+gway-remote deploy reports          # ocpp-reports
+gway-remote deploy sound            # gway-lcd-sound
+gway-remote deploy ocpp             # all approved ocpp-* repositories
+gway-remote deploy gway             # all approved gway-* repositories
 ```
 
 The CLI requires the GitHub CLI (`gh`) installed and authenticated as an
@@ -82,8 +86,7 @@ account authorized to dispatch workflows in `arthexis/gway-remote`.
 Use `gh auth login`, or provide `GH_TOKEN` / `GITHUB_TOKEN` with
 Actions write permission. GitHub's workflow also checks that the actor is
 `arthexis`; a different authenticated user can submit the request but
-the workflow will not run deployment jobs. The command targets `main` and
-uses the workflow's fixed list of deployment targets.
+the workflow will not run deployment jobs. The command targets `main` and uses the workflow's approved deployment targets.\nA shorthand matches complete hyphen-separated words, even when intermediate\nwords are omitted. Every matching approved target receives its own deployment\nrequest in catalog order; no match fails without dispatching. Future approved\nentries are included automatically. `--all` still selects the entire approved\ncatalog, not arbitrary GitHub repositories.
 
 A successful command indicates only that GitHub accepted the request.
 Inspect the Actions workflow run to determine installation success.
