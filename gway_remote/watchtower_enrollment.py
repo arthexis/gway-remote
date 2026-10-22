@@ -361,7 +361,8 @@ class Provisioner:
             return self._recover_locked()
 
 
-def make_handler(provisioner: Provisioner, *, public_url: str, wireguard_endpoint: str):
+def make_handler(provisioner: Provisioner | None, *, public_url: str, wireguard_endpoint: str,
+                 read_only_stage: bool = False):
     class Handler(BaseHTTPRequestHandler):
         server_version = "gway-remote-watchtower"
         sys_version = ""
@@ -395,6 +396,10 @@ def make_handler(provisioner: Provisioner, *, public_url: str, wireguard_endpoin
                 if not 0 < length <= MAX_REQUEST_BYTES:
                     raise InvalidEnrollment("invalid enrollment request")
                 device, public_key, token = parse_enrollment_json(self.rfile.read(length))
+                if read_only_stage:
+                    raise EnrollmentRejected("enrollment rejected")
+                if provisioner is None:
+                    raise RuntimeError("Watchtower provisioner is unavailable")
                 enrollment = provisioner.enroll(device, public_key, token)
             except (InvalidEnrollment, ValueError):
                 self._send(400, {"error": "invalid_request"})
@@ -407,9 +412,18 @@ def make_handler(provisioner: Provisioner, *, public_url: str, wireguard_endpoin
     return Handler
 
 
-def serve(provisioner: Provisioner, *, host: str, port: int, public_url: str, wireguard_endpoint: str) -> None:
+def serve(provisioner: Provisioner | None, *, host: str, port: int, public_url: str,
+          wireguard_endpoint: str, read_only_stage: bool = False) -> None:
     if host not in {"127.0.0.1", "::1"}:
         raise ValueError("Watchtower service must bind a loopback address")
-    provisioner.recover()
-    httpd = ThreadingHTTPServer((host, port), make_handler(provisioner, public_url=public_url, wireguard_endpoint=wireguard_endpoint))
+    if read_only_stage:
+        if provisioner is not None:
+            raise ValueError("read-only stage must not receive a provisioner")
+    elif provisioner is None:
+        raise ValueError("active Watchtower service requires a provisioner")
+    else:
+        provisioner.recover()
+    httpd = ThreadingHTTPServer((host, port), make_handler(
+        provisioner, public_url=public_url, wireguard_endpoint=wireguard_endpoint,
+        read_only_stage=read_only_stage))
     httpd.serve_forever()

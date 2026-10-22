@@ -178,6 +178,14 @@ class WatchtowerEnrollmentTests(unittest.TestCase):
         self.assertEqual(response.status, 400)
         self.assertNotIn("secret", body)
 
+    def test_read_only_stage_rejects_a_valid_request_without_touching_ledger_or_wireguard(self):
+        from gway_remote.watchtower_enrollment import make_handler
+        handler = make_handler(None, public_url="https://register.gelectriic.com",
+                               wireguard_endpoint="register.gelectriic.com:51820", read_only_stage=True)
+        self.assertTrue(callable(handler))
+        self.assertEqual(self.ledger.status()["devices"], 0)
+        self.assertEqual(self.wg.peers, {})
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -3,23 +3,22 @@
   ansible.builtin.assert:
     that:
       - watchtower_enrollment_apply | bool
+      - watchtower_enrollment_stage_only | bool
       - watchtower_enrollment_wireguard_endpoint | length > 0
       - watchtower_enrollment_public_url == 'https://register.gelectriic.com'
     fail_msg: >-
       This role is Watchtower-only and stages no service until explicitly
       enabled with an approved WireGuard UDP endpoint. It must not target gway-001.
 
-- name: Create root-owned Watchtower application and state directories
+- name: Create root-owned readable Watchtower application directory
   ansible.builtin.file:
     path: "{{ item }}"
     state: directory
     owner: root
     group: root
-    mode: "0700"
+    mode: "0755"
   loop:
     - "{{ watchtower_enrollment_install_root }}"
-    - "{{ watchtower_enrollment_state_root }}"
-    - "{{ watchtower_enrollment_state_root }}/backups"
 
 - name: Install gway-remote Watchtower source
   ansible.builtin.copy:
@@ -40,24 +39,24 @@
 - name: Install staged loopback-only Watchtower unit
   ansible.builtin.template:
     src: gway-remote-watchtower-enroll.service.j2
-    dest: /etc/systemd/system/gway-remote-watchtower-enroll.service
+    dest: /etc/systemd/system/gway-remote-watchtower-enroll-stage.service
     owner: root
     group: root
     mode: "0644"
   register: watchtower_unit
 
-- name: Install token-safe Nginx logging format
+- name: Stage token-safe Nginx logging format without enabling it
   ansible.builtin.copy:
     src: gway-remote-watchtower-log.conf
-    dest: /etc/nginx/conf.d/gway-remote-watchtower-log.conf
+    dest: "{{ watchtower_enrollment_install_root }}/gway-remote-watchtower-log.conf"
     owner: root
     group: root
     mode: "0644"
 
-- name: Install exact enrollment route fragment for reviewed cutover
+- name: Stage exact enrollment route fragment without enabling it
   ansible.builtin.copy:
     src: register.gelectriic.com.enrollment.conf
-    dest: /etc/nginx/snippets/gway-remote-watchtower-enrollment.conf
+    dest: "{{ watchtower_enrollment_install_root }}/register.gelectriic.com.enrollment.conf"
     owner: root
     group: root
     mode: "0644"
@@ -69,6 +68,6 @@
 
 - name: Keep Watchtower service disabled until approved cutover
   ansible.builtin.systemd_service:
-    name: gway-remote-watchtower-enroll.service
+    name: gway-remote-watchtower-enroll-stage.service
     enabled: "{{ watchtower_enrollment_activate | bool }}"
     state: "{{ 'started' if watchtower_enrollment_activate | bool else 'stopped' }}"
