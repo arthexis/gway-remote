@@ -1,0 +1,11 @@
+---
+# This role is deliberately inert unless explicitly enabled for an approved
+# Watchtower stage/cutover. It never targets gway-001 through the default host.
+watchtower_enrollment_apply: false
+watchtower_enrollment_activate: false
+watchtower_enrollment_install_root: /opt/gway-remote-watchtower
+watchtower_enrollment_state_root: /var/lib/gway-remote/watchtower
+watchtower_enrollment_config: /etc/wireguard/gway.conf
+watchtower_enrollment_public_url: https://register.gelectriic.com
+watchtower_enrollment_wireguard_endpoint: ""
+watchtower_enrollment_port: 8788

@@ -1,0 +1,3 @@
+#!/bin/sh
+export PYTHONPATH='{{ watchtower_enrollment_install_root }}'
+exec /usr/bin/python3 -m gway_remote "$@"

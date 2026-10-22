@@ -1,0 +1,393 @@
+"""GWAY Remote-owned Watchtower enrollment service.
+
+This module deliberately has no deployment side effects.  It is designed for a
+root-owned, loopback-only systemd unit; its public surface is limited to the
+health endpoint and the single enrollment POST route.
+"""
+from __future__ import annotations
+
+import hashlib
+import json
+import os
+import secrets
+import shutil
+import sqlite3
+import subprocess
+import tempfile
+from contextlib import contextmanager
+from dataclasses import dataclass
+from datetime import datetime, timedelta, timezone
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from ipaddress import IPv4Address, IPv4Network, ip_network
+from pathlib import Path
+from typing import Callable, Iterable
+
+from .wireguard_enrollment_contract import DEVICE, InvalidEnrollment, MAX_REQUEST_BYTES, parse_enrollment_json
+
+MANAGED_BEGIN = "# BEGIN gway-remote enrollment: "
+MANAGED_END = "# END gway-remote enrollment: "
+
+
+def _now() -> str:
+    return datetime.now(timezone.utc).isoformat()
+
+
+def _digest(token: str) -> str:
+    return hashlib.sha256(token.encode("ascii")).hexdigest()
+
+
+class EnrollmentRejected(Exception):
+    """Public-safe rejection.  Messages must not interpolate request fields."""
+
+
+class EnrollmentFailure(Exception):
+    """Operator-visible local failure; never returned to the HTTP client."""
+
+
+SCHEMA = """
+CREATE TABLE IF NOT EXISTS invitations (
+    id TEXT PRIMARY KEY,
+    device TEXT NOT NULL,
+    token_hash TEXT NOT NULL UNIQUE,
+    expires_at TEXT NOT NULL,
+    consumed_at TEXT,
+    revoked_at TEXT
+);
+CREATE UNIQUE INDEX IF NOT EXISTS one_live_invitation
+    ON invitations(device) WHERE consumed_at IS NULL AND revoked_at IS NULL;
+CREATE TABLE IF NOT EXISTS devices (
+    device TEXT PRIMARY KEY,
+    public_key TEXT NOT NULL UNIQUE,
+    address TEXT NOT NULL UNIQUE,
+    state TEXT NOT NULL CHECK(state IN ('pending','active','revoked')),
+    operation_id TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS operations (
+    id TEXT PRIMARY KEY,
+    device TEXT NOT NULL,
+    public_key TEXT NOT NULL,
+    address TEXT NOT NULL,
+    token_hash TEXT NOT NULL,
+    state TEXT NOT NULL CHECK(state IN ('reserved','config_written','runtime_applied','committed','rolled_back','failed')),
+    backup_path TEXT,
+    detail TEXT NOT NULL DEFAULT '',
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+"""
+
+
+@dataclass(frozen=True)
+class Enrollment:
+    operation_id: str
+    device: str
+    public_key: str
+    address: str
+    already_active: bool = False
+
+
+class Ledger:
+    """Durable registry. Tokens are hashes; request tokens are never persisted."""
+
+    def __init__(self, path: Path, *, network: str, gateway: str):
+        self.path = Path(path)
+        self.network = ip_network(network, strict=True)
+        if not isinstance(self.network, IPv4Network):
+            raise ValueError("Watchtower network must be IPv4")
+        self.gateway = IPv4Address(gateway)
+        if self.gateway not in self.network:
+            raise ValueError("gateway must be inside Watchtower network")
+        self.path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+        if self.path.is_symlink():
+            raise ValueError("unsafe enrollment ledger")
+        with self._connect() as connection:
+            connection.executescript(SCHEMA)
+        self.path.chmod(0o600)
+
+    def _connect(self) -> sqlite3.Connection:
+        connection = sqlite3.connect(self.path, timeout=30, isolation_level=None)
+        connection.row_factory = sqlite3.Row
+        return connection
+
+    @contextmanager
+    def _transaction(self):
+        with self._connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            try:
+                yield connection
+            except BaseException:
+                connection.execute("ROLLBACK")
+                raise
+            else:
+                connection.execute("COMMIT")
+
+    def invite(self, device: str, *, minutes: int = 15) -> dict:
+        if not isinstance(device, str) or not DEVICE.fullmatch(device):
+            raise ValueError("invalid Watchtower device")
+        if not 1 <= minutes <= 60:
+            raise ValueError("invitation lifetime must be between 1 and 60 minutes")
+        token = secrets.token_urlsafe(32)
+        ident = secrets.token_hex(16)
+        expires = (datetime.now(timezone.utc) + timedelta(minutes=minutes)).isoformat()
+        with self._transaction() as connection:
+            connection.execute("UPDATE invitations SET revoked_at=? WHERE device=? AND consumed_at IS NULL AND revoked_at IS NULL AND expires_at<=?", (_now(), device, _now()))
+            connection.execute("INSERT INTO invitations(id,device,token_hash,expires_at) VALUES(?,?,?,?)", (ident, device, _digest(token), expires))
+        return {"id": ident, "device": device, "token": token, "expires_at": expires}
+
+    def revoke(self, invitation_id: str) -> bool:
+        with self._transaction() as connection:
+            result = connection.execute("UPDATE invitations SET revoked_at=? WHERE id=? AND consumed_at IS NULL AND revoked_at IS NULL", (_now(), invitation_id))
+        return result.rowcount == 1
+
+    def _allocate(self, connection: sqlite3.Connection, occupied: Iterable[str]) -> str:
+        reserved = {self.gateway}
+        for value in occupied:
+            try:
+                item = ip_network(value, strict=False)
+            except ValueError:
+                continue
+            if item.version == 4:
+                reserved.update(item.hosts() if item.prefixlen < 32 else [item.network_address])
+        reserved.update(IPv4Address(row[0].split("/", 1)[0]) for row in connection.execute("SELECT address FROM devices WHERE state != 'revoked'"))
+        for candidate in self.network.hosts():
+            if candidate not in reserved:
+                return f"{candidate}/32"
+        raise EnrollmentFailure("Watchtower address pool is exhausted")
+
+    def reserve(self, *, device: str, public_key: str, token: str, occupied: Iterable[str], backup_directory: Path | None = None) -> Enrollment:
+        now = _now()
+        token_hash = _digest(token)
+        with self._transaction() as connection:
+            invitation = connection.execute("SELECT * FROM invitations WHERE token_hash=?", (token_hash,)).fetchone()
+            if invitation is None or invitation["revoked_at"]:
+                raise EnrollmentRejected("enrollment rejected")
+            if invitation["device"] != device:
+                raise EnrollmentRejected("enrollment rejected")
+            existing = connection.execute("SELECT * FROM devices WHERE device=?", (device,)).fetchone()
+            if existing is not None:
+                if existing["public_key"] != public_key or existing["state"] == "revoked":
+                    raise EnrollmentRejected("enrollment rejected")
+                operation = connection.execute("SELECT * FROM operations WHERE id=?", (existing["operation_id"],)).fetchone()
+                if operation and operation["state"] == "committed":
+                    return Enrollment(operation["id"], device, public_key, existing["address"], True)
+                return Enrollment(existing["operation_id"], device, public_key, existing["address"])
+            if invitation["consumed_at"] or invitation["expires_at"] <= now:
+                raise EnrollmentRejected("enrollment rejected")
+            duplicate = connection.execute("SELECT 1 FROM devices WHERE public_key=?", (public_key,)).fetchone()
+            if duplicate:
+                raise EnrollmentRejected("enrollment rejected")
+            address = self._allocate(connection, occupied)
+            operation_id = secrets.token_hex(16)
+            backup_path = str(Path(backup_directory) / f"{operation_id}.conf") if backup_directory else None
+            connection.execute("INSERT INTO devices(device,public_key,address,state,operation_id) VALUES(?,?,?,?,?)", (device, public_key, address, "pending", operation_id))
+            connection.execute("INSERT INTO operations(id,device,public_key,address,token_hash,state,backup_path,created_at,updated_at) VALUES(?,?,?,?,?,'reserved',?,?,?)", (operation_id, device, public_key, address, token_hash, backup_path, now, now))
+        return Enrollment(operation_id, device, public_key, address)
+
+    def advance(self, operation_id: str, state: str, *, backup_path: str | None = None, detail: str = "") -> None:
+        allowed = {"config_written", "runtime_applied", "committed", "rolled_back", "failed"}
+        if state not in allowed:
+            raise ValueError("invalid operation state")
+        with self._transaction() as connection:
+            result = connection.execute("UPDATE operations SET state=?, backup_path=COALESCE(?, backup_path), detail=?, updated_at=? WHERE id=?", (state, backup_path, detail, _now(), operation_id))
+            if result.rowcount != 1:
+                raise EnrollmentFailure("unknown Watchtower operation")
+            if state == "committed":
+                operation = connection.execute("SELECT token_hash FROM operations WHERE id=?", (operation_id,)).fetchone()
+                connection.execute("UPDATE devices SET state='active' WHERE operation_id=?", (operation_id,))
+                connection.execute("UPDATE invitations SET consumed_at=? WHERE token_hash=?", (_now(), operation["token_hash"]))
+            elif state in {"rolled_back", "failed"}:
+                connection.execute("DELETE FROM devices WHERE operation_id=? AND state='pending'", (operation_id,))
+
+    def pending(self) -> list[dict]:
+        with self._connect() as connection:
+            return [dict(row) for row in connection.execute("SELECT * FROM operations WHERE state NOT IN ('committed','rolled_back') ORDER BY created_at")]
+
+    def status(self) -> dict:
+        with self._connect() as connection:
+            return {"invitations": connection.execute("SELECT count(*) FROM invitations WHERE consumed_at IS NULL AND revoked_at IS NULL").fetchone()[0], "devices": connection.execute("SELECT count(*) FROM devices WHERE state='active'").fetchone()[0], "pending_operations": connection.execute("SELECT count(*) FROM operations WHERE state NOT IN ('committed','rolled_back')").fetchone()[0]}
+
+
+def occupied_addresses(config: str) -> set[str]:
+    """Read every existing AllowedIPs value, never rewrite unmanaged blocks."""
+    values: set[str] = set()
+    section = ""
+    for raw in config.splitlines():
+        line = raw.strip()
+        if line.startswith("[") and line.endswith("]"):
+            section = line
+        elif section == "[Peer]" and line.startswith("AllowedIPs") and "=" in line:
+            values.update(item.strip() for item in line.split("=", 1)[1].split(",") if item.strip())
+    return values
+
+
+def render_managed_peer(config: str, enrollment: Enrollment) -> str:
+    """Append exactly one owned block; the pre-existing config bytes are retained."""
+    marker = MANAGED_BEGIN + enrollment.device
+    if marker in config:
+        return config
+    suffix = "" if not config or config.endswith("\n") else "\n"
+    return config + suffix + f"{marker}\n[Peer]\n# Device = {enrollment.device}\nPublicKey = {enrollment.public_key}\nAllowedIPs = {enrollment.address}\n{MANAGED_END}{enrollment.device}\n"
+
+
+class WireGuard:
+    def set_peer(self, public_key: str, address: str) -> None:
+        raise NotImplementedError
+
+    def has_peer(self, public_key: str, address: str) -> bool:
+        raise NotImplementedError
+
+    def remove_peer(self, public_key: str) -> None:
+        raise NotImplementedError
+
+
+class SubprocessWireGuard(WireGuard):
+    def __init__(self, interface: str = "gway", runner: Callable = subprocess.run):
+        self.interface, self.runner = interface, runner
+
+    def _run(self, *args: str) -> subprocess.CompletedProcess:
+        return self.runner(["wg", *args], check=True, text=True, capture_output=True)
+
+    def set_peer(self, public_key: str, address: str) -> None:
+        self._run("set", self.interface, "peer", public_key, "allowed-ips", address)
+
+    def has_peer(self, public_key: str, address: str) -> bool:
+        result = self._run("show", self.interface, "allowed-ips")
+        return any(line.startswith(public_key + "\t") and address in line.split("\t", 1)[1].split() for line in result.stdout.splitlines())
+
+    def remove_peer(self, public_key: str) -> None:
+        self._run("set", self.interface, "peer", public_key, "remove")
+
+
+class Provisioner:
+    """Ordered file/runtime operation with recorded rollback material."""
+    def __init__(self, ledger: Ledger, config: Path, backups: Path, wireguard: WireGuard):
+        self.ledger, self.config, self.backups, self.wireguard = ledger, Path(config), Path(backups), wireguard
+
+    def _write(self, desired: str, operation_id: str) -> Path:
+        current = self.config.read_text(encoding="utf-8")
+        self.backups.mkdir(mode=0o700, parents=True, exist_ok=True)
+        backup = self.backups / f"{operation_id}.conf"
+        backup.write_text(current, encoding="utf-8")
+        backup.chmod(0o600)
+        fd, temporary = tempfile.mkstemp(prefix=".gway-remote-", dir=self.config.parent, text=True)
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8") as handle:
+                handle.write(desired)
+                handle.flush()
+                os.fsync(handle.fileno())
+            os.chmod(temporary, 0o600)
+            os.replace(temporary, self.config)
+            if self.config.read_text(encoding="utf-8") != desired:
+                raise EnrollmentFailure("Watchtower config verification failed")
+        finally:
+            Path(temporary).unlink(missing_ok=True)
+        return backup
+
+    @contextmanager
+    def _config_lock(self):
+        """Serialize allocation through the matching config/runtime mutation."""
+        import fcntl
+
+        lock_path = self.config.with_name(self.config.name + ".gway-remote.lock")
+        descriptor = os.open(lock_path, os.O_CREAT | os.O_RDWR, 0o600)
+        try:
+            fcntl.flock(descriptor, fcntl.LOCK_EX)
+            yield
+        finally:
+            fcntl.flock(descriptor, fcntl.LOCK_UN)
+            os.close(descriptor)
+
+    def enroll(self, device: str, public_key: str, token: str) -> Enrollment:
+        with self._config_lock():
+            original = self.config.read_text(encoding="utf-8")
+            enrollment = self.ledger.reserve(device=device, public_key=public_key, token=token,
+                                             occupied=occupied_addresses(original), backup_directory=self.backups)
+            if enrollment.already_active:
+                return enrollment
+            try:
+                backup = self._write(render_managed_peer(original, enrollment), enrollment.operation_id)
+                self.ledger.advance(enrollment.operation_id, "config_written", backup_path=str(backup))
+                self.wireguard.set_peer(enrollment.public_key, enrollment.address)
+                if not self.wireguard.has_peer(enrollment.public_key, enrollment.address):
+                    raise EnrollmentFailure("Watchtower runtime peer verification failed")
+                self.ledger.advance(enrollment.operation_id, "runtime_applied")
+                self.ledger.advance(enrollment.operation_id, "committed")
+                return enrollment
+            except BaseException:
+                self.rollback(enrollment.operation_id, enrollment.public_key)
+                raise
+
+    def rollback(self, operation_id: str, public_key: str) -> None:
+        operation = next((item for item in self.ledger.pending() if item["id"] == operation_id), None)
+        if operation and operation.get("backup_path"):
+            backup = Path(operation["backup_path"])
+            if backup.is_file():
+                shutil.copyfile(backup, self.config)
+                os.chmod(self.config, 0o600)
+        try:
+            self.wireguard.remove_peer(public_key)
+        except Exception:
+            self.ledger.advance(operation_id, "failed", detail="runtime rollback required")
+            return
+        self.ledger.advance(operation_id, "rolled_back")
+
+    def recover(self) -> int:
+        recovered = 0
+        for operation in self.ledger.pending():
+            self.rollback(operation["id"], operation["public_key"])
+            recovered += 1
+        return recovered
+
+
+def make_handler(provisioner: Provisioner, *, public_url: str, wireguard_endpoint: str):
+    class Handler(BaseHTTPRequestHandler):
+        server_version = "gway-remote-watchtower"
+        sys_version = ""
+
+        def log_message(self, *_args) -> None:
+            return
+
+        def _send(self, status: int, payload: dict) -> None:
+            encoded = json.dumps(payload, separators=(",", ":")).encode("utf-8")
+            self.send_response(status)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(encoded)))
+            self.end_headers()
+            if self.command != "HEAD":
+                self.wfile.write(encoded)
+
+        def do_GET(self) -> None:
+            if self.path == "/health":
+                self._send(200, {"ok": True, "service": "gway-remote-watchtower", "enrollment_url": public_url})
+            else:
+                self._send(404, {"error": "not_found"})
+
+        do_HEAD = do_GET
+
+        def do_POST(self) -> None:
+            if self.path != "/v1/enroll":
+                self._send(404, {"error": "not_found"})
+                return
+            try:
+                length = int(self.headers.get("Content-Length", "0"))
+                if not 0 < length <= MAX_REQUEST_BYTES:
+                    raise InvalidEnrollment("invalid enrollment request")
+                device, public_key, token = parse_enrollment_json(self.rfile.read(length))
+                enrollment = provisioner.enroll(device, public_key, token)
+            except (InvalidEnrollment, ValueError):
+                self._send(400, {"error": "invalid_request"})
+            except EnrollmentRejected:
+                self._send(403, {"error": "enrollment_rejected"})
+            except Exception:
+                self._send(500, {"error": "enrollment_failed"})
+            else:
+                self._send(200, {"device": enrollment.device, "address": enrollment.address, "public_key": enrollment.public_key, "server_endpoint": wireguard_endpoint, "enrollment_url": public_url, "created": not enrollment.already_active})
+    return Handler
+
+
+def serve(provisioner: Provisioner, *, host: str, port: int, public_url: str, wireguard_endpoint: str) -> None:
+    if host not in {"127.0.0.1", "::1"}:
+        raise ValueError("Watchtower service must bind a loopback address")
+    provisioner.recover()
+    httpd = ThreadingHTTPServer((host, port), make_handler(provisioner, public_url=public_url, wireguard_endpoint=wireguard_endpoint))
+    httpd.serve_forever()

@@ -1,0 +1,6 @@
+---
+- name: Stage GWAY Remote Watchtower enrollment service
+  hosts: watchtower
+  become: true
+  roles:
+    - role: ../roles/watchtower_enrollment

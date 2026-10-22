@@ -336,6 +336,20 @@ def main() -> None:
     wg_parser.add_argument("action", choices=("endpoint",))
     wg_parser.add_argument("operation", choices=("show", "set"))
     wg_parser.add_argument("value", nargs="?")
+    watchtower_parser = subparsers.add_parser("watchtower", help="Root-only Watchtower enrollment administration")
+    watchtower_parser.add_argument("action", choices=("serve", "invite", "revoke", "status", "recover"))
+    watchtower_parser.add_argument("--ledger", required=True, help="root-owned SQLite enrollment ledger")
+    watchtower_parser.add_argument("--network", required=True, help="approved IPv4 allocation CIDR")
+    watchtower_parser.add_argument("--gateway", required=True, help="approved hub IPv4 address")
+    watchtower_parser.add_argument("--config", help="root-owned WireGuard configuration")
+    watchtower_parser.add_argument("--backup-dir", help="root-only WireGuard rollback directory")
+    watchtower_parser.add_argument("--device")
+    watchtower_parser.add_argument("--invitation-id")
+    watchtower_parser.add_argument("--minutes", type=int, default=15)
+    watchtower_parser.add_argument("--host", default="127.0.0.1")
+    watchtower_parser.add_argument("--port", type=int, default=8788)
+    watchtower_parser.add_argument("--public-url", help="approved public HTTPS enrollment URL")
+    watchtower_parser.add_argument("--wireguard-endpoint", help="approved public UDP host:port")
     worker_parser = subparsers.add_parser("codex", aliases=["codex-worker"], help="Codex worker and task inspection")
     worker_parser.add_argument("action", choices=("serve", "status", "tasks", "task", "submit", "discover", "veto", "unveto", "approve", "next"))
     worker_parser.add_argument("task_id", nargs="?")
@@ -349,6 +363,39 @@ def main() -> None:
     api_parser.add_argument("--host", default="127.0.0.1")
     api_parser.add_argument("--port", type=int, default=8765)
     args = parser.parse_args()
+    if args.command == "watchtower":
+        from .watchtower_enrollment import Ledger, Provisioner, SubprocessWireGuard, serve
+        from .wireguard_enrollment_contract import DEVICE
+        if os.geteuid() != 0:
+            parser.exit(1, "gway-remote: Watchtower administration requires root or sudo\n")
+        try:
+            ledger = Ledger(Path(args.ledger), network=args.network, gateway=args.gateway)
+            if args.action == "invite":
+                if not args.device or not DEVICE.fullmatch(args.device):
+                    parser.error("watchtower invite requires a valid --device")
+                print(json.dumps(ledger.invite(args.device, minutes=args.minutes), sort_keys=True))
+                return
+            if args.action == "revoke":
+                if not args.invitation_id:
+                    parser.error("watchtower revoke requires --invitation-id")
+                print(json.dumps({"revoked": ledger.revoke(args.invitation_id)}, sort_keys=True))
+                return
+            if args.action == "status":
+                print(json.dumps(ledger.status(), sort_keys=True))
+                return
+            if not args.config or not args.backup_dir:
+                parser.error(f"watchtower {args.action} requires --config and --backup-dir")
+            provisioner = Provisioner(ledger, Path(args.config), Path(args.backup_dir), SubprocessWireGuard())
+            if args.action == "recover":
+                print(json.dumps({"recovered": provisioner.recover()}, sort_keys=True))
+                return
+            if not args.public_url or not args.wireguard_endpoint:
+                parser.error("watchtower serve requires --public-url and --wireguard-endpoint")
+            serve(provisioner, host=args.host, port=args.port, public_url=args.public_url,
+                  wireguard_endpoint=args.wireguard_endpoint)
+        except (OSError, ValueError, RuntimeError) as exc:
+            parser.exit(1, f"gway-remote: Watchtower operation unavailable: {exc}\n")
+        return
     if args.command == "wireguard":
         from .wireguard_endpoint import endpoint, set_endpoint
         if args.operation == "set" and not args.value:
