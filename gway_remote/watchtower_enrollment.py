@@ -10,10 +10,10 @@ import hashlib
 import json
 import os
 import secrets
-import shutil
 import sqlite3
 import subprocess
 import tempfile
+import threading
 from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
@@ -265,13 +265,9 @@ class Provisioner:
     """Ordered file/runtime operation with recorded rollback material."""
     def __init__(self, ledger: Ledger, config: Path, backups: Path, wireguard: WireGuard):
         self.ledger, self.config, self.backups, self.wireguard = ledger, Path(config), Path(backups), wireguard
+        self._thread_lock = threading.RLock()
 
-    def _write(self, desired: str, operation_id: str) -> Path:
-        current = self.config.read_text(encoding="utf-8")
-        self.backups.mkdir(mode=0o700, parents=True, exist_ok=True)
-        backup = self.backups / f"{operation_id}.conf"
-        backup.write_text(current, encoding="utf-8")
-        backup.chmod(0o600)
+    def _write(self, desired: str) -> None:
         fd, temporary = tempfile.mkstemp(prefix=".gway-remote-", dir=self.config.parent, text=True)
         try:
             with os.fdopen(fd, "w", encoding="utf-8") as handle:
@@ -284,7 +280,47 @@ class Provisioner:
                 raise EnrollmentFailure("Watchtower config verification failed")
         finally:
             Path(temporary).unlink(missing_ok=True)
-        return backup
+
+    def _prepare_backup(self, operation: dict, current: str) -> str:
+        """Write a durable original once; retries must never overwrite it."""
+        backup = Path(operation["backup_path"])
+        self.backups.mkdir(mode=0o700, parents=True, exist_ok=True)
+        try:
+            fd = os.open(backup, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+        except FileExistsError:
+            return backup.read_text(encoding="utf-8")
+        with os.fdopen(fd, "w", encoding="utf-8") as handle:
+            handle.write(current)
+            handle.flush()
+            os.fsync(handle.fileno())
+        return current
+
+    def _resume(self, operation: dict) -> None:
+        if operation["state"] == "failed":
+            raise EnrollmentFailure("Watchtower enrollment needs operator review")
+        enrollment = Enrollment(operation["id"], operation["device"],
+                                operation["public_key"], operation["address"])
+        current = self.config.read_text(encoding="utf-8")
+        original = self._prepare_backup(operation, current)
+        expected = render_managed_peer(original, enrollment)
+        # Never restore old snapshots or remove an existing peer. Unrelated
+        # changes are ambiguous: block enrollment for operator inspection.
+        if current not in (original, expected):
+            self.ledger.advance(enrollment.operation_id, "failed",
+                                detail="configuration differs from recorded operation")
+            raise EnrollmentFailure("Watchtower configuration requires operator review")
+        if current == original:
+            if MANAGED_BEGIN + enrollment.device in original:
+                raise EnrollmentFailure("existing managed peer needs operator review")
+            self._write(expected)
+        self.ledger.advance(enrollment.operation_id, "config_written",
+                            backup_path=str(self.backups / f"{enrollment.operation_id}.conf"))
+        if not self.wireguard.has_peer(enrollment.public_key, enrollment.address):
+            self.wireguard.set_peer(enrollment.public_key, enrollment.address)
+        if not self.wireguard.has_peer(enrollment.public_key, enrollment.address):
+            raise EnrollmentFailure("Watchtower runtime peer verification failed")
+        self.ledger.advance(enrollment.operation_id, "runtime_applied")
+        self.ledger.advance(enrollment.operation_id, "committed")
 
     @contextmanager
     def _config_lock(self):
@@ -301,45 +337,28 @@ class Provisioner:
             os.close(descriptor)
 
     def enroll(self, device: str, public_key: str, token: str) -> Enrollment:
-        with self._config_lock():
+        with self._thread_lock, self._config_lock():
+            # Finish any previous operation before allocating another address.
+            self._recover_locked()
             original = self.config.read_text(encoding="utf-8")
             enrollment = self.ledger.reserve(device=device, public_key=public_key, token=token,
                                              occupied=occupied_addresses(original), backup_directory=self.backups)
-            if enrollment.already_active:
-                return enrollment
-            try:
-                backup = self._write(render_managed_peer(original, enrollment), enrollment.operation_id)
-                self.ledger.advance(enrollment.operation_id, "config_written", backup_path=str(backup))
-                self.wireguard.set_peer(enrollment.public_key, enrollment.address)
-                if not self.wireguard.has_peer(enrollment.public_key, enrollment.address):
-                    raise EnrollmentFailure("Watchtower runtime peer verification failed")
-                self.ledger.advance(enrollment.operation_id, "runtime_applied")
-                self.ledger.advance(enrollment.operation_id, "committed")
-                return enrollment
-            except BaseException:
-                self.rollback(enrollment.operation_id, enrollment.public_key)
-                raise
+            if not enrollment.already_active:
+                operation = next(item for item in self.ledger.pending()
+                                 if item["id"] == enrollment.operation_id)
+                self._resume(operation)
+            return enrollment
 
-    def rollback(self, operation_id: str, public_key: str) -> None:
-        operation = next((item for item in self.ledger.pending() if item["id"] == operation_id), None)
-        if operation and operation.get("backup_path"):
-            backup = Path(operation["backup_path"])
-            if backup.is_file():
-                shutil.copyfile(backup, self.config)
-                os.chmod(self.config, 0o600)
-        try:
-            self.wireguard.remove_peer(public_key)
-        except Exception:
-            self.ledger.advance(operation_id, "failed", detail="runtime rollback required")
-            return
-        self.ledger.advance(operation_id, "rolled_back")
-
-    def recover(self) -> int:
+    def _recover_locked(self) -> int:
         recovered = 0
         for operation in self.ledger.pending():
-            self.rollback(operation["id"], operation["public_key"])
+            self._resume(operation)
             recovered += 1
         return recovered
+
+    def recover(self) -> int:
+        with self._thread_lock, self._config_lock():
+            return self._recover_locked()
 
 
 def make_handler(provisioner: Provisioner, *, public_url: str, wireguard_endpoint: str):
