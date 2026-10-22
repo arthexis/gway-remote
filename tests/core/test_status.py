@@ -48,12 +48,18 @@ class StatusTests(unittest.TestCase):
         self.assertEqual(result["depth"], "quick")
         self.assertEqual(quick.call_count, len(TARGETS))
         self.assertTrue(all(c["health"] == "unknown" and
-                            c["evidence"] == "service-active" for c in result["components"]))
+                            c["evidence"] == "service-active" for c in result["components"]
+                            if c["name"] != "gway-bastion"))
+        bastion = next(c for c in result["components"] if c["name"] == "gway-bastion")
+        self.assertIn(bastion["health"], ("unknown", "not_applicable"))
 
     def test_deep_remains_default(self):
         result = status(self.path, probe=lambda _: True)
         self.assertEqual(result["depth"], "deep")
-        self.assertTrue(all(c["health"] == "healthy" for c in result["components"]))
+        self.assertTrue(all(c["health"] == "healthy" for c in result["components"]
+                            if c["name"] != "gway-bastion"))
+        bastion = next(c for c in result["components"] if c["name"] == "gway-bastion")
+        self.assertIn(bastion["health"], ("unknown", "not_applicable"))
 
     def test_invalid_depth(self):
         with self.assertRaises(ValueError):

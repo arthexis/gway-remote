@@ -4,6 +4,7 @@ from .attempts import read_attempts
 from .github_state import GitHub, main_head
 from .reconcile import TARGETS
 from .status import installed_revision
+from .bastion_status import read_bastion_evidence
 
 
 def inventory(repository=None, *, client=None, attempts=None, installed=None):
@@ -24,13 +25,16 @@ def inventory(repository=None, *, client=None, attempts=None, installed=None):
         # Release symlinks may expose only 12 characters, unlike GitHub's full SHA.
         relation = ("unknown" if not verified else
                     "current" if latest.lower().startswith(verified.lower()) else "behind")
+        release = read_bastion_evidence() if name == "gway-bastion" else None
         rows.append({"name": name, "repository": source,
                      "attempted_at": record.get("at"),
                      "attempted_sha": record.get("sha"),
                      "attempt_status": record.get("status", "never-attempted"),
                      "installed_sha": verified,
                      "latest_sha": latest,
-                     "revision_status": relation})
+                     "revision_status": relation,
+                     "release_state": release["release_state"] if release else None,
+                     "staged_sha": release["staged_sha"] if release else None})
     return {"checked_at": datetime.now(timezone.utc).isoformat(),
             "components": rows}
 
@@ -45,5 +49,7 @@ def format_inventory(report):
             f'{(row["installed_sha"] or "unknown")[:12]:<13} '
             f'{row["latest_sha"][:12]:<13} {row["revision_status"]}'
         )
+        if row.get("release_state"):
+            lines.append(f'  Release: {row["release_state"]}; staged SHA: {(row.get("staged_sha") or "unknown")[:12]}')
     lines.append("Installed revision is verified independently; latest attempt is not proof of installation.")
     return "\n".join(lines)
