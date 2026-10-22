@@ -158,7 +158,7 @@ class WatchtowerEnrollmentTests(unittest.TestCase):
 
         def run(args, **_kwargs):
             self.assertEqual(args[:4], ["wg", "show", "gway", "allowed-ips"])
-            return CompletedProcess(args, 0, KEY + "\\t10.90.0.3/32, 10.90.0.4/32\\n", "")
+            return CompletedProcess(args, 0, KEY + "\t10.90.0.3/32, 10.90.0.4/32\n", "")
 
         wg = SubprocessWireGuard(runner=run)
         self.assertTrue(wg.has_peer(KEY, "10.90.0.4/32"))
