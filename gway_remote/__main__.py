@@ -324,7 +324,7 @@ def main() -> None:
     deployments_parser.add_argument("--json", action="store_true")
     deploy_parser = subparsers.add_parser("deploy", help="Trigger GitHub Appliance Deploy workflow")
     from .deploy_dispatch import TARGETS
-    deploy_parser.add_argument("repository", nargs="?", choices=TARGETS[1:])
+    deploy_parser.add_argument("repository", nargs="?", help="Repository name or hyphen-word selector (matches all approved targets)")
     deploy_parser.add_argument("--all", action="store_true", help="Deploy all repositories")
     deploy_parser.add_argument("--follow", action="store_true", help="Watch the dispatched workflow until completion")
     batch_parser = subparsers.add_parser("deploy-batch", help="Deploy appliance revisions")
@@ -503,13 +503,22 @@ def main() -> None:
     if args.command == "deploy":
         if args.all == bool(args.repository):
             parser.error("deploy requires either a repository or --all (not both)")
-        from .deploy_dispatch import dispatch, follow_run
+        from .deploy_dispatch import dispatch, follow_run, resolve_targets
         try:
-            message = dispatch("all" if args.all else args.repository)
-            print(message, flush=True)
-            if args.follow:
-                follow_run(message)
-        except (ValueError, RuntimeError) as exc:
+            targets = ("all",) if args.all else resolve_targets(args.repository)
+            failures = []
+            for target in targets:
+                try:
+                    message = dispatch(target)
+                    print(message, flush=True)
+                    if args.follow:
+                        follow_run(message)
+                except (ValueError, RuntimeError) as exc:
+                    failures.append(f"{target}: {exc}")
+                    print(f"gway-remote: {target}: {exc}", file=sys.stderr, flush=True)
+            if failures:
+                parser.exit(1, f"gway-remote: {len(failures)} deployment request(s) failed\n")
+        except ValueError as exc:
             parser.exit(1, f"gway-remote: {exc}\n")
         return
     if args.command == "deploy-batch":
