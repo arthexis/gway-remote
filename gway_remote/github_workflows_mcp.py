@@ -91,7 +91,7 @@ def runs(args):
                 raise ValueError("invalid_filter")
             params[key] = v
     if "status" in args:
-        if args["status"] not in ("queued", "in_progress", "completed", "success",
+        if type(args["status"]) is not str or args["status"] not in ("queued", "in_progress", "completed", "success",
                                    "failure", "cancelled", "timed_out", "neutral"):
             raise ValueError("invalid_filter")
         params["status"] = args["status"]
@@ -113,10 +113,11 @@ def status(args):
     run = _request(repo, "runs/" + str(run_id))
     jobs = _request(repo, "runs/" + str(run_id) + "/jobs", {"per_page": 100})
     items = jobs.get("jobs")
-    if not isinstance(items, list) or jobs.get("total_count", 0) > len(items):
+    if (not isinstance(items, list) or type(jobs.get("total_count")) is not int
+            or jobs["total_count"] > len(items)):
         raise WorkflowError("github_jobs_truncated")
     return {"source": "github_live", "repository": repo, "run": _fields(run, RUN),
-            "jobs": [{**_fields(j, JOB), "steps": [_fields(s, STEP) for s in j.get("steps", [])]}
+            "jobs": [{**_fields(j, JOB), "steps": [_fields(s, STEP) for s in (j.get("steps") or [])]}
                      for j in items]}
 
 
