@@ -13,7 +13,8 @@ from urllib.error import HTTPError, URLError
 from urllib.parse import urlsplit
 from urllib.request import Request, urlopen
 
-EXPECTED = {"agent_list_issues", "agent_status", "agent_preview", "agent_observe"}
+EXPECTED = {"agent_list_issues", "agent_status", "agent_preview", "agent_observe",
+            "github_workflow_runs", "github_workflow_status", "github_workflow_errors"}
 ACCEPT = "application/json, text/event-stream"
 PROTOCOL = "2025-03-26"
 

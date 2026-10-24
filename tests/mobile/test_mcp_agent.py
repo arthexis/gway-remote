@@ -9,7 +9,8 @@ class MCPAgentTests(unittest.TestCase):
     def test_tool_inventory_is_read_only(self):
         tools = mcp_agent.list_tools()
         self.assertEqual({x["name"] for x in tools},
-                         {"agent_list_issues", "agent_status", "agent_preview", "agent_observe"})
+                         {"agent_list_issues", "agent_status", "agent_preview", "agent_observe",
+                          "github_workflow_runs", "github_workflow_status", "github_workflow_errors"})
         self.assertTrue(all(x["annotations"]["readOnlyHint"] for x in tools))
         self.assertFalse(any("submit" in x["name"] for x in tools))
 
