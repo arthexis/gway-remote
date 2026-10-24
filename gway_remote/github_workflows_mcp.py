@@ -81,6 +81,8 @@ def runs(args):
     limit = _positive(args.get("limit", 10), 20)
     repos = [args["repository"]] if "repository" in args else [
         row["repository"] for row in export_targets()["targets"]]
+    for repo in repos:
+        _allowed(repo)
     params = {"per_page": limit, "page": 1}
     for key in ("branch", "event"):
         if key in args:
@@ -123,11 +125,11 @@ def errors(args):
         raise ValueError("invalid_arguments")
     repo, run_id = args["repository"], _positive(args["run_id"], 10**18)
     limit = _positive(args.get("limit", 20), 30)
+    record = status({"repository": repo, "run_id": run_id})
+    jobs = [j for j in record["jobs"] if j["conclusion"] == "failure"][:5]
     if "job_id" in args:
-        jobs = [{"id": _positive(args["job_id"], 10**18), "conclusion": "failure"}]
-    else:
-        record = status({"repository": repo, "run_id": run_id})
-        jobs = [j for j in record["jobs"] if j["conclusion"] == "failure"][:5]
+        job_id = _positive(args["job_id"], 10**18)
+        jobs = [j for j in jobs if j["id"] == job_id]
     # Logs can contain arbitrary secrets despite masking. Do not export raw lines.
     # Return bounded job/step failure metadata instead of unsafe excerpts.
     summaries = []
