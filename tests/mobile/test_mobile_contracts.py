@@ -58,7 +58,14 @@ class MobileReadOnlyContracts(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as directory:
             result = status(Path(directory), probe=unavailable)
-            self.assertTrue(all(c["health"] == "unknown" for c in result["components"]))
+            # Bastion runtime is read from independent deployment evidence, not
+            # the injected component probe. Preserve that authoritative value.
+            from gway_remote.bastion_status import read_bastion_evidence
+
+            for component in result["components"]:
+                expected = (read_bastion_evidence()["runtime"]
+                            if component["name"] == "gway-bastion" else "unknown")
+                self.assertEqual(component["health"], expected, component["name"])
             json.dumps(result)
 
 
