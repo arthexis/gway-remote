@@ -10,6 +10,12 @@ from .target_export import export_targets
 
 MAX_BYTES = 256 * 1024
 _REPO = re.compile(r"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$")
+# Remote is deployed separately from the appliance TARGETS registry.
+SELF_REPOSITORY = "arthexis/gway-remote"
+
+
+def _repositories():
+    return tuple(dict.fromkeys([SELF_REPOSITORY, *(row["repository"] for row in export_targets()["targets"])]))
 
 
 class WorkflowError(RuntimeError):
@@ -17,7 +23,7 @@ class WorkflowError(RuntimeError):
 
 
 def _allowed(repository):
-    allowed = {row["repository"] for row in export_targets()["targets"]}
+    allowed = set(_repositories())
     if repository not in allowed or not _REPO.fullmatch(repository):
         raise ValueError("repository_not_allowed")
     return repository
@@ -79,8 +85,7 @@ def runs(args):
     if type(args) is not dict or set(args) - {"repository", "branch", "status", "event", "limit"}:
         raise ValueError("invalid_arguments")
     limit = _positive(args.get("limit", 10), 20)
-    repos = [args["repository"]] if "repository" in args else [
-        row["repository"] for row in export_targets()["targets"]]
+    repos = [args["repository"]] if "repository" in args else _repositories()
     for repo in repos:
         _allowed(repo)
     params = {"per_page": limit, "page": 1}
