@@ -33,7 +33,7 @@ class ApplianceWorkflowTests(unittest.TestCase):
         for dependency in ("ocpp_csms", "ocpp_simulator", "gway_lcd_sound", "gway_agent_ops"):
             self.assertIn(f"needs: {dependency}", deploy)
         self.assertIn("needs: [" + ", ".join(name.replace("-", "_") for name, _ in TARGETS) + "]", deploy)
-        self.assertEqual(len(TARGETS) - 1, deploy.count("always() && github.event_name"))
+        self.assertEqual(len(TARGETS) - 2, deploy.count("always() && github.event_name"))
         self.assertRegex(deploy, r"(?m)^  gway_lcd_sound:\\n    name: Deploy gway-lcd-sound\\n    if:")
         self.assertNotRegex(deploy, r"(?m)^  gway_lcd_sound:\\n    name: Deploy gway-lcd-sound\\n    needs:")
         self.assertNotIn("exit 0", deploy)
