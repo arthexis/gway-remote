@@ -20,7 +20,7 @@ class MCPTransportTests(unittest.TestCase):
     def test_methods(self):
         result, error, _ = mcp_http.handle({"jsonrpc": "2.0", "id": 1, "method": "tools/list"})
         self.assertIsNone(error)
-        self.assertEqual(len(result["tools"]), 4)
+        self.assertEqual(len(result["tools"]), 7)
         self.assertTrue(all(t["annotations"]["readOnlyHint"] for t in result["tools"]))
         _, error, _ = mcp_http.handle({"jsonrpc": "2.0", "id": 2, "method": "agent_submit"})
         self.assertEqual(error, -32601)
