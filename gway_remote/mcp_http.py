@@ -82,7 +82,7 @@ class Handler(BaseHTTPRequestHandler):
             self.send_header("Content-Length", "0")
             self.end_headers()
             return
-        response = {"jsonrpc": "2.0", "id": payload.get("id")}
+        response = {"jsonrpc": "2.0", "id": payload.get("id") if type(payload) is dict else None}
         if code is not None:
             response["error"] = {"code": code, "message": message}
         else:
