@@ -18,7 +18,7 @@ class AgentObservationTransportTests(unittest.TestCase):
                     returncode=0, stdout=envelope)) as runner:
             self.assertEqual(execute("agent-observe", arguments)["data"]["state"], "accepted")
             self.assertEqual(runner.call_args.args[0],
-                             ["/usr/bin/agent", "observe", arguments["ref"], "--at", arguments["at"], "--json"])
+                             ["/usr/bin/agent", "observe", arguments["ref"], "--at", "2026-10-13T15:00:00.000000Z", "--json"])
             self.assertEqual(runner.call_args.kwargs["timeout"], 20)
 
     def test_bad_identity_never_launches(self):
