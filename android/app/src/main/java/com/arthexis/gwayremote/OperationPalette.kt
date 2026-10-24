@@ -328,9 +328,6 @@ internal fun AgentOpsPanel(
     }
     if (attempted != null) {
         Text("Last requested: ${attempted.first} · ${attempted.second}", style = MaterialTheme.typography.bodySmall)
-        TextButton(enabled = !observing && !sending, onClick = {
-            onObserve(attempted.first, attempted.second)
-        }) { Text("Check submission") }
         if (sendError != null) {
             TextButton(enabled = !sending, onClick = { onSend(attempted.first, attempted.second) }) {
                 Text("Retry same submission")
@@ -368,12 +365,21 @@ internal fun AgentOpsPanel(
     if (observing) LinearProgressIndicator(Modifier.fillMaxWidth())
     if (observationError != null) Text("Observation unavailable: $observationError",
         color = MaterialTheme.colorScheme.error)
-    if (sendResult != null) {
-        var showResponse by remember(sendResult) { mutableStateOf(false) }
-        TextButton(onClick = { showResponse = !showResponse }) {
-            Text(if (showResponse) "Hide submission response" else "Show submission response")
+    var showResponse by remember(sendResult) { mutableStateOf(false) }
+    if (attempted != null || sendResult != null) {
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            if (attempted != null) {
+                TextButton(enabled = !observing && !sending, onClick = {
+                    onObserve(attempted.first, attempted.second)
+                }) { Text("Check submission") }
+            }
+            if (sendResult != null) {
+                TextButton(onClick = { showResponse = !showResponse }) {
+                    Text(if (showResponse) "Hide response" else "Show response")
+                }
+            }
         }
-        if (showResponse) Text(sendResult, style = MaterialTheme.typography.bodySmall)
+        if (showResponse && sendResult != null) Text(sendResult, style = MaterialTheme.typography.bodySmall)
     }
 
     if (output == null) return
