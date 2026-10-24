@@ -408,7 +408,7 @@ def make_handler(provisioner: Provisioner | None, *, public_url: str, wireguard_
             except Exception:
                 self._send(500, {"error": "enrollment_failed"})
             else:
-                self._send(200, {"device": enrollment.device, "address": enrollment.address, "public_key": enrollment.public_key, "server_endpoint": wireguard_endpoint, "enrollment_url": public_url, "created": not enrollment.already_active})
+                self._send(200, {"device": enrollment.device, "address": enrollment.address, "public_key": enrollment.public_key, "server_endpoint": wireguard_endpoint, "server_public_key": subprocess.run(["wg", "show", "gway", "public-key"], check=True, capture_output=True, text=True).stdout.strip(), "server_tunnel_ip": str(provisioner.ledger.gateway), "enrollment_url": public_url, "created": not enrollment.already_active})
     return Handler
 
 
