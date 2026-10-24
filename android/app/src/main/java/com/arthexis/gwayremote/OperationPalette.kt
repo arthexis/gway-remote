@@ -516,7 +516,7 @@ internal fun AgentOpsPanel(
         if (status == null) Text("Agent status unavailable")
         else {
             val budget = status.optJSONObject("budget")
-            Text("5h: ${agentBudgetRemaining(budget?.optJSONObject("five_hour"))}  ·  Weekly: ${agentBudgetRemaining(budget?.optJSONObject("weekly"))}")
+            Text("5h: ${agentBudgetRemaining(budget?.optJSONObject("five_hour"))}  ·  Weekly: ${agentBudgetRemaining(budget?.optJSONObject("weekly"))}", style = MaterialTheme.typography.bodySmall)
             var expanded by remember { mutableStateOf(false) }
             TextButton(onClick = { expanded = !expanded }) {
                 Text(if (expanded) "Hide status JSON" else "Show status JSON")
@@ -552,7 +552,9 @@ private fun agentBudgetRemaining(window: JSONObject?): String {
     val percent = window?.opt("remaining_percent")
     val available = window?.optBoolean("available", false) == true &&
         percent is Number && percent.toDouble() in 0.0..100.0
-    return if (available) "${percent}%" else "unavailable"
+    val remaining = if (available) "${percent}%" else "unavailable"
+    val reset = window?.optString("resets_at")?.takeIf { available && it.isNotBlank() && it != "null" }
+    return if (reset == null) remaining else "$remaining (resets $reset)"
 }
 
 /** Use two buttons per row on ordinary phones, falling back only on very narrow layouts. */
