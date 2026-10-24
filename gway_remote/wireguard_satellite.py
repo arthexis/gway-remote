@@ -49,7 +49,16 @@ def _identity(path):
             raise ValueError("existing configuration lacks private key")
         private = match.group(1)
         return private, _key(_run("wg", "pubkey", input=private + "\n")), content
-    private = _run("wg", "genkey")
+    pending = path.with_name(path.name + ".pending-key")
+    if pending.is_symlink():
+        raise ValueError("unsafe pending key")
+    if pending.exists():
+        if pending.stat().st_mode & 0o077:
+            raise PermissionError("pending key is not private")
+        private = pending.read_text().strip()
+    else:
+        private = _run("wg", "genkey")
+        _atomic_new(pending, private + "\n")
     return private, _key(_run("wg", "pubkey", input=private + "\n")), None
 
 
@@ -78,13 +87,18 @@ def _validate(response, device, public, server_key):
     if not isinstance(response, dict) or response.get("device") != device or response.get("public_key") != public:
         raise ValueError("enrollment identity mismatch")
     _key(server_key)
+    if response.get("server_public_key") != server_key:
+        raise ValueError("Watchtower public key mismatch")
     address = ipaddress.ip_interface(response["address"])
     if address.version != 4 or address.network.prefixlen != 32 or not address.ip.is_private:
         raise ValueError("invalid assigned address")
     endpoint = response.get("server_endpoint")
     if endpoint != "register.gelectriic.com:51820":
         raise ValueError("unexpected WireGuard endpoint")
-    return str(address), endpoint
+    gateway = ipaddress.ip_address(response["server_tunnel_ip"])
+    if gateway.version != 4 or not gateway.is_private or gateway == address.ip:
+        raise ValueError("invalid Watchtower tunnel address")
+    return str(address), endpoint, str(gateway)
 
 
 def _atomic_new(path, content):
@@ -116,11 +130,12 @@ def bootstrap(device, server_key, token, *, config=Path("/etc/wireguard/gway.con
         _run("systemctl", "enable", "--now", "wg-quick@gway.service")
         return {"device": device, "configured": True, "reused": True}
     response = _enroll(url, device, public, token)
-    address, endpoint = _validate(response, device, public, server_key)
+    address, endpoint, gateway = _validate(response, device, public, server_key)
     config_text = (f"[Interface]\nAddress = {address}\nPrivateKey = {private}\n\n"
                    f"[Peer]\nPublicKey = {server_key}\nEndpoint = {endpoint}\n"
                    "AllowedIPs = 10.90.0.1/32\nPersistentKeepalive = 25\n")
     _atomic_new(config, config_text)
+    config.with_name(config.name + ".pending-key").unlink(missing_ok=True)
     _run("systemctl", "enable", "--now", "wg-quick@gway.service")
     return {"device": device, "configured": True, "reused": False}
 
