@@ -338,9 +338,9 @@ def main() -> None:
     wg_parser.add_argument("value", nargs="?")
     watchtower_parser = subparsers.add_parser("watchtower", help="Root-only Watchtower enrollment administration")
     watchtower_parser.add_argument("action", choices=("serve", "invite", "revoke", "status", "recover"))
-    watchtower_parser.add_argument("--ledger", required=True, help="root-owned SQLite enrollment ledger")
-    watchtower_parser.add_argument("--network", required=True, help="approved IPv4 allocation CIDR")
-    watchtower_parser.add_argument("--gateway", required=True, help="approved hub IPv4 address")
+    watchtower_parser.add_argument("--ledger", help="root-owned SQLite enrollment ledger")
+    watchtower_parser.add_argument("--network", help="approved IPv4 allocation CIDR")
+    watchtower_parser.add_argument("--gateway", help="approved hub IPv4 address")
     watchtower_parser.add_argument("--config", help="root-owned WireGuard configuration")
     watchtower_parser.add_argument("--backup-dir", help="root-only WireGuard rollback directory")
     watchtower_parser.add_argument("--device")
@@ -350,6 +350,7 @@ def main() -> None:
     watchtower_parser.add_argument("--port", type=int, default=8788)
     watchtower_parser.add_argument("--public-url", help="approved public HTTPS enrollment URL")
     watchtower_parser.add_argument("--wireguard-endpoint", help="approved public UDP host:port")
+    watchtower_parser.add_argument("--read-only-stage", action="store_true", help="serve health and reject enrollment without opening ledger/config/WireGuard")
     worker_parser = subparsers.add_parser("codex", aliases=["codex-worker"], help="Codex worker and task inspection")
     worker_parser.add_argument("action", choices=("serve", "status", "tasks", "task", "submit", "discover", "veto", "unveto", "approve", "next"))
     worker_parser.add_argument("task_id", nargs="?")
@@ -366,9 +367,20 @@ def main() -> None:
     if args.command == "watchtower":
         from .watchtower_enrollment import Ledger, Provisioner, SubprocessWireGuard, serve
         from .wireguard_enrollment_contract import DEVICE
-        if os.geteuid() != 0:
-            parser.exit(1, "gway-remote: Watchtower administration requires root or sudo\n")
         try:
+            if args.read_only_stage:
+                if args.action == "status":
+                    print(json.dumps({"mode": "read_only_stage", "wireguard_mutation": False}, sort_keys=True))
+                    return
+                if args.action != "serve" or not args.public_url or not args.wireguard_endpoint:
+                    parser.error("read-only stage only supports serve/status with public endpoint configuration")
+                serve(None, host=args.host, port=args.port, public_url=args.public_url,
+                      wireguard_endpoint=args.wireguard_endpoint, read_only_stage=True)
+                return
+            if os.geteuid() != 0:
+                parser.exit(1, "gway-remote: Watchtower administration requires root or sudo\n")
+            if not args.ledger or not args.network or not args.gateway:
+                parser.error("active Watchtower administration requires --ledger, --network, and --gateway")
             ledger = Ledger(Path(args.ledger), network=args.network, gateway=args.gateway)
             if args.action == "invite":
                 if not args.device or not DEVICE.fullmatch(args.device):
