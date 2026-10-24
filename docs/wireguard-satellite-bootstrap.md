@@ -2,7 +2,7 @@
 
 This client is part of **gway-remote**, not the deprecated classic GWAY Wire sampler. It imports only Python standard-library modules; the satellite needs Python 3, WireGuard tools and systemd.
 
-The Watchtower enrollment response currently does **not** provide its WireGuard server public key. The client therefore requires that public key to be verified and supplied out of band; do not guess it from HTTPS. The hub tunnel address is currently assumed to be `10.90.0.1/32`, and must be made an explicit server contract or configured verified value before field rollout.
+Watchtower now supplies `server_public_key` and `server_tunnel_ip` in the enrollment response. The client compares the server public key against the independently verified value supplied by the operator, and derives the hub /32 from the response rather than assuming a fixed subnet. A private pending key is written before enrollment so retrying the same invitation retains the same public key; do not delete `gway.conf.pending-key` during recovery.
 
 Example after independently obtaining the Watchtower public key and a short-lived invitation:
 
@@ -19,4 +19,4 @@ The implementation refuses to overwrite an existing config. Its status command i
 python3 -m gway_remote.wireguard_satellite status
 ```
 
-**Not field-ready:** This PR is a draft until packaging, full server/client contract compatibility, interruption/retry semantics, installer, and real handshake validation are completed. A successful enrollment HTTP response does not establish WireGuard reachability. Watchtower deployment is separately gated by issue #228.
+**Field gate:** The standalone installer, systemd/Watchtower integration tests, PR CI, and a real handshake/reboot test are still required. Do not assume merging this code constitutes production readiness. A successful enrollment HTTP response does not establish WireGuard reachability. Watchtower deployment is separately gated by issue #228.
