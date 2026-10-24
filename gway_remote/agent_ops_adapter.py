@@ -91,21 +91,35 @@ def status(arguments):
 ISSUE_REF = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,99}/[A-Za-z0-9][A-Za-z0-9_.-]{0,99}#[1-9][0-9]*$")
 
 
+_TIMESTAMP = re.compile(
+    r"^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(?:\\.\\d{1,6})?(?:Z|[+-]\\d{2}:\\d{2})$"
+)
+
+
+def _utc_timestamp(value):
+    """Canonical UTC instant shared by submission and observation.
+
+    Agent Ops stores microsecond-precision UTC identities internally.
+    """
+    if type(value) is not str or not _TIMESTAMP.fullmatch(value):
+        raise ValueError("invalid_timestamp")
+    try:
+        instant = datetime.fromisoformat(value.replace("Z", "+00:00"))
+        if instant.utcoffset() is None:
+            raise ValueError("invalid_timestamp")
+        return instant.astimezone(timezone.utc).isoformat(timespec="microseconds").replace("+00:00", "Z")
+    except ValueError as exc:
+        raise ValueError("invalid_timestamp") from exc
+
+
 def send_issue(arguments):
     if type(arguments) is not dict or set(arguments) != {"ref", "at"}:
         raise ValueError("invalid_arguments")
     ref, at = arguments["ref"], arguments["at"]
     if type(ref) is not str or not ISSUE_REF.fullmatch(ref):
         raise ValueError("invalid_issue_ref")
-    if type(at) is not str or len(at) != 20 or not at.endswith("Z"):
-        raise ValueError("invalid_timestamp")
-    try:
-        parsed = datetime.strptime(at, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=timezone.utc)
-    except ValueError as exc:
-        raise ValueError("invalid_timestamp") from exc
-    if parsed.strftime("%Y-%m-%dT%H:%M:%SZ") != at:
-        raise ValueError("invalid_timestamp")
-    return _run(["submit", ref, "--at", at, "--origin", "remote-api"])
+    return _run(["submit", ref, "--at", _utc_timestamp(at), "--origin", "remote-api"])
+
 
 def observe_issue(arguments):
     if type(arguments) is not dict or set(arguments) != {"ref", "at"}:
@@ -113,15 +127,7 @@ def observe_issue(arguments):
     ref, at = arguments["ref"], arguments["at"]
     if type(ref) is not str or not ISSUE_REF.fullmatch(ref):
         raise ValueError("invalid_issue_ref")
-    if type(at) is not str or len(at) != 20 or not at.endswith("Z"):
-        raise ValueError("invalid_timestamp")
-    try:
-        parsed = datetime.strptime(at, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=timezone.utc)
-    except ValueError as exc:
-        raise ValueError("invalid_timestamp") from exc
-    if parsed.strftime("%Y-%m-%dT%H:%M:%SZ") != at:
-        raise ValueError("invalid_timestamp")
-    return _run(["observe", ref, "--at", at])
+    return _run(["observe", ref, "--at", _utc_timestamp(at)])
 
 
 def preview_issue(arguments):
