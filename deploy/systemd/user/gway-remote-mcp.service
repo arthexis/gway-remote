@@ -1,0 +1,15 @@
+[Unit]
+Description=GWay Remote Agent Ops MCP (private read-only loopback)
+After=network.target
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/python3 -m gway_remote.mcp_http
+EnvironmentFile=%h/.config/gway-remote/mcp.env
+Restart=on-failure
+RestartSec=5
+NoNewPrivileges=true
+UMask=0077
+
+[Install]
+WantedBy=default.target
