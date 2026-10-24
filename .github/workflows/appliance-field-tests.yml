@@ -1,0 +1,26 @@
+name: Appliance Field Tests
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: gway-001-appliance
+  cancel-in-progress: false
+
+jobs:
+  health:
+    name: Validate GWay-001 system health
+    if: ${{ github.actor == 'arthexis' }}
+    runs-on: [self-hosted, Linux, ARM64, gway-001]
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Run registered read-only system health check
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m gway_remote run system-health
