@@ -32,7 +32,7 @@ class ApplianceWorkflowTests(unittest.TestCase):
     def test_two_independent_serialized_tracks(self):
         deploy = (WORKFLOWS / "appliance-deploy.yml").read_text()
         # Extract top-level job blocks, independent of incidental formatting.
-        blocks = re.split(r"(?m)^  ([a-z][a-z0-9_]*):\\s*\\n", deploy.split("\\njobs:\\n", 1)[1])
+        blocks = re.split(r"(?m)^  ([a-z][a-z0-9_]*):\s*\n", deploy.split("\njobs:\n", 1)[1])
         jobs = dict(zip(blocks[1::2], blocks[2::2]))
 
         tracks = (
@@ -44,7 +44,7 @@ class ApplianceWorkflowTests(unittest.TestCase):
         for track in tracks:
             for index, job in enumerate(track):
                 with self.subTest(job=job):
-                    dependencies = re.findall(r"(?m)^    needs:\\s*(.+)$", jobs[job])
+                    dependencies = re.findall(r"(?m)^    needs:\s*(.+)$", jobs[job])
                     self.assertEqual(dependencies, [track[index - 1]] if index else [])
                     if index:
                         self.assertIn("always()", jobs[job])
