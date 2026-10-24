@@ -516,8 +516,7 @@ internal fun AgentOpsPanel(
         if (status == null) Text("Agent status unavailable")
         else {
             val budget = status.optJSONObject("budget")
-            AgentBudgetWindow("5-hour", budget?.optJSONObject("five_hour"))
-            AgentBudgetWindow("Weekly", budget?.optJSONObject("weekly"))
+            Text("5h: ${agentBudgetRemaining(budget?.optJSONObject("five_hour"))}  ·  Weekly: ${agentBudgetRemaining(budget?.optJSONObject("weekly"))}")
             var expanded by remember { mutableStateOf(false) }
             TextButton(onClick = { expanded = !expanded }) {
                 Text(if (expanded) "Hide status JSON" else "Show status JSON")
@@ -549,17 +548,11 @@ private fun agentIssueState(issue: JSONObject): String {
     }
 }
 
-@Composable
-private fun AgentBudgetWindow(label: String, window: JSONObject?) {
+private fun agentBudgetRemaining(window: JSONObject?): String {
     val percent = window?.opt("remaining_percent")
     val available = window?.optBoolean("available", false) == true &&
         percent is Number && percent.toDouble() in 0.0..100.0
-    val remaining = if (available) "${percent}%" else "unavailable"
-    Text("$label remaining: $remaining")
-    if (available) {
-        window?.optString("resets_at")?.takeIf { it.isNotBlank() && it != "null" }
-            ?.let { Text("Resets: $it", style = MaterialTheme.typography.bodySmall) }
-    }
+    return if (available) "${percent}%" else "unavailable"
 }
 
 /** Use two buttons per row on ordinary phones, falling back only on very narrow layouts. */
