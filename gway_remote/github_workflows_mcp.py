@@ -126,10 +126,10 @@ def errors(args):
         raise ValueError("invalid_arguments")
     repo, run_id = args["repository"], _positive(args["run_id"], 10**18)
     limit = _positive(args.get("limit", 20), 30)
+    job_id = _positive(args["job_id"], 10**18) if "job_id" in args else None
     record = status({"repository": repo, "run_id": run_id})
     jobs = [j for j in record["jobs"] if j["conclusion"] == "failure"][:5]
-    if "job_id" in args:
-        job_id = _positive(args["job_id"], 10**18)
+    if job_id is not None:
         jobs = [j for j in jobs if j["id"] == job_id]
     # Logs can contain arbitrary secrets despite masking. Do not export raw lines.
     # Return bounded job/step failure metadata instead of unsafe excerpts.
