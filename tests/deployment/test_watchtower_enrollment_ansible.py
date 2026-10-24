@@ -24,6 +24,24 @@ class WatchtowerEnrollmentAnsibleTests(unittest.TestCase):
         self.assertNotIn("$request_uri", logging)
         self.assertNotIn("$request ", logging)
 
+    def test_production_owner_is_explicit_and_inert_by_default(self):
+        defaults = Path("ansible/roles/watchtower_enrollment_production/defaults/main.yml").read_text()
+        tasks = Path("ansible/roles/watchtower_enrollment_production/tasks/main.yml").read_text()
+        unit = Path("ansible/roles/watchtower_enrollment_production/templates/gway-remote-watchtower-enroll-production.service.j2").read_text()
+        runbook = Path("docs/watchtower-production-cutover.md").read_text()
+        self.assertIn("watchtower_enrollment_production_apply: false", defaults)
+        self.assertIn("watchtower_enrollment_production_activate: false", defaults)
+        self.assertIn("watchtower_enrollment_production_network | length > 0", tasks)
+        self.assertIn("watchtower_enrollment_production_gateway | length > 0", tasks)
+        self.assertIn("must not target gway-001", tasks)
+        self.assertIn("--host 127.0.0.1", unit)
+        self.assertIn("User=root", unit)
+        self.assertIn("ReadWritePaths=/etc/wireguard", unit)
+        self.assertIn("CapabilityBoundingSet=CAP_NET_ADMIN", unit)
+        self.assertNotIn("--read-only-stage", unit)
+        self.assertIn("Keep the legacy service running", runbook)
+        self.assertIn("Do not restart", runbook)
+
 
 if __name__ == "__main__":
     unittest.main()

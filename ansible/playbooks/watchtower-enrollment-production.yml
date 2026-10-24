@@ -1,0 +1,6 @@
+---
+- name: Install the GWAY Remote Watchtower production enrollment owner
+  hosts: watchtower
+  become: true
+  roles:
+    - watchtower_enrollment_production

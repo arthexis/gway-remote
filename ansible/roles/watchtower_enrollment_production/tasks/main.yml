@@ -1,0 +1,82 @@
+---
+- name: Require deliberate Watchtower production-owner installation
+  ansible.builtin.assert:
+    that:
+      - watchtower_enrollment_production_apply | bool
+      - watchtower_enrollment_production_public_url == 'https://register.gelectriic.com'
+      - watchtower_enrollment_production_wireguard_endpoint | length > 0
+      - watchtower_enrollment_production_network | length > 0
+      - watchtower_enrollment_production_gateway | length > 0
+    fail_msg: >-
+      This Watchtower-only role installs no production owner until explicitly
+      supplied with the R1-approved endpoint, network, and gateway; it must not target gway-001.
+
+- name: Verify the protected WireGuard configuration metadata
+  ansible.builtin.stat:
+    path: "{{ watchtower_enrollment_production_config }}"
+  register: watchtower_production_wireguard_config
+
+- name: Refuse a missing or unsafe WireGuard configuration
+  ansible.builtin.assert:
+    that:
+      - watchtower_production_wireguard_config.stat.exists
+      - watchtower_production_wireguard_config.stat.pw_name == 'root'
+      - watchtower_production_wireguard_config.stat.gr_name == 'root'
+      - watchtower_production_wireguard_config.stat.mode == '0600'
+    fail_msg: Protected WireGuard configuration metadata did not match R1 evidence.
+
+- name: Create production-owner state and backup directories
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0700"
+  loop:
+    - "{{ watchtower_enrollment_production_state_root }}"
+    - "{{ watchtower_enrollment_production_backup_root }}"
+
+- name: Create root-owned readable Watchtower application directory
+  ansible.builtin.file:
+    path: "{{ watchtower_enrollment_production_install_root }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Install gway-remote Watchtower source for production owner
+  ansible.builtin.copy:
+    src: "{{ playbook_dir }}/../../gway_remote/"
+    dest: "{{ watchtower_enrollment_production_install_root }}/gway_remote/"
+    owner: root
+    group: root
+    mode: preserve
+
+- name: Install the dedicated Watchtower entrypoint
+  ansible.builtin.template:
+    src: gway-remote-watchtower.j2
+    dest: /usr/local/sbin/gway-remote-watchtower
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Install inert production-owner systemd unit
+  ansible.builtin.template:
+    src: gway-remote-watchtower-enroll-production.service.j2
+    dest: /etc/systemd/system/gway-remote-watchtower-enroll.service
+    owner: root
+    group: root
+    mode: "0644"
+  register: watchtower_production_unit
+
+- name: Reload systemd metadata after production-owner install
+  ansible.builtin.systemd_service:
+    daemon_reload: true
+  when: watchtower_production_unit.changed
+
+- name: Activate production owner only during reviewed R3 cutover
+  ansible.builtin.systemd_service:
+    name: gway-remote-watchtower-enroll.service
+    enabled: true
+    state: started
+  when: watchtower_enrollment_production_activate | bool

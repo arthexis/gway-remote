@@ -1,0 +1,16 @@
+---
+# This role deliberately installs an inert production owner.  R3 activation is
+# a separate, reviewed operation after R2 evidence and peer preservation.
+watchtower_enrollment_production_apply: false
+watchtower_enrollment_production_activate: false
+watchtower_enrollment_production_install_root: /opt/gway-remote-watchtower
+watchtower_enrollment_production_state_root: /var/lib/gway-remote/watchtower
+watchtower_enrollment_production_backup_root: /var/backups/gway-remote-watchtower/enrollment
+watchtower_enrollment_production_config: /etc/wireguard/gway.conf
+watchtower_enrollment_production_public_url: https://register.gelectriic.com
+# These deployment-critical values have no defaults: derive them from the
+# actual hub runtime/configuration during R1, never from a template.
+watchtower_enrollment_production_network: ""
+watchtower_enrollment_production_gateway: ""
+watchtower_enrollment_production_wireguard_endpoint: ""
+watchtower_enrollment_production_port: 8788

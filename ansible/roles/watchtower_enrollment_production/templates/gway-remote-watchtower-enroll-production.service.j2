@@ -1,0 +1,24 @@
+[Unit]
+Description=GWAY Remote Watchtower enrollment production owner
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=root
+Group=root
+ExecStart=/usr/local/sbin/gway-remote-watchtower watchtower serve --ledger {{ watchtower_enrollment_production_state_root }}/ledger.sqlite3 --network {{ watchtower_enrollment_production_network }} --gateway {{ watchtower_enrollment_production_gateway }} --config {{ watchtower_enrollment_production_config }} --backup-dir {{ watchtower_enrollment_production_backup_root }} --public-url {{ watchtower_enrollment_production_public_url }} --wireguard-endpoint {{ watchtower_enrollment_production_wireguard_endpoint }} --host 127.0.0.1 --port {{ watchtower_enrollment_production_port }}
+Restart=on-failure
+RestartSec=2
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=strict
+PrivateDevices=true
+ReadWritePaths=/etc/wireguard {{ watchtower_enrollment_production_state_root }} {{ watchtower_enrollment_production_backup_root }}
+CapabilityBoundingSet=CAP_NET_ADMIN CAP_DAC_OVERRIDE CAP_FOWNER
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6 AF_NETLINK
+UMask=0077
+
+[Install]
+WantedBy=multi-user.target
