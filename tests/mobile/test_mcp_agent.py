@@ -1,6 +1,6 @@
 """MCP read-only boundary and fixed adapter wiring."""
 import unittest
-from unittest.mock import patch
+from unittest.mock import patch, Mock
 
 from gway_remote import mcp_agent
 
@@ -20,7 +20,7 @@ class MCPAgentTests(unittest.TestCase):
             ("agent_preview", "preview_issue", {"ref": "arthexis/gway-bastion#2"}),
             ("agent_observe", "observe_issue", {"ref": "arthexis/gway-bastion#2", "at": "2026-10-21T20:17:23Z"}),
         ):
-            with self.subTest(name=name), patch.object(mcp_agent.agent_ops_adapter, handler, return_value={"status": "ok"}) as operation:
+            with self.subTest(name=name), patch.dict(mcp_agent._HANDLERS, {name: Mock(return_value={"status": "ok"})}):\n                operation = mcp_agent._HANDLERS[name]
                 self.assertEqual(mcp_agent.call_tool(name, args), {"status": "ok"})
                 operation.assert_called_once_with(args)
 
