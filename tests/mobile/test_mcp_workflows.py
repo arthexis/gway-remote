@@ -18,6 +18,13 @@ class WorkflowMCPTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             mcp_agent.call_tool("github_workflow_rerun", {"repository": REPO, "run_id": 1})
 
+    def test_self_and_appliance_allowlist(self):
+        self.assertIn(REPO, api._repositories())
+        self.assertIn("arthexis/ocpp-csms", api._repositories())
+        self.assertEqual(len(api._repositories()), len(set(api._repositories())))
+        with self.assertRaisesRegex(ValueError, "repository_not_allowed"):
+            api._allowed("outsider/secret")
+
     def test_bounded_run_listing(self):
         def fake(repo, path, params=None):
             self.assertEqual(repo, REPO)
