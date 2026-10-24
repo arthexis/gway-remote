@@ -305,8 +305,6 @@ internal fun AgentOpsPanel(
             prefs.edit().putString("ref", canonicalRef).putString("at", canonicalAt).apply()
         }
     }
-    // A previous successful dispatch can be inspected without a new Send.
-    var lookupAt by remember { mutableStateOf("") }
     val attempted = if (attemptedRef.isNotBlank() && attemptedAt.isNotBlank()) attemptedRef to attemptedAt else null
     val referencePattern = remember { Regex("[A-Za-z0-9][A-Za-z0-9_.-]{0,99}/[A-Za-z0-9][A-Za-z0-9_.-]{0,99}#[1-9][0-9]*") }
     var confirmRef by remember { mutableStateOf<String?>(null) }
@@ -329,18 +327,7 @@ internal fun AgentOpsPanel(
         Text("Submission not confirmed: $sendError", color = MaterialTheme.colorScheme.error)
     }
     if (attempted != null) {
-        OutlinedTextField(value = lookupAt, onValueChange = { lookupAt = it },
-            label = { Text("Inspect another UTC timestamp (read-only)") },
-            singleLine = true, modifier = Modifier.fillMaxWidth())
-        if (lookupAt.isNotBlank()) {
-            TextButton(enabled = !observing && !sending, onClick = {
-                onObserve(attempted.first, lookupAt.trim())
-            }) { Text("Inspect timestamp without sending") }
-        }
         Text("Last requested: ${attempted.first} · ${attempted.second}", style = MaterialTheme.typography.bodySmall)
-        TextButton(enabled = !observing && !sending, onClick = {
-            onObserve(attempted.first, attempted.second)
-        }) { Text("Check submission") }
         if (sendError != null) {
             TextButton(enabled = !sending, onClick = { onSend(attempted.first, attempted.second) }) {
                 Text("Retry same submission")
@@ -378,12 +365,21 @@ internal fun AgentOpsPanel(
     if (observing) LinearProgressIndicator(Modifier.fillMaxWidth())
     if (observationError != null) Text("Observation unavailable: $observationError",
         color = MaterialTheme.colorScheme.error)
-    if (sendResult != null) {
-        var showResponse by remember(sendResult) { mutableStateOf(false) }
-        TextButton(onClick = { showResponse = !showResponse }) {
-            Text(if (showResponse) "Hide submission response" else "Show submission response")
+    var showResponse by remember(sendResult) { mutableStateOf(false) }
+    if (attempted != null || sendResult != null) {
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            if (attempted != null) {
+                TextButton(enabled = !observing && !sending, onClick = {
+                    onObserve(attempted.first, attempted.second)
+                }) { Text("Check submission") }
+            }
+            if (sendResult != null) {
+                TextButton(onClick = { showResponse = !showResponse }) {
+                    Text(if (showResponse) "Hide response" else "Show response")
+                }
+            }
         }
-        if (showResponse) Text(sendResult, style = MaterialTheme.typography.bodySmall)
+        if (showResponse && sendResult != null) Text(sendResult, style = MaterialTheme.typography.bodySmall)
     }
 
     if (output == null) return
@@ -520,8 +516,7 @@ internal fun AgentOpsPanel(
         if (status == null) Text("Agent status unavailable")
         else {
             val budget = status.optJSONObject("budget")
-            AgentBudgetWindow("5-hour", budget?.optJSONObject("five_hour"))
-            AgentBudgetWindow("Weekly", budget?.optJSONObject("weekly"))
+            Text("5h: ${agentBudgetRemaining(budget?.optJSONObject("five_hour"))}  ·  Weekly: ${agentBudgetRemaining(budget?.optJSONObject("weekly"))}", style = MaterialTheme.typography.bodySmall)
             var expanded by remember { mutableStateOf(false) }
             TextButton(onClick = { expanded = !expanded }) {
                 Text(if (expanded) "Hide status JSON" else "Show status JSON")
@@ -553,17 +548,13 @@ private fun agentIssueState(issue: JSONObject): String {
     }
 }
 
-@Composable
-private fun AgentBudgetWindow(label: String, window: JSONObject?) {
+private fun agentBudgetRemaining(window: JSONObject?): String {
     val percent = window?.opt("remaining_percent")
     val available = window?.optBoolean("available", false) == true &&
         percent is Number && percent.toDouble() in 0.0..100.0
     val remaining = if (available) "${percent}%" else "unavailable"
-    Text("$label remaining: $remaining")
-    if (available) {
-        window?.optString("resets_at")?.takeIf { it.isNotBlank() && it != "null" }
-            ?.let { Text("Resets: $it", style = MaterialTheme.typography.bodySmall) }
-    }
+    val reset = window?.optString("resets_at")?.takeIf { available && it.isNotBlank() && it != "null" }
+    return if (reset == null) remaining else "$remaining (resets $reset)"
 }
 
 /** Use two buttons per row on ordinary phones, falling back only on very narrow layouts. */
