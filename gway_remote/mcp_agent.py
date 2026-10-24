@@ -3,7 +3,7 @@
 This is a transport-independent core. It MUST NOT be exposed over public
 HTTP without an authenticated MCP transport and operator authorization.
 """
-from . import agent_ops_adapter
+from . import agent_ops_adapter, github_workflows_mcp
 
 TOOLS = (
     {"name": "agent_list_issues", "description": "List trusted issues and their eligibility; never dispatch.",
@@ -21,6 +21,12 @@ TOOLS = (
          "ref": {"type": "string"}, "at": {"type": "string"}},
          "required": ["ref", "at"], "additionalProperties": False},
      "annotations": {"readOnlyHint": True}},
+    {"name": "github_workflow_runs", "description": "Read recent GitHub Actions runs across allowed repositories.",
+     "inputSchema": {"type": "object", "properties": {"repository": {"type": "string"}, "branch": {"type": "string"}, "status": {"type": "string"}, "event": {"type": "string"}, "limit": {"type": "integer"}}, "additionalProperties": False}, "annotations": {"readOnlyHint": True}},
+    {"name": "github_workflow_status", "description": "Read one workflow run, jobs and steps.",
+     "inputSchema": {"type": "object", "properties": {"repository": {"type": "string"}, "run_id": {"type": "integer"}}, "required": ["repository", "run_id"], "additionalProperties": False}, "annotations": {"readOnlyHint": True}},
+    {"name": "github_workflow_errors", "description": "Read failed job/step metadata; unsafe build logs are withheld.",
+     "inputSchema": {"type": "object", "properties": {"repository": {"type": "string"}, "run_id": {"type": "integer"}, "job_id": {"type": "integer"}, "limit": {"type": "integer"}}, "required": ["repository", "run_id"], "additionalProperties": False}, "annotations": {"readOnlyHint": True}},
 )
 
 _HANDLERS = {
@@ -28,6 +34,9 @@ _HANDLERS = {
     "agent_status": agent_ops_adapter.status,
     "agent_preview": agent_ops_adapter.preview_issue,
     "agent_observe": agent_ops_adapter.observe_issue,
+    "github_workflow_runs": github_workflows_mcp.runs,
+    "github_workflow_status": github_workflows_mcp.status,
+    "github_workflow_errors": github_workflows_mcp.errors,
 }
 
 
@@ -42,7 +51,8 @@ def call_tool(name, arguments):
         raise ValueError("mcp_tool_not_allowed")
     if type(arguments) is not dict:
         raise ValueError("invalid_arguments")
-    required = set(TOOLS[tuple(_HANDLERS).index(name)]["inputSchema"].get("required", ()))
-    if set(arguments) != required:
+    schema = TOOLS[tuple(_HANDLERS).index(name)]["inputSchema"]
+    required = set(schema.get("required", ()))
+    if not required <= set(arguments) or set(arguments) - set(schema["properties"]):
         raise ValueError("invalid_arguments")
     return _HANDLERS[name](arguments)
