@@ -7,7 +7,7 @@ if [ "$(id -u)" -eq 0 ]; then
 fi
 command -v systemctl >/dev/null
 command -v python3 >/dev/null
-python3 -c 'import gway_remote.mcp_http' || {
+/usr/bin/python3 -c 'import gway_remote.mcp_http' || {
   echo "Install the matching Gway Remote Python package first" >&2
   exit 1
 }
@@ -25,5 +25,5 @@ ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 install -m 644 "$ROOT/deploy/systemd/user/gway-remote-mcp.service" "$UNIT/gway-remote-mcp.service"
 systemctl --user daemon-reload
 echo "Installed MCP user unit and credentials; service NOT enabled or started."
-echo "Check python3 resolves the deployed package for /usr/bin/python3."
+echo "Verified MCP module is importable by /usr/bin/python3."
 echo "When locally validated: systemctl --user enable --now gway-remote-mcp.service"
