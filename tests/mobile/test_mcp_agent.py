@@ -20,7 +20,8 @@ class MCPAgentTests(unittest.TestCase):
             ("agent_preview", "preview_issue", {"ref": "arthexis/gway-bastion#2"}),
             ("agent_observe", "observe_issue", {"ref": "arthexis/gway-bastion#2", "at": "2026-10-21T20:17:23Z"}),
         ):
-            with self.subTest(name=name), patch.dict(mcp_agent._HANDLERS, {name: Mock(return_value={"status": "ok"})}):\n                operation = mcp_agent._HANDLERS[name]
+            with self.subTest(name=name), patch.dict(mcp_agent._HANDLERS, {name: Mock(return_value={"status": "ok"})}):
+                operation = mcp_agent._HANDLERS[name]
                 self.assertEqual(mcp_agent.call_tool(name, args), {"status": "ok"})
                 operation.assert_called_once_with(args)
 
