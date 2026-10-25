@@ -336,6 +336,11 @@ def main() -> None:
     wg_parser.add_argument("action", choices=("endpoint",))
     wg_parser.add_argument("operation", choices=("show", "set"))
     wg_parser.add_argument("value", nargs="?")
+    register_parser = subparsers.add_parser("register", help="Private Watchtower bootstrap URL issuance")
+    register_parser.add_argument("target", help="gway-NNN node, status, or revoke")
+    register_parser.add_argument("session_id", nargs="?")
+    register_parser.add_argument("--minutes", type=int, default=15)
+    register_parser.add_argument("--settings", type=Path, default=Path("/etc/gway-remote/watchtower.json"))
     watchtower_parser = subparsers.add_parser("watchtower", help="Root-only Watchtower enrollment administration")
     watchtower_parser.add_argument("action", choices=("serve", "invite", "register", "revoke", "revoke-bootstrap", "bootstrap-status", "status", "recover"))
     watchtower_parser.add_argument("--ledger", help="root-owned SQLite enrollment ledger")
@@ -365,6 +370,38 @@ def main() -> None:
     api_parser.add_argument("--host", default="127.0.0.1")
     api_parser.add_argument("--port", type=int, default=8765)
     args = parser.parse_args()
+    if args.command == "register":
+        from .watchtower_enrollment import Ledger
+        from .wireguard_enrollment_contract import DEVICE
+        try:
+            if os.geteuid() != 0:
+                raise PermissionError("Watchtower registration requires root")
+            path = args.settings
+            if path.is_symlink() or not path.is_file():
+                raise ValueError("Watchtower operator settings missing or unsafe")
+            stat = path.stat()
+            if stat.st_uid != 0 or stat.st_mode & 0o077:
+                raise PermissionError("Watchtower operator settings must be root-owned 0600")
+            settings = json.loads(path.read_text())
+            ledger = Ledger(Path(settings["ledger"]), network=settings["network"],
+                            gateway=settings["gateway"])
+            if args.target == "status":
+                if args.session_id:
+                    parser.error("register status takes no session ID")
+                print(json.dumps(ledger.bootstrap_status(), sort_keys=True))
+            elif args.target == "revoke":
+                if not args.session_id:
+                    parser.error("register revoke requires a session ID")
+                print(json.dumps({"revoked": ledger.revoke_bootstrap(args.session_id)}, sort_keys=True))
+            else:
+                if args.session_id or not DEVICE.fullmatch(args.target):
+                    parser.error("register requires exactly one valid gway-NNN node")
+                print(ledger.register(args.target, minutes=args.minutes,
+                                      public_url=settings["public_url"])["url"])
+        except (OSError, ValueError, KeyError, RuntimeError) as exc:
+            parser.exit(1, "gway-remote: Watchtower registration unavailable: "
+                        + type(exc).__name__ + "\\n")
+        return
     if args.command == "watchtower":
         from .watchtower_enrollment import Ledger, Provisioner, SubprocessWireGuard, serve
         from .wireguard_enrollment_contract import DEVICE
