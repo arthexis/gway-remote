@@ -337,7 +337,7 @@ def main() -> None:
     wg_parser.add_argument("operation", choices=("show", "set"))
     wg_parser.add_argument("value", nargs="?")
     watchtower_parser = subparsers.add_parser("watchtower", help="Root-only Watchtower enrollment administration")
-    watchtower_parser.add_argument("action", choices=("serve", "invite", "revoke", "status", "recover"))
+    watchtower_parser.add_argument("action", choices=("serve", "invite", "register", "revoke", "revoke-bootstrap", "bootstrap-status", "status", "recover"))
     watchtower_parser.add_argument("--ledger", help="root-owned SQLite enrollment ledger")
     watchtower_parser.add_argument("--network", help="approved IPv4 allocation CIDR")
     watchtower_parser.add_argument("--gateway", help="approved hub IPv4 address")
@@ -345,6 +345,7 @@ def main() -> None:
     watchtower_parser.add_argument("--backup-dir", help="root-only WireGuard rollback directory")
     watchtower_parser.add_argument("--device")
     watchtower_parser.add_argument("--invitation-id")
+    watchtower_parser.add_argument("--session-id")
     watchtower_parser.add_argument("--minutes", type=int, default=15)
     watchtower_parser.add_argument("--host", default="127.0.0.1")
     watchtower_parser.add_argument("--port", type=int, default=8788)
@@ -386,6 +387,20 @@ def main() -> None:
                 if not args.device or not DEVICE.fullmatch(args.device):
                     parser.error("watchtower invite requires a valid --device")
                 print(json.dumps(ledger.invite(args.device, minutes=args.minutes), sort_keys=True))
+                return
+            if args.action == "register":
+                if not args.device or not args.public_url:
+                    parser.error("watchtower register requires --device and --public-url")
+                print(json.dumps(ledger.register(args.device, minutes=args.minutes,
+                                                 public_url=args.public_url), sort_keys=True))
+                return
+            if args.action == "revoke-bootstrap":
+                if not args.session_id:
+                    parser.error("watchtower revoke-bootstrap requires --session-id")
+                print(json.dumps({"revoked": ledger.revoke_bootstrap(args.session_id)}, sort_keys=True))
+                return
+            if args.action == "bootstrap-status":
+                print(json.dumps(ledger.bootstrap_status(), sort_keys=True))
                 return
             if args.action == "revoke":
                 if not args.invitation_id:
