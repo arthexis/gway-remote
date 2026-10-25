@@ -454,7 +454,6 @@ def main() -> None:
         if args.action == "discover":
             if args.task_id or args.repo or args.issue is not None or args.kind:
                 parser.error("codex discover takes no task metadata")
-            import os
             from .codex_queue import TaskQueue, default_db
             from .codex_discovery import discover
             try:
