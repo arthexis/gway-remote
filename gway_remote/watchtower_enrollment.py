@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 import os
 import secrets
 import sqlite3
@@ -22,7 +23,7 @@ from ipaddress import IPv4Address, IPv4Network, ip_network
 from pathlib import Path
 from typing import Callable, Iterable
 
-from .wireguard_enrollment_contract import DEVICE, InvalidEnrollment, MAX_REQUEST_BYTES, parse_enrollment_json
+from .wireguard_enrollment_contract import DEVICE, InvalidEnrollment, MAX_REQUEST_BYTES, parse_enrollment_json, validate_enrollment
 
 MANAGED_BEGIN = "# BEGIN gway-remote enrollment: "
 MANAGED_END = "# END gway-remote enrollment: "
@@ -55,6 +56,15 @@ CREATE TABLE IF NOT EXISTS invitations (
 );
 CREATE UNIQUE INDEX IF NOT EXISTS one_live_invitation
     ON invitations(device) WHERE consumed_at IS NULL AND revoked_at IS NULL;
+CREATE TABLE IF NOT EXISTS bootstrap_sessions (
+    id TEXT PRIMARY KEY,
+    session_hash TEXT NOT NULL UNIQUE,
+    invitation_id TEXT NOT NULL REFERENCES invitations(id),
+    device TEXT NOT NULL,
+    expires_at TEXT NOT NULL,
+    consumed_at TEXT,
+    revoked_at TEXT
+);
 CREATE TABLE IF NOT EXISTS devices (
     device TEXT PRIMARY KEY,
     public_key TEXT NOT NULL UNIQUE,
@@ -134,6 +144,88 @@ class Ledger:
             connection.execute("INSERT INTO invitations(id,device,token_hash,expires_at) VALUES(?,?,?,?)", (ident, device, _digest(token), expires))
         return {"id": ident, "device": device, "token": token, "expires_at": expires}
 
+    def register(self, device: str, *, minutes: int = 15, public_url: str) -> dict:
+        """Create one short-lived URL bearer; underlying invitation token stays private."""
+        from urllib.parse import urlsplit
+
+        origin = urlsplit(public_url)
+        if (origin.scheme != "https" or origin.hostname != "register.gelectriic.com"
+                or origin.username or origin.password or origin.query or origin.fragment
+                or origin.path not in ("", "/") or origin.port not in (None, 443)):
+            raise ValueError("invalid approved registration origin")
+        invitation = self.invite(device, minutes=minutes)
+        secret = secrets.token_urlsafe(32)
+        session_id = secrets.token_hex(16)
+        with self._transaction() as connection:
+            connection.execute(
+                "INSERT INTO bootstrap_sessions(id,session_hash,invitation_id,device,expires_at) VALUES(?,?,?,?,?)",
+                (session_id, _digest(secret), invitation["id"], device, invitation["expires_at"]),
+            )
+        return {"id": session_id, "device": device,
+                "url": f"https://register.gelectriic.com/v1/bootstrap/{secret}",
+                "expires_at": invitation["expires_at"]}
+
+    def bootstrap_session(self, secret: str) -> dict:
+        """Inspect a URL bearer without exposing an invitation or changing state."""
+        if not isinstance(secret, str) or len(secret) > 128 or len(secret) < 32:
+            raise EnrollmentRejected("bootstrap rejected")
+        with self._connect() as connection:
+            row = connection.execute(
+                "SELECT s.*, i.revoked_at AS invitation_revoked, i.consumed_at AS invitation_consumed "
+                "FROM bootstrap_sessions s JOIN invitations i ON i.id=s.invitation_id "
+                "WHERE s.session_hash=?", (_digest(secret),),
+            ).fetchone()
+        if (row is None or row["revoked_at"] or row["consumed_at"] or
+                row["invitation_revoked"] or
+                row["expires_at"] <= _now()):
+            raise EnrollmentRejected("bootstrap rejected")
+        return {"id": row["id"], "device": row["device"], "expires_at": row["expires_at"]}
+
+    def complete_bootstrap(self, secret: str, device: str, public_key: str) -> bool:
+        """Consume URL after client confirms local installation and startup."""
+        with self._transaction() as connection:
+            row = connection.execute(
+                "SELECT * FROM bootstrap_sessions WHERE session_hash=?", (_digest(secret),),
+            ).fetchone()
+            if row is None or row["device"] != device or row["revoked_at"]:
+                raise EnrollmentRejected("bootstrap rejected")
+            peer = connection.execute(
+                "SELECT 1 FROM devices WHERE device=? AND public_key=? AND state='active'",
+                (device, public_key),
+            ).fetchone()
+            if peer is None:
+                raise EnrollmentRejected("bootstrap rejected")
+            if row["consumed_at"]:
+                return False
+            connection.execute(
+                "UPDATE bootstrap_sessions SET consumed_at=? WHERE id=?", (_now(), row["id"]),
+            )
+            return True
+
+    def revoke_bootstrap(self, session_id: str) -> bool:
+        """Revoke bootstrap and matching unused invitation together."""
+        with self._transaction() as connection:
+            row = connection.execute(
+                "SELECT invitation_id FROM bootstrap_sessions WHERE id=? AND revoked_at IS NULL "
+                "AND consumed_at IS NULL", (session_id,),
+            ).fetchone()
+            if row is None:
+                return False
+            now = _now()
+            connection.execute("UPDATE bootstrap_sessions SET revoked_at=? WHERE id=?", (now, session_id))
+            connection.execute("UPDATE invitations SET revoked_at=? WHERE id=? AND consumed_at IS NULL",
+                               (now, row["invitation_id"]))
+        return True
+
+    def bootstrap_status(self) -> list[dict]:
+        """Metadata only: no invitation tokens, bearer values, or their hashes."""
+        with self._connect() as connection:
+            rows = connection.execute(
+                "SELECT id,device,expires_at,consumed_at,revoked_at FROM bootstrap_sessions "
+                "ORDER BY expires_at DESC LIMIT 100"
+            )
+            return [dict(row) for row in rows]
+
     def revoke(self, invitation_id: str) -> bool:
         with self._transaction() as connection:
             result = connection.execute("UPDATE invitations SET revoked_at=? WHERE id=? AND consumed_at IS NULL AND revoked_at IS NULL", (_now(), invitation_id))
@@ -159,6 +251,17 @@ class Ledger:
         token_hash = _digest(token)
         with self._transaction() as connection:
             invitation = connection.execute("SELECT * FROM invitations WHERE token_hash=?", (token_hash,)).fetchone()
+            if invitation is None:
+                session = connection.execute(
+                    "SELECT * FROM bootstrap_sessions WHERE session_hash=?", (token_hash,),
+                ).fetchone()
+                if (session is None or session["device"] != device or session["revoked_at"]
+                        or session["consumed_at"] or session["expires_at"] <= now):
+                    raise EnrollmentRejected("enrollment rejected")
+                invitation = connection.execute(
+                    "SELECT * FROM invitations WHERE id=?", (session["invitation_id"],),
+                ).fetchone()
+                token_hash = invitation["token_hash"]
             if invitation is None or invitation["revoked_at"]:
                 raise EnrollmentRejected("enrollment rejected")
             if invitation["device"] != device:
@@ -374,12 +477,66 @@ def make_handler(provisioner: Provisioner | None, *, public_url: str, wireguard_
             encoded = json.dumps(payload, separators=(",", ":")).encode("utf-8")
             self.send_response(status)
             self.send_header("Content-Type", "application/json")
+            self.send_header("Cache-Control", "no-store")
             self.send_header("Content-Length", str(len(encoded)))
             self.end_headers()
             if self.command != "HEAD":
                 self.wfile.write(encoded)
 
+        def _script(self, secret: str, device: str, server_key: str) -> bytes:
+            """HTTPS-distributed stage-one script; never includes an invitation token."""
+            # URL bearer characters are restricted by the route regexp.
+            source = f"""#!/bin/sh
+set -eu
+umask 077
+if [ "$(id -u)" != 0 ]; then echo 'bootstrap requires root' >&2; exit 1; fi
+command -v apt-get >/dev/null || {{ echo 'unsupported distribution' >&2; exit 1; }}
+export DEBIAN_FRONTEND=noninteractive
+apt-get update -qq
+apt-get install -y -qq python3 curl wireguard-tools
+temp="$(mktemp -d)"
+trap 'rm -rf "$temp"' EXIT HUP INT TERM
+curl -fsS --proto '=https' --max-redirs 0 'https://register.gelectriic.com/v1/bootstrap/{secret}/client.py' -o "$temp/client.py"
+printf '%s' '{secret}' > "$temp/session"
+python3 "$temp/client.py" bootstrap --device '{device}' --server-public-key '{server_key}' --token-file "$temp/session"
+pub="$(wg show gway public-key)"
+printf '{{"device":"%s","public_key":"%s"}}' '{device}' "$pub" > "$temp/ack.json"
+curl -fsS --proto '=https' --max-redirs 0 -X POST -H 'Content-Type: application/json' --data-binary @"$temp/ack.json" 'https://register.gelectriic.com/v1/bootstrap/{secret}/complete' >/dev/null
+"""
+            return source.encode("utf-8")
+
+        def _send_artifact(self, data: bytes, media_type: str) -> None:
+            self.send_response(200)
+            self.send_header("Content-Type", media_type)
+            self.send_header("Cache-Control", "no-store")
+            self.send_header("X-Content-Type-Options", "nosniff")
+            self.send_header("Content-Length", str(len(data)))
+            self.end_headers()
+            if self.command != "HEAD":
+                self.wfile.write(data)
+
         def do_GET(self) -> None:
+            bootstrap_match = re.fullmatch(
+                r"/v1/bootstrap/([A-Za-z0-9_-]{32,128})(/client\\.py)?", self.path,
+            )
+            if bootstrap_match and not read_only_stage and provisioner is not None:
+                try:
+                    session = provisioner.ledger.bootstrap_session(bootstrap_match.group(1))
+                    if bootstrap_match.group(2):
+                        data = Path(__file__).with_name("wireguard_satellite.py").read_bytes()
+                        self._send_artifact(data, "text/x-python; charset=utf-8")
+                    else:
+                        key = subprocess.run(
+                            ["wg", "show", "gway", "public-key"], check=True,
+                            capture_output=True, text=True,
+                        ).stdout.strip()
+                        self._send_artifact(
+                            self._script(bootstrap_match.group(1), session["device"], key),
+                            "text/x-shellscript; charset=utf-8",
+                        )
+                except (EnrollmentRejected, OSError, subprocess.CalledProcessError):
+                    self._send(404, {"error": "not_found"})
+                return
             if self.path == "/health":
                 self._send(200, {"ok": True, "service": "gway-remote-watchtower", "enrollment_url": public_url})
             else:
@@ -388,6 +545,29 @@ def make_handler(provisioner: Provisioner | None, *, public_url: str, wireguard_
         do_HEAD = do_GET
 
         def do_POST(self) -> None:
+            completion = re.fullmatch(
+                r"/v1/bootstrap/([A-Za-z0-9_-]{32,128})/complete", self.path,
+            )
+            if completion and not read_only_stage and provisioner is not None:
+                try:
+                    size = int(self.headers.get("Content-Length", "0"))
+                    if not 0 < size <= 1024:
+                        raise ValueError("bad request")
+                    data = json.loads(self.rfile.read(size))
+                    if not isinstance(data, dict) or set(data) != {"device", "public_key"}:
+                        raise ValueError("bad request")
+                    device, public_key, _session = validate_enrollment(
+                        {"device": data["device"], "public_key": data["public_key"],
+                         "token": completion.group(1)}
+                    )
+                    provisioner.ledger.complete_bootstrap(completion.group(1), device, public_key)
+                except (ValueError, TypeError, KeyError):
+                    self._send(400, {"error": "invalid_request"})
+                except EnrollmentRejected:
+                    self._send(403, {"error": "enrollment_rejected"})
+                else:
+                    self._send(200, {"complete": True})
+                return
             if self.path != "/v1/enroll":
                 self._send(404, {"error": "not_found"})
                 return

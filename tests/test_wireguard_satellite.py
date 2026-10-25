@@ -42,7 +42,7 @@ def commands(monkeypatch):
         calls.append((args, kwargs))
         if args == ("wg", "genkey"):
             return "private"
-        if args == ("wg", "pubkey"):
+        if args in (("wg", "pubkey"), ("wg", "show", "gway", "public-key")):
             return KEY
         return ""
 
@@ -105,7 +105,8 @@ def test_existing_config_never_reenrolls(tmp_path, monkeypatch, root, commands):
 
     assert result == {"device": DEVICE, "configured": True, "reused": True}
     assert config.read_text() == original
-    assert commands[-1][0] == ("systemctl", "enable", "--now", "wg-quick@gway.service")
+    assert ("systemctl", "enable", "--now", "wg-quick@gway.service") in [args for args, _ in commands]
+    assert commands[-1][0] == ("wg", "show", "gway", "public-key")
 
 
 def test_fresh_bootstrap_writes_config_and_activates(tmp_path, monkeypatch, root, commands, enrollment):
@@ -154,3 +155,41 @@ def test_pending_key_survives_retry(tmp_path, monkeypatch, commands):
     private2, public2, current2 = satellite._identity(config)
     assert (private2, public2, current2) == (private, public, None)
     assert not any(args == ("wg", "genkey") for args, _ in commands)
+
+
+def test_bootstrap_uses_approved_nondefault_hub_address(tmp_path, monkeypatch, root, commands, enrollment):
+    config = tmp_path / "gway.conf"
+    enrollment["server_tunnel_ip"] = "10.90.0.17"
+    monkeypatch.setattr(satellite, "_enroll", lambda *args: enrollment)
+
+    satellite.bootstrap(DEVICE, OTHER, TOKEN, config=config)
+
+    text = config.read_text()
+    assert "AllowedIPs = 10.90.0.17/32" in text
+    assert "AllowedIPs = 10.90.0.1/32" not in text
+    assert "0.0.0.0/0" not in text
+
+
+def test_rejects_unmanaged_config_with_matching_server_key(tmp_path, monkeypatch, root, commands):
+    config = tmp_path / "gway.conf"
+    config.write_text(f"[Interface]\\nPrivateKey = private\\n[Peer]\\nPublicKey = {OTHER}\\n")
+    config.chmod(0o600)
+    with pytest.raises(ValueError, match="existing tunnel differs"):
+        satellite.bootstrap(DEVICE, OTHER, TOKEN, config=config)
+    assert not any(call[0][0] == "systemctl" for call in commands)
+
+
+def test_live_interface_identity_mismatch_blocks_completion(tmp_path, monkeypatch, root, commands, enrollment):
+    config = tmp_path / "gway.conf"
+    monkeypatch.setattr(satellite, "_enroll", lambda *args: enrollment)
+    original = satellite._run
+
+    def run(*args, **kwargs):
+        if args == ("wg", "show", "gway", "public-key"):
+            return OTHER
+        return original(*args, **kwargs)
+
+    monkeypatch.setattr(satellite, "_run", run)
+    with pytest.raises(ValueError, match="interface identity mismatch"):
+        satellite.bootstrap(DEVICE, OTHER, TOKEN, config=config)
+    assert config.exists()  # fail-forward: preserve evidence for operator inspection
