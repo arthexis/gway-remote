@@ -490,7 +490,7 @@ def make_handler(provisioner: Provisioner | None, *, public_url: str, wireguard_
 set -eu
 umask 077
 if [ "$(id -u)" != 0 ]; then echo 'bootstrap requires root' >&2; exit 1; fi
-command -v apt-get >/dev/null || { echo 'unsupported distribution' >&2; exit 1; }
+command -v apt-get >/dev/null || {{ echo 'unsupported distribution' >&2; exit 1; }}
 export DEBIAN_FRONTEND=noninteractive
 apt-get update -qq
 apt-get install -y -qq python3 curl wireguard-tools
