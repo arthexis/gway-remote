@@ -107,3 +107,79 @@ def test_bootstrap_url_remains_bound_to_invited_node(ledger, tmp_path):
     with pytest.raises(EnrollmentRejected):
         provisioner.enroll("gway-005", "A" * 43 + "=", token)
     assert ledger.status()["devices"] == 0
+
+
+def test_http_bootstrap_flow_and_no_store(ledger, tmp_path, monkeypatch):
+    import base64
+    import json
+    import threading
+    from http.client import HTTPConnection
+    from http.server import ThreadingHTTPServer
+    from subprocess import CompletedProcess
+    from gway_remote import watchtower_enrollment as wt
+
+    class Fake(wt.WireGuard):
+        def __init__(self):
+            self.peers = {}
+
+        def set_peer(self, key, address):
+            self.peers[key] = address
+
+        def has_peer(self, key, address):
+            return self.peers.get(key) == address
+
+        def remove_peer(self, key):
+            raise AssertionError("unexpected peer deletion")
+
+    key = base64.b64encode(bytes(range(32))).decode()
+    hub_key = base64.b64encode(bytes(range(1, 33))).decode()
+    monkeypatch.setattr(wt.subprocess, "run", lambda args, **kwargs: CompletedProcess(args, 0, hub_key + "\\n", ""))
+    config = tmp_path / "hub.conf"
+    config.write_text("[Interface]\\nAddress = 10.90.0.1/24\\n")
+    provisioner = wt.Provisioner(ledger, config, tmp_path / "backups", Fake())
+    invitation = ledger.register("gway-004", public_url="https://register.gelectriic.com")
+    secret = invitation["url"].rsplit("/", 1)[-1]
+    prefix = "/v1/bootstrap/" + secret
+    handler = wt.make_handler(provisioner, public_url="https://register.gelectriic.com",
+                              wireguard_endpoint="register.gelectriic.com:51820")
+    server = ThreadingHTTPServer(("127.0.0.1", 0), handler)
+    worker = threading.Thread(target=server.serve_forever, daemon=True)
+    worker.start()
+    try:
+        def request(method, route, body=None):
+            conn = HTTPConnection("127.0.0.1", server.server_address[1], timeout=3)
+            conn.request(method, route, body=body,
+                         headers={"Content-Type": "application/json"})
+            response = conn.getresponse()
+            result = (response.status, dict(response.getheaders()), response.read())
+            conn.close()
+            return result
+
+        status, headers, script = request("GET", prefix)
+        assert status == 200
+        assert headers["Cache-Control"] == "no-store"
+        assert b"wireguard-tools" in script
+        assert b"gway-004" in script
+        assert b"/v1/enroll" not in script
+        assert b"curl" in script
+        assert b"apt-get" in script
+
+        status, headers, client = request("GET", prefix + "/client.py")
+        assert status == 200
+        assert b"def bootstrap(" in client
+
+        payload = json.dumps({"device": "gway-004", "public_key": key, "token": secret})
+        status, _, reply = request("POST", "/v1/enroll", payload)
+        assert status == 200
+        assert json.loads(reply)["server_public_key"] == hub_key
+
+        status, _, _ = request("POST", prefix + "/complete",
+                               json.dumps({"device": "gway-004", "public_key": key}))
+        assert status == 200
+        status, _, _ = request("GET", prefix)
+        assert status == 404
+        status, _, _ = request("POST", "/v1/enroll", payload)
+        assert status == 403
+    finally:
+        server.shutdown()
+        server.server_close()
