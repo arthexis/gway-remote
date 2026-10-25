@@ -74,7 +74,7 @@
     owner: root
     group: root
     mode: "0600"
-    content: "{{ {'ledger': watchtower_enrollment_production_state_root ~ '/ledger.sqlite3', 'network': watchtower_enrollment_production_network, 'gateway': watchtower_enrollment_production_gateway, 'public_url': watchtower_enrollment_production_public_url} | to_nice_json }}\\n"
+    content: "{{ {'ledger': watchtower_enrollment_production_state_root ~ '/ledger.sqlite3', 'network': watchtower_enrollment_production_network, 'gateway': watchtower_enrollment_production_gateway, 'public_url': watchtower_enrollment_production_public_url} | to_nice_json }}"
 
 - name: Install conventional gway-remote CLI name without overwriting another executable
   ansible.builtin.file:
