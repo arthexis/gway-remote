@@ -180,6 +180,27 @@ class Ledger:
             raise EnrollmentRejected("bootstrap rejected")
         return {"id": row["id"], "device": row["device"], "expires_at": row["expires_at"]}
 
+    def complete_bootstrap(self, secret: str, device: str, public_key: str) -> bool:
+        """Consume URL after client confirms local installation and startup."""
+        with self._transaction() as connection:
+            row = connection.execute(
+                "SELECT * FROM bootstrap_sessions WHERE session_hash=?", (_digest(secret),),
+            ).fetchone()
+            if row is None or row["device"] != device or row["revoked_at"]:
+                raise EnrollmentRejected("bootstrap rejected")
+            peer = connection.execute(
+                "SELECT 1 FROM devices WHERE device=? AND public_key=? AND state='active'",
+                (device, public_key),
+            ).fetchone()
+            if peer is None:
+                raise EnrollmentRejected("bootstrap rejected")
+            if row["consumed_at"]:
+                return False
+            connection.execute(
+                "UPDATE bootstrap_sessions SET consumed_at=? WHERE id=?", (_now(), row["id"]),
+            )
+            return True
+
     def revoke_bootstrap(self, session_id: str) -> bool:
         """Revoke bootstrap and matching unused invitation together."""
         with self._transaction() as connection:
@@ -229,6 +250,17 @@ class Ledger:
         token_hash = _digest(token)
         with self._transaction() as connection:
             invitation = connection.execute("SELECT * FROM invitations WHERE token_hash=?", (token_hash,)).fetchone()
+            if invitation is None:
+                session = connection.execute(
+                    "SELECT * FROM bootstrap_sessions WHERE session_hash=?", (token_hash,),
+                ).fetchone()
+                if (session is None or session["device"] != device or session["revoked_at"]
+                        or session["consumed_at"] or session["expires_at"] <= now):
+                    raise EnrollmentRejected("enrollment rejected")
+                invitation = connection.execute(
+                    "SELECT * FROM invitations WHERE id=?", (session["invitation_id"],),
+                ).fetchone()
+                token_hash = invitation["token_hash"]
             if invitation is None or invitation["revoked_at"]:
                 raise EnrollmentRejected("enrollment rejected")
             if invitation["device"] != device:
