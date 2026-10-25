@@ -23,7 +23,7 @@ from ipaddress import IPv4Address, IPv4Network, ip_network
 from pathlib import Path
 from typing import Callable, Iterable
 
-from .wireguard_enrollment_contract import DEVICE, InvalidEnrollment, MAX_REQUEST_BYTES, parse_enrollment_json
+from .wireguard_enrollment_contract import DEVICE, InvalidEnrollment, MAX_REQUEST_BYTES, parse_enrollment_json, validate_enrollment
 
 MANAGED_BEGIN = "# BEGIN gway-remote enrollment: "
 MANAGED_END = "# END gway-remote enrollment: "
@@ -556,9 +556,11 @@ curl -fsS --proto '=https' --max-redirs 0 -X POST -H 'Content-Type: application/
                     data = json.loads(self.rfile.read(size))
                     if not isinstance(data, dict) or set(data) != {"device", "public_key"}:
                         raise ValueError("bad request")
-                    provisioner.ledger.complete_bootstrap(
-                        completion.group(1), data["device"], data["public_key"],
+                    device, public_key, _session = validate_enrollment(
+                        {"device": data["device"], "public_key": data["public_key"],
+                         "token": completion.group(1)}
                     )
+                    provisioner.ledger.complete_bootstrap(completion.group(1), device, public_key)
                 except (ValueError, TypeError, KeyError):
                     self._send(400, {"error": "invalid_request"})
                 except EnrollmentRejected:
