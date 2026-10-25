@@ -55,6 +55,15 @@ CREATE TABLE IF NOT EXISTS invitations (
 );
 CREATE UNIQUE INDEX IF NOT EXISTS one_live_invitation
     ON invitations(device) WHERE consumed_at IS NULL AND revoked_at IS NULL;
+CREATE TABLE IF NOT EXISTS bootstrap_sessions (
+    id TEXT PRIMARY KEY,
+    session_hash TEXT NOT NULL UNIQUE,
+    invitation_id TEXT NOT NULL REFERENCES invitations(id),
+    device TEXT NOT NULL,
+    expires_at TEXT NOT NULL,
+    consumed_at TEXT,
+    revoked_at TEXT
+);
 CREATE TABLE IF NOT EXISTS devices (
     device TEXT PRIMARY KEY,
     public_key TEXT NOT NULL UNIQUE,
@@ -133,6 +142,67 @@ class Ledger:
             connection.execute("UPDATE invitations SET revoked_at=? WHERE device=? AND consumed_at IS NULL AND revoked_at IS NULL AND expires_at<=?", (_now(), device, _now()))
             connection.execute("INSERT INTO invitations(id,device,token_hash,expires_at) VALUES(?,?,?,?)", (ident, device, _digest(token), expires))
         return {"id": ident, "device": device, "token": token, "expires_at": expires}
+
+    def register(self, device: str, *, minutes: int = 15, public_url: str) -> dict:
+        """Create one short-lived URL bearer; underlying invitation token stays private."""
+        from urllib.parse import urlsplit
+
+        origin = urlsplit(public_url)
+        if (origin.scheme != "https" or origin.hostname != "register.gelectriic.com"
+                or origin.username or origin.password or origin.query or origin.fragment
+                or origin.path not in ("", "/") or origin.port not in (None, 443)):
+            raise ValueError("invalid approved registration origin")
+        invitation = self.invite(device, minutes=minutes)
+        secret = secrets.token_urlsafe(32)
+        session_id = secrets.token_hex(16)
+        with self._transaction() as connection:
+            connection.execute(
+                "INSERT INTO bootstrap_sessions(id,session_hash,invitation_id,device,expires_at) VALUES(?,?,?,?,?)",
+                (session_id, _digest(secret), invitation["id"], device, invitation["expires_at"]),
+            )
+        return {"id": session_id, "device": device,
+                "url": f"https://register.gelectriic.com/v1/bootstrap/{secret}",
+                "expires_at": invitation["expires_at"]}
+
+    def bootstrap_session(self, secret: str) -> dict:
+        """Inspect a URL bearer without exposing an invitation or changing state."""
+        if not isinstance(secret, str) or len(secret) > 128 or len(secret) < 32:
+            raise EnrollmentRejected("bootstrap rejected")
+        with self._connect() as connection:
+            row = connection.execute(
+                "SELECT s.*, i.revoked_at AS invitation_revoked, i.consumed_at AS invitation_consumed "
+                "FROM bootstrap_sessions s JOIN invitations i ON i.id=s.invitation_id "
+                "WHERE s.session_hash=?", (_digest(secret),),
+            ).fetchone()
+        if (row is None or row["revoked_at"] or row["consumed_at"] or
+                row["invitation_revoked"] or row["invitation_consumed"] or
+                row["expires_at"] <= _now()):
+            raise EnrollmentRejected("bootstrap rejected")
+        return {"id": row["id"], "device": row["device"], "expires_at": row["expires_at"]}
+
+    def revoke_bootstrap(self, session_id: str) -> bool:
+        """Revoke bootstrap and matching unused invitation together."""
+        with self._transaction() as connection:
+            row = connection.execute(
+                "SELECT invitation_id FROM bootstrap_sessions WHERE id=? AND revoked_at IS NULL "
+                "AND consumed_at IS NULL", (session_id,),
+            ).fetchone()
+            if row is None:
+                return False
+            now = _now()
+            connection.execute("UPDATE bootstrap_sessions SET revoked_at=? WHERE id=?", (now, session_id))
+            connection.execute("UPDATE invitations SET revoked_at=? WHERE id=? AND consumed_at IS NULL",
+                               (now, row["invitation_id"]))
+        return True
+
+    def bootstrap_status(self) -> list[dict]:
+        """Metadata only: no invitation tokens, bearer values, or their hashes."""
+        with self._connect() as connection:
+            rows = connection.execute(
+                "SELECT id,device,expires_at,consumed_at,revoked_at FROM bootstrap_sessions "
+                "ORDER BY expires_at DESC LIMIT 100"
+            )
+            return [dict(row) for row in rows]
 
     def revoke(self, invitation_id: str) -> bool:
         with self._transaction() as connection:
