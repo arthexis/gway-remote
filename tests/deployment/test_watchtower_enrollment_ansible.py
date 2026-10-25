@@ -34,6 +34,8 @@ class WatchtowerEnrollmentAnsibleTests(unittest.TestCase):
         self.assertIn("watchtower_enrollment_production_network | length > 0", tasks)
         self.assertIn("watchtower_enrollment_production_gateway | length > 0", tasks)
         self.assertIn("must not target gway-001", tasks)
+        self.assertIn("ansible.builtin.systemd:", tasks)
+        self.assertNotIn("ansible.builtin.systemd_service:", tasks)
         self.assertIn("--host 127.0.0.1", unit)
         self.assertIn("User=root", unit)
         self.assertIn("ReadWritePaths=/etc/wireguard", unit)
