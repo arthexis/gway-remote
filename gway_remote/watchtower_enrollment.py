@@ -175,7 +175,7 @@ class Ledger:
                 "WHERE s.session_hash=?", (_digest(secret),),
             ).fetchone()
         if (row is None or row["revoked_at"] or row["consumed_at"] or
-                row["invitation_revoked"] or row["invitation_consumed"] or
+                row["invitation_revoked"] or
                 row["expires_at"] <= _now()):
             raise EnrollmentRejected("bootstrap rejected")
         return {"id": row["id"], "device": row["device"], "expires_at": row["expires_at"]}
