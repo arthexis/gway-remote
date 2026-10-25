@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 import os
 import secrets
 import sqlite3
@@ -476,12 +477,66 @@ def make_handler(provisioner: Provisioner | None, *, public_url: str, wireguard_
             encoded = json.dumps(payload, separators=(",", ":")).encode("utf-8")
             self.send_response(status)
             self.send_header("Content-Type", "application/json")
+            self.send_header("Cache-Control", "no-store")
             self.send_header("Content-Length", str(len(encoded)))
             self.end_headers()
             if self.command != "HEAD":
                 self.wfile.write(encoded)
 
+        def _script(self, secret: str, device: str, server_key: str) -> bytes:
+            """HTTPS-distributed stage-one script; never includes an invitation token."""
+            # URL bearer characters are restricted by the route regexp.
+            source = f"""#!/bin/sh
+set -eu
+umask 077
+if [ "$(id -u)" != 0 ]; then echo 'bootstrap requires root' >&2; exit 1; fi
+command -v apt-get >/dev/null || { echo 'unsupported distribution' >&2; exit 1; }
+export DEBIAN_FRONTEND=noninteractive
+apt-get update -qq
+apt-get install -y -qq python3 curl wireguard-tools
+temp="$(mktemp -d)"
+trap 'rm -rf "$temp"' EXIT HUP INT TERM
+curl -fsS --proto '=https' --max-redirs 0 'https://register.gelectriic.com/v1/bootstrap/{secret}/client.py' -o "$temp/client.py"
+printf '%s' '{secret}' > "$temp/session"
+python3 "$temp/client.py" bootstrap --device '{device}' --server-public-key '{server_key}' --token-file "$temp/session"
+pub="$(wg show gway public-key)"
+printf '{{"device":"%s","public_key":"%s"}}' '{device}' "$pub" > "$temp/ack.json"
+curl -fsS --proto '=https' --max-redirs 0 -X POST -H 'Content-Type: application/json' --data-binary @"$temp/ack.json" 'https://register.gelectriic.com/v1/bootstrap/{secret}/complete' >/dev/null
+"""
+            return source.encode("utf-8")
+
+        def _send_artifact(self, data: bytes, media_type: str) -> None:
+            self.send_response(200)
+            self.send_header("Content-Type", media_type)
+            self.send_header("Cache-Control", "no-store")
+            self.send_header("X-Content-Type-Options", "nosniff")
+            self.send_header("Content-Length", str(len(data)))
+            self.end_headers()
+            if self.command != "HEAD":
+                self.wfile.write(data)
+
         def do_GET(self) -> None:
+            bootstrap_match = re.fullmatch(
+                r"/v1/bootstrap/([A-Za-z0-9_-]{32,128})(/client\\.py)?", self.path,
+            )
+            if bootstrap_match and not read_only_stage and provisioner is not None:
+                try:
+                    session = provisioner.ledger.bootstrap_session(bootstrap_match.group(1))
+                    if bootstrap_match.group(2):
+                        data = Path(__file__).with_name("wireguard_satellite.py").read_bytes()
+                        self._send_artifact(data, "text/x-python; charset=utf-8")
+                    else:
+                        key = subprocess.run(
+                            ["wg", "show", "gway", "public-key"], check=True,
+                            capture_output=True, text=True,
+                        ).stdout.strip()
+                        self._send_artifact(
+                            self._script(bootstrap_match.group(1), session["device"], key),
+                            "text/x-shellscript; charset=utf-8",
+                        )
+                except (EnrollmentRejected, OSError, subprocess.CalledProcessError):
+                    self._send(404, {"error": "not_found"})
+                return
             if self.path == "/health":
                 self._send(200, {"ok": True, "service": "gway-remote-watchtower", "enrollment_url": public_url})
             else:
@@ -490,6 +545,27 @@ def make_handler(provisioner: Provisioner | None, *, public_url: str, wireguard_
         do_HEAD = do_GET
 
         def do_POST(self) -> None:
+            completion = re.fullmatch(
+                r"/v1/bootstrap/([A-Za-z0-9_-]{32,128})/complete", self.path,
+            )
+            if completion and not read_only_stage and provisioner is not None:
+                try:
+                    size = int(self.headers.get("Content-Length", "0"))
+                    if not 0 < size <= 1024:
+                        raise ValueError("bad request")
+                    data = json.loads(self.rfile.read(size))
+                    if not isinstance(data, dict) or set(data) != {"device", "public_key"}:
+                        raise ValueError("bad request")
+                    provisioner.ledger.complete_bootstrap(
+                        completion.group(1), data["device"], data["public_key"],
+                    )
+                except (ValueError, TypeError, KeyError):
+                    self._send(400, {"error": "invalid_request"})
+                except EnrollmentRejected:
+                    self._send(403, {"error": "enrollment_rejected"})
+                else:
+                    self._send(200, {"complete": True})
+                return
             if self.path != "/v1/enroll":
                 self._send(404, {"error": "not_found"})
                 return
