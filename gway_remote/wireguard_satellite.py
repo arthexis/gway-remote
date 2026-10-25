@@ -123,9 +123,11 @@ def bootstrap(device, server_key, token, *, config=Path("/etc/wireguard/gway.con
     if not DEVICE_RE.fullmatch(device):
         raise ValueError("invalid device name")
     server_key = _key(server_key)
+    if Path("/sys/class/net/gway").exists() and not config.exists():
+        raise ValueError("existing active gway interface; refusing ownership")
     private, public, existing = _identity(config)
     if existing is not None:
-        if f"PublicKey = {server_key}" not in existing:
+        if f"# GWAY Remote Device = {device}" not in existing or f"PublicKey = {server_key}" not in existing:
             raise ValueError("existing tunnel differs; refusing replacement")
         _run("systemctl", "enable", "--now", "wg-quick@gway.service")
         return {"device": device, "configured": True, "reused": True}
