@@ -133,7 +133,7 @@ def bootstrap(device, server_key, token, *, config=Path("/etc/wireguard/gway.con
     address, endpoint, gateway = _validate(response, device, public, server_key)
     config_text = (f"[Interface]\nAddress = {address}\nPrivateKey = {private}\n\n"
                    f"[Peer]\nPublicKey = {server_key}\nEndpoint = {endpoint}\n"
-                   "AllowedIPs = 10.90.0.1/32\nPersistentKeepalive = 25\n")
+                   f"AllowedIPs = {gateway}/32\nPersistentKeepalive = 25\n")
     _atomic_new(config, config_text)
     config.with_name(config.name + ".pending-key").unlink(missing_ok=True)
     _run("systemctl", "enable", "--now", "wg-quick@gway.service")
