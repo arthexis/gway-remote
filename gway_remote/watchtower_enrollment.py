@@ -517,7 +517,7 @@ curl -fsS --proto '=https' --max-redirs 0 -X POST -H 'Content-Type: application/
 
         def do_GET(self) -> None:
             bootstrap_match = re.fullmatch(
-                r"/v1/bootstrap/([A-Za-z0-9_-]{32,128})(/client\\.py)?", self.path,
+                r"/v1/bootstrap/([A-Za-z0-9_-]{32,128})(/client\.py)?", self.path,
             )
             if bootstrap_match and not read_only_stage and provisioner is not None:
                 try:

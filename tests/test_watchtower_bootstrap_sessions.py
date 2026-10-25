@@ -133,7 +133,7 @@ def test_http_bootstrap_flow_and_no_store(ledger, tmp_path, monkeypatch):
 
     key = base64.b64encode(bytes(range(32))).decode()
     hub_key = base64.b64encode(bytes(range(1, 33))).decode()
-    monkeypatch.setattr(wt.subprocess, "run", lambda args, **kwargs: CompletedProcess(args, 0, hub_key + "\\n", ""))
+    monkeypatch.setattr(wt.subprocess, "run", lambda args, **kwargs: CompletedProcess(args, 0, hub_key + "\n", ""))
     config = tmp_path / "hub.conf"
     config.write_text("[Interface]\\nAddress = 10.90.0.1/24\\n")
     provisioner = wt.Provisioner(ledger, config, tmp_path / "backups", Fake())
