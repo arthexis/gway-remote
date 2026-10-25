@@ -167,3 +167,12 @@ def test_bootstrap_uses_approved_nondefault_hub_address(tmp_path, monkeypatch, r
     assert "AllowedIPs = 10.90.0.17/32" in text
     assert "AllowedIPs = 10.90.0.1/32" not in text
     assert "0.0.0.0/0" not in text
+
+
+def test_rejects_unmanaged_config_with_matching_server_key(tmp_path, monkeypatch, root, commands):
+    config = tmp_path / "gway.conf"
+    config.write_text(f"[Interface]\\nPrivateKey = private\\n[Peer]\\nPublicKey = {OTHER}\\n")
+    config.chmod(0o600)
+    with pytest.raises(ValueError, match="existing tunnel differs"):
+        satellite.bootstrap(DEVICE, OTHER, TOKEN, config=config)
+    assert not any(call[0][0] == "systemctl" for call in commands)
