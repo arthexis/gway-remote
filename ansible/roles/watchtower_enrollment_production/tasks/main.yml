@@ -60,6 +60,31 @@
     group: root
     mode: "0755"
 
+- name: Create root-only Watchtower operator settings directory
+  ansible.builtin.file:
+    path: /etc/gway-remote
+    state: directory
+    owner: root
+    group: root
+    mode: "0700"
+
+- name: Install private Watchtower registration CLI settings
+  ansible.builtin.copy:
+    dest: /etc/gway-remote/watchtower.json
+    owner: root
+    group: root
+    mode: "0600"
+    content: "{{ {'ledger': watchtower_enrollment_production_state_root ~ '/ledger.sqlite3', 'network': watchtower_enrollment_production_network, 'gateway': watchtower_enrollment_production_gateway, 'public_url': watchtower_enrollment_production_public_url} | to_nice_json }}\\n"
+
+- name: Install conventional gway-remote CLI name without overwriting another executable
+  ansible.builtin.file:
+    src: /usr/local/sbin/gway-remote-watchtower
+    dest: /usr/local/bin/gway-remote
+    state: link
+    force: false
+    owner: root
+    group: root
+
 - name: Install token-safe Nginx log format without routing changes
   ansible.builtin.copy:
     src: gway-remote-watchtower-log.conf
