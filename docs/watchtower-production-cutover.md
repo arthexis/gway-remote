@@ -11,7 +11,13 @@ observed during the R1 preflight for the WireGuard network, gateway, and UDP
 endpoint.  The role refuses empty values and unsafe WireGuard configuration
 metadata.  A newly installed unit is not started or enabled by this role; a
 default re-run also leaves its current runtime state untouched.  It does not
-change Nginx, peers, invitations, or gway-001.
+enable an enrollment route, touch peers, issue invitations, or change gway-001.
+
+The role installs the request-safe `gway_enrollment_safe` Nginx log format
+under `/etc/nginx/conf.d` and validates it with `nginx -t`; it does not reload
+Nginx.  It also stages the exact `/v1/enroll` fragment beside the Watchtower
+application for review.  The format excludes request URI, query, body, and
+headers.
 
 The service is root-owned only because enrollment provisioning must atomically
 update the protected WireGuard configuration and perform a narrow `wg set`.
@@ -27,9 +33,11 @@ writes to the WireGuard directory plus those two directories.
    immediate upstream rollback. Enable and start the production owner on its
    already-reviewed loopback port, then check its local health and malformed
    enrollment response. Do not issue an invitation.
-3. Change only the two exact public enrollment/health upstream references,
-   validate with `nginx -t`, and reload Nginx. Verify public health identifies
-   gway-remote and that malformed enrollment remains rejected. Do not restart
+3. Add the staged `gway_enrollment_safe` access log only to the exact
+   `/v1/enroll` location, then change only the two public enrollment/health
+   upstream references. Validate with `nginx -t`, then reload Nginx. Verify
+   public health identifies gway-remote, malformed enrollment remains rejected,
+   and the public enrollment route has the safe log override. Do not restart
    `wg-quick@gway`, rotate keys, or modify existing peers.
 4. Confirm the gway-001 peer remains in both runtime and persistent
    configuration and that its natural handshake/counters continue. Leave the

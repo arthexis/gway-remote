@@ -60,6 +60,28 @@
     group: root
     mode: "0755"
 
+- name: Install token-safe Nginx log format without routing changes
+  ansible.builtin.copy:
+    src: gway-remote-watchtower-log.conf
+    dest: /etc/nginx/conf.d/gway-remote-watchtower-log.conf
+    owner: root
+    group: root
+    mode: "0644"
+  register: watchtower_production_nginx_log
+
+- name: Stage exact token-safe enrollment route fragment without enabling it
+  ansible.builtin.copy:
+    src: register.gelectriic.com.enrollment.conf
+    dest: "{{ watchtower_enrollment_production_install_root }}/register.gelectriic.com.enrollment.conf"
+    owner: root
+    group: root
+    mode: "0644"
+
+- name: Validate Nginx after installing token-safe log format
+  ansible.builtin.command: nginx -t
+  changed_when: false
+  when: watchtower_production_nginx_log.changed
+
 - name: Install inert production-owner systemd unit
   ansible.builtin.template:
     src: gway-remote-watchtower-enroll-production.service.j2

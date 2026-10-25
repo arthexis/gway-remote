@@ -42,6 +42,19 @@ class WatchtowerEnrollmentAnsibleTests(unittest.TestCase):
         self.assertIn("Keep the legacy service running", runbook)
         self.assertIn("Do not restart", runbook)
 
+    def test_production_role_stages_token_safe_nginx_contract(self):
+        tasks = Path("ansible/roles/watchtower_enrollment_production/tasks/main.yml").read_text()
+        logging = Path("ansible/roles/watchtower_enrollment_production/files/gway-remote-watchtower-log.conf").read_text()
+        route = Path("ansible/roles/watchtower_enrollment_production/files/register.gelectriic.com.enrollment.conf").read_text()
+        self.assertIn("/etc/nginx/conf.d/gway-remote-watchtower-log.conf", tasks)
+        self.assertIn("nginx -t", tasks)
+        self.assertIn("gway_enrollment_safe", logging)
+        self.assertNotIn("$request_uri", logging)
+        self.assertNotIn("$request ", logging)
+        self.assertIn("location = /v1/enroll", route)
+        self.assertIn("access_log", route)
+        self.assertIn("gway_enrollment_safe", route)
+
 
 if __name__ == "__main__":
     unittest.main()
