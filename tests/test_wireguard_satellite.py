@@ -154,3 +154,16 @@ def test_pending_key_survives_retry(tmp_path, monkeypatch, commands):
     private2, public2, current2 = satellite._identity(config)
     assert (private2, public2, current2) == (private, public, None)
     assert not any(args == ("wg", "genkey") for args, _ in commands)
+
+
+def test_bootstrap_uses_approved_nondefault_hub_address(tmp_path, monkeypatch, root, commands, enrollment):
+    config = tmp_path / "gway.conf"
+    enrollment["server_tunnel_ip"] = "10.90.0.17"
+    monkeypatch.setattr(satellite, "_enroll", lambda *args: enrollment)
+
+    satellite.bootstrap(DEVICE, OTHER, TOKEN, config=config)
+
+    text = config.read_text()
+    assert "AllowedIPs = 10.90.0.17/32" in text
+    assert "AllowedIPs = 10.90.0.1/32" not in text
+    assert "0.0.0.0/0" not in text
