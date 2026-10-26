@@ -32,10 +32,12 @@ def resolve_targets(selector: str, targets: tuple[str, ...] | None = None) -> tu
     return tuple(dict.fromkeys(matches))
 
 
-def dispatch(target: str) -> str:
+def dispatch(target: str, node: str = "gway-001") -> str:
     """Request the existing workflow; do not execute installers locally."""
     if target not in TARGETS:
         raise ValueError(f"Unknown deployment target: {target}")
+    if node != "gway-001":
+        raise ValueError("Deployment node is not approved for dispatch")
     env = os.environ.copy()
     # gh accepts GH_TOKEN or an existing authenticated gh login.
     if not env.get("GH_TOKEN") and env.get("GITHUB_TOKEN"):
@@ -44,7 +46,8 @@ def dispatch(target: str) -> str:
         result = subprocess.run(
             ["gh", "api", "--method", "POST",
              f"repos/{REPOSITORY}/actions/workflows/{WORKFLOW}/dispatches",
-             "-f", "ref=main", "-f", f"inputs[repository]={target}",
+             "-f", "ref=main", "-f", f"inputs[node]={node}",
+             "-f", f"inputs[repository]={target}",
              "-F", "return_run_details=true"],
             env=env, check=True, text=True, capture_output=True, timeout=30,
         )
