@@ -322,6 +322,7 @@ def main() -> None:
     deployments_parser = subparsers.add_parser("deployments", help="Inspect configured appliance deployments")
     deployments_parser.add_argument("repository", nargs="?", choices=[name for name, _ in DEPLOYMENT_TARGETS])
     deployments_parser.add_argument("--json", action="store_true")
+    deployments_parser.add_argument("--node", default=None, help="Inventory node (read-only; no remote connection)")
     deploy_parser = subparsers.add_parser("deploy", help="Trigger GitHub Appliance Deploy workflow")
     from .deploy_dispatch import TARGETS
     deploy_parser.add_argument("repository", nargs="?", help="Repository name or hyphen-word selector (matches all approved targets)")
@@ -607,7 +608,7 @@ def main() -> None:
     if args.command == "deployments":
         from .deployments import inventory, format_inventory
         try:
-            result = inventory(args.repository)
+            result = inventory(args.repository, node=args.node)
             print(json.dumps(result, indent=2, sort_keys=True) if args.json else format_inventory(result))
         except (OSError, ValueError, RuntimeError, KeyError) as exc:
             parser.exit(1, f"gway-remote: deployments unavailable: {exc}\\n")
