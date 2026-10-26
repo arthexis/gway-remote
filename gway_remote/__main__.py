@@ -396,8 +396,9 @@ def main() -> None:
             else:
                 if args.session_id or not DEVICE.fullmatch(args.target):
                     parser.error("register requires exactly one valid gway-NNN node")
-                print(ledger.register(args.target, minutes=args.minutes,
-                                      public_url=settings["public_url"])["url"])
+                url = ledger.register(args.target, minutes=args.minutes,
+                                      public_url=settings["public_url"])["url"]
+                print(f"curl -fsSL '{url}' | sudo sh")
         except (OSError, ValueError, KeyError, RuntimeError) as exc:
             parser.exit(1, "gway-remote: Watchtower registration unavailable: "
                         + type(exc).__name__ + "\\n")

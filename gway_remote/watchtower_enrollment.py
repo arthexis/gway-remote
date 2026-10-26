@@ -490,6 +490,16 @@ def make_handler(provisioner: Provisioner | None, *, public_url: str, wireguard_
 set -eu
 umask 077
 if [ "$(id -u)" != 0 ]; then echo 'bootstrap requires root' >&2; exit 1; fi
+# Never bootstrap the Watchtower enrollment owner as a satellite.
+if [ -e /etc/gway-remote/watchtower.json ] || [ -e /etc/systemd/system/gway-remote-watchtower.service ]; then
+  echo 'refusing satellite bootstrap on Watchtower' >&2
+  exit 1
+fi
+# A copied bearer must not silently enroll the wrong node.
+if [ "$(hostname -s)" != '{device}' ]; then
+  echo 'satellite bootstrap target hostname mismatch' >&2
+  exit 1
+fi
 command -v apt-get >/dev/null || {{ echo 'unsupported distribution' >&2; exit 1; }}
 export DEBIAN_FRONTEND=noninteractive
 apt-get update -qq
