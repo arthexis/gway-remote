@@ -10,9 +10,18 @@ class FakeGitHub:
 
 
 class DeploymentInventoryTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.hostname_patch = patch("gway_remote.deployments.socket.gethostname", return_value="gway-001")
+        cls.hostname_patch.start()
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.hostname_patch.stop()
+
     @patch("gway_remote.deployments.main_head", return_value="abcdef123456" + "0" * 28)
     def test_unknown_installed_not_assumed_from_successful_attempt(self, head):
-        report = inventory("ocpp-csms", client=FakeGitHub(),
+        report = inventory("ocpp-csms", node="gway-001", policy={"ocpp-csms"}, client=FakeGitHub(),
                            attempts={"ocpp-csms": {"sha": "abcdef123456" + "0" * 28,
                                "status": "installed", "at": "2026-10-17T10:00:00+00:00"}},
                            installed=lambda _: None)
@@ -25,10 +34,10 @@ class DeploymentInventoryTests(unittest.TestCase):
 
     @patch("gway_remote.deployments.main_head", return_value="abcdef123456" + "0" * 28)
     def test_current_and_behind(self, head):
-        current = inventory("ocpp-csms", client=FakeGitHub(), attempts={},
+        current = inventory("ocpp-csms", node="gway-001", policy={"ocpp-csms"}, client=FakeGitHub(), attempts={},
                             installed=lambda _: "abcdef123456")
         self.assertEqual(current["components"][0]["revision_status"], "current")
-        behind = inventory("ocpp-csms", client=FakeGitHub(), attempts={},
+        behind = inventory("ocpp-csms", node="gway-001", policy={"ocpp-csms"}, client=FakeGitHub(), attempts={},
                            installed=lambda _: "111111111111")
         self.assertEqual(behind["components"][0]["revision_status"], "behind")
 
