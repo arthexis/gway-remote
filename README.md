@@ -174,6 +174,19 @@ The Ansible role installs only the system-wide `gway-remote` executable
 and verifies its read-only JSON status. It does **not** enable automatic
 deployments, install the three component applications, or restart services.
 
+Ansible Core **2.12 or newer** is supported. On Ubuntu 22.04 (Jammy), install
+the distro core package before deploying:
+
+```sh
+sudo apt install ansible-core
+sudo -v
+```
+
+Do not install the `ansible` metapackage on Jammy: it can replace the distro
+`ansible-core` package with Ansible 2.10, which cannot parse this role. Run
+`deploy.sh` as the ordinary operator after the `sudo -v` credential check; the
+playbook retains its existing non-root invocation and privilege escalation.
+
 From the repository checkout, with a trusted inventory containing a
 `gway_remote` host group and a configured SSH connection:
 

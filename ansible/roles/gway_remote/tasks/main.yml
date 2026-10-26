@@ -98,12 +98,12 @@
   register: watch_units
 
 - name: Reload systemd for new appliance watch units
-  ansible.builtin.systemd_service:
+  ansible.builtin.systemd:
     daemon_reload: true
   when: watch_units.changed
 
 - name: Enable periodic GWay Remote appliance watch
-  ansible.builtin.systemd_service:
+  ansible.builtin.systemd:
     name: gway-remote-watch.timer
     enabled: true
     state: started
@@ -162,19 +162,19 @@
   register: github_health_units
 
 - name: Reload systemd for GitHub Health units
-  ansible.builtin.systemd_service:
+  ansible.builtin.systemd:
     daemon_reload: true
   when: github_health_units.changed
 
 - name: Enable GitHub Health timer only when private token configuration exists
-  ansible.builtin.systemd_service:
+  ansible.builtin.systemd:
     name: gway-remote-health.timer
     enabled: true
     state: started
   when: github_health_token_config.stat.exists
 
 - name: Keep GitHub Health timer disabled until private token is provisioned
-  ansible.builtin.systemd_service:
+  ansible.builtin.systemd:
     name: gway-remote-health.timer
     enabled: false
     state: stopped

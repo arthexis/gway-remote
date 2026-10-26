@@ -6,9 +6,26 @@ if [ "$(id -u)" -eq 0 ]; then
   exit 1
 fi
 command -v ansible-playbook >/dev/null 2>&1 || {
-  echo "ansible-playbook is required" >&2
+  echo "ansible-playbook is required; on Ubuntu 22.04 install it with: sudo apt install ansible-core" >&2
   exit 1
 }
+ansible_version=$(ansible-playbook --version 2>/dev/null | awk '
+  NR == 1 && match($0, /(core |ansible-playbook )[0-9]+\.[0-9]+/) {
+    version = substr($0, RSTART, RLENGTH)
+    sub(/^(core |ansible-playbook )/, "", version)
+    print version
+    exit
+  }
+')
+ansible_major=${ansible_version%%.*}
+ansible_minor=${ansible_version#*.}
+if [ -z "$ansible_version" ] ||
+   [ "$ansible_major" -lt 2 ] ||
+   { [ "$ansible_major" -eq 2 ] && [ "$ansible_minor" -lt 12 ]; }; then
+  printf '%s\n' "Ansible Core 2.12 or newer is required (detected: ${ansible_version:-unknown})." >&2
+  printf '%s\n' "On Ubuntu 22.04 use: sudo apt install ansible-core (not the ansible metapackage)." >&2
+  exit 1
+fi
 # This marker is only a hint: every fast-path check validates live artifacts.
 revision=$(git -C "$ROOT" rev-parse --verify HEAD)
 marker="$HOME/.local/state/gway-remote/deployed-commit"

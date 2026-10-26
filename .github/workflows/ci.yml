@@ -46,3 +46,21 @@ jobs:
         run: |
           python -m pip install 'ansible-core>=2.16,<2.19'
           ansible-playbook --syntax-check -i 'localhost,' ansible/playbook.yml
+
+  ansible-core-2-12:
+    name: Ansible Core 2.12 syntax
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install minimum supported Ansible Core
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes ansible-core
+      - name: Syntax-check deployed playbooks
+        run: |
+          export ANSIBLE_ROLES_PATH="$PWD/ansible/roles"
+          ansible-playbook --version
+          ansible-playbook --syntax-check -i 'gway_remote,' ansible/playbook.yml
+          ansible-playbook --syntax-check -i 'wireguard_hub,' ansible/playbooks/adopt-wireguard-peer.yml
+          ansible-playbook --syntax-check -i 'watchtower,' ansible/playbooks/watchtower-enrollment.yml
+          ansible-playbook --syntax-check -i 'watchtower,' ansible/playbooks/watchtower-enrollment-production.yml
