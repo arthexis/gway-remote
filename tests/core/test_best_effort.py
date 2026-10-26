@@ -2,6 +2,7 @@ import tempfile
 import unittest
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from unittest.mock import patch
 
 from gway_remote.attempts import read_attempts
 from gway_remote.best_effort import appliance_lock, execute, manual_execute
@@ -35,6 +36,11 @@ class GitHub:
 
 class BestEffortTests(unittest.TestCase):
     def setUp(self):
+        # These tests exercise deployment orchestration, not host admission.
+        # The deployment policy has its own dedicated denial/allowlist tests.
+        admission = patch('gway_remote.deployment_policy.require_local_deployment', return_value=tuple(name for name, _ in TARGETS))
+        admission.start()
+        self.addCleanup(admission.stop)
         self.tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self.tmp.cleanup)
         self.path = Path(self.tmp.name)

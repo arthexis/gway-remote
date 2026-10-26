@@ -47,6 +47,8 @@ def execute(client, now, installers, directory=DEFAULT_DIR, lock_path=None, *, b
         raise ValueError("unknown deployment target")
     if target is not None and not deploy_all:
         raise ValueError("target selection requires explicit --all")
+    from .deployment_policy import require_local_deployment
+    require_local_deployment(target)
     directory = Path(directory)
     with appliance_lock(lock_path or directory / "appliance.lock"):
         if deploy_all:
@@ -138,6 +140,8 @@ def manual_execute(client, name, sha, installer, directory=DEFAULT_DIR):
     from .reconcile import _SHA
     if name not in INSTALLERS or not _SHA.fullmatch(sha):
         raise ValueError("invalid manual deployment target")
+    from .deployment_policy import require_local_deployment
+    require_local_deployment(name)
     directory = Path(directory)
     with appliance_lock(directory / "appliance.lock"):
         repo = dict(TARGETS)[name]

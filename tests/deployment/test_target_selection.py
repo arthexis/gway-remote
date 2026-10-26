@@ -11,6 +11,12 @@ SHA = "a" * 40
 
 
 class TargetSelectionTests(unittest.TestCase):
+    def setUp(self):
+        # Test the deployment planner separately from the host admission boundary.
+        admission = patch("gway_remote.deployment_policy.require_local_deployment", return_value=())
+        admission.start()
+        self.addCleanup(admission.stop)
+
     def test_one_target_does_not_install_other_repositories(self):
         calls = []
         installers = {name: lambda sha, name=name: calls.append((name, sha))

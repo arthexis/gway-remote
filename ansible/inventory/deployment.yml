@@ -1,0 +1,28 @@
+# Declarative appliance management inventory. An empty list denies Remote writes.
+all:
+  children:
+    controller:
+      hosts:
+        gway-001:
+          ansible_connection: local
+          remote_managed_repositories:
+            - ocpp-csms
+            - ocpp-reports
+            - ocpp-simulator
+            - gway-lcd-sound
+            - gway-agent-ops
+            - gway-ap-kiosk
+            - gway-rfid
+            - gway-bastion
+    quality:
+      hosts:
+        gway-004:
+          remote_managed_repositories: []
+    production:
+      hosts:
+        gway-002:
+          remote_managed_repositories: []
+        gway-005:
+          remote_managed_repositories: []
+        customer.gelectriic.com:
+          remote_managed_repositories: []
