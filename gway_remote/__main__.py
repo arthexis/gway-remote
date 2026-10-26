@@ -326,6 +326,7 @@ def main() -> None:
     from .deploy_dispatch import TARGETS
     deploy_parser.add_argument("repository", nargs="?", help="Repository name or hyphen-word selector (matches all approved targets)")
     deploy_parser.add_argument("--all", action="store_true", help="Deploy all repositories")
+    deploy_parser.add_argument("--node", default="gway-001", help="Deployment node (currently gway-001 only)")
     deploy_parser.add_argument("--follow", action="store_true", help="Watch the dispatched workflow until completion")
     batch_parser = subparsers.add_parser("deploy-batch", help="Deploy appliance revisions")
     batch_parser.add_argument("--target", choices=tuple(name for name, _ in DEPLOYMENT_TARGETS), default=None)
@@ -620,7 +621,7 @@ def main() -> None:
             failures = []
             for target in targets:
                 try:
-                    message = dispatch(target)
+                    message = dispatch(target, node=args.node)
                     print(message, flush=True)
                     if args.follow:
                         follow_run(message)
