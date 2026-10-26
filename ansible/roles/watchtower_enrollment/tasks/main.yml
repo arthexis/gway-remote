@@ -62,12 +62,12 @@
     mode: "0644"
 
 - name: Reload systemd metadata only
-  ansible.builtin.systemd_service:
+  ansible.builtin.systemd:
     daemon_reload: true
   when: watchtower_unit.changed
 
 - name: Keep Watchtower service disabled until approved cutover
-  ansible.builtin.systemd_service:
+  ansible.builtin.systemd:
     name: gway-remote-watchtower-enroll-stage.service
     enabled: "{{ watchtower_enrollment_activate | bool }}"
     state: "{{ 'started' if watchtower_enrollment_activate | bool else 'stopped' }}"
