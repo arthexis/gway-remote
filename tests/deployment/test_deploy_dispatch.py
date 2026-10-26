@@ -18,10 +18,16 @@ class DeployDispatchTests(unittest.TestCase):
                 self.assertEqual(args[0], [
                     "gh", "api", "--method", "POST",
                     "repos/arthexis/gway-remote/actions/workflows/appliance-deploy.yml/dispatches",
-                    "-f", "ref=main", "-f", f"inputs[repository]={target}",
+                    "-f", "ref=main", "-f", "inputs[node]=gway-001", "-f", f"inputs[repository]={target}",
                     "-F", "return_run_details=true",
                 ])
                 self.assertTrue(kwargs["check"])
+
+    @patch("gway_remote.deploy_dispatch.subprocess.run")
+    def test_non_controller_node_fails_before_dispatch(self, run):
+        with self.assertRaisesRegex(ValueError, "not approved"):
+            dispatch("ocpp-csms", node="gway-004")
+        run.assert_not_called()
 
     @patch("gway_remote.deploy_dispatch.subprocess.run")
     def test_exact_run_id_is_displayed(self, run):
