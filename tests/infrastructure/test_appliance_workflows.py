@@ -40,18 +40,19 @@ class ApplianceWorkflowTests(unittest.TestCase):
             ("gway_lcd_sound", "gway_agent_ops", "gway_ap_kiosk",
              "gway_rfid", "gway_bastion"),
         )
-        self.assertEqual(set(jobs), {"report"} | set().union(*map(set, tracks)))
+        self.assertEqual(set(jobs), {"admission", "report"} | set().union(*map(set, tracks)))
+        self.assertIn("require_local_deployment", jobs["admission"])
         for track in tracks:
             for index, job in enumerate(track):
                 with self.subTest(job=job):
                     dependencies = re.findall(r"(?m)^    needs:\s*(.+)$", jobs[job])
-                    self.assertEqual(dependencies, [track[index - 1]] if index else [])
+                    self.assertEqual(dependencies, ["[admission, " + track[index - 1] + "]"] if index else ["admission"])
                     if index:
                         self.assertIn("always()", jobs[job])
                     self.assertIn("deploy-batch --all --target", jobs[job])
 
         self.assertIn("always()", jobs["report"])
-        self.assertIn("needs: [" + ", ".join(name.replace("-", "_") for name, _ in TARGETS) + "]",
+        self.assertIn("needs: [admission, " + ", ".join(name.replace("-", "_") for name, _ in TARGETS) + "]",
                       jobs["report"])
         self.assertIn("JOB_RESULTS: ${{ toJSON(needs) }}", jobs["report"])
         self.assertIn("Summarize independent deployment outcomes", jobs["report"])
