@@ -12,6 +12,12 @@ from gway_remote.attempts import mark
 
 
 class ManualBatchQuietTests(unittest.TestCase):
+    def setUp(self):
+        # Test the deployment planner separately from the host admission boundary.
+        admission = patch("gway_remote.deployment_policy.require_local_deployment", return_value=())
+        admission.start()
+        self.addCleanup(admission.stop)
+
     def candidates(self, now, attempted=False, ci="success"):
         return tuple(
             Candidate(name=name, sha=f"{i + 1:040x}", merged_at=now - timedelta(minutes=1),
