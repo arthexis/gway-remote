@@ -633,6 +633,8 @@ def main() -> None:
             parser.exit(1, f"gway-remote: {exc}\n")
         return
     if args.command == "deploy-batch":
+        from .deployment_policy import require_local_deployment
+        require_local_deployment(args.target if args.all and args.target else None)
         if args.target and not args.all:
             parser.error("--target requires --all")
         if args.all and (args.now or args.retry_failed):
@@ -676,6 +678,8 @@ def main() -> None:
             parser.exit(1, f"gway-remote: {exc}\\n")
         return
     if args.command == "run":
+        from .deployment_policy import require_local_deployment
+        require_local_deployment(args.repository)
         try:
             run(args.task, args.repository, args.sha)
         except (ValueError, RuntimeError, subprocess.CalledProcessError, subprocess.TimeoutExpired) as exc:
