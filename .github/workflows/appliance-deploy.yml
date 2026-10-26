@@ -39,7 +39,7 @@ permissions:
   issues: write
 
 concurrency:
-  group: appliance-${{ inputs.node || 'gway-001' }}
+  group: gway-001-appliance
   cancel-in-progress: false
 
 jobs:
