@@ -1,8 +1,19 @@
 name: Appliance Deploy
-run-name: Deploy ${{ inputs.repository }} · ${{ inputs.request_id || 'manual' }}
+run-name: Deploy ${{ inputs.repository }} on ${{ inputs.node || 'gway-001' }} · ${{ inputs.request_id || 'manual' }}
 on:
   workflow_dispatch:
     inputs:
+      node:
+        description: Approved deployment node
+        type: choice
+        required: true
+        default: gway-001
+        options:
+          - gway-001
+          - gway-004
+          - gway-002
+          - gway-005
+          - customer.gelectriic.com
       request_id:
         description: Optional dispatch correlation ID
         required: false
@@ -28,13 +39,42 @@ permissions:
   issues: write
 
 concurrency:
-  group: gway-001-appliance
+  group: appliance-${{ inputs.node || 'gway-001' }}
   cancel-in-progress: false
 
 jobs:
+  admission:
+    name: Verify requested node and repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Install Ansible inventory reader
+        run: python3 -m pip install ansible-core
+      - name: Reject unapproved target before deployment jobs
+        env:
+          REQUESTED_NODE: ${{ inputs.node }}
+          REQUESTED_REPOSITORY: ${{ inputs.repository }}
+          REQUEST_ACTOR: ${{ github.actor }}
+        run: |
+          python3 - <<'PY'
+          import os
+          from gway_remote.deployment_policy import require_local_deployment
+          if os.environ['REQUEST_ACTOR'] != 'arthexis':
+              raise SystemExit('Unauthorized deployment actor')
+          node = os.environ['REQUESTED_NODE']
+          repository = os.environ['REQUESTED_REPOSITORY']
+          if node != 'gway-001':
+              raise SystemExit('Node is not yet admitted for appliance deployments')
+          require_local_deployment(None if repository == 'all' else repository, hostname=node)
+          print('Approved deployment policy')
+          PY
   ocpp_csms:
     name: Deploy ocpp-csms
-    if: ${{ github.event_name == 'workflow_dispatch' && github.actor == 'arthexis' && (inputs.repository == 'all' || inputs.repository == 'ocpp-csms') }}
+    needs: admission
+    if: ${{ github.event_name == 'workflow_dispatch' && github.actor == 'arthexis' && needs.admission.result == 'success' && inputs.node == 'gway-001' && (inputs.repository == 'all' || inputs.repository == 'ocpp-csms') }}
     runs-on: [self-hosted, Linux, ARM64, gway-001]
     timeout-minutes: 30
     steps:
@@ -51,8 +91,8 @@ jobs:
 
   ocpp_reports:
     name: Deploy ocpp-reports
-    needs: ocpp_csms
-    if: ${{ always() && github.event_name == 'workflow_dispatch' && github.actor == 'arthexis' && (inputs.repository == 'all' || inputs.repository == 'ocpp-reports') }}
+    needs: [admission, ocpp_csms]
+    if: ${{ always() && github.event_name == 'workflow_dispatch' && github.actor == 'arthexis' && needs.admission.result == 'success' && inputs.node == 'gway-001' && (inputs.repository == 'all' || inputs.repository == 'ocpp-reports') }}
     runs-on: [self-hosted, Linux, ARM64, gway-001]
     timeout-minutes: 30
     steps:
@@ -69,8 +109,8 @@ jobs:
 
   ocpp_simulator:
     name: Deploy ocpp-simulator
-    needs: ocpp_reports
-    if: ${{ always() && github.event_name == 'workflow_dispatch' && github.actor == 'arthexis' && (inputs.repository == 'all' || inputs.repository == 'ocpp-simulator') }}
+    needs: [admission, ocpp_reports]
+    if: ${{ always() && github.event_name == 'workflow_dispatch' && github.actor == 'arthexis' && needs.admission.result == 'success' && inputs.node == 'gway-001' && (inputs.repository == 'all' || inputs.repository == 'ocpp-simulator') }}
     runs-on: [self-hosted, Linux, ARM64, gway-001]
     timeout-minutes: 30
     steps:
@@ -87,7 +127,8 @@ jobs:
 
   gway_lcd_sound:
     name: Deploy gway-lcd-sound
-    if: ${{ github.event_name == 'workflow_dispatch' && github.actor == 'arthexis' && (inputs.repository == 'all' || inputs.repository == 'gway-lcd-sound') }}
+    needs: admission
+    if: ${{ github.event_name == 'workflow_dispatch' && github.actor == 'arthexis' && needs.admission.result == 'success' && inputs.node == 'gway-001' && (inputs.repository == 'all' || inputs.repository == 'gway-lcd-sound') }}
     runs-on: [self-hosted, Linux, ARM64, gway-001]
     timeout-minutes: 30
     steps:
@@ -104,8 +145,8 @@ jobs:
 
   gway_agent_ops:
     name: Deploy gway-agent-ops
-    needs: gway_lcd_sound
-    if: ${{ always() && github.event_name == 'workflow_dispatch' && github.actor == 'arthexis' && (inputs.repository == 'all' || inputs.repository == 'gway-agent-ops') }}
+    needs: [admission, gway_lcd_sound]
+    if: ${{ always() && github.event_name == 'workflow_dispatch' && github.actor == 'arthexis' && needs.admission.result == 'success' && inputs.node == 'gway-001' && (inputs.repository == 'all' || inputs.repository == 'gway-agent-ops') }}
     runs-on: [self-hosted, Linux, ARM64, gway-001]
     timeout-minutes: 30
     steps:
@@ -122,8 +163,8 @@ jobs:
 
   gway_ap_kiosk:
     name: Deploy gway-ap-kiosk
-    needs: gway_agent_ops
-    if: ${{ always() && github.event_name == 'workflow_dispatch' && github.actor == 'arthexis' && (inputs.repository == 'all' || inputs.repository == 'gway-ap-kiosk') }}
+    needs: [admission, gway_agent_ops]
+    if: ${{ always() && github.event_name == 'workflow_dispatch' && github.actor == 'arthexis' && needs.admission.result == 'success' && inputs.node == 'gway-001' && (inputs.repository == 'all' || inputs.repository == 'gway-ap-kiosk') }}
     runs-on: [self-hosted, Linux, ARM64, gway-001]
     timeout-minutes: 30
     steps:
@@ -140,8 +181,8 @@ jobs:
 
   gway_rfid:
     name: Deploy gway-rfid
-    needs: gway_ap_kiosk
-    if: ${{ always() && github.event_name == 'workflow_dispatch' && github.actor == 'arthexis' && (inputs.repository == 'all' || inputs.repository == 'gway-rfid') }}
+    needs: [admission, gway_ap_kiosk]
+    if: ${{ always() && github.event_name == 'workflow_dispatch' && github.actor == 'arthexis' && needs.admission.result == 'success' && inputs.node == 'gway-001' && (inputs.repository == 'all' || inputs.repository == 'gway-rfid') }}
     runs-on: [self-hosted, Linux, ARM64, gway-001]
     timeout-minutes: 30
     steps:
@@ -158,8 +199,8 @@ jobs:
 
   gway_bastion:
     name: Deploy gway-bastion (stage-only)
-    needs: gway_rfid
-    if: ${{ always() && github.event_name == 'workflow_dispatch' && github.actor == 'arthexis' && (inputs.repository == 'all' || inputs.repository == 'gway-bastion') }}
+    needs: [admission, gway_rfid]
+    if: ${{ always() && github.event_name == 'workflow_dispatch' && github.actor == 'arthexis' && needs.admission.result == 'success' && inputs.node == 'gway-001' && (inputs.repository == 'all' || inputs.repository == 'gway-bastion') }}
     runs-on: [self-hosted, Linux, ARM64, gway-001]
     timeout-minutes: 30
     steps:
@@ -177,8 +218,8 @@ jobs:
 
   report:
     name: Export appliance deployment report
-    needs: [ocpp_csms, ocpp_reports, ocpp_simulator, gway_lcd_sound, gway_agent_ops, gway_ap_kiosk, gway_rfid, gway_bastion]
-    if: ${{ always() && github.event_name == 'workflow_dispatch' && github.actor == 'arthexis' }}
+    needs: [admission, ocpp_csms, ocpp_reports, ocpp_simulator, gway_lcd_sound, gway_agent_ops, gway_ap_kiosk, gway_rfid, gway_bastion]
+    if: ${{ always() && github.event_name == 'workflow_dispatch' && github.actor == 'arthexis' && needs.admission.result == 'success' && inputs.node == 'gway-001' }}
     runs-on: [self-hosted, Linux, ARM64, gway-001]
     timeout-minutes: 10
     steps:
@@ -188,6 +229,7 @@ jobs:
       - name: Summarize independent deployment outcomes
         shell: bash
         env:
+          SELECTED_NODE: ${{ inputs.node }}
           SELECTED_REPOSITORY: ${{ inputs.repository }}
           JOB_RESULTS: ${{ toJSON(needs) }}
         run: |
@@ -207,7 +249,7 @@ jobs:
           }
           results = json.loads(os.environ["JOB_RESULTS"])
           selected = os.environ["SELECTED_REPOSITORY"]
-          lines = ["### Deployment job outcomes", "", "| Repository | Outcome |",
+          lines = [f"### Deployment job outcomes on {os.environ['SELECTED_NODE']}", "", "| Repository | Outcome |",
                    "|---|---|"]
           for job, repository in jobs.items():
               outcome = results[job]["result"]
