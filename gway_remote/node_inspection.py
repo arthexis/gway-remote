@@ -58,7 +58,7 @@ def resolve_target(snapshot, node, approved):
     return str(ip.ip)
 
 
-def inspect_ssh(node, *, runner=subprocess.run):
+def inspect_ssh(node, *, config="/etc/gway-remote/inspection-ssh.conf", runner=subprocess.run):
     """Probe a preconfigured Bastion/ProxyJump alias, never establish SSH trust.
 
     SSH configuration and known_hosts are preconditions owned by Bastion/#264.
@@ -67,7 +67,7 @@ def inspect_ssh(node, *, runner=subprocess.run):
     if not isinstance(node, str) or not _NODE.fullmatch(node):
         raise ValueError("invalid node")
     command = [
-        "ssh", "-F", "/etc/gway-remote/inspection-ssh.conf",
+        "ssh", "-F", str(config),
         "-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=yes",
         "-o", "ConnectTimeout=8", "-o", "ConnectionAttempts=1",
         node, "true",
