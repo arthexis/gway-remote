@@ -19,10 +19,7 @@ class WatchtowerTransportTests(unittest.TestCase):
                          "stricthostkeychecking yes\n"
                          "userknownhostsfile /etc/ssh/ssh_known_hosts\n"
                          "identityfile /etc/gway-remote/watchtower-key\n")
-            runner = Mock(side_effect=[
-                subprocess.CompletedProcess([], 0, effective, ""),
-                subprocess.CompletedProcess([], 0, json.dumps({"schema": 2, "nodes": []}), ""),
-            ])
+            runner = Mock(return_value=subprocess.CompletedProcess([], 0, json.dumps({"schema": 2, "nodes": []}), ""))
             with patch("gway_remote.inspection_ssh_trust.validate_profile"):
                 self.assertEqual(fetch_snapshot(config=config, runner=runner)["schema"], 2)
             self.assertEqual(runner.call_count, 1)
