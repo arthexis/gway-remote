@@ -44,9 +44,11 @@ def validate_profile(config, alias, *, hostname, require_jump=False, runner=subp
     except (OSError, subprocess.CalledProcessError, subprocess.TimeoutExpired) as exc:
         raise ValueError("SSH profile unavailable") from exc
     options = dict(line.split(None, 1) for line in result.stdout.splitlines() if " " in line)
+    strict = options.get("stricthostkeychecking", "").lower()
     if (options.get("hostname") != hostname
             or options.get("batchmode", "").lower() != "yes"
-            or options.get("stricthostkeychecking", "").lower() != "yes"
+            # OpenSSH canonicalizes `yes` from ssh_config to `true` in `ssh -G`.
+            or strict not in ("yes", "true")
             or options.get("identitiesonly", "").lower() != "yes"):
         raise ValueError("SSH profile identity/trust mismatch")
     if not options.get("user") or options["user"] in ("root", "none"):
