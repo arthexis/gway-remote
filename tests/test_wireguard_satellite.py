@@ -109,6 +109,31 @@ def test_existing_config_never_reenrolls(tmp_path, monkeypatch, root, commands):
     assert commands[-1][0] == ("wg", "show", "gway", "public-key")
 
 
+def test_repair_attests_existing_legacy_tunnel_without_rewriting_config(tmp_path, monkeypatch, root, commands, enrollment):
+    config = tmp_path / "gway.conf"
+    original = f"[Interface]\nPrivateKey = secret\n[Peer]\nPublicKey = {OTHER}\n"
+    config.write_text(original)
+    config.chmod(0o600)
+    seen = {}
+    monkeypatch.setattr(satellite, "_ssh_host_public_key", lambda: "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8=")
+
+    def enroll_call(*args, **kwargs):
+        seen["args"], seen["kwargs"] = args, kwargs
+        return {**enrollment, "repaired": True}
+
+    monkeypatch.setattr(satellite, "_enroll", enroll_call)
+    result = satellite.bootstrap(DEVICE, OTHER, TOKEN, config=config,
+                                 repair_host_identity=True)
+
+    assert result == {"device": DEVICE, "configured": True, "reused": True,
+                      "host_identity_repaired": True}
+    assert config.read_text() == original
+    assert seen["args"][:4] == (satellite.DEFAULT_URL, DEVICE, KEY, TOKEN)
+    assert seen["kwargs"]["repair_host_identity"] is True
+    assert "ssh_host_key" in seen["kwargs"]
+    assert not any(args[0] == "wg" and args[1] == "set" for args, _ in commands)
+
+
 def test_fresh_bootstrap_writes_config_and_activates(tmp_path, monkeypatch, root, commands, enrollment):
     config = tmp_path / "gway.conf"
     monkeypatch.setattr(satellite, "_enroll", lambda *args: enrollment)

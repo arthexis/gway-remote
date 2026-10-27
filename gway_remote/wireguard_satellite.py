@@ -81,7 +81,8 @@ def _ssh_host_public_key(path=Path("/etc/ssh/ssh_host_ed25519_key.pub")):
     return validate_public_key(path.read_text().strip())
 
 
-def _enroll(url, device, public, token, *, ssh_host_key=None):
+def _enroll(url, device, public, token, *, ssh_host_key=None,
+            repair_host_identity=False):
     from urllib.parse import urlsplit
     parsed = urlsplit(url)
     if (parsed.scheme != "https" or parsed.hostname != "register.gelectriic.com"
@@ -91,6 +92,10 @@ def _enroll(url, device, public, token, *, ssh_host_key=None):
     body = {"device": device, "public_key": public, "token": token}
     if ssh_host_key is not None:
         body["ssh_host_key"] = ssh_host_key
+    if repair_host_identity:
+        if ssh_host_key is None:
+            raise ValueError("host identity repair requires SSH host key")
+        body["repair_host_identity"] = True
     payload = json.dumps(body).encode()
     request = Request(url, data=payload, headers={"Content-Type": "application/json"}, method="POST")
     try:
@@ -139,7 +144,8 @@ def _atomic_new(path, content):
         Path(temp).unlink(missing_ok=True)
 
 
-def bootstrap(device, server_key, token, *, config=Path("/etc/wireguard/gway.conf"), url=DEFAULT_URL):
+def bootstrap(device, server_key, token, *, config=Path("/etc/wireguard/gway.conf"),
+              url=DEFAULT_URL, repair_host_identity=False):
     if os.geteuid() != 0:
         raise PermissionError("bootstrap requires root")
     if not DEVICE_RE.fullmatch(device):
@@ -149,12 +155,22 @@ def bootstrap(device, server_key, token, *, config=Path("/etc/wireguard/gway.con
         raise ValueError("existing active gway interface; refusing ownership")
     private, public, existing = _identity(config)
     if existing is not None:
-        if f"# GWAY Remote Device = {device}" not in existing or f"PublicKey = {server_key}" not in existing:
+        managed = f"# GWAY Remote Device = {device}" in existing
+        if f"PublicKey = {server_key}" not in existing or (not managed and not repair_host_identity):
             raise ValueError("existing tunnel differs; refusing replacement")
         _run("systemctl", "enable", "--now", "wg-quick@gway.service")
         if _run("wg", "show", "gway", "public-key") != public:
             raise ValueError("active gway interface identity mismatch")
-        return {"device": device, "configured": True, "reused": True}
+        if not repair_host_identity:
+            return {"device": device, "configured": True, "reused": True}
+        response = _enroll(url, device, public, token,
+                           ssh_host_key=_ssh_host_public_key(),
+                           repair_host_identity=True)
+        _validate(response, device, public, server_key)
+        if response.get("repaired") is not True:
+            raise ValueError("host identity repair rejected")
+        return {"device": device, "configured": True, "reused": True,
+                "host_identity_repaired": True}
     response = _enroll(url, device, public, token, ssh_host_key=_ssh_host_public_key())
     address, endpoint, gateway = _validate(response, device, public, server_key)
     config_text = (f"[Interface]\nAddress = {address}\nPrivateKey = {private}\n\n"
@@ -176,6 +192,8 @@ def main(argv=None):
     boot.add_argument("--server-public-key", required=True, help="Watchtower WireGuard public key, verified out of band")
     boot.add_argument("--token-file", type=Path)
     boot.add_argument("--url", default=DEFAULT_URL)
+    boot.add_argument("--repair-host-identity", action="store_true",
+                      help="attest an existing matching tunnel without changing it")
     status = sub.add_parser("status")
     status.add_argument("--config", type=Path, default=Path("/etc/wireguard/gway.conf"))
     args = parser.parse_args(argv)
@@ -191,7 +209,9 @@ def main(argv=None):
                 token = getpass.getpass("Watchtower invitation token: ")
             if not re.fullmatch(r"[A-Za-z0-9_-]{32,128}", token):
                 raise ValueError("invalid invitation")
-            print(json.dumps(bootstrap(args.device, args.server_public_key, token, url=args.url)))
+            print(json.dumps(bootstrap(args.device, args.server_public_key, token,
+                                       url=args.url,
+                                       repair_host_identity=args.repair_host_identity)))
     except (OSError, ValueError, RuntimeError, subprocess.CalledProcessError) as exc:
         parser.exit(1, "wire bootstrap failed: " + type(exc).__name__ + "\n")
 

@@ -65,10 +65,29 @@ overwritten. The function is not an automatic side effect of inspection.
 
 ## Remaining field and lifecycle gates
 
-A full operator-approved key **rotation** procedure, pre-existing-device
-retrofit policy, and Gway-004 end-to-end field acceptance are not completed
-by adding first-pin support. No changes to production SSH profile,
-`known_hosts`, WireGuard or enrollment state are implied by this PR.
+A full operator-approved key **rotation** procedure and Gway-004 end-to-end
+field acceptance are not completed by adding first-pin support. No changes to
+production SSH profile, `known_hosts`, WireGuard or enrollment state are
+implied by this PR.
+
+## Explicit legacy-node repair bootstrap
+
+Nodes enrolled before host attestation may receive a new, short-lived bootstrap
+URL only through the explicit root-only repair mode:
+
+```sh
+gway-remote register gway-005 --repair-host-identity
+```
+
+The satellite must already have the matching active WireGuard configuration,
+the same WireGuard public identity and the expected hostname. The repair mode
+does not allocate an address, edit the local WireGuard configuration, add or
+restart a hub peer, alter routes or replace an existing host identity. It sends
+only the current validated ED25519 host public key, which the Watchtower binds
+transactionally to the already-active peer. A normal bootstrap URL cannot be
+used for repair, and a repair URL cannot create a new peer or rotate a host
+key. The URL remains a bearer secret: distribute it only through the approved
+private field channel and do not store it in an issue, shell history or logs.
 
 ## Explicit controller CLI
 
