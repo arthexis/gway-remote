@@ -26,7 +26,8 @@ def fixture(now):
     ]}
 
 
-def test_explicit_first_pin_idempotent_and_no_rotation(tmp_path):
+def test_explicit_first_pin_idempotent_and_no_rotation(tmp_path, monkeypatch):
+    monkeypatch.setattr('gway_remote.inspection_ssh_trust._trusted_parent_directories', lambda path: None)
     now = datetime.now(timezone.utc)
     snapshot = fixture(now)
     path = tmp_path / "known_hosts"
@@ -49,7 +50,8 @@ def test_explicit_first_pin_idempotent_and_no_rotation(tmp_path):
     assert path.read_text() == old
 
 
-def test_binding_revocation_and_permissions_fail_closed(tmp_path):
+def test_binding_revocation_and_permissions_fail_closed(tmp_path, monkeypatch):
+    monkeypatch.setattr('gway_remote.inspection_ssh_trust._trusted_parent_directories', lambda path: None)
     now = datetime.now(timezone.utc)
     snapshot = fixture(now)
     path = tmp_path / "known_hosts"
