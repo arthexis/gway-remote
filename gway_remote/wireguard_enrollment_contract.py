@@ -53,3 +53,30 @@ def parse_enrollment_json(raw: bytes) -> tuple[str, str, str]:
     except (UnicodeDecodeError, ValueError):
         raise InvalidEnrollment("invalid enrollment request") from None
     return validate_enrollment(data)
+
+
+def parse_host_identity_enrollment(raw: bytes) -> tuple[str, str, str, str | None]:
+    """Parse current or legacy invitation request without logging key or token.
+
+    A host public key is optional for legacy clients; those clients cannot
+    receive an attestation and must continue through the manual SSH trust gate.
+    """
+    import json
+    from .host_identity import HostIdentityError, validate_public_key
+
+    if not isinstance(raw, bytes) or not 0 < len(raw) <= MAX_REQUEST_BYTES:
+        raise InvalidEnrollment("invalid enrollment request")
+    try:
+        value = json.loads(raw)
+        if not isinstance(value, dict):
+            raise ValueError()
+        fields = set(value)
+        if fields not in ({"device", "public_key", "token"},
+                          {"device", "public_key", "token", "ssh_host_key"}):
+            raise ValueError()
+        device, key, token = validate_enrollment(
+            {item: value[item] for item in ("device", "public_key", "token")})
+        host = validate_public_key(value["ssh_host_key"]) if "ssh_host_key" in value else None
+        return device, key, token, host
+    except (ValueError, KeyError, TypeError, HostIdentityError):
+        raise InvalidEnrollment("invalid enrollment request") from None
