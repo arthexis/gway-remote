@@ -89,3 +89,46 @@ The command never edits `inspection-ssh.conf`; the approved SSH profile must
 already set `HostKeyAlias gway-inspection-<node>` and reference the dedicated
 known-hosts file. An identity mismatch fails closed; no rotation option is
 offered by this command.
+
+## Explicit rotation workflow (operator approval required)
+
+1. Verify the device identity through an independent trusted channel and
+   issue a **new**, short-lived, device-specific Watchtower invitation.
+2. Stage the previous and replacement ED25519 **public** host keys and the
+   invitation bearer in separate root-owned 0600 files, protected by their
+   approved key-management lifecycle. Avoid command-line tokens and logs.
+3. On Watchtower run the private root-only operation with the existing
+   `--ledger`, `--network`, and `--gateway` arguments:
+
+   ```sh
+   gway-remote watchtower rotate-host --device gway-004 \
+     --prior-host-key-file /protected/old.pub \
+     --next-host-key-file /protected/new.pub \
+     --rotation-token-file /protected/invitation \
+     --authorize-rotation --ledger /protected/ledger.sqlite \
+     --network 10.90.0.0/24 --gateway 10.90.0.1
+   ```
+
+   The transition is committed atomically, consumes the invitation once,
+   records the old and new keys in an audit table, and **does not** mutate
+   WireGuard peers. Existing unchanged SSH keys cannot be rotated using
+   an invitation without operator authorization.
+4. Independently authenticate the fresh restricted Watchtower snapshot, verify
+   the local controller profile and the expected old pinned identity, then run:
+
+   ```sh
+   gway-remote inspection-host-rotate --node gway-004 \
+     --known-hosts /etc/gway-remote/inspection_known_hosts \
+     --authorize-rotation
+   ```
+
+   The controller accepts only a matching old pin and attested latest
+   committed transition. Replay and unauthorized changes fail closed.
+5. Separately verify strict SSH inspection on the approved device. Revocation
+   of host-identity trust alone is available through the private command
+   `watchtower revoke-host --device gway-004`.
+
+**Security boundary:** no rotation is automatic, and a Watchtower invitation
+alone is not operator approval. The root-only rotation command must be executed
+over the existing approved Bastion administration path. Neither operation is
+a deployment authorization. Existing satellites are not retrofitted silently.
