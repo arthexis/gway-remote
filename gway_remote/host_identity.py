@@ -13,7 +13,6 @@ from datetime import datetime, timezone
 
 NODE = re.compile(r"gway-[0-9]{3,}$")
 KEY_TYPE = "ssh-ed25519"
-MAX_AGE_SECONDS = 300
 
 
 class HostIdentityError(ValueError):
@@ -76,10 +75,6 @@ def validate_attestation(record, *, node, now=None):
     valid_until = _stamp(record.get("valid_until"))
     if created > now or valid_until <= now or valid_until <= created:
         raise HostIdentityError("inactive host identity period")
-    if (now - created).total_seconds() > MAX_AGE_SECONDS and (valid_until - now).total_seconds() > MAX_AGE_SECONDS:
-        # Long-lived identities require a freshly authenticated snapshot and
-        # explicit ledger state; no assumption that creation is recent.
-        pass
     key = validate_public_key(record.get("host_public_key"))
     return {"node": node, "host_key": key, "host_key_alias": f"gway-inspection-{node}",
             "enrollment_binding": binding, "wireguard_identity": wg}
