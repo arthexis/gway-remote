@@ -1,6 +1,6 @@
 # Issue #280: SSH host attestation security contract
 
-Status: **first implementation increment only; NOT ready for deployment or auto-pinning**.
+Status: **implementation in PR #281; production deployment and field acceptance remain gated**.
 
 The `host_identity` module validates one Watchtower-authenticated SSH ED25519
 host identity assertion, its enrollment binding, tunnel public identity and
@@ -9,7 +9,7 @@ pin or rotate a mismatched pin. It never contacts the device or changes
 `known_hosts`. Authentication of the registry snapshot by strict, Bastion-backed
 Watchtower SSH remains mandatory. A JSON record by itself is not a credential.
 
-## Remaining integration requirements
+## Security acceptance checklist
 
 1. Audit the actual existing enrollment service and bootstrap client paths; add
    host public-key handoff bound to the redeemed single-use invitation and the
@@ -35,8 +35,9 @@ authorization to inspect/deploy. Field acceptance remains in #274 and #258.
 
 ## Current PR integration increment
 
-The standalone bootstrap submits its existing ED25519 host public key in the
-normal HTTPS enrollment POST; it refuses to invent/overwrite a host key.
+The standalone bootstrap submits its validated ED25519 host public key in the
+normal HTTPS enrollment POST. It preserves existing keys and generates a new
+ED25519 identity only when both private and public host key files are absent.
 Legacy clients may enroll without this field, but receive no SSH attestation.
 The Watchtower enrollment transaction inserts a host identity with the reserved
 device/operation/WireGuard identity and an opaque invitation binding. It advances
@@ -45,11 +46,10 @@ The restricted schema-2 snapshot includes an optional `host_identity` record
 for active nodes. Existing schema-2 consumers continue to receive their
 original node/address/state fields.
 
-**Not yet authorized:** acceptance of this record as an initial SSH pin,
-automatic known-hosts writes, host rotation, or deployment. Those require the
-trusted Watchtower authority verification and review of first-pin transition
-semantics; the current controller continues to require independently pinned
-host keys.
+**No automatic trust acceptance:** first pin and rotation require separate,
+explicit operator actions against the restricted authenticated Watchtower
+snapshot, approved-node inventory and dedicated SSH configuration. Inspection
+never uses trust-on-first-use and does not change known-hosts automatically.
 
 ## Controller first-pin operation
 
