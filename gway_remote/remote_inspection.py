@@ -20,7 +20,22 @@ def inspect(node, *, approved, ssh_config=SSH_CONFIG, runner=None):
     address = resolve_target(snapshot, node, approved)
     config = Path(ssh_config)
     from .inspection_ssh_trust import validate_profile
-    validate_profile(config, node, hostname=address, require_jump=True)
+    entries = [entry for entry in snapshot["nodes"]
+               if isinstance(entry, dict) and entry.get("node") == node]
+    if len(entries) != 1:
+        raise ValueError("ambiguous host identity")
+    record = entries[0]
+    if record.get("host_identity_status") not in (None, "active"):
+        raise ValueError("revoked host identity")
+    attestation = record.get("host_identity")
+    if attestation is not None:
+        from .host_trust import verified_host_identity
+        _, verified = verified_host_identity(snapshot, node, approved)
+        validate_profile(config, node, hostname=address, require_jump=True,
+                         host_key_alias=verified["host_key_alias"])
+    else:
+        # Legacy devices require a separately verified and pinned SSH identity.
+        validate_profile(config, node, hostname=address, require_jump=True)
     # Bastion owns host keys and ProxyJump; never auto-enroll them.
     result = inspect_ssh(node, config=config, runner=runner) if runner is not None else inspect_ssh(node, config=config)
     # No resident GWay Remote agent is required on the satellite.

@@ -339,13 +339,24 @@ def main() -> None:
     wg_parser.add_argument("action", choices=("endpoint",))
     wg_parser.add_argument("operation", choices=("show", "set"))
     wg_parser.add_argument("value", nargs="?")
+    rotate_parser = subparsers.add_parser("inspection-host-rotate", help="Operator-authorized SSH host identity rotation")
+    rotate_parser.add_argument("--node", required=True)
+    rotate_parser.add_argument("--known-hosts", type=Path, required=True)
+    rotate_parser.add_argument("--ssh-config", type=Path, default=Path("/etc/gway-remote/inspection-ssh.conf"))
+    rotate_parser.add_argument("--authorize-rotation", action="store_true")
+    pin_parser = subparsers.add_parser("inspection-host-pin", help="Explicitly pin attested SSH host identity")
+    pin_parser.add_argument("--node", required=True, help="Approved satellite node")
+    pin_parser.add_argument("--known-hosts", type=Path, required=True, help="Existing dedicated private known_hosts file")
+    pin_parser.add_argument("--ssh-config", type=Path, default=Path("/etc/gway-remote/inspection-ssh.conf"))
+    pin_parser.add_argument("--authorize-initial", action="store_true",
+                            help="Operator-authorized first pin; never replaces a mismatched host key")
     register_parser = subparsers.add_parser("register", help="Private Watchtower bootstrap URL issuance")
     register_parser.add_argument("target", help="gway-NNN node, status, or revoke")
     register_parser.add_argument("session_id", nargs="?")
     register_parser.add_argument("--minutes", type=int, default=15)
     register_parser.add_argument("--settings", type=Path, default=Path("/etc/gway-remote/watchtower.json"))
     watchtower_parser = subparsers.add_parser("watchtower", help="Root-only Watchtower enrollment administration")
-    watchtower_parser.add_argument("action", choices=("serve", "invite", "register", "revoke", "revoke-bootstrap", "bootstrap-status", "status", "snapshot", "recover"))
+    watchtower_parser.add_argument("action", choices=("serve", "invite", "register", "revoke", "revoke-bootstrap", "bootstrap-status", "status", "snapshot", "recover", "revoke-host", "rotate-host"))
     watchtower_parser.add_argument("--ledger", help="root-owned SQLite enrollment ledger")
     watchtower_parser.add_argument("--network", help="approved IPv4 allocation CIDR")
     watchtower_parser.add_argument("--gateway", help="approved hub IPv4 address")
@@ -354,6 +365,10 @@ def main() -> None:
     watchtower_parser.add_argument("--device")
     watchtower_parser.add_argument("--invitation-id")
     watchtower_parser.add_argument("--session-id")
+    watchtower_parser.add_argument("--prior-host-key-file", type=Path)
+    watchtower_parser.add_argument("--next-host-key-file", type=Path)
+    watchtower_parser.add_argument("--rotation-token-file", type=Path)
+    watchtower_parser.add_argument("--authorize-rotation", action="store_true")
     watchtower_parser.add_argument("--minutes", type=int, default=15)
     watchtower_parser.add_argument("--host", default="127.0.0.1")
     watchtower_parser.add_argument("--port", type=int, default=8788)
@@ -443,6 +458,27 @@ def main() -> None:
                     parser.error("watchtower revoke-bootstrap requires --session-id")
                 print(json.dumps({"revoked": ledger.revoke_bootstrap(args.session_id)}, sort_keys=True))
                 return
+            if args.action == "revoke-host":
+                if not args.device or not DEVICE.fullmatch(args.device):
+                    parser.error("watchtower revoke-host requires --device")
+                print(json.dumps({"revoked": ledger.revoke_host_identity(args.device)}))
+                return
+            if args.action == "rotate-host":
+                if not args.device or not DEVICE.fullmatch(args.device):
+                    parser.error("watchtower rotate-host requires --device")
+                files = (args.prior_host_key_file, args.next_host_key_file, args.rotation_token_file)
+                if any(value is None for value in files):
+                    parser.error("rotate-host requires both host key files and rotation token file")
+                from .inspection_ssh_trust import trusted_file
+                for value in files:
+                    trusted_file(value, secret=True)
+                prior, following, token = (value.read_text().strip() for value in files)
+                transition = ledger.rotate_host_identity(
+                    args.device, previous_key=prior, next_key=following,
+                    invitation_token=token, authorized=args.authorize_rotation,
+                )
+                print(json.dumps({"rotated": True, "transition": transition}, sort_keys=True))
+                return
             if args.action == "bootstrap-status":
                 print(json.dumps(ledger.bootstrap_status(), sort_keys=True))
                 return
@@ -466,6 +502,47 @@ def main() -> None:
                   wireguard_endpoint=args.wireguard_endpoint)
         except (OSError, ValueError, RuntimeError) as exc:
             parser.exit(1, f"gway-remote: Watchtower operation unavailable: {exc}\n")
+        return
+    if args.command == "inspection-host-rotate":
+        from .deployment_policy import INVENTORY
+        from .host_trust import rotate_from_watchtower
+        try:
+            proc = subprocess.run(
+                ["ansible-inventory", "-i", str(INVENTORY), "--host", args.node],
+                check=True, capture_output=True, text=True, timeout=15,
+            )
+            hostvars = json.loads(proc.stdout)
+            approved = {args.node} if hostvars.get("remote_inspection_allowed") is True else set()
+            if not approved:
+                raise ValueError("inspection target not approved")
+            changed = rotate_from_watchtower(
+                args.node, approved, args.known_hosts,
+                authorize_rotation=args.authorize_rotation, ssh_config=args.ssh_config,
+            )
+        except (ValueError, OSError, subprocess.CalledProcessError, subprocess.TimeoutExpired) as exc:
+            parser.exit(1, "gway-remote: host rotation denied: " + type(exc).__name__ + "\n")
+        print(json.dumps({"node": args.node, "rotated": changed}, sort_keys=True))
+        return
+    if args.command == "inspection-host-pin":
+        from .deployment_policy import INVENTORY
+        from .host_trust import pin_from_watchtower
+        try:
+            import subprocess
+            proc = subprocess.run(
+                ["ansible-inventory", "-i", str(INVENTORY), "--host", args.node],
+                check=True, capture_output=True, text=True, timeout=15,
+            )
+            hostvars = json.loads(proc.stdout)
+            approved = {args.node} if hostvars.get("remote_inspection_allowed") is True else set()
+            if not approved:
+                raise ValueError("inspection target not approved")
+            changed = pin_from_watchtower(
+                args.node, approved, args.known_hosts,
+                authorize_initial=args.authorize_initial, ssh_config=args.ssh_config,
+            )
+        except (ValueError, OSError, subprocess.CalledProcessError, subprocess.TimeoutExpired) as exc:
+            parser.exit(1, "gway-remote: host pin denied: " + type(exc).__name__ + "\\n")
+        print(json.dumps({"node": args.node, "pin_created": changed}, sort_keys=True))
         return
     if args.command == "wireguard":
         from .wireguard_endpoint import endpoint, set_endpoint

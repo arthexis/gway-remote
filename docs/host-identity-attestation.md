@@ -1,0 +1,134 @@
+# Issue #280: SSH host attestation security contract
+
+Status: **implementation in PR #281; production deployment and field acceptance remain gated**.
+
+The `host_identity` module validates one Watchtower-authenticated SSH ED25519
+host identity assertion, its enrollment binding, tunnel public identity and
+revocation/rotation status. It deliberately **cannot** accept a missing existing
+pin or rotate a mismatched pin. It never contacts the device or changes
+`known_hosts`. Authentication of the registry snapshot by strict, Bastion-backed
+Watchtower SSH remains mandatory. A JSON record by itself is not a credential.
+
+## Security acceptance checklist
+
+1. Audit the actual existing enrollment service and bootstrap client paths; add
+   host public-key handoff bound to the redeemed single-use invitation and the
+   accepted WireGuard public key. Preserve existing `sshd` identities and fail
+   on conflicting configuration. Never upload SSH private keys.
+2. Extend the durable enrollment ledger transaction with an immutable host-key
+   identity record and explicit revocation and operator-approved rotation
+   transitions. Reject retries that attempt to change either identity.
+3. Extend the restricted, read-only Watchtower exporter; choose an authenticated
+   schema evolution compatible with existing schema-2 inspection consumers.
+   A fresh export must prove current server-side authorization/revocation status.
+4. Authorize a **first pin** only with a verified enrollment transaction linked
+   to the Watchtower trusted authority and approved node. Pin in a dedicated
+   protected known-hosts file, stable HostKeyAlias, and reject unexpected changes.
+   Keep BatchMode and StrictHostKeyChecking enabled. Never use ssh-keyscan as
+   independent proof of identity.
+5. Test replay, revoked invite, mismatched WG key, host substitution, inactive
+   node, corrupted ledger, stale snapshot, hostile symlinks, crash recovery,
+   unauthorized key rotation and rollback with separate isolated environments.
+
+Do not deploy, restart SSH/WireGuard, add remote access, or treat enrollment as
+authorization to inspect/deploy. Field acceptance remains in #274 and #258.
+
+## Current PR integration increment
+
+The standalone bootstrap submits its validated ED25519 host public key in the
+normal HTTPS enrollment POST. It preserves existing keys and generates a new
+ED25519 identity only when both private and public host key files are absent.
+Legacy clients may enroll without this field, but receive no SSH attestation.
+The Watchtower enrollment transaction inserts a host identity with the reserved
+device/operation/WireGuard identity and an opaque invitation binding. It advances
+to active with the device and is removed on failed/rolled-back reservations.
+The restricted schema-2 snapshot includes an optional `host_identity` record
+for active nodes. Existing schema-2 consumers continue to receive their
+original node/address/state fields.
+
+**No automatic trust acceptance:** first pin and rotation require separate,
+explicit operator actions against the restricted authenticated Watchtower
+snapshot, approved-node inventory and dedicated SSH configuration. Inspection
+never uses trust-on-first-use and does not change known-hosts automatically.
+
+## Controller first-pin operation
+
+`gway_remote.host_trust.pin_from_watchtower` obtains the current registry
+through the separately verified, Bastion-backed Watchtower forced-command SSH
+identity. The caller must explicitly approve the **initial** pin for an
+approved node, and supply a dedicated existing 0600 `known_hosts` file.
+The stable alias is `gway-inspection-<node>` and must be configured via
+`HostKeyAlias` in the dedicated inspection SSH profile. The operation checks
+snapshot freshness, active registry status, exact WireGuard enrollment binding,
+host-key syntax, validity and revocation state; a changed key is never
+overwritten. The function is not an automatic side effect of inspection.
+
+## Remaining field and lifecycle gates
+
+A full operator-approved key **rotation** procedure, pre-existing-device
+retrofit policy, and Gway-004 end-to-end field acceptance are not completed
+by adding first-pin support. No changes to production SSH profile,
+`known_hosts`, WireGuard or enrollment state are implied by this PR.
+
+## Explicit controller CLI
+
+The only first-pin entrypoint is:
+
+```sh
+gway-remote inspection-host-pin --node gway-004 \
+  --known-hosts /etc/gway-remote/inspection_known_hosts \
+  --authorize-initial
+```
+
+The file must already exist, be owned by the operator executing the CLI, have
+mode 0600 and reside under safe parent directories. The selected node must
+be authorized by the deployed inspection inventory, and the remote snapshot
+must be retrieved through the separately pinned restricted Watchtower SSH
+identity. Omitting `--authorize-initial` is a verification-only check.
+The command never edits `inspection-ssh.conf`; the approved SSH profile must
+already set `HostKeyAlias gway-inspection-<node>` and reference the dedicated
+known-hosts file. An identity mismatch fails closed; no rotation option is
+offered by this command.
+
+## Explicit rotation workflow (operator approval required)
+
+1. Verify the device identity through an independent trusted channel and
+   issue a **new**, short-lived, device-specific Watchtower invitation.
+2. Stage the previous and replacement ED25519 **public** host keys and the
+   invitation bearer in separate root-owned 0600 files, protected by their
+   approved key-management lifecycle. Avoid command-line tokens and logs.
+3. On Watchtower run the private root-only operation with the existing
+   `--ledger`, `--network`, and `--gateway` arguments:
+
+   ```sh
+   gway-remote watchtower rotate-host --device gway-004 \
+     --prior-host-key-file /protected/old.pub \
+     --next-host-key-file /protected/new.pub \
+     --rotation-token-file /protected/invitation \
+     --authorize-rotation --ledger /protected/ledger.sqlite \
+     --network 10.90.0.0/24 --gateway 10.90.0.1
+   ```
+
+   The transition is committed atomically, consumes the invitation once,
+   records the old and new keys in an audit table, and **does not** mutate
+   WireGuard peers. Existing unchanged SSH keys cannot be rotated using
+   an invitation without operator authorization.
+4. Independently authenticate the fresh restricted Watchtower snapshot, verify
+   the local controller profile and the expected old pinned identity, then run:
+
+   ```sh
+   gway-remote inspection-host-rotate --node gway-004 \
+     --known-hosts /etc/gway-remote/inspection_known_hosts \
+     --authorize-rotation
+   ```
+
+   The controller accepts only a matching old pin and attested latest
+   committed transition. Replay and unauthorized changes fail closed.
+5. Separately verify strict SSH inspection on the approved device. Revocation
+   of host-identity trust alone is available through the private command
+   `watchtower revoke-host --device gway-004`.
+
+**Security boundary:** no rotation is automatic, and a Watchtower invitation
+alone is not operator approval. The root-only rotation command must be executed
+over the existing approved Bastion administration path. Neither operation is
+a deployment authorization. Existing satellites are not retrofitted silently.

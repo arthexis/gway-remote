@@ -33,10 +33,52 @@ def snapshot_from_path(path):
         rows = db.execute(
             "SELECT device, address, state FROM devices ORDER BY device"
         ).fetchall()
-    return {"schema": 2, "generated_at": datetime.now(timezone.utc).isoformat(), "nodes": [
-        {"node": row["device"], "address": row["address"], "state": row["state"]}
-        for row in rows
-    ]}
+    nodes = [{"node": row["device"], "address": row["address"], "state": row["state"]}
+             for row in rows]
+    # Older Watchtower ledgers have no host attestation records. They remain
+    # inspectable only through independently pinned SSH trust.
+    with sqlite3.connect(uri, uri=True, timeout=5) as db:
+        db.execute("PRAGMA query_only=ON")
+        present = db.execute(
+            "SELECT 1 FROM sqlite_master WHERE type='table' AND name='host_identities'"
+        ).fetchone()
+        if present:
+            identities = db.execute(
+                "SELECT device, wireguard_identity, host_public_key, enrollment_binding, "
+                "state, created_at, valid_until FROM host_identities"
+            ).fetchall()
+            by_device = {item["node"]: item for item in nodes if item["state"] == "active"}
+            for device, wg, host, binding, state, created, expiry in identities:
+                node = by_device.get(device)
+                if node is not None:
+                    node["host_identity_status"] = state
+                    if state != "active":
+                        continue
+                    # The active peer's WireGuard identity must agree with the
+                    # enrollment-time host identity binding.
+                    peer = db.execute("SELECT public_key FROM devices WHERE device=? AND state='active'", (device,)).fetchone()
+                    if peer is None or peer[0] != wg:
+                        continue
+                    node["wireguard_identity"] = wg
+                    node["host_identity"] = {
+                        "schema": 1, "node": device, "wireguard_identity": wg,
+                        "host_public_key": host, "enrollment_binding": binding,
+                        "state": state, "rotation_state": "stable",
+                        "created_at": created, "valid_until": expiry,
+                    }
+                    rotation = db.execute(
+                        "SELECT previous_host_public_key,next_host_public_key,created_at "
+                        "FROM host_identity_rotations WHERE device=? AND state='committed' "
+                        "ORDER BY created_at DESC LIMIT 1", (device,)
+                    ).fetchone()
+                    if rotation:
+                        node["host_identity"]["rotation"] = {
+                            "previous_host_public_key": rotation[0],
+                            "next_host_public_key": rotation[1],
+                            "authorized_at": rotation[2],
+                        }
+    return {"schema": 2, "generated_at": datetime.now(timezone.utc).isoformat(),
+            "nodes": nodes}
 
 
 def resolve_target(snapshot, node, approved):

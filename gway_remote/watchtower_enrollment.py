@@ -23,7 +23,7 @@ from ipaddress import IPv4Address, IPv4Network, ip_network
 from pathlib import Path
 from typing import Callable, Iterable
 
-from .wireguard_enrollment_contract import DEVICE, InvalidEnrollment, MAX_REQUEST_BYTES, parse_enrollment_json, validate_enrollment
+from .wireguard_enrollment_contract import DEVICE, InvalidEnrollment, MAX_REQUEST_BYTES, parse_enrollment_json, parse_host_identity_enrollment, validate_enrollment
 
 MANAGED_BEGIN = "# BEGIN gway-remote enrollment: "
 MANAGED_END = "# END gway-remote enrollment: "
@@ -71,6 +71,26 @@ CREATE TABLE IF NOT EXISTS devices (
     address TEXT NOT NULL UNIQUE,
     state TEXT NOT NULL CHECK(state IN ('pending','active','revoked')),
     operation_id TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS host_identities (
+    device TEXT PRIMARY KEY REFERENCES devices(device),
+    operation_id TEXT NOT NULL UNIQUE,
+    wireguard_identity TEXT NOT NULL,
+    host_public_key TEXT NOT NULL,
+    enrollment_binding TEXT NOT NULL,
+    state TEXT NOT NULL CHECK(state IN ('pending','active','revoked')),
+    created_at TEXT NOT NULL,
+    valid_until TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS host_identity_rotations (
+    id TEXT PRIMARY KEY,
+    device TEXT NOT NULL,
+    wireguard_identity TEXT NOT NULL,
+    previous_host_public_key TEXT NOT NULL,
+    next_host_public_key TEXT NOT NULL,
+    authorization_id TEXT NOT NULL UNIQUE,
+    created_at TEXT NOT NULL,
+    state TEXT NOT NULL CHECK(state IN ('committed','revoked'))
 );
 CREATE TABLE IF NOT EXISTS operations (
     id TEXT PRIMARY KEY,
@@ -246,7 +266,10 @@ class Ledger:
                 return f"{candidate}/32"
         raise EnrollmentFailure("Watchtower address pool is exhausted")
 
-    def reserve(self, *, device: str, public_key: str, token: str, occupied: Iterable[str], backup_directory: Path | None = None) -> Enrollment:
+    def reserve(self, *, device: str, public_key: str, token: str, occupied: Iterable[str], backup_directory: Path | None = None, ssh_host_key: str | None = None) -> Enrollment:
+        from .host_identity import validate_public_key
+        if ssh_host_key is not None:
+            ssh_host_key = validate_public_key(ssh_host_key)
         now = _now()
         token_hash = _digest(token)
         with self._transaction() as connection:
@@ -270,6 +293,9 @@ class Ledger:
             if existing is not None:
                 if existing["public_key"] != public_key or existing["state"] == "revoked":
                     raise EnrollmentRejected("enrollment rejected")
+                identity = connection.execute("SELECT host_public_key FROM host_identities WHERE device=?", (device,)).fetchone()
+                if ssh_host_key is not None and (identity is None or identity["host_public_key"] != ssh_host_key):
+                    raise EnrollmentRejected("enrollment rejected")
                 operation = connection.execute("SELECT * FROM operations WHERE id=?", (existing["operation_id"],)).fetchone()
                 if operation and operation["state"] == "committed":
                     return Enrollment(operation["id"], device, public_key, existing["address"], True)
@@ -284,6 +310,12 @@ class Ledger:
             backup_path = str(Path(backup_directory) / f"{operation_id}.conf") if backup_directory else None
             connection.execute("INSERT INTO devices(device,public_key,address,state,operation_id) VALUES(?,?,?,?,?)", (device, public_key, address, "pending", operation_id))
             connection.execute("INSERT INTO operations(id,device,public_key,address,token_hash,state,backup_path,created_at,updated_at) VALUES(?,?,?,?,?,'reserved',?,?,?)", (operation_id, device, public_key, address, token_hash, backup_path, now, now))
+            if ssh_host_key is not None:
+                connection.execute(
+                    "INSERT INTO host_identities(device,operation_id,wireguard_identity,host_public_key,enrollment_binding,state,created_at,valid_until) VALUES(?,?,?,?,?,'pending',?,?)",
+                    (device, operation_id, public_key, ssh_host_key,
+                     hashlib.sha256(invitation["id"].encode("ascii")).hexdigest(), now,
+                     (datetime.now(timezone.utc) + timedelta(days=365)).isoformat()))
         return Enrollment(operation_id, device, public_key, address)
 
     def advance(self, operation_id: str, state: str, *, backup_path: str | None = None, detail: str = "") -> None:
@@ -297,9 +329,81 @@ class Ledger:
             if state == "committed":
                 operation = connection.execute("SELECT token_hash FROM operations WHERE id=?", (operation_id,)).fetchone()
                 connection.execute("UPDATE devices SET state='active' WHERE operation_id=?", (operation_id,))
+                connection.execute("UPDATE host_identities SET state='active' WHERE operation_id=?", (operation_id,))
                 connection.execute("UPDATE invitations SET consumed_at=? WHERE token_hash=?", (_now(), operation["token_hash"]))
             elif state in {"rolled_back", "failed"}:
+                connection.execute("DELETE FROM host_identities WHERE operation_id=? AND state='pending'", (operation_id,))
                 connection.execute("DELETE FROM devices WHERE operation_id=? AND state='pending'", (operation_id,))
+
+    def revoke_host_identity(self, device: str) -> bool:
+        """Irreversibly block host attestation without revoking the WireGuard peer.
+
+        Called only through the private Watchtower administrative surface.
+        Re-enrollment must not silently restore an identity after revocation.
+        """
+        if not isinstance(device, str) or not DEVICE.fullmatch(device):
+            raise ValueError("invalid device")
+        with self._transaction() as db:
+            result = db.execute(
+                "UPDATE host_identities SET state='revoked' "
+                "WHERE device=? AND state='active'", (device,))
+        return result.rowcount == 1
+
+    def rotate_host_identity(self, device: str, *, previous_key: str,
+                             next_key: str, invitation_token: str,
+                             authorized: bool = False) -> str:
+        """Private, explicit rotation tied to a newly issued unused invitation.
+
+        No public HTTP route calls this method. WireGuard identity is unchanged.
+        The previous key and authorization are retained in an immutable history.
+        """
+        from .host_identity import validate_public_key
+        if not authorized:
+            raise EnrollmentRejected("host rotation not authorized")
+        if not isinstance(device, str) or not DEVICE.fullmatch(device):
+            raise EnrollmentRejected("invalid device")
+        old = validate_public_key(previous_key)
+        new = validate_public_key(next_key)
+        if old == new:
+            raise EnrollmentRejected("host key unchanged")
+        now = _now()
+        with self._transaction() as db:
+            invitation = db.execute(
+                "SELECT id FROM invitations WHERE token_hash=? AND device=? "
+                "AND consumed_at IS NULL AND revoked_at IS NULL AND expires_at>?",
+                (_digest(invitation_token), device, now),
+            ).fetchone()
+            identity = db.execute(
+                "SELECT * FROM host_identities WHERE device=? AND state='active'",
+                (device,),
+            ).fetchone()
+            peer = db.execute(
+                "SELECT public_key FROM devices WHERE device=? AND state='active'",
+                (device,),
+            ).fetchone()
+            if not invitation or not identity or not peer:
+                raise EnrollmentRejected("host rotation rejected")
+            if peer["public_key"] != identity["wireguard_identity"] or identity["host_public_key"] != old:
+                raise EnrollmentRejected("host rotation identity mismatch")
+            authorization_id = invitation["id"]
+            rotation_id = secrets.token_hex(16)
+            db.execute(
+                "INSERT INTO host_identity_rotations "
+                "(id,device,wireguard_identity,previous_host_public_key,next_host_public_key,"
+                "authorization_id,created_at,state) VALUES (?,?,?,?,?,?,?,'committed')",
+                (rotation_id, device, peer["public_key"], old, new, authorization_id, now),
+            )
+            updated = db.execute(
+                "UPDATE host_identities SET host_public_key=?, enrollment_binding=?,"
+                "created_at=?,valid_until=? WHERE device=? AND state='active' AND host_public_key=?",
+                (new, hashlib.sha256(authorization_id.encode("ascii")).hexdigest(),
+                 now, (datetime.now(timezone.utc) + timedelta(days=365)).isoformat(),
+                 device, old),
+            )
+            if updated.rowcount != 1:
+                raise EnrollmentRejected("host rotation rejected")
+            db.execute("UPDATE invitations SET consumed_at=? WHERE id=?", (now, authorization_id))
+        return rotation_id
 
     def pending(self) -> list[dict]:
         with self._connect() as connection:
@@ -444,13 +548,13 @@ class Provisioner:
             fcntl.flock(descriptor, fcntl.LOCK_UN)
             os.close(descriptor)
 
-    def enroll(self, device: str, public_key: str, token: str) -> Enrollment:
+    def enroll(self, device: str, public_key: str, token: str, *, ssh_host_key: str | None = None) -> Enrollment:
         with self._thread_lock, self._config_lock():
             # Finish any previous operation before allocating another address.
             self._recover_locked()
             original = self.config.read_text(encoding="utf-8")
             enrollment = self.ledger.reserve(device=device, public_key=public_key, token=token,
-                                             occupied=occupied_addresses(original), backup_directory=self.backups)
+                                             occupied=occupied_addresses(original), backup_directory=self.backups, ssh_host_key=ssh_host_key)
             if not enrollment.already_active:
                 operation = next(item for item in self.ledger.pending()
                                  if item["id"] == enrollment.operation_id)
@@ -590,12 +694,13 @@ curl -fsS --proto '=https' --max-redirs 0 -X POST -H 'Content-Type: application/
                 length = int(self.headers.get("Content-Length", "0"))
                 if not 0 < length <= MAX_REQUEST_BYTES:
                     raise InvalidEnrollment("invalid enrollment request")
-                device, public_key, token = parse_enrollment_json(self.rfile.read(length))
+                device, public_key, token, ssh_host_key = parse_host_identity_enrollment(self.rfile.read(length))
                 if read_only_stage:
                     raise EnrollmentRejected("enrollment rejected")
                 if provisioner is None:
                     raise RuntimeError("Watchtower provisioner is unavailable")
-                enrollment = provisioner.enroll(device, public_key, token)
+                enrollment = (provisioner.enroll(device, public_key, token, ssh_host_key=ssh_host_key)
+                              if ssh_host_key is not None else provisioner.enroll(device, public_key, token))
             except (InvalidEnrollment, ValueError):
                 self._send(400, {"error": "invalid_request"})
             except EnrollmentRejected:
