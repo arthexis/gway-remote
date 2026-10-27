@@ -8,6 +8,8 @@ class ProvisioningTests(unittest.TestCase):
         self.assertIn("install-cli.sh", tasks)
         self.assertIn("gway-remote status --json", tasks)
         self.assertIn("/etc/gway-remote/deployment.yml", tasks)
+        self.assertIn('src: "{{ playbook_dir }}/inventory/deployment.yml"', tasks)
+        self.assertNotIn('src: "{{ playbook_dir }}/../inventory/deployment.yml"', tasks)
         self.assertIn("gway-004", tasks)
         self.assertIn("remote_inspection_allowed", tasks)
         self.assertIn("changed_when: false", tasks)
