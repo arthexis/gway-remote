@@ -45,25 +45,31 @@ def inspect(node, *, approved, registry_path=REGISTRY, ssh_config=SSH_CONFIG, ru
         raise ValueError("SSH host trust unavailable")
     # Bastion owns host keys and ProxyJump; never auto-enroll them.
     result = inspect_ssh(node, config=config, runner=runner) if runner is not None else inspect_ssh(node, config=config)
-    evidence = {"state": "unknown", "components": []}
+    # No resident GWay Remote agent is required on the satellite.
+    # Only standard read-only systemd inspection is attempted.
+    evidence = {"state": "unknown", "services": []}
     if result["ssh"] == "verified":
-        try:
-            command = ["ssh", "-F", str(config), "-o", "BatchMode=yes",
-                       "-o", "StrictHostKeyChecking=yes", node,
-                       "gway-remote", "status", "--json"]
-            proc = subprocess.run(command, capture_output=True, text=True, timeout=25, check=True)
-            if len(proc.stdout) > 131072:
-                raise ValueError("remote status too large")
-            report = json.loads(proc.stdout)
-            if report.get("schema") != "gway-remote/status/v1" or not isinstance(report.get("components"), list):
-                raise ValueError("invalid remote status")
-            evidence = {"state": "reported", "components": [
-                {"name": row.get("name"), "installed_sha": row.get("installed_sha"),
-                 "health": row.get("health")}
-                for row in report["components"] if isinstance(row, dict)
-            ]}
-        except (OSError, subprocess.CalledProcessError, subprocess.TimeoutExpired, ValueError, TypeError):
-            pass
+        services = ("ocpp-csms.service", "ocpp-reports.service")
+        rows = []
+        for service in services:
+            try:
+                proc = subprocess.run(
+                    ["ssh", "-F", str(config), "-o", "BatchMode=yes",
+                     "-o", "StrictHostKeyChecking=yes", node,
+                     "systemctl", "show", service,
+                     "--property=LoadState,ActiveState,FragmentPath", "--no-pager"],
+                    capture_output=True, text=True, timeout=15, check=True,
+                )
+                if len(proc.stdout) > 8192:
+                    raise ValueError("oversized service response")
+                fields = dict(line.split("=", 1) for line in proc.stdout.splitlines() if "=" in line)
+                rows.append({"service": service,
+                             "load_state": fields.get("LoadState", "unknown"),
+                             "active_state": fields.get("ActiveState", "unknown")})
+            except (OSError, subprocess.CalledProcessError, subprocess.TimeoutExpired, ValueError):
+                rows.append({"service": service, "load_state": "unknown",
+                             "active_state": "unknown"})
+        evidence = {"state": "reported", "services": rows}
     return {"node": node, "management_address": address, "registry": "authenticated-watchtower-ssh", "remote_evidence": evidence,
             "ssh": result["ssh"], "inspection": "read-only",
-            "note": "Remote status evidence is reported, not independently verified; missing status remains unknown"}
+            "note": "Standard systemd service status only; installed revisions remain unknown"}
