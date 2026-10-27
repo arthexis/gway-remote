@@ -7,7 +7,6 @@ from __future__ import annotations
 
 import base64
 import binascii
-import ipaddress
 import re
 from datetime import datetime, timezone
 
@@ -42,7 +41,7 @@ def validate_public_key(value):
     except (binascii.Error, ValueError) as exc:
         raise HostIdentityError("invalid SSH public key encoding") from exc
     # SSH wire encoding: uint32 length + type, uint32 length + 32-byte key.
-    if len(raw) != 51 or raw[:4] != b"\\x00\\x00\\x00\\x0b" or raw[4:15] != b"ssh-ed25519" or raw[15:19] != b"\\x00\\x00\\x00\\x20":
+    if len(raw) != 51 or raw[:4] != bytes((0,0,0,11)) or raw[4:15] != b"ssh-ed25519" or raw[15:19] != bytes((0,0,0,32)):
         raise HostIdentityError("invalid SSH ED25519 wire key")
     return f"{KEY_TYPE} {parts[1]}"
 
