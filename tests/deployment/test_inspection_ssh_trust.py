@@ -42,3 +42,39 @@ class SSHTrustTests(unittest.TestCase):
     def test_reject_wrong_destination(self):
         with self.assertRaises(ValueError):
             self.check(self.profile("hostname 10.90.0.5\n"))
+
+    def test_accepts_protected_bastion_agent_with_public_identity(self):
+        effective = ("hostname 10.90.0.4\nuser arthe\nbatchmode yes\n"
+                     "stricthostkeychecking yes\nidentitiesonly yes\n"
+                     "proxyjump gelectriic.com\n"
+                     "userknownhostsfile /etc/ssh/known_hosts\n"
+                     "identityagent /run/bastion-ssh/agent.sock\n"
+                     "identityfile /home/arthe/.ssh/jump-outbound.pub\n")
+        runner = Mock(return_value=subprocess.CompletedProcess([], 0, effective, ""))
+        with patch("gway_remote.inspection_ssh_trust.trusted_file"), patch(
+                "gway_remote.inspection_ssh_trust.trusted_agent_socket"):
+            self.assertEqual(validate_profile("/etc/ssh/config", "gway-004",
+                                              hostname="10.90.0.4", require_jump=True,
+                                              runner=runner)["user"], "arthe")
+
+    def test_rejects_agent_without_public_identity(self):
+        effective = ("hostname 10.90.0.4\nuser arthe\nbatchmode yes\n"
+                     "stricthostkeychecking yes\nidentitiesonly yes\n"
+                     "proxyjump gelectriic.com\n"
+                     "userknownhostsfile /etc/ssh/known_hosts\n"
+                     "identityagent /run/bastion-ssh/agent.sock\nidentityfile none\n")
+        runner = Mock(return_value=subprocess.CompletedProcess([], 0, effective, ""))
+        with patch("gway_remote.inspection_ssh_trust.trusted_file"), patch(
+                "gway_remote.inspection_ssh_trust.trusted_agent_socket"):
+            with self.assertRaises(ValueError):
+                validate_profile("/etc/ssh/config", "gway-004", hostname="10.90.0.4",
+                                 require_jump=True, runner=runner)
+
+    def test_rejects_agent_with_private_identity_path(self):
+        effective = self.profile("identityagent /run/bastion-ssh/agent.sock\n")
+        runner = Mock(return_value=subprocess.CompletedProcess([], 0, effective, ""))
+        with patch("gway_remote.inspection_ssh_trust.trusted_file"), patch(
+                "gway_remote.inspection_ssh_trust.trusted_agent_socket"):
+            with self.assertRaises(ValueError):
+                validate_profile("/etc/ssh/config", "gway-004", hostname="10.90.0.4",
+                                 require_jump=True, runner=runner)

@@ -15,7 +15,7 @@ from gway_remote.remote_inspection import inspect
 class RemoteInspectionTests(unittest.TestCase):
     def test_unapproved_never_reads_files(self):
         with self.assertRaisesRegex(ValueError, "not approved"):
-            inspect("gway-005", approved=set(), registry_path="/does/not/exist")
+            inspect("gway-005", approved=set())
 
     def test_strict_bastion_probe(self):
         with tempfile.TemporaryDirectory() as directory:
