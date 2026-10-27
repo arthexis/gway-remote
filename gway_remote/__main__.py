@@ -339,6 +339,12 @@ def main() -> None:
     wg_parser.add_argument("action", choices=("endpoint",))
     wg_parser.add_argument("operation", choices=("show", "set"))
     wg_parser.add_argument("value", nargs="?")
+    pin_parser = subparsers.add_parser("inspection-host-pin", help="Explicitly pin attested SSH host identity")
+    pin_parser.add_argument("--node", required=True, help="Approved satellite node")
+    pin_parser.add_argument("--known-hosts", type=Path, required=True, help="Existing dedicated private known_hosts file")
+    pin_parser.add_argument("--ssh-config", type=Path, default=Path("/etc/gway-remote/inspection-ssh.conf"))
+    pin_parser.add_argument("--authorize-initial", action="store_true",
+                            help="Operator-authorized first pin; never replaces a mismatched host key")
     register_parser = subparsers.add_parser("register", help="Private Watchtower bootstrap URL issuance")
     register_parser.add_argument("target", help="gway-NNN node, status, or revoke")
     register_parser.add_argument("session_id", nargs="?")
@@ -466,6 +472,27 @@ def main() -> None:
                   wireguard_endpoint=args.wireguard_endpoint)
         except (OSError, ValueError, RuntimeError) as exc:
             parser.exit(1, f"gway-remote: Watchtower operation unavailable: {exc}\n")
+        return
+    if args.command == "inspection-host-pin":
+        from .deployment_policy import INVENTORY
+        from .host_trust import pin_from_watchtower
+        try:
+            import subprocess
+            proc = subprocess.run(
+                ["ansible-inventory", "-i", str(INVENTORY), "--host", args.node],
+                check=True, capture_output=True, text=True, timeout=15,
+            )
+            hostvars = json.loads(proc.stdout)
+            approved = {args.node} if hostvars.get("remote_inspection_allowed") is True else set()
+            if not approved:
+                raise ValueError("inspection target not approved")
+            changed = pin_from_watchtower(
+                args.node, approved, args.known_hosts,
+                authorize_initial=args.authorize_initial, ssh_config=args.ssh_config,
+            )
+        except (ValueError, OSError, subprocess.CalledProcessError, subprocess.TimeoutExpired) as exc:
+            parser.exit(1, "gway-remote: host pin denied: " + type(exc).__name__ + "\\n")
+        print(json.dumps({"node": args.node, "pin_created": changed}, sort_keys=True))
         return
     if args.command == "wireguard":
         from .wireguard_endpoint import endpoint, set_endpoint
