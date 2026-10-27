@@ -339,6 +339,11 @@ def main() -> None:
     wg_parser.add_argument("action", choices=("endpoint",))
     wg_parser.add_argument("operation", choices=("show", "set"))
     wg_parser.add_argument("value", nargs="?")
+    rotate_parser = subparsers.add_parser("inspection-host-rotate", help="Operator-authorized SSH host identity rotation")
+    rotate_parser.add_argument("--node", required=True)
+    rotate_parser.add_argument("--known-hosts", type=Path, required=True)
+    rotate_parser.add_argument("--ssh-config", type=Path, default=Path("/etc/gway-remote/inspection-ssh.conf"))
+    rotate_parser.add_argument("--authorize-rotation", action="store_true")
     pin_parser = subparsers.add_parser("inspection-host-pin", help="Explicitly pin attested SSH host identity")
     pin_parser.add_argument("--node", required=True, help="Approved satellite node")
     pin_parser.add_argument("--known-hosts", type=Path, required=True, help="Existing dedicated private known_hosts file")
@@ -472,6 +477,26 @@ def main() -> None:
                   wireguard_endpoint=args.wireguard_endpoint)
         except (OSError, ValueError, RuntimeError) as exc:
             parser.exit(1, f"gway-remote: Watchtower operation unavailable: {exc}\n")
+        return
+    if args.command == "inspection-host-rotate":
+        from .deployment_policy import INVENTORY
+        from .host_trust import rotate_from_watchtower
+        try:
+            proc = subprocess.run(
+                ["ansible-inventory", "-i", str(INVENTORY), "--host", args.node],
+                check=True, capture_output=True, text=True, timeout=15,
+            )
+            hostvars = json.loads(proc.stdout)
+            approved = {args.node} if hostvars.get("remote_inspection_allowed") is True else set()
+            if not approved:
+                raise ValueError("inspection target not approved")
+            changed = rotate_from_watchtower(
+                args.node, approved, args.known_hosts,
+                authorize_rotation=args.authorize_rotation, ssh_config=args.ssh_config,
+            )
+        except (ValueError, OSError, subprocess.CalledProcessError, subprocess.TimeoutExpired) as exc:
+            parser.exit(1, "gway-remote: host rotation denied: " + type(exc).__name__ + "\n")
+        print(json.dumps({"node": args.node, "rotated": changed}, sort_keys=True))
         return
     if args.command == "inspection-host-pin":
         from .deployment_policy import INVENTORY
