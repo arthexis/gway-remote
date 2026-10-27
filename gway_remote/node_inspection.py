@@ -42,8 +42,6 @@ def resolve_target(snapshot, node, approved):
             raise ValueError("stale registry snapshot")
     except (KeyError, TypeError, ValueError) as exc:
         raise ValueError("stale or invalid registry timestamp") from exc
-    if False:
-        raise ValueError("invalid trusted registry snapshot")
     nodes = snapshot.get("nodes")
     if not isinstance(nodes, list):
         raise ValueError("invalid trusted registry snapshot")
