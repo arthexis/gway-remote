@@ -32,3 +32,21 @@ Watchtower SSH remains mandatory. A JSON record by itself is not a credential.
 
 Do not deploy, restart SSH/WireGuard, add remote access, or treat enrollment as
 authorization to inspect/deploy. Field acceptance remains in #274 and #258.
+
+## Current PR integration increment
+
+The standalone bootstrap submits its existing ED25519 host public key in the
+normal HTTPS enrollment POST; it refuses to invent/overwrite a host key.
+Legacy clients may enroll without this field, but receive no SSH attestation.
+The Watchtower enrollment transaction inserts a host identity with the reserved
+device/operation/WireGuard identity and an opaque invitation binding. It advances
+to active with the device and is removed on failed/rolled-back reservations.
+The restricted schema-2 snapshot includes an optional `host_identity` record
+for active nodes. Existing schema-2 consumers continue to receive their
+original node/address/state fields.
+
+**Not yet authorized:** acceptance of this record as an initial SSH pin,
+automatic known-hosts writes, host rotation, or deployment. Those require the
+trusted Watchtower authority verification and review of first-pin transition
+semantics; the current controller continues to require independently pinned
+host keys.
