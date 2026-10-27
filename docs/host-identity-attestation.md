@@ -50,3 +50,22 @@ automatic known-hosts writes, host rotation, or deployment. Those require the
 trusted Watchtower authority verification and review of first-pin transition
 semantics; the current controller continues to require independently pinned
 host keys.
+
+## Controller first-pin operation
+
+`gway_remote.host_trust.pin_from_watchtower` obtains the current registry
+through the separately verified, Bastion-backed Watchtower forced-command SSH
+identity. The caller must explicitly approve the **initial** pin for an
+approved node, and supply a dedicated existing 0600 `known_hosts` file.
+The stable alias is `gway-inspection-<node>` and must be configured via
+`HostKeyAlias` in the dedicated inspection SSH profile. The operation checks
+snapshot freshness, active registry status, exact WireGuard enrollment binding,
+host-key syntax, validity and revocation state; a changed key is never
+overwritten. The function is not an automatic side effect of inspection.
+
+## Remaining field and lifecycle gates
+
+A full operator-approved key **rotation** procedure, pre-existing-device
+retrofit policy, and Gway-004 end-to-end field acceptance are not completed
+by adding first-pin support. No changes to production SSH profile,
+`known_hosts`, WireGuard or enrollment state are implied by this PR.
