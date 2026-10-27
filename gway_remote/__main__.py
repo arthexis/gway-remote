@@ -322,6 +322,7 @@ def main() -> None:
     deployments_parser = subparsers.add_parser("deployments", help="Inspect configured appliance deployments")
     deployments_parser.add_argument("repository", nargs="?", choices=[name for name, _ in DEPLOYMENT_TARGETS])
     deployments_parser.add_argument("--json", action="store_true")
+    deployments_parser.add_argument("--inspect", action="store_true", help="Explicit read-only Bastion SSH probe")
     deployments_parser.add_argument("--node", default=None, help="Inventory node (read-only; no remote connection)")
     deploy_parser = subparsers.add_parser("deploy", help="Trigger GitHub Appliance Deploy workflow")
     from .deploy_dispatch import TARGETS
@@ -609,7 +610,23 @@ def main() -> None:
         from .deployments import inventory, format_inventory
         try:
             result = inventory(args.repository, node=args.node)
-            print(json.dumps(result, indent=2, sort_keys=True) if args.json else format_inventory(result))
+            if args.inspect:
+                import subprocess
+                from .deployment_policy import INVENTORY
+                from .remote_inspection import inspect
+                if not args.node:
+                    raise ValueError("--inspect requires explicit --node")
+                proc = subprocess.run(
+                    ["ansible-inventory", "-i", str(INVENTORY), "--host", args.node],
+                    check=True, capture_output=True, text=True, timeout=15,
+                )
+                hostvars = json.loads(proc.stdout)
+                approved = {args.node} if hostvars.get("remote_inspection_allowed") is True else set()
+                result["remote_inspection"] = inspect(args.node, approved=approved)
+            output = json.dumps(result, indent=2, sort_keys=True) if args.json else format_inventory(result)
+            if args.inspect and not args.json:
+                output += "\\nRemote inspection: " + json.dumps(result["remote_inspection"], sort_keys=True)
+            print(output)
         except (OSError, ValueError, RuntimeError, KeyError) as exc:
             parser.exit(1, f"gway-remote: deployments unavailable: {exc}\\n")
         return
