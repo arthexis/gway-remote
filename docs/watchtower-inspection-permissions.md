@@ -19,13 +19,15 @@ The command reads `/etc/gway-remote/watchtower.json` and the ledger; configure
 their read permissions for this account, but never grant write access. Ensure
 the ledger snapshot uses SQLite read-only access and never performs migrations.
 
-The SSH key should be generated and retained on gway-001; only its public
-half is installed on Watchtower. The controller's SSH configuration must contain
-a dedicated `Host watchtower-inspection` alias with `HostName gelectriic.com`,
-`BatchMode yes`, `StrictHostKeyChecking yes`, `IdentitiesOnly yes`,
-a dedicated `IdentityFile` and an independently pinned `UserKnownHostsFile`.
-The configuration and private key should be owned by the controller service
-account, mode 0600; their parent directory must not be group/other writable.
+The SSH private key remains in the approved Bastion lifecycle. For the
+agent-backed lifecycle on gway-001, the dedicated profile must use a protected
+`IdentityAgent` socket and the matching, non-secret `.pub` `IdentityFile` to
+select that key. The controller's SSH configuration must contain a dedicated
+`Host watchtower-inspection` alias with `HostName gelectriic.com`, `BatchMode
+yes`, `StrictHostKeyChecking yes`, `IdentitiesOnly yes`, and an independently
+pinned `UserKnownHostsFile`. The configuration, public identity and agent
+socket must be owned by the inspecting account and protected from group/other
+writes; never copy a private key out of Bastion just to satisfy this profile.
 
 Do not deploy these permissions automatically until the actual Watchtower
 ledger location, SSH account, service user and existing Bastion trust contract

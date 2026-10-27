@@ -1,22 +1,18 @@
-"""Fail-closed inspection using an operator-approved registry and Bastion SSH profile.
+"""Fail-closed inspection using a restricted Watchtower export and Bastion SSH.
 
-The registry file must be provisioned over an authenticated administrative channel.
 This module never enrolls hosts, accepts SSH host keys, or modifies remote services.
 """
 from __future__ import annotations
 
-import json
-import os
 import subprocess
 from pathlib import Path
 
 from .node_inspection import inspect_ssh, resolve_target
 
-REGISTRY = Path("/etc/gway-remote/watchtower-inspection.json")
 SSH_CONFIG = Path("/etc/gway-remote/inspection-ssh.conf")
 
 
-def inspect(node, *, approved, registry_path=REGISTRY, ssh_config=SSH_CONFIG, runner=None):
+def inspect(node, *, approved, ssh_config=SSH_CONFIG, runner=None):
     if node not in approved:
         raise ValueError("inspection target not approved")
     from .watchtower_inspection_client import fetch_snapshot

@@ -4,9 +4,14 @@ The `deployments --node gway-004 --inspect` command is an **authenticated SSH co
 
 ## Watchtower registry source
 
-On Watchtower, the existing root-only administration command now supports `watchtower snapshot` with the same required `--ledger`, `--network`, and `--gateway` settings as `watchtower status`. It emits a schema-2 JSON snapshot containing only node ID, assigned tunnel /32, enrollment state and creation timestamp. The command is **not** exposed through the public enrollment HTTP service.
-
-Provision `/etc/gway-remote/watchtower-inspection.json` on gway-001 through an **already authorized, host-key-verified SSH management channel**. The local file must be owned by the inspecting user and not writable by group/others. Snapshots older than five minutes are rejected. No unattended transfer is enabled until the Watchtower SSH command, authorization and Bastion identity are reviewed.
+The dedicated Watchtower forced command emits a schema-2 JSON snapshot containing
+only node ID, assigned tunnel /32, enrollment state and creation timestamp. It
+is **not** exposed through the public enrollment HTTP service. The controller
+does not maintain a separate `watchtower-inspection.json` registry: it obtains
+the snapshot through the restricted `watchtower-inspection` SSH alias and
+rejects snapshots older than five minutes. No unattended transfer is enabled
+until the Watchtower SSH command, authorization and Bastion identity are
+reviewed.
 
 ## SSH trust prerequisites
 
