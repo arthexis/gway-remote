@@ -23,7 +23,7 @@ from ipaddress import IPv4Address, IPv4Network, ip_network
 from pathlib import Path
 from typing import Callable, Iterable
 
-from .wireguard_enrollment_contract import DEVICE, InvalidEnrollment, MAX_REQUEST_BYTES, parse_enrollment_json, validate_enrollment
+from .wireguard_enrollment_contract import DEVICE, InvalidEnrollment, MAX_REQUEST_BYTES, parse_enrollment_json, parse_host_identity_enrollment, validate_enrollment
 
 MANAGED_BEGIN = "# BEGIN gway-remote enrollment: "
 MANAGED_END = "# END gway-remote enrollment: "
@@ -71,6 +71,15 @@ CREATE TABLE IF NOT EXISTS devices (
     address TEXT NOT NULL UNIQUE,
     state TEXT NOT NULL CHECK(state IN ('pending','active','revoked')),
     operation_id TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS host_identities (
+    device TEXT PRIMARY KEY REFERENCES devices(device),
+    operation_id TEXT NOT NULL UNIQUE,
+    wireguard_identity TEXT NOT NULL,
+    host_public_key TEXT NOT NULL,
+    enrollment_binding TEXT NOT NULL,
+    state TEXT NOT NULL CHECK(state IN ('pending','active','revoked')),
+    created_at TEXT NOT NULL
 );
 CREATE TABLE IF NOT EXISTS operations (
     id TEXT PRIMARY KEY,
@@ -246,7 +255,10 @@ class Ledger:
                 return f"{candidate}/32"
         raise EnrollmentFailure("Watchtower address pool is exhausted")
 
-    def reserve(self, *, device: str, public_key: str, token: str, occupied: Iterable[str], backup_directory: Path | None = None) -> Enrollment:
+    def reserve(self, *, device: str, public_key: str, token: str, occupied: Iterable[str], backup_directory: Path | None = None, ssh_host_key: str | None = None) -> Enrollment:
+        from .host_identity import validate_public_key
+        if ssh_host_key is not None:
+            ssh_host_key = validate_public_key(ssh_host_key)
         now = _now()
         token_hash = _digest(token)
         with self._transaction() as connection:
@@ -270,6 +282,9 @@ class Ledger:
             if existing is not None:
                 if existing["public_key"] != public_key or existing["state"] == "revoked":
                     raise EnrollmentRejected("enrollment rejected")
+                identity = connection.execute("SELECT host_public_key FROM host_identities WHERE device=?", (device,)).fetchone()
+                if ssh_host_key is not None and (identity is None or identity["host_public_key"] != ssh_host_key):
+                    raise EnrollmentRejected("enrollment rejected")
                 operation = connection.execute("SELECT * FROM operations WHERE id=?", (existing["operation_id"],)).fetchone()
                 if operation and operation["state"] == "committed":
                     return Enrollment(operation["id"], device, public_key, existing["address"], True)
@@ -284,6 +299,10 @@ class Ledger:
             backup_path = str(Path(backup_directory) / f"{operation_id}.conf") if backup_directory else None
             connection.execute("INSERT INTO devices(device,public_key,address,state,operation_id) VALUES(?,?,?,?,?)", (device, public_key, address, "pending", operation_id))
             connection.execute("INSERT INTO operations(id,device,public_key,address,token_hash,state,backup_path,created_at,updated_at) VALUES(?,?,?,?,?,'reserved',?,?,?)", (operation_id, device, public_key, address, token_hash, backup_path, now, now))
+            if ssh_host_key is not None:
+                connection.execute(
+                    "INSERT INTO host_identities(device,operation_id,wireguard_identity,host_public_key,enrollment_binding,state,created_at) VALUES(?,?,?,?,?,'pending',?)",
+                    (device, operation_id, public_key, ssh_host_key, invitation["id"], now))
         return Enrollment(operation_id, device, public_key, address)
 
     def advance(self, operation_id: str, state: str, *, backup_path: str | None = None, detail: str = "") -> None:
@@ -297,8 +316,10 @@ class Ledger:
             if state == "committed":
                 operation = connection.execute("SELECT token_hash FROM operations WHERE id=?", (operation_id,)).fetchone()
                 connection.execute("UPDATE devices SET state='active' WHERE operation_id=?", (operation_id,))
+                connection.execute("UPDATE host_identities SET state='active' WHERE operation_id=?", (operation_id,))
                 connection.execute("UPDATE invitations SET consumed_at=? WHERE token_hash=?", (_now(), operation["token_hash"]))
             elif state in {"rolled_back", "failed"}:
+                connection.execute("DELETE FROM host_identities WHERE operation_id=? AND state='pending'", (operation_id,))
                 connection.execute("DELETE FROM devices WHERE operation_id=? AND state='pending'", (operation_id,))
 
     def pending(self) -> list[dict]:
@@ -444,13 +465,13 @@ class Provisioner:
             fcntl.flock(descriptor, fcntl.LOCK_UN)
             os.close(descriptor)
 
-    def enroll(self, device: str, public_key: str, token: str) -> Enrollment:
+    def enroll(self, device: str, public_key: str, token: str, *, ssh_host_key: str | None = None) -> Enrollment:
         with self._thread_lock, self._config_lock():
             # Finish any previous operation before allocating another address.
             self._recover_locked()
             original = self.config.read_text(encoding="utf-8")
             enrollment = self.ledger.reserve(device=device, public_key=public_key, token=token,
-                                             occupied=occupied_addresses(original), backup_directory=self.backups)
+                                             occupied=occupied_addresses(original), backup_directory=self.backups, ssh_host_key=ssh_host_key)
             if not enrollment.already_active:
                 operation = next(item for item in self.ledger.pending()
                                  if item["id"] == enrollment.operation_id)
@@ -590,12 +611,12 @@ curl -fsS --proto '=https' --max-redirs 0 -X POST -H 'Content-Type: application/
                 length = int(self.headers.get("Content-Length", "0"))
                 if not 0 < length <= MAX_REQUEST_BYTES:
                     raise InvalidEnrollment("invalid enrollment request")
-                device, public_key, token = parse_enrollment_json(self.rfile.read(length))
+                device, public_key, token, ssh_host_key = parse_host_identity_enrollment(self.rfile.read(length))
                 if read_only_stage:
                     raise EnrollmentRejected("enrollment rejected")
                 if provisioner is None:
                     raise RuntimeError("Watchtower provisioner is unavailable")
-                enrollment = provisioner.enroll(device, public_key, token)
+                enrollment = provisioner.enroll(device, public_key, token, ssh_host_key=ssh_host_key)
             except (InvalidEnrollment, ValueError):
                 self._send(400, {"error": "invalid_request"})
             except EnrollmentRejected:
