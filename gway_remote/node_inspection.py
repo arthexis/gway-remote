@@ -45,12 +45,15 @@ def snapshot_from_path(path):
         if present:
             identities = db.execute(
                 "SELECT device, wireguard_identity, host_public_key, enrollment_binding, "
-                "state, created_at, valid_until FROM host_identities WHERE state='active'"
+                "state, created_at, valid_until FROM host_identities"
             ).fetchall()
             by_device = {item["node"]: item for item in nodes if item["state"] == "active"}
             for device, wg, host, binding, state, created, expiry in identities:
                 node = by_device.get(device)
                 if node is not None:
+                    node["host_identity_status"] = state
+                    if state != "active":
+                        continue
                     # The active peer's WireGuard identity must agree with the
                     # enrollment-time host identity binding.
                     peer = db.execute("SELECT public_key FROM devices WHERE device=? AND state='active'", (device,)).fetchone()
