@@ -69,3 +69,23 @@ A full operator-approved key **rotation** procedure, pre-existing-device
 retrofit policy, and Gway-004 end-to-end field acceptance are not completed
 by adding first-pin support. No changes to production SSH profile,
 `known_hosts`, WireGuard or enrollment state are implied by this PR.
+
+## Explicit controller CLI
+
+The only first-pin entrypoint is:
+
+```sh
+gway-remote inspection-host-pin --node gway-004 \
+  --known-hosts /etc/gway-remote/inspection_known_hosts \
+  --authorize-initial
+```
+
+The file must already exist, be owned by the operator executing the CLI, have
+mode 0600 and reside under safe parent directories. The selected node must
+be authorized by the deployed inspection inventory, and the remote snapshot
+must be retrieved through the separately pinned restricted Watchtower SSH
+identity. Omitting `--authorize-initial` is a verification-only check.
+The command never edits `inspection-ssh.conf`; the approved SSH profile must
+already set `HostKeyAlias gway-inspection-<node>` and reference the dedicated
+known-hosts file. An identity mismatch fails closed; no rotation option is
+offered by this command.
