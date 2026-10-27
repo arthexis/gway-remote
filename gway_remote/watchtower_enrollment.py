@@ -52,7 +52,8 @@ CREATE TABLE IF NOT EXISTS invitations (
     token_hash TEXT NOT NULL UNIQUE,
     expires_at TEXT NOT NULL,
     consumed_at TEXT,
-    revoked_at TEXT
+    revoked_at TEXT,
+    purpose TEXT NOT NULL DEFAULT 'enroll' CHECK(purpose IN ('enroll','host_identity_repair'))
 );
 CREATE UNIQUE INDEX IF NOT EXISTS one_live_invitation
     ON invitations(device) WHERE consumed_at IS NULL AND revoked_at IS NULL;
@@ -132,6 +133,11 @@ class Ledger:
             raise ValueError("unsafe enrollment ledger")
         with self._connect() as connection:
             connection.executescript(SCHEMA)
+            columns = {row["name"] for row in connection.execute("PRAGMA table_info(invitations)")}
+            if "purpose" not in columns:
+                connection.execute(
+                    "ALTER TABLE invitations ADD COLUMN purpose TEXT NOT NULL DEFAULT 'enroll'"
+                )
         self.path.chmod(0o600)
 
     def _connect(self) -> sqlite3.Connection:
@@ -151,20 +157,27 @@ class Ledger:
             else:
                 connection.execute("COMMIT")
 
-    def invite(self, device: str, *, minutes: int = 15) -> dict:
+    def invite(self, device: str, *, minutes: int = 15,
+               purpose: str = "enroll") -> dict:
         if not isinstance(device, str) or not DEVICE.fullmatch(device):
             raise ValueError("invalid Watchtower device")
         if not 1 <= minutes <= 60:
             raise ValueError("invitation lifetime must be between 1 and 60 minutes")
+        if purpose not in {"enroll", "host_identity_repair"}:
+            raise ValueError("invalid Watchtower invitation purpose")
         token = secrets.token_urlsafe(32)
         ident = secrets.token_hex(16)
         expires = (datetime.now(timezone.utc) + timedelta(minutes=minutes)).isoformat()
         with self._transaction() as connection:
             connection.execute("UPDATE invitations SET revoked_at=? WHERE device=? AND consumed_at IS NULL AND revoked_at IS NULL AND expires_at<=?", (_now(), device, _now()))
-            connection.execute("INSERT INTO invitations(id,device,token_hash,expires_at) VALUES(?,?,?,?)", (ident, device, _digest(token), expires))
+            connection.execute(
+                "INSERT INTO invitations(id,device,token_hash,expires_at,purpose) VALUES(?,?,?,?,?)",
+                (ident, device, _digest(token), expires, purpose),
+            )
         return {"id": ident, "device": device, "token": token, "expires_at": expires}
 
-    def register(self, device: str, *, minutes: int = 15, public_url: str) -> dict:
+    def register(self, device: str, *, minutes: int = 15, public_url: str,
+                 repair_host_identity: bool = False) -> dict:
         """Create one short-lived URL bearer; underlying invitation token stays private."""
         from urllib.parse import urlsplit
 
@@ -173,7 +186,10 @@ class Ledger:
                 or origin.username or origin.password or origin.query or origin.fragment
                 or origin.path not in ("", "/") or origin.port not in (None, 443)):
             raise ValueError("invalid approved registration origin")
-        invitation = self.invite(device, minutes=minutes)
+        invitation = self.invite(
+            device, minutes=minutes,
+            purpose="host_identity_repair" if repair_host_identity else "enroll",
+        )
         secret = secrets.token_urlsafe(32)
         session_id = secrets.token_hex(16)
         with self._transaction() as connection:
@@ -182,6 +198,7 @@ class Ledger:
                 (session_id, _digest(secret), invitation["id"], device, invitation["expires_at"]),
             )
         return {"id": session_id, "device": device,
+                "repair_host_identity": repair_host_identity,
                 "url": f"https://register.gelectriic.com/v1/bootstrap/{secret}",
                 "expires_at": invitation["expires_at"]}
 
@@ -191,7 +208,7 @@ class Ledger:
             raise EnrollmentRejected("bootstrap rejected")
         with self._connect() as connection:
             row = connection.execute(
-                "SELECT s.*, i.revoked_at AS invitation_revoked, i.consumed_at AS invitation_consumed "
+                "SELECT s.*, i.revoked_at AS invitation_revoked, i.consumed_at AS invitation_consumed, i.purpose "
                 "FROM bootstrap_sessions s JOIN invitations i ON i.id=s.invitation_id "
                 "WHERE s.session_hash=?", (_digest(secret),),
             ).fetchone()
@@ -199,7 +216,8 @@ class Ledger:
                 row["invitation_revoked"] or
                 row["expires_at"] <= _now()):
             raise EnrollmentRejected("bootstrap rejected")
-        return {"id": row["id"], "device": row["device"], "expires_at": row["expires_at"]}
+        return {"id": row["id"], "device": row["device"], "expires_at": row["expires_at"],
+                "repair_host_identity": row["purpose"] == "host_identity_repair"}
 
     def complete_bootstrap(self, secret: str, device: str, public_key: str) -> bool:
         """Consume URL after client confirms local installation and startup."""
@@ -289,6 +307,8 @@ class Ledger:
                 raise EnrollmentRejected("enrollment rejected")
             if invitation["device"] != device:
                 raise EnrollmentRejected("enrollment rejected")
+            if invitation["purpose"] != "enroll":
+                raise EnrollmentRejected("enrollment rejected")
             existing = connection.execute("SELECT * FROM devices WHERE device=?", (device,)).fetchone()
             if existing is not None:
                 if existing["public_key"] != public_key or existing["state"] == "revoked":
@@ -317,6 +337,70 @@ class Ledger:
                      hashlib.sha256(invitation["id"].encode("ascii")).hexdigest(), now,
                      (datetime.now(timezone.utc) + timedelta(days=365)).isoformat()))
         return Enrollment(operation_id, device, public_key, address)
+
+    def repair_host_identity(self, *, device: str, public_key: str, token: str,
+                             ssh_host_key: str) -> Enrollment:
+        """Attach the first attestation to an unchanged active tunnel.
+
+        This is intentionally narrower than enrollment: a purpose-bound,
+        one-time repair invitation may only bind the active device's existing
+        WireGuard identity to its current ED25519 host public key.  It never
+        allocates an address or invokes WireGuard.
+        """
+        from .host_identity import validate_public_key
+
+        host_key = validate_public_key(ssh_host_key)
+        now = _now()
+        token_hash = _digest(token)
+        with self._transaction() as connection:
+            invitation = connection.execute(
+                "SELECT * FROM invitations WHERE token_hash=?", (token_hash,)
+            ).fetchone()
+            if invitation is None:
+                session = connection.execute(
+                    "SELECT * FROM bootstrap_sessions WHERE session_hash=?", (token_hash,)
+                ).fetchone()
+                if (session is None or session["device"] != device or session["revoked_at"]
+                        or session["consumed_at"] or session["expires_at"] <= now):
+                    raise EnrollmentRejected("host identity repair rejected")
+                invitation = connection.execute(
+                    "SELECT * FROM invitations WHERE id=?", (session["invitation_id"],)
+                ).fetchone()
+                token_hash = invitation["token_hash"] if invitation else token_hash
+            if (invitation is None or invitation["device"] != device or invitation["revoked_at"]
+                    or invitation["purpose"] != "host_identity_repair"):
+                raise EnrollmentRejected("host identity repair rejected")
+            peer = connection.execute(
+                "SELECT * FROM devices WHERE device=? AND state='active'", (device,)
+            ).fetchone()
+            if peer is None or peer["public_key"] != public_key:
+                raise EnrollmentRejected("host identity repair rejected")
+            identity = connection.execute(
+                "SELECT * FROM host_identities WHERE device=?", (device,)
+            ).fetchone()
+            if identity is not None:
+                if (identity["state"] != "active"
+                        or identity["wireguard_identity"] != public_key
+                        or identity["host_public_key"] != host_key):
+                    raise EnrollmentRejected("host identity repair rejected")
+                return Enrollment(peer["operation_id"], device, public_key, peer["address"], True)
+            if invitation["consumed_at"] or invitation["expires_at"] <= now:
+                raise EnrollmentRejected("host identity repair rejected")
+            operation_id = secrets.token_hex(16)
+            binding = hashlib.sha256(invitation["id"].encode("ascii")).hexdigest()
+            connection.execute(
+                "INSERT INTO operations(id,device,public_key,address,token_hash,state,detail,created_at,updated_at) "
+                "VALUES(?,?,?,?,?,'committed','host_identity_repair',?,?)",
+                (operation_id, device, public_key, peer["address"], token_hash, now, now),
+            )
+            connection.execute(
+                "INSERT INTO host_identities(device,operation_id,wireguard_identity,host_public_key,enrollment_binding,state,created_at,valid_until) "
+                "VALUES(?,?,?,?,?,'active',?,?)",
+                (device, operation_id, public_key, host_key, binding, now,
+                 (datetime.now(timezone.utc) + timedelta(days=365)).isoformat()),
+            )
+            connection.execute("UPDATE invitations SET consumed_at=? WHERE id=?", (now, invitation["id"]))
+        return Enrollment(operation_id, device, public_key, peer["address"], True)
 
     def advance(self, operation_id: str, state: str, *, backup_path: str | None = None, detail: str = "") -> None:
         allowed = {"config_written", "runtime_applied", "committed", "rolled_back", "failed"}
@@ -561,6 +645,13 @@ class Provisioner:
                 self._resume(operation)
             return enrollment
 
+    def repair_host_identity(self, device: str, public_key: str, token: str,
+                             *, ssh_host_key: str) -> Enrollment:
+        return self.ledger.repair_host_identity(
+            device=device, public_key=public_key, token=token,
+            ssh_host_key=ssh_host_key,
+        )
+
     def _recover_locked(self) -> int:
         recovered = 0
         for operation in self.ledger.pending():
@@ -592,7 +683,8 @@ def make_handler(provisioner: Provisioner | None, *, public_url: str, wireguard_
             if self.command != "HEAD":
                 self.wfile.write(encoded)
 
-        def _script(self, secret: str, device: str, server_key: str) -> bytes:
+        def _script(self, secret: str, device: str, server_key: str,
+                    *, repair_host_identity: bool = False) -> bytes:
             """HTTPS-distributed stage-one script; never includes an invitation token."""
             # URL bearer characters are restricted by the route regexp.
             source = f"""#!/bin/sh
@@ -617,7 +709,7 @@ temp="$(mktemp -d)"
 trap 'rm -rf "$temp"' EXIT HUP INT TERM
 curl -fsS --proto '=https' --max-redirs 0 'https://register.gelectriic.com/v1/bootstrap/{secret}/client.py' -o "$temp/client.py"
 printf '%s' '{secret}' > "$temp/session"
-python3 "$temp/client.py" bootstrap --device '{device}' --server-public-key '{server_key}' --token-file "$temp/session"
+python3 "$temp/client.py" bootstrap --device '{device}' --server-public-key '{server_key}' --token-file "$temp/session"{' --repair-host-identity' if repair_host_identity else ''}
 pub="$(wg show gway public-key)"
 printf '{{"device":"%s","public_key":"%s"}}' '{device}' "$pub" > "$temp/ack.json"
 curl -fsS --proto '=https' --max-redirs 0 -X POST -H 'Content-Type: application/json' --data-binary @"$temp/ack.json" 'https://register.gelectriic.com/v1/bootstrap/{secret}/complete' >/dev/null
@@ -650,7 +742,8 @@ curl -fsS --proto '=https' --max-redirs 0 -X POST -H 'Content-Type: application/
                             capture_output=True, text=True,
                         ).stdout.strip()
                         self._send_artifact(
-                            self._script(bootstrap_match.group(1), session["device"], key),
+                            self._script(bootstrap_match.group(1), session["device"], key,
+                                         repair_host_identity=session["repair_host_identity"]),
                             "text/x-shellscript; charset=utf-8",
                         )
                 except (EnrollmentRejected, OSError, subprocess.CalledProcessError):
@@ -694,13 +787,18 @@ curl -fsS --proto '=https' --max-redirs 0 -X POST -H 'Content-Type: application/
                 length = int(self.headers.get("Content-Length", "0"))
                 if not 0 < length <= MAX_REQUEST_BYTES:
                     raise InvalidEnrollment("invalid enrollment request")
-                device, public_key, token, ssh_host_key = parse_host_identity_enrollment(self.rfile.read(length))
+                device, public_key, token, ssh_host_key, repair_host_identity = parse_host_identity_enrollment(self.rfile.read(length))
                 if read_only_stage:
                     raise EnrollmentRejected("enrollment rejected")
                 if provisioner is None:
                     raise RuntimeError("Watchtower provisioner is unavailable")
-                enrollment = (provisioner.enroll(device, public_key, token, ssh_host_key=ssh_host_key)
-                              if ssh_host_key is not None else provisioner.enroll(device, public_key, token))
+                if repair_host_identity:
+                    enrollment = provisioner.repair_host_identity(
+                        device, public_key, token, ssh_host_key=ssh_host_key,
+                    )
+                else:
+                    enrollment = (provisioner.enroll(device, public_key, token, ssh_host_key=ssh_host_key)
+                                  if ssh_host_key is not None else provisioner.enroll(device, public_key, token))
             except (InvalidEnrollment, ValueError):
                 self._send(400, {"error": "invalid_request"})
             except EnrollmentRejected:
@@ -708,7 +806,7 @@ curl -fsS --proto '=https' --max-redirs 0 -X POST -H 'Content-Type: application/
             except Exception:
                 self._send(500, {"error": "enrollment_failed"})
             else:
-                self._send(200, {"device": enrollment.device, "address": enrollment.address, "public_key": enrollment.public_key, "server_endpoint": wireguard_endpoint, "server_public_key": subprocess.run(["wg", "show", "gway", "public-key"], check=True, capture_output=True, text=True).stdout.strip(), "server_tunnel_ip": str(provisioner.ledger.gateway), "enrollment_url": public_url, "created": not enrollment.already_active})
+                self._send(200, {"device": enrollment.device, "address": enrollment.address, "public_key": enrollment.public_key, "server_endpoint": wireguard_endpoint, "server_public_key": subprocess.run(["wg", "show", "gway", "public-key"], check=True, capture_output=True, text=True).stdout.strip(), "server_tunnel_ip": str(provisioner.ledger.gateway), "enrollment_url": public_url, "created": not enrollment.already_active, "repaired": repair_host_identity})
     return Handler
 
 
