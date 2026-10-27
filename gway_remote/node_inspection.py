@@ -33,10 +33,32 @@ def snapshot_from_path(path):
         rows = db.execute(
             "SELECT device, address, state FROM devices ORDER BY device"
         ).fetchall()
-    return {"schema": 2, "generated_at": datetime.now(timezone.utc).isoformat(), "nodes": [
-        {"node": row["device"], "address": row["address"], "state": row["state"]}
-        for row in rows
-    ]}
+    nodes = [{"node": row["device"], "address": row["address"], "state": row["state"]}
+             for row in rows]
+    # Older Watchtower ledgers have no host attestation records. They remain
+    # inspectable only through independently pinned SSH trust.
+    with sqlite3.connect(uri, uri=True, timeout=5) as db:
+        db.execute("PRAGMA query_only=ON")
+        present = db.execute(
+            "SELECT 1 FROM sqlite_master WHERE type='table' AND name='host_identities'"
+        ).fetchone()
+        if present:
+            identities = db.execute(
+                "SELECT device, wireguard_identity, host_public_key, enrollment_binding, "
+                "state, created_at, valid_until FROM host_identities WHERE state='active'"
+            ).fetchall()
+            by_device = {item["node"]: item for item in nodes if item["state"] == "active"}
+            for device, wg, host, binding, state, created, expiry in identities:
+                node = by_device.get(device)
+                if node is not None:
+                    node["host_identity"] = {
+                        "schema": 1, "node": device, "wireguard_identity": wg,
+                        "host_public_key": host, "enrollment_binding": binding,
+                        "state": state, "rotation_state": "stable",
+                        "created_at": created, "valid_until": expiry,
+                    }
+    return {"schema": 2, "generated_at": datetime.now(timezone.utc).isoformat(),
+            "nodes": nodes}
 
 
 def resolve_target(snapshot, node, approved):
