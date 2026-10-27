@@ -69,7 +69,8 @@ def inspect(node, *, approved, registry_path=REGISTRY, ssh_config=SSH_CONFIG, ru
             except (OSError, subprocess.CalledProcessError, subprocess.TimeoutExpired, ValueError):
                 rows.append({"service": service, "load_state": "unknown",
                              "active_state": "unknown"})
-        evidence = {"state": "reported", "services": rows}
+        from .inspection_revisions import inspect_revisions
+        evidence = {"state": "reported", "services": rows, "revisions": inspect_revisions(node, config)}
     return {"node": node, "management_address": address, "registry": "authenticated-watchtower-ssh", "remote_evidence": evidence,
             "ssh": result["ssh"], "inspection": "read-only",
-            "note": "Standard systemd service status only; installed revisions remain unknown"}
+            "note": "Read-only systemd and release-link evidence; missing revisions remain unknown"}
