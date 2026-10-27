@@ -17,6 +17,7 @@ all:
     quality:
       hosts:
         gway-004:
+          remote_inspection_allowed: true
           remote_managed_repositories: []
     production:
       hosts:
