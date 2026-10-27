@@ -19,24 +19,28 @@ class RemoteInspectionTests(unittest.TestCase):
 
     def test_strict_bastion_probe(self):
         with tempfile.TemporaryDirectory() as directory:
-            registry = Path(directory) / "registry.json"
             config = Path(directory) / "ssh.conf"
-            registry.write_text(json.dumps({"schema": 2, "generated_at": datetime.now(timezone.utc).isoformat(), "nodes": [
-                {"node": "gway-004", "address": "10.90.0.4/32", "state": "active"}]}))
-            config.write_text("Host gway-004\n  ProxyJump gelectriic.com\n")
-            registry.chmod(0o600)
+            config.write_text("Host gway-004\n")
             config.chmod(0o600)
-            with patch("gway_remote.remote_inspection.subprocess.run", return_value=subprocess.CompletedProcess([], 0, "hostname 10.90.0.4\nstricthostkeychecking yes\nbatchmode yes\nuserknownhostsfile /etc/ssh/known_hosts\n", "")), patch("gway_remote.remote_inspection.inspect_ssh",
-                       return_value={"ssh": "verified"}) as ssh:
-                result = inspect("gway-004", approved={"gway-004"},
-                                 registry_path=registry, ssh_config=config)
+            snapshot = {"schema": 2, "generated_at": datetime.now(timezone.utc).isoformat(),
+                        "nodes": [{"node": "gway-004", "address": "10.90.0.4/32",
+                                   "state": "active"}]}
+            effective = ("hostname 10.90.0.4\nstricthostkeychecking yes\n"
+                         "batchmode yes\nuserknownhostsfile /etc/ssh/known_hosts\n")
+            with patch("gway_remote.watchtower_inspection_client.fetch_snapshot",
+                       return_value=snapshot), patch(
+                           "gway_remote.remote_inspection.subprocess.run",
+                           return_value=subprocess.CompletedProcess([], 0, effective, "")
+                       ), patch("gway_remote.remote_inspection.inspect_ssh",
+                                return_value={"ssh": "verified"}) as ssh:
+                result = inspect("gway-004", approved={"gway-004"}, ssh_config=config)
             self.assertEqual(result["ssh"], "verified")
             ssh.assert_called_once_with("gway-004", config=config)
 
-    def test_world_writable_registry_rejected(self):
+    def test_untrusted_ssh_profile_rejected(self):
         with tempfile.TemporaryDirectory() as directory:
-            registry = Path(directory) / "registry.json"
-            registry.write_text("{}")
-            registry.chmod(0o666)
-            with self.assertRaisesRegex(ValueError, "permissions"):
-                inspect("gway-004", approved={"gway-004"}, registry_path=registry)
+            config = Path(directory) / "ssh.conf"
+            config.write_text("Host *\n")
+            config.chmod(0o666)
+            with self.assertRaisesRegex(ValueError, "SSH configuration"):
+                inspect("gway-004", approved={"gway-004"}, ssh_config=config)
