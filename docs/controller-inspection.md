@@ -20,3 +20,13 @@ The inventory authorizes inspection only for gway-004. Production nodes and cust
 - Validate actual SSH host identity and reachability from gway-001 through the existing Watchtower jump.
 - Add read-only remote installed-version/service probes after authenticated SSH passes.
 - Obtain PR CI results and gway-004 field receipt. Until then, the PR must remain draft.
+
+## Restricted Watchtower SSH integration
+
+The controller uses the dedicated `watchtower-inspection` SSH alias, resolving to `gelectriic.com`. The alias must have `BatchMode yes`, `StrictHostKeyChecking yes`, an independently verified known-hosts entry, and a dedicated inspection identity. The Watchtower administrator must restrict this identity to `python3 -m gway_remote.watchtower_inspection_command` with no interactive shell or forwarding, and provision read-only access to the existing root-owned enrollment ledger. This is a deployment prerequisite, not an automatically installed privilege escalation.
+
+The client intentionally fails if the trusted SSH configuration is absent. No public enrollment endpoint is used. No production host is automatically adopted.
+
+## Remaining acceptance
+
+The controller now requests a fresh snapshot on each inspection. Before release, validate the actual restricted account, inspect service state on gway-004, verify CI, and add release revision evidence where the installed layout is independently known. Never interpret an absent service or missing revision as proof of non-installation.
