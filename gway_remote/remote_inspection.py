@@ -23,26 +23,8 @@ def inspect(node, *, approved, registry_path=REGISTRY, ssh_config=SSH_CONFIG, ru
     snapshot = fetch_snapshot(config=ssh_config)
     address = resolve_target(snapshot, node, approved)
     config = Path(ssh_config)
-    if not config.is_file() or config.is_symlink() or config.stat().st_mode & 0o022:
-        raise ValueError("trusted SSH configuration unavailable")
-    if config.stat().st_uid != os.geteuid():
-        raise ValueError("SSH config owner mismatch")
-    # Verify Bastion's effective SSH destination matches the trusted registry.
-    # An alias pointing at a different host must not pass as this node.
-    try:
-        effective = subprocess.run(
-            ["ssh", "-F", str(config), "-G", node],
-            capture_output=True, text=True, check=True, timeout=8,
-        ).stdout
-    except (OSError, subprocess.CalledProcessError, subprocess.TimeoutExpired) as exc:
-        raise ValueError("SSH target configuration unavailable") from exc
-    options = dict(line.split(None, 1) for line in effective.splitlines() if " " in line)
-    if options.get("hostname") != address or options.get("stricthostkeychecking", "").lower() != "yes":
-        raise ValueError("SSH target does not match trusted registry identity")
-    if options.get("batchmode", "").lower() != "yes":
-        raise ValueError("SSH profile must use BatchMode")
-    if options.get("userknownhostsfile") in (None, "/dev/null"):
-        raise ValueError("SSH host trust unavailable")
+    from .inspection_ssh_trust import validate_profile
+    validate_profile(config, node, hostname=address, require_jump=True)
     # Bastion owns host keys and ProxyJump; never auto-enroll them.
     result = inspect_ssh(node, config=config, runner=runner) if runner is not None else inspect_ssh(node, config=config)
     # No resident GWay Remote agent is required on the satellite.
@@ -71,6 +53,6 @@ def inspect(node, *, approved, registry_path=REGISTRY, ssh_config=SSH_CONFIG, ru
                              "active_state": "unknown"})
         from .inspection_revisions import inspect_revisions
         evidence = {"state": "reported", "services": rows, "revisions": inspect_revisions(node, config)}
-    return {"node": node, "management_address": address, "registry": "authenticated-watchtower-ssh", "remote_evidence": evidence,
+    return {"node": node, "registry": "authenticated-watchtower-ssh", "remote_evidence": evidence,
             "ssh": result["ssh"], "inspection": "read-only",
             "note": "Read-only systemd and release-link evidence; missing revisions remain unknown"}

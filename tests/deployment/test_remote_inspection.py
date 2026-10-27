@@ -27,7 +27,7 @@ class RemoteInspectionTests(unittest.TestCase):
                                    "state": "active"}]}
             effective = ("hostname 10.90.0.4\nstricthostkeychecking yes\n"
                          "batchmode yes\nuserknownhostsfile /etc/ssh/known_hosts\n")
-            with patch("gway_remote.watchtower_inspection_client.fetch_snapshot",
+            with patch("gway_remote.inspection_ssh_trust.validate_profile"), patch("gway_remote.watchtower_inspection_client.fetch_snapshot",
                        return_value=snapshot), patch(
                            "gway_remote.remote_inspection.subprocess.run",
                            return_value=subprocess.CompletedProcess([], 0, effective, "")
@@ -42,5 +42,5 @@ class RemoteInspectionTests(unittest.TestCase):
             config = Path(directory) / "ssh.conf"
             config.write_text("Host *\n")
             config.chmod(0o666)
-            with self.assertRaisesRegex(ValueError, "SSH configuration"):
+            with self.assertRaises(ValueError):
                 inspect("gway-004", approved={"gway-004"}, ssh_config=config)

@@ -18,7 +18,17 @@ def registry_snapshot(ledger):
     This must be transferred to the controller over an independently authenticated
     administrative channel, never served from the public enrollment endpoint.
     """
-    with sqlite3.connect(f"file:{ledger.path}?mode=ro", uri=True, timeout=5) as db:
+    return snapshot_from_path(ledger.path)
+
+
+def snapshot_from_path(path):
+    """Never construct Ledger: its initializer performs schema and chmod writes."""
+    path = Path(path)
+    if path.is_symlink() or not path.is_file():
+        raise ValueError("Watchtower ledger unavailable")
+    uri = path.resolve().as_uri() + "?mode=ro"
+    with sqlite3.connect(uri, uri=True, timeout=5) as db:
+        db.execute("PRAGMA query_only=ON")
         db.row_factory = sqlite3.Row
         rows = db.execute(
             "SELECT device, address, state FROM devices ORDER BY device"
