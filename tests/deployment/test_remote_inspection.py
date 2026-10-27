@@ -31,7 +31,7 @@ class RemoteInspectionTests(unittest.TestCase):
                 result = inspect("gway-004", approved={"gway-004"},
                                  registry_path=registry, ssh_config=config)
             self.assertEqual(result["ssh"], "verified")
-            ssh.assert_called_once_with("gway-004")
+            ssh.assert_called_once_with("gway-004", config=config)
 
     def test_world_writable_registry_rejected(self):
         with tempfile.TemporaryDirectory() as directory:
