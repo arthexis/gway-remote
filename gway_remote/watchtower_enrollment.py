@@ -79,7 +79,8 @@ CREATE TABLE IF NOT EXISTS host_identities (
     host_public_key TEXT NOT NULL,
     enrollment_binding TEXT NOT NULL,
     state TEXT NOT NULL CHECK(state IN ('pending','active','revoked')),
-    created_at TEXT NOT NULL
+    created_at TEXT NOT NULL,
+    valid_until TEXT NOT NULL
 );
 CREATE TABLE IF NOT EXISTS operations (
     id TEXT PRIMARY KEY,
@@ -301,8 +302,10 @@ class Ledger:
             connection.execute("INSERT INTO operations(id,device,public_key,address,token_hash,state,backup_path,created_at,updated_at) VALUES(?,?,?,?,?,'reserved',?,?,?)", (operation_id, device, public_key, address, token_hash, backup_path, now, now))
             if ssh_host_key is not None:
                 connection.execute(
-                    "INSERT INTO host_identities(device,operation_id,wireguard_identity,host_public_key,enrollment_binding,state,created_at) VALUES(?,?,?,?,?,'pending',?)",
-                    (device, operation_id, public_key, ssh_host_key, invitation["id"], now))
+                    "INSERT INTO host_identities(device,operation_id,wireguard_identity,host_public_key,enrollment_binding,state,created_at,valid_until) VALUES(?,?,?,?,?,'pending',?,?)",
+                    (device, operation_id, public_key, ssh_host_key,
+                     hashlib.sha256(invitation["id"].encode("ascii")).hexdigest(), now,
+                     (datetime.now(timezone.utc) + timedelta(days=365)).isoformat()))
         return Enrollment(operation_id, device, public_key, address)
 
     def advance(self, operation_id: str, state: str, *, backup_path: str | None = None, detail: str = "") -> None:
