@@ -305,6 +305,11 @@ class Ledger:
         with self._connect() as connection:
             return [dict(row) for row in connection.execute("SELECT * FROM operations WHERE state NOT IN ('committed','rolled_back') ORDER BY created_at")]
 
+    def inspection_snapshot(self) -> dict:
+        """Read-only private export; never exposed by the public HTTP handler."""
+        from .node_inspection import registry_snapshot
+        return registry_snapshot(self)
+
     def status(self) -> dict:
         with self._connect() as connection:
             return {"invitations": connection.execute("SELECT count(*) FROM invitations WHERE consumed_at IS NULL AND revoked_at IS NULL").fetchone()[0], "devices": connection.execute("SELECT count(*) FROM devices WHERE state='active'").fetchone()[0], "pending_operations": connection.execute("SELECT count(*) FROM operations WHERE state NOT IN ('committed','rolled_back')").fetchone()[0]}
