@@ -16,7 +16,7 @@ internal fun NotificationsUnifiedPanel(
     onExecute: (String, Map<String, String>) -> Unit
 ) {
     var selected by remember { mutableStateOf("sound") }
-    PrimaryTabRow(selectedTabIndex = if (selected == "sound") 0 else 1) {
+    TabRow(selectedTabIndex = if (selected == "sound") 0 else 1) {
         Tab(
             selected = selected == "sound",
             onClick = { selected = "sound" },
