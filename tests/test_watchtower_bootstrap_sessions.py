@@ -26,6 +26,14 @@ def test_registration_url_is_separate_from_invitation_and_metadata_has_no_secret
     assert secret not in (invitation, session)
 
 
+def test_repair_registration_is_marked_in_the_private_bootstrap_session(ledger):
+    issued = ledger.register("gway-004", public_url="https://register.gelectriic.com",
+                             repair_host_identity=True)
+    secret = issued["url"].rsplit("/", 1)[-1]
+    assert issued["repair_host_identity"] is True
+    assert ledger.bootstrap_session(secret)["repair_host_identity"] is True
+
+
 def test_revoke_blocks_session_and_invitation(ledger):
     issued = ledger.register("gway-004", public_url="https://register.gelectriic.com")
     secret = issued["url"].rsplit("/", 1)[-1]

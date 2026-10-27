@@ -55,7 +55,7 @@ def parse_enrollment_json(raw: bytes) -> tuple[str, str, str]:
     return validate_enrollment(data)
 
 
-def parse_host_identity_enrollment(raw: bytes) -> tuple[str, str, str, str | None]:
+def parse_host_identity_enrollment(raw: bytes) -> tuple[str, str, str, str | None, bool]:
     """Parse current or legacy invitation request without logging key or token.
 
     A host public key is optional for legacy clients; those clients cannot
@@ -71,12 +71,17 @@ def parse_host_identity_enrollment(raw: bytes) -> tuple[str, str, str, str | Non
         if not isinstance(value, dict):
             raise ValueError()
         fields = set(value)
-        if fields not in ({"device", "public_key", "token"},
-                          {"device", "public_key", "token", "ssh_host_key"}):
+        allowed = {"device", "public_key", "token"}
+        host_fields = allowed | {"ssh_host_key"}
+        repair_fields = host_fields | {"repair_host_identity"}
+        if fields not in (allowed, host_fields, repair_fields):
             raise ValueError()
         device, key, token = validate_enrollment(
             {item: value[item] for item in ("device", "public_key", "token")})
         host = validate_public_key(value["ssh_host_key"]) if "ssh_host_key" in value else None
-        return device, key, token, host
+        repair = fields == repair_fields and value["repair_host_identity"] is True
+        if fields == repair_fields and not repair:
+            raise ValueError()
+        return device, key, token, host, repair
     except (ValueError, KeyError, TypeError, HostIdentityError):
         raise InvalidEnrollment("invalid enrollment request") from None

@@ -18,11 +18,11 @@ def parse(data):
 
 
 def test_legacy_still_allowed_but_has_no_attestation():
-    assert parse(BASE) == ("gway-004", WIRE_KEY, "x" * 40, None)
+    assert parse(BASE) == ("gway-004", WIRE_KEY, "x" * 40, None, False)
 
 
 def test_host_key_validated_and_bound_to_same_request():
-    assert parse(dict(BASE, ssh_host_key=HOST_KEY))[-1] == HOST_KEY
+    assert parse(dict(BASE, ssh_host_key=HOST_KEY))[-2] == HOST_KEY
 
 
 @pytest.mark.parametrize("bad", [
@@ -37,3 +37,12 @@ def test_malformed_host_keys_rejected_without_secrets(bad):
 def test_unknown_fields_rejected():
     with pytest.raises(InvalidEnrollment):
         parse(dict(BASE, admin=True))
+
+
+def test_repair_requires_a_valid_host_key_and_explicit_true_flag():
+    assert parse(dict(BASE, ssh_host_key=HOST_KEY, repair_host_identity=True))[-1] is True
+    for value in (False, "true", 1):
+        with pytest.raises(InvalidEnrollment):
+            parse(dict(BASE, ssh_host_key=HOST_KEY, repair_host_identity=value))
+    with pytest.raises(InvalidEnrollment):
+        parse(dict(BASE, repair_host_identity=True))
