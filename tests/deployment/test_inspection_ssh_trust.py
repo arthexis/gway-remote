@@ -31,6 +31,10 @@ class SSHTrustTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             self.check(self.profile("stricthostkeychecking no\n"))
 
+    def test_accepts_openssh_canonical_strict_true(self):
+        self.assertEqual(
+            self.check(self.profile("stricthostkeychecking true\n"))["user"], "arthe")
+
     def test_reject_agent_identity_fallback(self):
         with self.assertRaises(ValueError):
             self.check(self.profile("identitiesonly no\n"))
