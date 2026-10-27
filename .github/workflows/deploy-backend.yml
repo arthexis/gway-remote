@@ -41,6 +41,8 @@ jobs:
           persist-credentials: false
       - name: Validate backend before installation
         if: env.skip != 'true'
+        env:
+          GWAY_REMOTE_SOUND_DISABLE: '1'
         run: |
           python3 -m unittest discover -s tests -v
           python3 -m gway_remote --help >/dev/null
