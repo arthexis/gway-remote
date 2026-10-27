@@ -616,7 +616,8 @@ curl -fsS --proto '=https' --max-redirs 0 -X POST -H 'Content-Type: application/
                     raise EnrollmentRejected("enrollment rejected")
                 if provisioner is None:
                     raise RuntimeError("Watchtower provisioner is unavailable")
-                enrollment = provisioner.enroll(device, public_key, token, ssh_host_key=ssh_host_key)
+                enrollment = (provisioner.enroll(device, public_key, token, ssh_host_key=ssh_host_key)
+                              if ssh_host_key is not None else provisioner.enroll(device, public_key, token))
             except (InvalidEnrollment, ValueError):
                 self._send(400, {"error": "invalid_request"})
             except EnrollmentRejected:
