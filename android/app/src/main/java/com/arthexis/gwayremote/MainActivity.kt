@@ -122,9 +122,9 @@ fun CompanionScreen(store: SecretStore, appearance: AppearanceMode = AppearanceM
     operationModel.bindCredentials { endpoint to token }
     agentModel.bindCredentials { endpoint to token }
     val scope = rememberCoroutineScope()
-    LaunchedEffect(endpoint, token, panelState.panels.any { it.id == "sound" }) {
+    LaunchedEffect(endpoint, token, panelState.panels.any { it.id == "sound" || it.id == "notifications" }) {
         if (endpoint.isNotBlank() && token.isNotBlank() &&
-            panelState.panels.any { it.id == "sound" }) {
+            panelState.panels.any { it.id == "sound" || it.id == "notifications" }) {
             try {
                 val response = withContext(Dispatchers.IO) {
                     ApiClient(endpoint.trim(), token).request(

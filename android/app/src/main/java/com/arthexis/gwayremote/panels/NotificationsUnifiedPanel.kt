@@ -16,9 +16,17 @@ internal fun NotificationsUnifiedPanel(
     onExecute: (String, Map<String, String>) -> Unit
 ) {
     var selected by remember { mutableStateOf("sound") }
-    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        OutlinedButton(onClick = { selected = "sound" }) { Text("Sound") }
-        OutlinedButton(onClick = { selected = "lcd" }) { Text("LCD message") }
+    TabRow(selectedTabIndex = if (selected == "sound") 0 else 1) {
+        Tab(
+            selected = selected == "sound",
+            onClick = { selected = "sound" },
+            text = { Text("Sound") }
+        )
+        Tab(
+            selected = selected == "lcd",
+            onClick = { selected = "lcd" },
+            text = { Text("LCD message") }
+        )
     }
     val state = if (selected == "sound") sound else lcd
     val spec = requireNotNull(OperationRegistry.get(selected))
