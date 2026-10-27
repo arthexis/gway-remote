@@ -8,6 +8,8 @@ Type=oneshot
 User=arthe
 Group=arthe
 Environment=HOME=/home/arthe
+# Ansible needs writable local scratch space despite ProtectHome=read-only.
+Environment=ANSIBLE_LOCAL_TEMP=/tmp
 ExecStart=/usr/local/bin/gway-remote watch --apply
 NoNewPrivileges=true
 PrivateTmp=true
