@@ -325,6 +325,20 @@ class Ledger:
                 connection.execute("DELETE FROM host_identities WHERE operation_id=? AND state='pending'", (operation_id,))
                 connection.execute("DELETE FROM devices WHERE operation_id=? AND state='pending'", (operation_id,))
 
+    def revoke_host_identity(self, device: str) -> bool:
+        """Irreversibly block host attestation without revoking the WireGuard peer.
+
+        Called only through the private Watchtower administrative surface.
+        Re-enrollment must not silently restore an identity after revocation.
+        """
+        if not isinstance(device, str) or not DEVICE.fullmatch(device):
+            raise ValueError("invalid device")
+        with self._transaction() as db:
+            result = db.execute(
+                "UPDATE host_identities SET state='revoked' "
+                "WHERE device=? AND state='active'", (device,))
+        return result.rowcount == 1
+
     def pending(self) -> list[dict]:
         with self._connect() as connection:
             return [dict(row) for row in connection.execute("SELECT * FROM operations WHERE state NOT IN ('committed','rolled_back') ORDER BY created_at")]
