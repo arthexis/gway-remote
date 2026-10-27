@@ -2,6 +2,7 @@
 import tempfile
 import unittest
 from pathlib import Path
+import os
 from unittest.mock import patch
 
 from gway_remote.best_effort import execute
@@ -12,6 +13,10 @@ SHA = "a" * 40
 
 class TargetSelectionTests(unittest.TestCase):
     def setUp(self):
+        # Fake installers must never publish to the operator's LCD, audio, or DB.
+        notifications = patch.dict(os.environ, {"GWAY_REMOTE_SOUND_DISABLE": "1"})
+        notifications.start()
+        self.addCleanup(notifications.stop)
         # Test the deployment planner separately from the host admission boundary.
         admission = patch("gway_remote.deployment_policy.require_local_deployment", return_value=())
         admission.start()
