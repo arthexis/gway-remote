@@ -8,7 +8,10 @@ from pathlib import Path
 import socket
 import subprocess
 
-INVENTORY = Path(__file__).resolve().parents[1] / "ansible" / "inventory" / "deployment.yml"
+# The CLI is installed as a zipapp, so its ``__file__`` is not a directory
+# containing Ansible assets.  The deployment role installs this non-secret
+# policy separately at a stable root-owned path.
+INVENTORY = Path("/etc/gway-remote/deployment.yml")
 
 
 def require_local_deployment(repository=None, *, hostname=None, inventory=INVENTORY):

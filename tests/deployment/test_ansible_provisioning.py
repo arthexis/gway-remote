@@ -7,9 +7,17 @@ class ProvisioningTests(unittest.TestCase):
         tasks = Path("ansible/roles/gway_remote/tasks/main.yml").read_text()
         self.assertIn("install-cli.sh", tasks)
         self.assertIn("gway-remote status --json", tasks)
+        self.assertIn("/etc/gway-remote/deployment.yml", tasks)
+        self.assertIn("gway-004", tasks)
+        self.assertIn("remote_inspection_allowed", tasks)
         self.assertIn("changed_when: false", tasks)
         self.assertNotIn("deploy-batch", tasks)
         self.assertNotIn("systemctl", tasks)
+
+    def test_runtime_policy_is_not_bundled_below_zipapp_path(self):
+        policy = Path("gway_remote/deployment_policy.py").read_text()
+        self.assertIn('Path("/etc/gway-remote/deployment.yml")', policy)
+        self.assertNotIn('parents[1] / "ansible"', policy)
 
     def test_seed_installer_is_shipped_but_not_executed(self):
         """Deployment must deliver the reviewed script without applying it."""

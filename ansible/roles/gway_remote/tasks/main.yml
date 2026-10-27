@@ -15,6 +15,23 @@
     - "{{ gway_remote_install_root }}"
     - "{{ gway_remote_install_root }}/scripts"
 
+- name: Create runtime deployment policy directory
+  ansible.builtin.file:
+    path: /etc/gway-remote
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Install canonical deployment policy inventory
+  ansible.builtin.copy:
+    src: "{{ playbook_dir }}/../inventory/deployment.yml"
+    dest: /etc/gway-remote/deployment.yml
+    owner: root
+    group: root
+    mode: "0644"
+  register: gway_remote_inventory
+
 - name: Copy application package
   ansible.builtin.copy:
     src: "{{ playbook_dir }}/../gway_remote/"
@@ -53,6 +70,23 @@
   become_user: "{{ gway_remote_runner_user }}"
   changed_when: false
   register: gway_remote_status
+
+- name: Verify packaged inspection inventory
+  ansible.builtin.command:
+    argv:
+      - ansible-inventory
+      - -i
+      - /etc/gway-remote/deployment.yml
+      - --host
+      - gway-004
+  changed_when: false
+  register: gway_remote_inspection_inventory
+
+- name: Assert packaged inspection target remains read-only
+  ansible.builtin.assert:
+    that:
+      - (gway_remote_inspection_inventory.stdout | from_json).remote_inspection_allowed | default(false)
+      - (gway_remote_inspection_inventory.stdout | from_json).remote_managed_repositories | default([]) | length == 0
 
 - name: Verify status schema
   ansible.builtin.assert:
