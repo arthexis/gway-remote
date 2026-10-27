@@ -3,11 +3,11 @@
 The checked-out inventory is for hosted admission only; appliance execution
 continues to use the protected installed inventory by default.
 """
+import json
 import os
 from pathlib import Path
 import re
 import subprocess
-import sys
 import unittest
 from unittest.mock import patch
 
@@ -83,7 +83,7 @@ class HostedAdmissionTests(unittest.TestCase):
             with self.subTest(repositories=repositories, requested=requested):
                 result = subprocess.CompletedProcess(
                     [], 0,
-                    __import__("json").dumps({"remote_managed_repositories": repositories}), "",
+                    json.dumps({"remote_managed_repositories": repositories}), "",
                 )
                 with patch("gway_remote.deployment_policy.subprocess.run", return_value=result):
                     with self.assertRaisesRegex(RuntimeError, expected):
