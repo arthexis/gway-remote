@@ -4,6 +4,7 @@ import os
 import stat
 import tempfile
 import unittest
+from datetime import datetime, timezone
 from pathlib import Path
 from unittest.mock import patch
 
@@ -19,7 +20,7 @@ class RemoteInspectionTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             registry = Path(directory) / "registry.json"
             config = Path(directory) / "ssh.conf"
-            registry.write_text(json.dumps({"schema": 1, "nodes": [
+            registry.write_text(json.dumps({"schema": 2, "generated_at": datetime.now(timezone.utc).isoformat(), "nodes": [
                 {"node": "gway-004", "address": "10.90.0.4/32", "state": "active"}]}))
             config.write_text("Host gway-004\n  ProxyJump gelectriic.com\n")
             registry.chmod(0o600)
