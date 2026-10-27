@@ -63,6 +63,17 @@ def snapshot_from_path(path):
                         "state": state, "rotation_state": "stable",
                         "created_at": created, "valid_until": expiry,
                     }
+                    rotation = db.execute(
+                        "SELECT previous_host_public_key,next_host_public_key,created_at "
+                        "FROM host_identity_rotations WHERE device=? AND state='committed' "
+                        "ORDER BY created_at DESC LIMIT 1", (device,)
+                    ).fetchone()
+                    if rotation:
+                        node["host_identity"]["rotation"] = {
+                            "previous_host_public_key": rotation[0],
+                            "next_host_public_key": rotation[1],
+                            "authorized_at": rotation[2],
+                        }
     return {"schema": 2, "generated_at": datetime.now(timezone.utc).isoformat(),
             "nodes": nodes}
 
