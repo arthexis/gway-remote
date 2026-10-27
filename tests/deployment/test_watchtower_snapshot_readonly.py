@@ -29,7 +29,7 @@ class ReadOnlySnapshotTests(unittest.TestCase):
                 self.assertEqual(result["nodes"][0]["node"], "gway-004")
                 after = {p.name: (p.read_bytes(), p.stat().st_mode, p.stat().st_mtime_ns)
                          for p in Path(folder).iterdir()}
-                self.assertEqual(before, after)
+                # SQLite readers can update the shared-memory WAL index (-shm).\n                # The authoritative database and WAL must remain unchanged.\n                for name in (path.name, path.name + "-wal"):\n                    self.assertEqual(before[name], after[name])
             finally:
                 writer.close()
 
