@@ -82,6 +82,16 @@ CREATE TABLE IF NOT EXISTS host_identities (
     created_at TEXT NOT NULL,
     valid_until TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS host_identity_rotations (
+    id TEXT PRIMARY KEY,
+    device TEXT NOT NULL,
+    wireguard_identity TEXT NOT NULL,
+    previous_host_public_key TEXT NOT NULL,
+    next_host_public_key TEXT NOT NULL,
+    authorization_id TEXT NOT NULL UNIQUE,
+    created_at TEXT NOT NULL,
+    state TEXT NOT NULL CHECK(state IN ('committed','revoked'))
+);
 CREATE TABLE IF NOT EXISTS operations (
     id TEXT PRIMARY KEY,
     device TEXT NOT NULL,
@@ -338,6 +348,62 @@ class Ledger:
                 "UPDATE host_identities SET state='revoked' "
                 "WHERE device=? AND state='active'", (device,))
         return result.rowcount == 1
+
+    def rotate_host_identity(self, device: str, *, previous_key: str,
+                             next_key: str, invitation_token: str,
+                             authorized: bool = False) -> str:
+        """Private, explicit rotation tied to a newly issued unused invitation.
+
+        No public HTTP route calls this method. WireGuard identity is unchanged.
+        The previous key and authorization are retained in an immutable history.
+        """
+        from .host_identity import validate_public_key
+        if not authorized:
+            raise EnrollmentRejected("host rotation not authorized")
+        if not isinstance(device, str) or not DEVICE.fullmatch(device):
+            raise EnrollmentRejected("invalid device")
+        old = validate_public_key(previous_key)
+        new = validate_public_key(next_key)
+        if old == new:
+            raise EnrollmentRejected("host key unchanged")
+        now = _now()
+        with self._transaction() as db:
+            invitation = db.execute(
+                "SELECT id FROM invitations WHERE token_hash=? AND device=? "
+                "AND consumed_at IS NULL AND revoked_at IS NULL AND expires_at>?",
+                (_digest(invitation_token), device, now),
+            ).fetchone()
+            identity = db.execute(
+                "SELECT * FROM host_identities WHERE device=? AND state='active'",
+                (device,),
+            ).fetchone()
+            peer = db.execute(
+                "SELECT public_key FROM devices WHERE device=? AND state='active'",
+                (device,),
+            ).fetchone()
+            if not invitation or not identity or not peer:
+                raise EnrollmentRejected("host rotation rejected")
+            if peer["public_key"] != identity["wireguard_identity"] or identity["host_public_key"] != old:
+                raise EnrollmentRejected("host rotation identity mismatch")
+            authorization_id = invitation["id"]
+            rotation_id = secrets.token_hex(16)
+            db.execute(
+                "INSERT INTO host_identity_rotations "
+                "(id,device,wireguard_identity,previous_host_public_key,next_host_public_key,"
+                "authorization_id,created_at,state) VALUES (?,?,?,?,?,?,?,'committed')",
+                (rotation_id, device, peer["public_key"], old, new, authorization_id, now),
+            )
+            updated = db.execute(
+                "UPDATE host_identities SET host_public_key=?, enrollment_binding=?,"
+                "created_at=?,valid_until=? WHERE device=? AND state='active' AND host_public_key=?",
+                (new, hashlib.sha256(authorization_id.encode("ascii")).hexdigest(),
+                 now, (datetime.now(timezone.utc) + timedelta(days=365)).isoformat(),
+                 device, old),
+            )
+            if updated.rowcount != 1:
+                raise EnrollmentRejected("host rotation rejected")
+            db.execute("UPDATE invitations SET consumed_at=? WHERE id=?", (now, authorization_id))
+        return rotation_id
 
     def pending(self) -> list[dict]:
         with self._connect() as connection:
