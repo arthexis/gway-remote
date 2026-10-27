@@ -356,7 +356,7 @@ def main() -> None:
     register_parser.add_argument("--minutes", type=int, default=15)
     register_parser.add_argument("--settings", type=Path, default=Path("/etc/gway-remote/watchtower.json"))
     watchtower_parser = subparsers.add_parser("watchtower", help="Root-only Watchtower enrollment administration")
-    watchtower_parser.add_argument("action", choices=("serve", "invite", "register", "revoke", "revoke-bootstrap", "bootstrap-status", "status", "snapshot", "recover"))
+    watchtower_parser.add_argument("action", choices=("serve", "invite", "register", "revoke", "revoke-bootstrap", "bootstrap-status", "status", "snapshot", "recover", "revoke-host", "rotate-host"))
     watchtower_parser.add_argument("--ledger", help="root-owned SQLite enrollment ledger")
     watchtower_parser.add_argument("--network", help="approved IPv4 allocation CIDR")
     watchtower_parser.add_argument("--gateway", help="approved hub IPv4 address")
@@ -365,6 +365,10 @@ def main() -> None:
     watchtower_parser.add_argument("--device")
     watchtower_parser.add_argument("--invitation-id")
     watchtower_parser.add_argument("--session-id")
+    watchtower_parser.add_argument("--prior-host-key-file", type=Path)
+    watchtower_parser.add_argument("--next-host-key-file", type=Path)
+    watchtower_parser.add_argument("--rotation-token-file", type=Path)
+    watchtower_parser.add_argument("--authorize-rotation", action="store_true")
     watchtower_parser.add_argument("--minutes", type=int, default=15)
     watchtower_parser.add_argument("--host", default="127.0.0.1")
     watchtower_parser.add_argument("--port", type=int, default=8788)
@@ -453,6 +457,27 @@ def main() -> None:
                 if not args.session_id:
                     parser.error("watchtower revoke-bootstrap requires --session-id")
                 print(json.dumps({"revoked": ledger.revoke_bootstrap(args.session_id)}, sort_keys=True))
+                return
+            if args.action == "revoke-host":
+                if not args.device or not DEVICE.fullmatch(args.device):
+                    parser.error("watchtower revoke-host requires --device")
+                print(json.dumps({"revoked": ledger.revoke_host_identity(args.device)}))
+                return
+            if args.action == "rotate-host":
+                if not args.device or not DEVICE.fullmatch(args.device):
+                    parser.error("watchtower rotate-host requires --device")
+                files = (args.prior_host_key_file, args.next_host_key_file, args.rotation_token_file)
+                if any(value is None for value in files):
+                    parser.error("rotate-host requires both host key files and rotation token file")
+                from .inspection_ssh_trust import trusted_file
+                for value in files:
+                    trusted_file(value, secret=True)
+                prior, following, token = (value.read_text().strip() for value in files)
+                transition = ledger.rotate_host_identity(
+                    args.device, previous_key=prior, next_key=following,
+                    invitation_token=token, authorized=args.authorize_rotation,
+                )
+                print(json.dumps({"rotated": True, "transition": transition}, sort_keys=True))
                 return
             if args.action == "bootstrap-status":
                 print(json.dumps(ledger.bootstrap_status(), sort_keys=True))
