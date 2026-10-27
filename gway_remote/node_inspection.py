@@ -5,6 +5,7 @@ import ipaddress
 import json
 import re
 import subprocess
+import sqlite3
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -17,7 +18,8 @@ def registry_snapshot(ledger):
     This must be transferred to the controller over an independently authenticated
     administrative channel, never served from the public enrollment endpoint.
     """
-    with ledger._connect() as db:
+    with sqlite3.connect(f"file:{ledger.path}?mode=ro", uri=True, timeout=5) as db:
+        db.row_factory = sqlite3.Row
         rows = db.execute(
             "SELECT device, address, state FROM devices ORDER BY device"
         ).fetchall()
