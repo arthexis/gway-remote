@@ -345,7 +345,7 @@ def main() -> None:
     register_parser.add_argument("--minutes", type=int, default=15)
     register_parser.add_argument("--settings", type=Path, default=Path("/etc/gway-remote/watchtower.json"))
     watchtower_parser = subparsers.add_parser("watchtower", help="Root-only Watchtower enrollment administration")
-    watchtower_parser.add_argument("action", choices=("serve", "invite", "register", "revoke", "revoke-bootstrap", "bootstrap-status", "status", "recover"))
+    watchtower_parser.add_argument("action", choices=("serve", "invite", "register", "revoke", "revoke-bootstrap", "bootstrap-status", "status", "snapshot", "recover"))
     watchtower_parser.add_argument("--ledger", help="root-owned SQLite enrollment ledger")
     watchtower_parser.add_argument("--network", help="approved IPv4 allocation CIDR")
     watchtower_parser.add_argument("--gateway", help="approved hub IPv4 address")
@@ -424,6 +424,9 @@ def main() -> None:
             if not args.ledger or not args.network or not args.gateway:
                 parser.error("active Watchtower administration requires --ledger, --network, and --gateway")
             ledger = Ledger(Path(args.ledger), network=args.network, gateway=args.gateway)
+            if args.action == "snapshot":
+                print(json.dumps(ledger.inspection_snapshot(), sort_keys=True))
+                return
             if args.action == "invite":
                 if not args.device or not DEVICE.fullmatch(args.device):
                     parser.error("watchtower invite requires a valid --device")
