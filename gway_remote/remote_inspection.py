@@ -19,16 +19,8 @@ SSH_CONFIG = Path("/etc/gway-remote/inspection-ssh.conf")
 def inspect(node, *, approved, registry_path=REGISTRY, ssh_config=SSH_CONFIG, runner=None):
     if node not in approved:
         raise ValueError("inspection target not approved")
-    # An absent or untrusted registry must never trigger hostname/IP guessing.
-    path = Path(registry_path)
-    stat = path.lstat()
-    if not path.is_file() or path.is_symlink() or stat.st_mode & 0o022:
-        raise ValueError("untrusted registry permissions")
-    if stat.st_uid != os.geteuid():
-        raise ValueError("registry owner mismatch")
-    if stat.st_size > 65536:
-        raise ValueError("registry too large")
-    snapshot = json.loads(path.read_text(encoding="utf-8"))
+    from .watchtower_inspection_client import fetch_snapshot
+    snapshot = fetch_snapshot(config=ssh_config)
     address = resolve_target(snapshot, node, approved)
     config = Path(ssh_config)
     if not config.is_file() or config.is_symlink() or config.stat().st_mode & 0o022:
@@ -53,6 +45,25 @@ def inspect(node, *, approved, registry_path=REGISTRY, ssh_config=SSH_CONFIG, ru
         raise ValueError("SSH host trust unavailable")
     # Bastion owns host keys and ProxyJump; never auto-enroll them.
     result = inspect_ssh(node, config=config, runner=runner) if runner is not None else inspect_ssh(node, config=config)
-    return {"node": node, "management_address": address, "registry": "verified-local-file",
+    evidence = {"state": "unknown", "components": []}
+    if result["ssh"] == "verified":
+        try:
+            command = ["ssh", "-F", str(config), "-o", "BatchMode=yes",
+                       "-o", "StrictHostKeyChecking=yes", node,
+                       "gway-remote", "status", "--json"]
+            proc = subprocess.run(command, capture_output=True, text=True, timeout=25, check=True)
+            if len(proc.stdout) > 131072:
+                raise ValueError("remote status too large")
+            report = json.loads(proc.stdout)
+            if report.get("schema") != "gway-remote/status/v1" or not isinstance(report.get("components"), list):
+                raise ValueError("invalid remote status")
+            evidence = {"state": "reported", "components": [
+                {"name": row.get("name"), "installed_sha": row.get("installed_sha"),
+                 "health": row.get("health")}
+                for row in report["components"] if isinstance(row, dict)
+            ]}
+        except (OSError, subprocess.CalledProcessError, subprocess.TimeoutExpired, ValueError, TypeError):
+            pass
+    return {"node": node, "management_address": address, "registry": "authenticated-watchtower-ssh", "remote_evidence": evidence,
             "ssh": result["ssh"], "inspection": "read-only",
-            "note": "SSH probe only; installed revisions not verified remotely"}
+            "note": "Remote status evidence is reported, not independently verified; missing status remains unknown"}
