@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import os
 import stat
+from datetime import datetime, timezone
 from pathlib import Path
 
 from .host_identity import HostIdentityError, validate_attestation
@@ -99,7 +100,7 @@ def rotate_from_snapshot(snapshot, node, approved, path, *, authorize_rotation=F
     previous = validate_public_key(transition.get("previous_host_public_key"))
     upcoming = validate_public_key(transition.get("next_host_public_key"))
     authorized_at = _stamp(transition.get("authorized_at"))
-    if upcoming != identity["host_key"] or previous == upcoming or authorized_at > (now or __import__("datetime").datetime.now(__import__("datetime").timezone.utc)):
+    if upcoming != identity["host_key"] or previous == upcoming or authorized_at > (now or datetime.now(timezone.utc)):
         raise HostIdentityError("invalid host rotation transition")
     path = Path(path)
     if not path.is_absolute() or path.is_symlink() or not path.is_file():
