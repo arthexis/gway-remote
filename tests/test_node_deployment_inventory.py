@@ -8,6 +8,15 @@ from gway_remote.deployments import _node_policy, inventory
 
 
 class NodeInventoryTests(unittest.TestCase):
+    def test_quality_inspection_target_is_read_only(self):
+        output = {"_meta": {"hostvars": {"gway-004": {
+            "remote_inspection_allowed": True,
+            "remote_managed_repositories": [],
+        }}}}
+        completed = subprocess.CompletedProcess([], 0, json.dumps(output), "")
+        with patch("gway_remote.deployments.subprocess.run", return_value=completed):
+            self.assertEqual(_node_policy("gway-004"), set())
+
     def test_customer_policy_is_unmanaged(self):
         output = {"_meta": {"hostvars": {"customer.gelectriic.com": {
             "remote_managed_repositories": []}}}}
