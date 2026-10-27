@@ -62,14 +62,25 @@ def _identity(path):
     return private, _key(_run("wg", "pubkey", input=private + "\n")), None
 
 
-def _enroll(url, device, public, token):
+def _ssh_host_public_key(path=Path("/etc/ssh/ssh_host_ed25519_key.pub")):
+    """Use the installed host identity only; never replace it implicitly."""
+    from .host_identity import validate_public_key
+    if path.is_symlink() or not path.is_file():
+        raise ValueError("SSH ED25519 host identity unavailable")
+    return validate_public_key(path.read_text().strip())
+
+
+def _enroll(url, device, public, token, *, ssh_host_key=None):
     from urllib.parse import urlsplit
     parsed = urlsplit(url)
     if (parsed.scheme != "https" or parsed.hostname != "register.gelectriic.com"
             or parsed.port not in (None, 443) or parsed.path != "/v1/enroll"
             or parsed.query or parsed.fragment or parsed.username or parsed.password):
         raise ValueError("enrollment must use the approved HTTPS endpoint")
-    payload = json.dumps({"device": device, "public_key": public, "token": token}).encode()
+    body = {"device": device, "public_key": public, "token": token}
+    if ssh_host_key is not None:
+        body["ssh_host_key"] = ssh_host_key
+    payload = json.dumps(body).encode()
     request = Request(url, data=payload, headers={"Content-Type": "application/json"}, method="POST")
     try:
         with build_opener(NoRedirect()).open(request, timeout=20) as response:
@@ -133,7 +144,7 @@ def bootstrap(device, server_key, token, *, config=Path("/etc/wireguard/gway.con
         if _run("wg", "show", "gway", "public-key") != public:
             raise ValueError("active gway interface identity mismatch")
         return {"device": device, "configured": True, "reused": True}
-    response = _enroll(url, device, public, token)
+    response = _enroll(url, device, public, token, ssh_host_key=_ssh_host_public_key())
     address, endpoint, gateway = _validate(response, device, public, server_key)
     config_text = (f"[Interface]\nAddress = {address}\nPrivateKey = {private}\n\n"
                    f"[Peer]\nPublicKey = {server_key}\nEndpoint = {endpoint}\n"
