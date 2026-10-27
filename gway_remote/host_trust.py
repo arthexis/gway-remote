@@ -69,6 +69,12 @@ def pin_from_watchtower(node, approved, path, *, authorize_initial=False,
                         ssh_config=None):
     """Resolve authoritative snapshot via Bastion-pinned Watchtower SSH."""
     from .watchtower_inspection_client import SSH_CONFIG, fetch_snapshot
-    snapshot = fetch_snapshot(config=ssh_config or SSH_CONFIG)
+    config = ssh_config or SSH_CONFIG
+    snapshot = fetch_snapshot(config=config)
+    address, identity = verified_host_identity(snapshot, node, approved)
+    from .inspection_ssh_trust import validate_profile
+    validate_profile(config, node, hostname=address, require_jump=True,
+                     host_key_alias=identity["host_key_alias"],
+                     expected_known_hosts=path)
     return pin_from_snapshot(snapshot, node, approved, path,
                              authorize_initial=authorize_initial)
