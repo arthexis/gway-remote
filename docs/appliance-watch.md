@@ -15,6 +15,11 @@ The GWay Remote Ansible installer enables `gway-remote-watch.timer` (15-minute
 interval). The timer invokes the installed `/usr/local/bin/gway-remote` zipapp,
 running as the appliance user `arthe`, not root.
 
+The service sets `ANSIBLE_LOCAL_TEMP=/tmp` so inventory parsing can create
+scratch files in its private temporary directory while `ProtectHome=read-only`
+continues to protect the home directory. Without this override, Ansible tries
+to write under `~/.ansible/tmp` and inventory collection fails with exit code 5.
+
 ## Dispatch and safety
 
 The appliance user must have an authorized `gh` login with repository
