@@ -74,6 +74,12 @@ class HostedAdmissionTests(unittest.TestCase):
                     with self.assertRaisesRegex(RuntimeError, "unavailable"):
                         self.execute()
 
+    def test_malformed_inventory_denied(self):
+        result = subprocess.CompletedProcess([], 0, "{invalid-json", "")
+        with patch("gway_remote.deployment_policy.subprocess.run", return_value=result):
+            with self.assertRaisesRegex(RuntimeError, "unavailable"):
+                self.execute()
+
     def test_empty_and_insufficient_inventory_denied(self):
         for repositories, requested, expected in (
             ([], "ocpp-csms", "No approved"),
