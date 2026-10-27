@@ -23,7 +23,8 @@ class WatchtowerTransportTests(unittest.TestCase):
                 subprocess.CompletedProcess([], 0, effective, ""),
                 subprocess.CompletedProcess([], 0, json.dumps({"schema": 2, "nodes": []}), ""),
             ])
-            with patch("gway_remote.inspection_ssh_trust.validate_profile"):\n                self.assertEqual(fetch_snapshot(config=config, runner=runner)["schema"], 2)
+            with patch("gway_remote.inspection_ssh_trust.validate_profile"):
+                self.assertEqual(fetch_snapshot(config=config, runner=runner)["schema"], 2)
             self.assertEqual(runner.call_count, 1)
 
     def test_missing_profile_fails(self):
