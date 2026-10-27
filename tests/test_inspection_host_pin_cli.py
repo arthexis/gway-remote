@@ -11,9 +11,11 @@ def test_attestation_requires_exact_active_identity():
         )
 
 
-def test_host_pin_help_is_available_without_watchtower(capsys):
+def test_host_pin_help_is_available_without_watchtower(capsys, monkeypatch):
     from gway_remote.__main__ import main
+    import sys
+    monkeypatch.setattr(sys, 'argv', ['gway-remote', 'inspection-host-pin', '--help'])
     with pytest.raises(SystemExit) as exc:
-        main(["inspection-host-pin", "--help"])
+        main()
     assert exc.value.code == 0
     assert "authorize-initial" in capsys.readouterr().out
