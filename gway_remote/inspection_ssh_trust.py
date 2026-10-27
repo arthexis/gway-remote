@@ -36,7 +36,7 @@ def trusted_agent_socket(path):
     _trusted_parent_directories(path)
 
 
-def validate_profile(config, alias, *, hostname, require_jump=False, runner=subprocess.run):
+def validate_profile(config, alias, *, hostname, require_jump=False, host_key_alias=None, expected_known_hosts=None, runner=subprocess.run):
     trusted_file(config)
     try:
         result = runner(["ssh", "-F", str(config), "-G", alias],
@@ -61,6 +61,12 @@ def validate_profile(config, alias, *, hostname, require_jump=False, runner=subp
         raise ValueError("SSH pinned known-hosts unavailable")
     for path in known:
         trusted_file(path)
+    if host_key_alias is not None and options.get("hostkeyalias") != host_key_alias:
+        raise ValueError("SSH host key alias mismatch")
+    if expected_known_hosts is not None:
+        required = str(Path(expected_known_hosts).expanduser())
+        if known != [required]:
+            raise ValueError("SSH inspection known-hosts file mismatch")
     identities = [path for path in options.get("identityfile", "").split()
                   if path.lower() != "none"]
     agent = options.get("identityagent", "none")
