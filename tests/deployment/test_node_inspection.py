@@ -1,13 +1,14 @@
 """Contract tests for private Watchtower identity and controller SSH gates."""
 import subprocess
 import unittest
+from datetime import datetime, timezone
 from unittest.mock import Mock
 from gway_remote.node_inspection import resolve_target, inspect_ssh
 
 
 class NodeInspectionTests(unittest.TestCase):
     def setUp(self):
-        self.snapshot = {"schema": 1, "nodes": [
+        self.snapshot = {"schema": 2, "generated_at": datetime.now(timezone.utc).isoformat(), "nodes": [
             {"node": "gway-004", "address": "10.90.0.4/32", "state": "active"},
             {"node": "gway-005", "address": "10.90.0.5/32", "state": "revoked"},
         ]}
@@ -20,10 +21,10 @@ class NodeInspectionTests(unittest.TestCase):
     def test_revoked_ambiguous_and_public_rejected(self):
         with self.assertRaises(ValueError):
             resolve_target(self.snapshot, "gway-005", {"gway-005"})
-        duplicate = {"schema": 1, "nodes": self.snapshot["nodes"] * 2}
+        duplicate = {"schema": 2, "generated_at": datetime.now(timezone.utc).isoformat(), "nodes": self.snapshot["nodes"] * 2}
         with self.assertRaises(ValueError):
             resolve_target(duplicate, "gway-004", {"gway-004"})
-        public = {"schema": 1, "nodes": [{"node": "gway-004", "address": "8.8.8.8/32", "state": "active"}]}
+        public = {"schema": 2, "generated_at": datetime.now(timezone.utc).isoformat(), "nodes": [{"node": "gway-004", "address": "8.8.8.8/32", "state": "active"}]}
         with self.assertRaises(ValueError):
             resolve_target(public, "gway-004", {"gway-004"})
 
