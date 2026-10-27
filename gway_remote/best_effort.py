@@ -3,6 +3,7 @@ from contextlib import contextmanager
 import fcntl
 from pathlib import Path
 
+from .deployment_sound import DeploymentSound, installation_finished
 from .attempt_policy import plan
 from .attempts import DEFAULT_DIR, attempted_shas, read_attempts, mark
 from .github_state import collect, main_head, ci_for_head
@@ -69,12 +70,15 @@ def execute(client, now, installers, directory=DEFAULT_DIR, lock_path=None, *, b
                         continue
                     filename = log_filename(name, sha)
                     mark(name, sha, "started", directory, log=filename)
+                    notify = DeploymentSound(name, revision=sha)
+                    notify("deploy-started")
                     try:
                         with capture_log(directory, filename):
                             installers[name](sha)
                             if verify is not None:
                                 verify(name, sha)
                     except Exception as exc:
+                        notify("deploy-failed")
                         mark(name, sha, "failed", directory, error=exc, log=filename)
                         tail = read_log(directory, name=name, lines=40)
                         if tail:
@@ -82,6 +86,7 @@ def execute(client, now, installers, directory=DEFAULT_DIR, lock_path=None, *, b
                         results.append({"name": name, "sha": sha, "status": "failed",
                                         "log": filename, "reason": str(exc)[:500]})
                         continue
+                    installation_finished(notify, name, sha)
                     outcome = "staged" if name == "gway-bastion" else "installed"
                     mark(name, sha, outcome, directory, log=filename)
                     results.append({"name": name, "sha": sha, "status": outcome, "log": filename})
@@ -113,17 +118,21 @@ def execute(client, now, installers, directory=DEFAULT_DIR, lock_path=None, *, b
             filename = log_filename(name, sha)
             # Persist before running; an interrupted attempt is never auto-retried.
             mark(name, sha, "started", directory, log=filename)
+            notify = DeploymentSound(name, revision=sha)
+            notify("deploy-started")
             try:
                 with capture_log(directory, filename):
                     installers[name](sha)
                     if verify is not None:
                         verify(name, sha)
             except Exception as exc:
+                notify("deploy-failed")
                 mark(name, sha, "failed", directory, error=exc, log=filename)
                 results.append({"name": name, "sha": sha, "status": "failed",
                                 "log": filename, "error": str(exc)[:500]})
                 break
             else:
+                installation_finished(notify, name, sha)
                 mark(name, sha, "installed", directory, log=filename)
                 results.append({"name": name, "sha": sha, "status": "installed",
                                 "log": filename})
@@ -153,12 +162,16 @@ def manual_execute(client, name, sha, installer, directory=DEFAULT_DIR):
             return {"decision": "idle", "reason": "SHA already attempted"}
         filename = log_filename(name, sha)
         mark(name, sha, "started", directory, log=filename)
+        notify = DeploymentSound(name, revision=sha)
+        notify("deploy-started")
         try:
             with capture_log(directory, filename):
                 installer(sha)
         except Exception as exc:
+            notify("deploy-failed")
             mark(name, sha, "failed", directory, error=exc, log=filename)
             raise
+        installation_finished(notify, name, sha)
         outcome = "staged" if name == "gway-bastion" else "installed"
         mark(name, sha, outcome, directory, log=filename)
         return {"decision": "completed", "name": name, "sha": sha, "status": outcome}

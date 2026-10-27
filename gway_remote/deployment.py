@@ -1,4 +1,5 @@
 """Transactional mobile API deployment, with injectable side effects for testing."""
+import hashlib
 import json
 import os
 import pathlib
@@ -8,6 +9,8 @@ import subprocess
 import tempfile
 import time
 import urllib.request
+
+from .deployment_sound import DeploymentSound
 
 
 SERVICE = "gway-remote-mobile-api.service"
@@ -66,7 +69,7 @@ def local_api_token(*, service=SERVICE, execute=subprocess.run):
 
 
 def deploy(*, token, install, execute=run, probe=health, executable=EXECUTABLE,
-           runtime=None, backup_dir=None):
+           runtime=None, backup_dir=None, notify=None):
     if not token:
         raise ValueError("GWAY_REMOTE_API_TOKEN must be configured")
     runtime = pathlib.Path(runtime or f"/run/user/{os.getuid()}")
@@ -75,6 +78,14 @@ def deploy(*, token, install, execute=run, probe=health, executable=EXECUTABLE,
     executable = pathlib.Path(executable)
     if not executable.is_file():
         raise RuntimeError("Installed executable is missing")
+
+    notify = notify if notify is not None else DeploymentSound("gway-remote")
+
+    def emit(event):
+        try:
+            notify(event)
+        except Exception:
+            pass
 
     def systemctl(*args):
         execute("systemctl", "--user", *args)
@@ -89,15 +100,24 @@ def deploy(*, token, install, execute=run, probe=health, executable=EXECUTABLE,
             execute("sudo", "-n", "cp", "-p", str(executable), str(backup))
             execute("sudo", "-n", "chown", f"{os.getuid()}:{os.getgid()}", str(backup))
             original = executable.stat()
+            original_digest = hashlib.sha256(backup.read_bytes()).digest()
             changed = False
             try:
                 changed = True
+                emit("deploy-started")
                 install()
+                installed_digest = hashlib.sha256(executable.read_bytes()).digest()
+                emit("deploy-activated")
                 systemctl("restart", SERVICE)
                 systemctl("is-active", "--quiet", SERVICE)
                 probe(token)
+                if hashlib.sha256(executable.read_bytes()).digest() != installed_digest:
+                    raise RuntimeError("Installed executable changed during verification")
+                emit("deploy-verified")
             except Exception as failure:
+                emit("deploy-failed")
                 if changed:
+                    emit("rollback-started")
                     try:
                         execute("sudo", "-n", "install", "-m", format(original.st_mode & 0o7777, "04o"),
                                 str(backup), str(executable))
@@ -105,7 +125,11 @@ def deploy(*, token, install, execute=run, probe=health, executable=EXECUTABLE,
                         systemctl("restart", SERVICE)
                         systemctl("is-active", "--quiet", SERVICE)
                         probe(token)
+                        if hashlib.sha256(executable.read_bytes()).digest() != original_digest:
+                            raise RuntimeError("Restored executable differs from backup")
+                        emit("rollback-verified")
                     except Exception as rollback_error:
+                        emit("rollback-failed")
                         raise RuntimeError(
                             f"Deployment failed ({failure}); rollback verification failed ({rollback_error})"
                         ) from failure
