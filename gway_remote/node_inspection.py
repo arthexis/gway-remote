@@ -5,6 +5,7 @@ import ipaddress
 import json
 import re
 import subprocess
+from datetime import datetime, timezone
 from pathlib import Path
 
 _NODE = re.compile(r"gway-[0-9]{3,}$")
@@ -20,7 +21,7 @@ def registry_snapshot(ledger):
         rows = db.execute(
             "SELECT device, address, state FROM devices ORDER BY device"
         ).fetchall()
-    return {"schema": 1, "nodes": [
+    return {"schema": 2, "generated_at": datetime.now(timezone.utc).isoformat(), "nodes": [
         {"node": row["device"], "address": row["address"], "state": row["state"]}
         for row in rows
     ]}
@@ -30,7 +31,18 @@ def resolve_target(snapshot, node, approved):
     """Bind a selected approved node to exactly one active registry identity."""
     if not isinstance(node, str) or not _NODE.fullmatch(node) or node not in approved:
         raise ValueError("inspection target not approved")
-    if not isinstance(snapshot, dict) or snapshot.get("schema") != 1:
+    if not isinstance(snapshot, dict) or snapshot.get("schema") != 2:
+        raise ValueError("invalid trusted registry snapshot")
+    try:
+        generated = datetime.fromisoformat(snapshot["generated_at"])
+        if generated.tzinfo is None:
+            raise ValueError("naive registry timestamp")
+        age = (datetime.now(timezone.utc) - generated).total_seconds()
+        if age < -60 or age > 300:
+            raise ValueError("stale registry snapshot")
+    except (KeyError, TypeError, ValueError) as exc:
+        raise ValueError("stale or invalid registry timestamp") from exc
+    if False:
         raise ValueError("invalid trusted registry snapshot")
     nodes = snapshot.get("nodes")
     if not isinstance(nodes, list):
