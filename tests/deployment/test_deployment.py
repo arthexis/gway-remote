@@ -21,6 +21,7 @@ class DeploymentTests(unittest.TestCase):
         self.sock.bind(str(self.root / "bus"))
         self.commands = []
         self.calls = []
+        self.events = []
         self.fail_restart = False
         self.fail_probe = False
 
@@ -48,10 +49,11 @@ class DeploymentTests(unittest.TestCase):
     def run_deploy(self, token="secret"):
         return deploy(token=token, install=self.install, execute=self.execute,
                       probe=self.probe, executable=self.executable,
-                      runtime=self.root, backup_dir=self.root)
+                      runtime=self.root, backup_dir=self.root, notify=self.events.append)
 
     def test_successful_deploy(self):
         self.run_deploy()
+        self.assertEqual(self.events, ["deploy-started", "deploy-activated", "deploy-verified"])
         self.assertEqual(self.executable.read_text(), "new")
         self.assertEqual(self.calls, ["install", "health"])
         self.assertEqual(sum(c[-1] == SERVICE and "restart" in c for c in self.commands), 1)
@@ -75,7 +77,7 @@ class DeploymentTests(unittest.TestCase):
         with self.assertRaisesRegex(PermissionError, "backup denied"):
             deploy(token="secret", install=self.install, execute=fail_copy,
                    probe=self.probe, executable=self.executable,
-                   runtime=self.root, backup_dir=self.root)
+                   runtime=self.root, backup_dir=self.root, notify=self.events.append)
         self.assertEqual(self.executable.read_text(), "old")
         self.assertEqual(self.calls, [])
 
@@ -103,6 +105,7 @@ class DeploymentTests(unittest.TestCase):
             self.run_deploy()
         self.assertEqual(self.executable.read_text(), "old")
         self.assertEqual(self.calls, ["install", "health", "health"])
+        self.assertEqual(self.events, ["deploy-started", "deploy-activated", "deploy-failed", "rollback-started", "rollback-verified"])
 
     def test_failed_rollback_is_reported(self):
         self.fail_probe = True
@@ -113,8 +116,23 @@ class DeploymentTests(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, "rollback verification failed"):
             deploy(token="secret", install=self.install, execute=broken,
                    probe=self.probe, executable=self.executable,
-                   runtime=self.root, backup_dir=self.root)
+                   runtime=self.root, backup_dir=self.root, notify=self.events.append)
 
+
+    def test_failed_recovery_emits_critical_without_verified_event(self):
+        def unhealthy(token):
+            raise RuntimeError("health failed")
+        self.probe = unhealthy
+        with self.assertRaisesRegex(RuntimeError, "rollback verification failed"):
+            self.run_deploy()
+        self.assertEqual(self.events, ["deploy-started", "deploy-activated", "deploy-failed",
+                                      "rollback-started", "rollback-failed"])
+
+    def test_sound_failure_cannot_fail_deployment(self):
+        deploy(token="secret", install=self.install, execute=self.execute,
+               probe=self.probe, executable=self.executable, runtime=self.root,
+               backup_dir=self.root, notify=Mock(side_effect=RuntimeError("audio unavailable")))
+        self.assertEqual(self.executable.read_text(), "new")
 
     def test_local_api_token_reads_existing_environment_file(self):
         env = self.root / "mobile-api.env"
