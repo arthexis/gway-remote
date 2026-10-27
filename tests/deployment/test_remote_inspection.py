@@ -26,7 +26,7 @@ class RemoteInspectionTests(unittest.TestCase):
             config.write_text("Host gway-004\n  ProxyJump gelectriic.com\n")
             registry.chmod(0o600)
             config.chmod(0o600)
-            with patch("gway_remote.remote_inspection.subprocess.run", return_value=subprocess.CompletedProcess([], 0, "hostname 10.90.0.4\\nstricthostkeychecking yes\\nbatchmode yes\\nuserknownhostsfile /etc/ssh/known_hosts\\n", "")), patch("gway_remote.remote_inspection.inspect_ssh",
+            with patch("gway_remote.remote_inspection.subprocess.run", return_value=subprocess.CompletedProcess([], 0, "hostname 10.90.0.4\nstricthostkeychecking yes\nbatchmode yes\nuserknownhostsfile /etc/ssh/known_hosts\n", "")), patch("gway_remote.remote_inspection.inspect_ssh",
                        return_value={"ssh": "verified"}) as ssh:
                 result = inspect("gway-004", approved={"gway-004"},
                                  registry_path=registry, ssh_config=config)
