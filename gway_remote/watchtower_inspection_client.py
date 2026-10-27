@@ -17,20 +17,9 @@ def fetch_snapshot(*, config=SSH_CONFIG, alias=WATCHTOWER_ALIAS, runner=subproce
     if alias != WATCHTOWER_ALIAS:
         raise ValueError("unapproved Watchtower inspection alias")
     config = Path(config)
-    if config.is_symlink() or not config.is_file() or config.stat().st_mode & 0o022:
-        raise ValueError("untrusted SSH configuration")
-    if config.stat().st_uid != os.geteuid():
-        raise ValueError("SSH configuration owner mismatch")
+    from .inspection_ssh_trust import validate_profile
+    validate_profile(config, alias, hostname="gelectriic.com", runner=runner)
     try:
-        effective = runner(["ssh", "-F", str(config), "-G", alias],
-                           capture_output=True, text=True, timeout=8, check=True).stdout
-        options = dict(line.split(None, 1) for line in effective.splitlines() if " " in line)
-        if (options.get("hostname") != "gelectriic.com"
-                or options.get("batchmode", "").lower() != "yes"
-                or options.get("stricthostkeychecking", "").lower() != "yes"
-                or options.get("userknownhostsfile") in (None, "/dev/null")
-                or not options.get("identityfile")):
-            raise ValueError("Watchtower SSH trust not configured")
         result = runner(
             ["ssh", "-F", str(config), "-o", "BatchMode=yes",
              "-o", "StrictHostKeyChecking=yes", "-o", "ConnectTimeout=8",
