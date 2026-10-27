@@ -52,7 +52,7 @@ def inspect(node, *, approved, registry_path=REGISTRY, ssh_config=SSH_CONFIG, ru
     if options.get("userknownhostsfile") in (None, "/dev/null"):
         raise ValueError("SSH host trust unavailable")
     # Bastion owns host keys and ProxyJump; never auto-enroll them.
-    result = inspect_ssh(node, runner=runner) if runner is not None else inspect_ssh(node)
+    result = inspect_ssh(node, config=config, runner=runner) if runner is not None else inspect_ssh(node, config=config)
     return {"node": node, "management_address": address, "registry": "verified-local-file",
             "ssh": result["ssh"], "inspection": "read-only",
             "note": "SSH probe only; installed revisions not verified remotely"}
