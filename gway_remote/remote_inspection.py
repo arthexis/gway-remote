@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import json
 import os
+import subprocess
 from pathlib import Path
 
 from .node_inspection import inspect_ssh, resolve_target
@@ -34,8 +35,23 @@ def inspect(node, *, approved, registry_path=REGISTRY, ssh_config=SSH_CONFIG, ru
         raise ValueError("trusted SSH configuration unavailable")
     if config.stat().st_uid != os.geteuid():
         raise ValueError("SSH config owner mismatch")
-    # Address is returned for diagnostic correlation only. SSH must use the
-    # Bastion-owned alias with pinned host key and approved ProxyJump.
+    # Verify Bastion's effective SSH destination matches the trusted registry.
+    # An alias pointing at a different host must not pass as this node.
+    try:
+        effective = subprocess.run(
+            ["ssh", "-F", str(config), "-G", node],
+            capture_output=True, text=True, check=True, timeout=8,
+        ).stdout
+    except (OSError, subprocess.CalledProcessError, subprocess.TimeoutExpired) as exc:
+        raise ValueError("SSH target configuration unavailable") from exc
+    options = dict(line.split(None, 1) for line in effective.splitlines() if " " in line)
+    if options.get("hostname") != address or options.get("stricthostkeychecking", "").lower() != "yes":
+        raise ValueError("SSH target does not match trusted registry identity")
+    if options.get("batchmode", "").lower() != "yes":
+        raise ValueError("SSH profile must use BatchMode")
+    if options.get("userknownhostsfile") in (None, "/dev/null"):
+        raise ValueError("SSH host trust unavailable")
+    # Bastion owns host keys and ProxyJump; never auto-enroll them.
     result = inspect_ssh(node, runner=runner) if runner is not None else inspect_ssh(node)
     return {"node": node, "management_address": address, "registry": "verified-local-file",
             "ssh": result["ssh"], "inspection": "read-only",
