@@ -25,7 +25,7 @@
 
 - name: Install canonical deployment policy inventory
   ansible.builtin.copy:
-    src: "{{ playbook_dir }}/../inventory/deployment.yml"
+    src: "{{ playbook_dir }}/inventory/deployment.yml"
     dest: /etc/gway-remote/deployment.yml
     owner: root
     group: root
