@@ -63,3 +63,12 @@ def pin_from_snapshot(snapshot, node, approved, path, *, authorize_initial=False
         handle.flush()
         os.fsync(handle.fileno())
     return True
+
+
+def pin_from_watchtower(node, approved, path, *, authorize_initial=False,
+                        ssh_config=None):
+    """Resolve authoritative snapshot via Bastion-pinned Watchtower SSH."""
+    from .watchtower_inspection_client import SSH_CONFIG, fetch_snapshot
+    snapshot = fetch_snapshot(config=ssh_config or SSH_CONFIG)
+    return pin_from_snapshot(snapshot, node, approved, path,
+                             authorize_initial=authorize_initial)
