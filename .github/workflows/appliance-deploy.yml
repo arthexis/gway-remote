@@ -68,7 +68,11 @@ jobs:
           repository = os.environ['REQUESTED_REPOSITORY']
           if node != 'gway-001':
               raise SystemExit('Node is not yet admitted for appliance deployments')
-          require_local_deployment(None if repository == 'all' else repository, hostname=node)
+          require_local_deployment(
+              None if repository == 'all' else repository,
+              hostname=node,
+              inventory='ansible/inventory/deployment.yml',
+          )
           print('Approved deployment policy')
           PY
   ocpp_csms:
