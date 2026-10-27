@@ -63,10 +63,21 @@ def _identity(path):
 
 
 def _ssh_host_public_key(path=Path("/etc/ssh/ssh_host_ed25519_key.pub")):
-    """Use the installed host identity only; never replace it implicitly."""
+    """Ensure a single ED25519 host key exists, preserving unmanaged identities."""
     from .host_identity import validate_public_key
-    if path.is_symlink() or not path.is_file():
-        raise ValueError("SSH ED25519 host identity unavailable")
+    private = path.with_suffix("")
+    if path.is_symlink() or private.is_symlink() or path.parent.is_symlink():
+        raise ValueError("unsafe SSH host key path")
+    if path.exists() != private.exists():
+        raise ValueError("incomplete existing SSH host identity")
+    if not path.exists():
+        if not path.parent.is_dir():
+            raise ValueError("SSH host key directory unavailable")
+        subprocess.run(["ssh-keygen", "-q", "-t", "ed25519", "-N", "",
+                        "-f", str(private)], check=True, timeout=15,
+                       capture_output=True, text=True)
+    if not path.is_file() or not private.is_file() or private.stat().st_mode & 0o077:
+        raise ValueError("unsafe SSH host key permissions")
     return validate_public_key(path.read_text().strip())
 
 
