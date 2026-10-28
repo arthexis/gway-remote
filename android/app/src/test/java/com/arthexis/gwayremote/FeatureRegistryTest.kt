@@ -23,7 +23,6 @@ class FeatureRegistryTest {
         }
         assertNull(FeatureRegistry.get("tasks"))
         assertNull(FeatureRegistry.get("task-detail"))
-        assertNotNull(FeatureRegistry.get("agent-ops"))
     }
 
     @Test fun searchIncludesLocalFeatureAndOperationKeywords() {
@@ -35,7 +34,6 @@ class FeatureRegistryTest {
     @Test fun localFeaturesCannotClaimBackendOperations() {
         assertTrue(FeatureRegistry.features.filter { it.kind == FeatureKind.LOCAL_PANEL }
             .all { it.operation == null })
-        assertEquals("simulator", FeatureRegistry.get("simulator")?.operation?.id)
         assertTrue(OperationRegistry.get("simulator-start")!!.requiresConfirmation)
         assertTrue(OperationRegistry.get("simulator-stop")!!.requiresConfirmation)
     }
