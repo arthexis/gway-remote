@@ -404,11 +404,7 @@ internal fun AgentOpsPanel(
                     val localAgent = issueData?.optString("agent", "")?.lowercase().orEmpty()
                     val instancePattern = remember { Regex("^gway-[0-9]+$") }
                     val rows = (0 until entries.length()).mapNotNull { entries.optJSONObject(it) }
-                    fun labels(row: JSONObject): Set<String> {
-                        val values = row.optJSONArray("labels")
-                        return (0 until (values?.length() ?: 0))
-                            .map { values!!.optString(it) }.filter { it.isNotBlank() }.toSet()
-                    }
+                    fun labels(row: JSONObject): Set<String> = agentIssueLabels(row)
                     val allLabels = rows.flatMap { labels(it) }.toSet()
                     val instances = (allLabels.filter { instancePattern.matches(it) } +
                         listOf(localAgent).filter { instancePattern.matches(it) }).distinct().sorted()
@@ -460,12 +456,7 @@ internal fun AgentOpsPanel(
                     }
                     val visible = rows.filter { row ->
                         val names = labels(row)
-                        val instanceMatch = when (instanceFilter) {
-                            "*" -> true
-                            "-" -> names.none { instancePattern.matches(it) }
-                            "" -> false
-                            else -> instanceFilter in names
-                        }
+                        val instanceMatch = agentIssueMatchesInstance(row, instanceFilter)
                         instanceMatch && (categoryFilter.isBlank() || categoryFilter in names)
                     }
                     Text("${visible.size} of ${rows.size} issues",
@@ -562,4 +553,28 @@ internal fun paletteColumns(availableWidthDp: Float): Int = when {
     availableWidthDp >= 840f -> 3
     availableWidthDp >= 320f -> 2
     else -> 1
+}
+
+/** Normalize the canonical Agent Ops label projection without treating object labels as missing. */
+internal fun agentIssueLabels(issue: JSONObject): Set<String> {
+    val values = issue.optJSONArray("labels") ?: return emptySet()
+    return (0 until values.length()).mapNotNull { index ->
+        when (val value = values.opt(index)) {
+            is String -> value
+            is JSONObject -> value.optString("name", "")
+            else -> null
+        }?.trim()?.takeIf { it.isNotEmpty() }
+    }.toSet()
+}
+
+/** Exactly one instance bucket per issue; labels remain authoritative over local defaults. */
+internal fun agentIssueMatchesInstance(issue: JSONObject, selected: String): Boolean {
+    val instancePattern = Regex("^gway-[0-9]+$")
+    val labels = agentIssueLabels(issue)
+    return when (selected) {
+        "*" -> true
+        "-" -> labels.none { instancePattern.matches(it) }
+        "" -> false
+        else -> selected in labels && instancePattern.matches(selected)
+    }
 }
