@@ -6,7 +6,6 @@ import androidx.compose.runtime.Composable
 @Composable
 internal fun PanelContent(
     panel: OperationPanel,
-    onInspectTask: (String) -> Unit,
     agentSendLoading: Boolean,
     agentSendResult: String?,
     agentSendError: String?,
@@ -22,8 +21,6 @@ internal fun PanelContent(
             AgentOpsPanel(panel.output, agentSendLoading, agentSendResult, agentSendError,
                 onAgentSend, onAgentCopyPrompt, agentObserveLoading, agentObserveResult,
                 agentObserveError, onAgentObserve)
-        PanelContentKind.TASK_HISTORY -> TaskHistoryPanel(panel.output, onInspectTask)
-        PanelContentKind.TASK_DETAIL -> TaskDetailPanel(panel.output)
         PanelContentKind.SIMULATOR_RESULTS -> SimulatorResultsPanel(panel.output)
         PanelContentKind.SIMULATOR_STATUS -> SimulatorStatusPanel(panel.output)
         PanelContentKind.CSMS_HEALTH -> CsmsHealthPanel(panel.output)
