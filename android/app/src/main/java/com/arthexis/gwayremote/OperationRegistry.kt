@@ -70,8 +70,6 @@ object OperationRegistry {
         OperationSpec("agent-ops", "Assigned Issues", "list-checks",
             setOf("agent", "issues", "status", "github", "budgets", "five-hour", "weekly"),
             ExecutionPolicy.AUTO_READ),
-        OperationSpec("tasks", "Tasks", "list-todo", setOf("codex", "jobs", "executions", "history", "detail", "task"),
-            ExecutionPolicy.AUTO_READ, "codex-tasks"),
         OperationSpec("task-detail", "Task detail", "clipboard-check", setOf("task", "result", "execution", "id"),
             ExecutionPolicy.EXPLICIT_INPUT, "codex-task", visibility = OperationVisibility.INTERNAL),
         OperationSpec("agent-assignments", "Agent assignments", "list-check", setOf("github", "issues", "codex"),
