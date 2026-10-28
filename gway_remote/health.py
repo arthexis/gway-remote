@@ -6,6 +6,7 @@ Runtime health is independent of attempted revision.
 from __future__ import annotations
 
 from pathlib import Path
+import json
 import subprocess
 
 from .csms_health import csms_health
@@ -23,14 +24,38 @@ def _command(argv, *, timeout=20):
         return False
 
 
+def _reports_ready(executable: Path, *, timeout: int = 20) -> bool:
+    """An exit-zero command alone is not evidence that Reports is ready.
+
+    Unconfigured/offline roles are not made ready by a probe; no state is mutated.
+    """
+    try:
+        result = subprocess.run(
+            [str(executable), "status", "--json"],
+            capture_output=True, text=True, check=False, timeout=timeout,
+        )
+        if result.returncode != 0:
+            return False
+        document = json.loads(result.stdout)
+        if not isinstance(document, dict) or document.get("state") != "ready":
+            return False
+        return (isinstance(document.get("config"), dict)
+                and document["config"].get("state") == "valid"
+                and isinstance(document.get("warehouse"), dict)
+                and document["warehouse"].get("state") == "ready")
+    except (OSError, subprocess.TimeoutExpired, ValueError, TypeError):
+        return False
+
+
 def component_health(name: str) -> bool:
     """Check existing installations without changing their operational state."""
     home = Path.home()
     spec = probe_for(name)
     if spec.kind == "executable":
         executable = (home / spec.executable) if not spec.executable.startswith("/") else Path(spec.executable)
-        command = [str(executable), "status", "--json"] if name == "ocpp-reports" else [str(executable), "--help"]
-        return executable.is_file() and _command(command)
+        if name == "ocpp-reports":
+            return executable.is_file() and _reports_ready(executable)
+        return executable.is_file() and _command([str(executable), "--help"])
     if spec.kind == "lcd":
         prefix = home / spec.release
         unit = home / ".config/systemd/user/gway-app-observer.service"
