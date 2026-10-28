@@ -26,7 +26,7 @@ def adapt_component(row: dict, *, observed_at: str | None, depth: str = "deep") 
         installation = "activated"
     else:
         installation = "unknown"
-    runtime_required = name not in ("gway-bastion", "ocpp-simulator")
+    runtime_required = name != "ocpp-simulator"
     runtime = row.get("health", "unknown")
     if depth != "deep" and not bastion:
         runtime = "unknown"
@@ -34,7 +34,7 @@ def adapt_component(row: dict, *, observed_at: str | None, depth: str = "deep") 
         runtime = "unknown"
     if runtime == "not_applicable" and runtime_required:
         runtime = "unknown"
-    # No service is expected for staged-only Bastion. Do not infer that an
+    # Staged-only Bastion has no activated runtime to check. Do not infer that an
     # activated Bastion is healthy from the release record.
     if bastion:
         runtime = "not_applicable" if installation == "staged" else "unknown"
@@ -52,12 +52,12 @@ def adapt_component(row: dict, *, observed_at: str | None, depth: str = "deep") 
     return {
         "schema_version": _SCHEMA,
         "repository": dict(TARGETS).get(name),
-        "source_revision": row.get("attempted_sha"),
+        "source_revision": None,  # Attempted SHA is not verified source evidence.
         "staged_revision": staged,
         "activated_revision": installed if activation_verified else None,
         "installation_state": installation,
         "runtime_state": runtime,
-        "observed_at": observed_at,
+        "observed_at": observed_at if depth == "deep" else None,
         "evidence": evidence,
         "errors": ["invalid_release_evidence"] if row.get("evidence") == "invalid" else [],
         "capabilities": {
