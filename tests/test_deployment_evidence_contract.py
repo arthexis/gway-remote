@@ -30,7 +30,7 @@ class EvidenceContractTests(unittest.TestCase):
     def test_attempt_success_does_not_prove_activation(self):
         row = self.adapt("ocpp-csms", installation="installed")
         self.assertEqual(row["installation_state"], "unknown")
-        self.assertEqual(row["source_revision"], "a" * 40)
+        self.assertIsNone(row["source_revision"])
 
     def test_verified_active_symlink_and_independent_runtime(self):
         row = self.adapt("ocpp-csms", installed_sha="b" * 12, health="unhealthy")
@@ -70,6 +70,7 @@ class EvidenceContractTests(unittest.TestCase):
         row = adapt_component(self.row("ocpp-csms", installed_sha="b" * 12,
                                        health="healthy"), observed_at=None, depth="quick")
         self.assertEqual(row["runtime_state"], "unknown")
+        self.assertIsNone(row["observed_at"])
 
 
 if __name__ == "__main__":
