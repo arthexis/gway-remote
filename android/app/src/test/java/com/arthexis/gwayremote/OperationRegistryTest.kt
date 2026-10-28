@@ -21,16 +21,14 @@ class OperationRegistryTest {
         assertEquals(OperationVisibility.PALETTE, OperationSpec("example", "Example", "activity", emptySet(), ExecutionPolicy.EXPLICIT_INPUT).visibility)
     }
 
-    @Test fun readOnlyAutoExecutionOnly() {
-        listOf("status", "csms", "simulator-status", "agent-assignments", "agent-ops").forEach {
-            assertTrue(OperationRegistry.get(it)!!.autoExecuteOnOpen)
+    @Test fun autoRunIsRestrictedToReadOnlyOperations() {
+        OperationRegistry.operations.forEach { spec ->
+            assertEquals(spec.policy == ExecutionPolicy.AUTO_READ, spec.autoExecuteOnOpen)
+            assertEquals(spec.policy == ExecutionPolicy.CONFIRM, spec.requiresConfirmation)
+            if (spec.policy != ExecutionPolicy.AUTO_READ) {
+                assertFalse(PanelExecution.canRun(spec.id, false, false, true))
+            }
         }
-        listOf("lcd", "sound", "benchmark", "simulator-start", "simulator-stop").forEach {
-            assertFalse(OperationRegistry.get(it)!!.autoExecuteOnOpen)
-        }
-        assertTrue(OperationRegistry.get("simulator-start")!!.requiresConfirmation)
-        assertTrue(OperationRegistry.get("simulator-stop")!!.requiresConfirmation)
-        assertFalse(OperationRegistry.get("sound")!!.requiresConfirmation)
     }
 
     @Test fun filterMatchesNamesAndKeywordsWithoutChangingRegistry() {
