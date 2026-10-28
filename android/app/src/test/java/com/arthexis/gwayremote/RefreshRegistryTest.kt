@@ -23,10 +23,10 @@ class RefreshRegistryTest {
 
     @Test fun refreshRegistryOnlyIncludesOpenSafePanels() {
         var state = OperationPanelState()
-        for (id in listOf("system", "csms", "tasks", "notifications", "simulator", "benchmark")) {
+        for (id in listOf("system", "csms", "notifications", "simulator", "benchmark")) {
             state = state.open(id).state
         }
-        assertEquals(setOf("system", "csms", "tasks", "simulator"),
+        assertEquals(setOf("system", "csms", "simulator"),
             RefreshRegistry.targets(state).map { it.panelId }.toSet())
         assertFalse(RefreshRegistry.targets(state).any { it.panelId in setOf("notifications", "benchmark") })
     }
@@ -53,21 +53,9 @@ class RefreshRegistryTest {
         assertFalse(model.panels.panels.first { it.id == "csms" }.output.orEmpty().contains("old events"))
     }
 
-    @Test fun refreshOpenTasksReusesExistingRead() {
-        val scope = TestScope(StandardTestDispatcher())
-        val runner = Runner()
-        val model = OperationViewModel(runner, scope)
-        model.open("tasks")
-        scope.advanceUntilIdle()
-        val initialCount = runner.pending.size
-        model.refreshOpenPanels()
-        scope.advanceUntilIdle()
-        assertEquals(initialCount, runner.pending.size) // already in flight
-        runner.pending.single().done.complete(JSONObject().put("result", "loaded"))
-        scope.advanceUntilIdle()
-        model.refreshOpenPanels()
-        scope.advanceUntilIdle()
-        assertEquals(2, runner.pending.size)
-        assertEquals("codex-tasks", runner.pending.last().request.command)
+    @Test fun removedTasksCannotBeRefreshed() {
+        val state = OperationPanelState().restore(listOf("tasks", "agent-ops"))
+        assertEquals(listOf("agent-ops"), state.panels.map { it.id })
+        assertTrue(RefreshRegistry.targets(state).none { it.panelId == "tasks" })
     }
 }
