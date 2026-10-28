@@ -26,5 +26,7 @@ internal fun PanelContent(
         PanelContentKind.CSMS_HEALTH -> CsmsHealthPanel(panel.output)
         PanelContentKind.CSMS_INSPECTION -> CsmsInspectionPanel(panel.output)
         PanelContentKind.GENERIC -> panel.output?.let { GenericResultRenderer(it) }
+        // Legacy enum variants cannot be opened because their operations were removed.
+        PanelContentKind.TASK_HISTORY, PanelContentKind.TASK_DETAIL -> Unit
     }
 }
