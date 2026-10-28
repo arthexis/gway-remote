@@ -41,6 +41,14 @@ class OperationRegistryTest {
         assertEquals("sound", OperationRegistry.get("sound")!!.id)
     }
 
+    @Test fun obsoleteTasksPanelIsNotAvailableButAgentOpsRemains() {
+        assertNull(OperationRegistry.get("tasks"))
+        assertFalse(OperationRegistry.operations.any { it.label == "Tasks" || it.command == "codex-tasks" })
+        assertFalse(OperationRegistry.search("tasks").any { it.id == "tasks" })
+        assertNotNull(OperationRegistry.get("agent-ops"))
+        assertNotNull(OperationRegistry.get("agent-assignments"))
+    }
+
     @Test fun agentOpsIsOneSafePanel() {
         assertEquals(1, OperationRegistry.operations.count { it.id == "agent-ops" })
         assertNull(OperationRegistry.get("agent-issues"))
