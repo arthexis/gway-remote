@@ -30,8 +30,9 @@ class ProbeRegistryTests(unittest.TestCase):
     def test_new_probes_are_read_only(self):
         with patch("gway_remote.health._command", return_value=True) as command:
             with patch("pathlib.Path.is_file", return_value=True):
-                self.assertTrue(component_health("ocpp-reports"))
-                self.assertEqual(command.call_args.args[0][-2:], ["status", "--json"])
+                with patch("gway_remote.health._reports_ready", return_value=True) as ready:
+                    self.assertTrue(component_health("ocpp-reports"))
+                    self.assertEqual(ready.call_args.args[0].name, "ocpp-reports")
                 self.assertTrue(component_health("gway-agent-ops"))
                 self.assertEqual(command.call_args.args[0][-1], "--help")
             self.assertTrue(component_health("gway-ap-kiosk"))
