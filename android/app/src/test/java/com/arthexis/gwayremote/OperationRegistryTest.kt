@@ -43,7 +43,8 @@ class OperationRegistryTest {
 
     @Test fun obsoleteTasksPanelIsNotAvailableButAgentOpsRemains() {
         assertNull(OperationRegistry.get("tasks"))
-        assertFalse(OperationRegistry.operations.any { it.label == "Tasks" || it.command == "codex-tasks" })
+        assertNull(OperationRegistry.get("task-detail"))
+        assertFalse(OperationRegistry.operations.any { it.label == "Tasks" || it.command in setOf("codex-tasks", "codex-task") })
         assertFalse(OperationRegistry.search("tasks").any { it.id == "tasks" })
         assertNotNull(OperationRegistry.get("agent-ops"))
         assertNotNull(OperationRegistry.get("agent-assignments"))
