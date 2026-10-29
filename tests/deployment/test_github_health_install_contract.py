@@ -19,7 +19,13 @@ class GithubHealthInstallContractTests(unittest.TestCase):
         self.assertIn("github_health_token_config.stat.mode == '0600'", tasks)
         self.assertIn("github_health_token_config.stat.isreg | default(false)", tasks)
         self.assertIn("Verify API snapshot path is readable by appliance runner", tasks)
-        self.assertIn('become_user: "{{ gway_remote_runner_user }}"', tasks)
+        snapshot = tasks.split("- name: Verify API snapshot path is readable by appliance runner", 1)[1].split("\n- name:", 1)[0]
+        self.assertNotIn("become_user:", snapshot)
+        self.assertIn("- /usr/bin/sudo", snapshot)
+        self.assertIn("- -n", snapshot)
+        self.assertIn("- -H", snapshot)
+        self.assertIn("- -u", snapshot)
+        self.assertIn('- "{{ gway_remote_runner_user }}"', snapshot)
 
 
 if __name__ == "__main__":
