@@ -13,4 +13,3 @@ Host gway-mcp-target
     ForwardAgent no
     PermitLocalCommand no
     RequestTTY no
-    ClearAllForwardings yes
