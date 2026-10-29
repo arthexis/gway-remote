@@ -4,8 +4,8 @@ Status: under review. No service or public route is activated.
 
 Watchtower operator issues the gway:read credential locally:
 
-    python3 scripts/mcp-bearer.py issue --days 30
-    python3 scripts/mcp-bearer.py revoke KEY_ID
+    gway-remote bearer issue --days 30
+    gway-remote bearer revoke KEY_ID
 
 Store the plaintext secret securely; it is printed once, never stored in the SQLite registry.
 The registry uses a 0700 directory, 0600 database, random credentials, hashed verifiers, expiry and revocation.
@@ -21,3 +21,4 @@ The registry uses a 0700 directory, 0600 database, random credentials, hashed ve
 M2 issues gway:read only. gway:submit remains M3 and requires explicit approval. Do not activate a public route merely because CI passes.
 
 Docs: https://developers.openai.com/plugins/build/plugins
+The `bearer` command is registered only in the local `gway-remote` CLI. Issuance requires an interactive stdin/stdout terminal and a non-root dedicated auth service owner with filesystem access to `/var/lib/gway-mcp-auth/credentials.sqlite3`. It is not an MCP, mobile API, or Agent Ops operation. No `gway:read` or future `gway:submit` token grants access to it. Revocation operates on the public key ID, never the plaintext bearer.
