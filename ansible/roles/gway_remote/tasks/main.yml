@@ -1,4 +1,9 @@
 ---
+- name: Verify runner user exists
+  ansible.builtin.getent:
+    database: passwd
+    key: "{{ gway_remote_runner_user }}"
+
 - name: Inspect existing CLI
   ansible.builtin.stat:
     path: /usr/local/bin/gway-remote
@@ -127,7 +132,7 @@
     mode: "0700"
 
 - name: Install appliance watch systemd units
-  ansible.builtin.copy:
+  ansible.builtin.template:
     src: "{{ playbook_dir }}/../deploy/systemd/{{ item }}"
     dest: "/etc/systemd/system/{{ item }}"
     owner: root
