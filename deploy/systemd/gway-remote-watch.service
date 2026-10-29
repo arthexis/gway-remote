@@ -5,9 +5,9 @@ After=network-online.target
 
 [Service]
 Type=oneshot
-User=arthe
-Group=arthe
-Environment=HOME=/home/arthe
+User={{ gway_remote_runner_user }}
+Group={{ gway_remote_runner_user }}
+Environment=HOME=/home/{{ gway_remote_runner_user }}
 # Ansible needs writable local scratch space despite ProtectHome=read-only.
 Environment=ANSIBLE_LOCAL_TEMP=/tmp
 ExecStart=/usr/local/bin/gway-remote watch --apply
@@ -15,5 +15,5 @@ NoNewPrivileges=true
 PrivateTmp=true
 ProtectSystem=strict
 ProtectHome=read-only
-ReadWritePaths=/home/arthe/.local/state/gway-remote
+ReadWritePaths=/home/{{ gway_remote_runner_user }}/.local/state/gway-remote
 TimeoutStartSec=180
