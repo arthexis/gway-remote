@@ -2,7 +2,7 @@
 # endpoint and pinning the SSH server's genuine host key out of band.
 Host gway-mcp-target
     HostName 10.90.0.2
-    User arthe
+    User gway-mcp-forward
     Port 22
     IdentitiesOnly yes
     IdentityFile /etc/gway-mcp-gateway/bridge/id_ed25519
