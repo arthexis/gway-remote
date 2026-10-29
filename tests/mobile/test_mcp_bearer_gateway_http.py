@@ -16,7 +16,7 @@ class Upstream(BaseHTTPRequestHandler):
         pass
     def do_POST(self):
         self.__class__.seen.append(self.headers.get("Authorization"))
-        raw = b\x27{"jsonrpc":"2.0","id":1,"result":{"tools":[]}}\x27
+        raw = b'{"jsonrpc":"2.0","id":1,"result":{"tools":[]}}'
         self.send_response(200)
         self.send_header("Content-Type", "application/json")
         self.send_header("Content-Length", str(len(raw)))
