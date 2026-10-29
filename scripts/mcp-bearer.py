@@ -7,7 +7,7 @@ from gway_remote.mcp_bearer import BearerRegistry
 
 def main():
     p = argparse.ArgumentParser()
-    p.add_argument("--database", default="/var/lib/gway-remote/mcp-credentials.sqlite3")
+    p.add_argument("--database", default="/var/lib/gway-mcp-auth/credentials.sqlite3")
     cmd = p.add_subparsers(dest="command", required=True)
     issue = cmd.add_parser("issue")
     issue.add_argument("--days", type=int, default=30)
