@@ -5,11 +5,14 @@ Host gway-mcp-target
     User arthe
     Port 22
     IdentitiesOnly yes
-    IdentityFile /etc/gway-mcp-gateway/bridge_identity
-    UserKnownHostsFile /etc/gway-mcp-gateway/known_hosts
+    IdentityFile /etc/gway-mcp-gateway/bridge/id_ed25519
+    UserKnownHostsFile /etc/gway-mcp-gateway/bridge/known_hosts
     StrictHostKeyChecking yes
     BatchMode yes
     ProxyCommand none
     ForwardAgent no
     PermitLocalCommand no
     RequestTTY no
+    PasswordAuthentication no
+    KbdInteractiveAuthentication no
+    GSSAPIAuthentication no
