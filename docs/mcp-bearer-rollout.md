@@ -62,3 +62,37 @@ The stage script deliberately starts neither unit.
 - Backend MCP service active on gway-001 loopback with a separate secret.
 - No public Nginx route until authorized, negative tests pass and actual
   private-plugin bearer support has been established.
+
+## Final review: SSH enforcement and protected secrets
+Provision the bridge key only under
+/etc/gway-mcp-gateway/bridge/id_ed25519 (0400 gway-mcp-bridge)
+and pin the actual verified gway-001 SSH host key in
+/etc/gway-mcp-gateway/bridge/known_hosts (0440 root:gway-mcp-bridge).
+Directory: 0750 root:gway-mcp-bridge.
+The dedicated remote SSH principal MUST NOT be the broad operator account
+shown in the example. Replace User arthe after validating a dedicated
+forward-only account on gway-001. The authorized key for that account must
+have restrictions equivalent to:
+    restrict,port-forwarding,permitopen="127.0.0.1:8770"
+and the SSH daemon must explicitly disable PTY, agent forwarding, X11,
+user rc and arbitrary shell/command access for that principal.
+SSH authorized_keys permitopen restricts destination but cannot alone
+restrict every local listening address; Watchtower's -L explicitly binds
+127.0.0.1 and must be verified on the live host.
+
+Do not stage if the installed /usr/local/bin/python3 cannot import
+gway_remote.mcp_bearer_gateway. The staging script now checks this before
+changing users or writing service files. It still does not create a bridge
+key or an OAuth/MCP bearer.
+
+Use root:gway-mcp-read 0640 for /etc/gway-mcp-gateway/backend.env
+and verify that the gateway service user can read it, while other users
+cannot. Only the separate administrator can mutate the credential
+registry; the gateway account must not be able to write the database,
+parent directory or SQLite sidecar files.
+
+**Compatibility gate:** the example synchronous HTTP gateway is a
+minimum read-only proxy, not yet proven compatible with every streamed
+MCP response and session behavior. Keep public endpoint disabled until
+a real client initialize/tools/list/tools/call exercise succeeds over
+the exact deployed transport, including expected content types.
