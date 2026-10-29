@@ -1,0 +1,19 @@
+[Unit]
+Description=GWA Remote browser bearer-linking OAuth service (private stage)
+After=network-online.target
+[Service]
+Type=simple
+User=gway-mcp-auth
+Group=gway-mcp-read
+EnvironmentFile=/etc/gway-mcp-gateway/link.env
+ExecStart=/usr/bin/python3 -m gway_remote.mcp_link_http --database /var/lib/gway-mcp-auth/credentials.sqlite3 --port 19012
+Restart=on-failure
+RestartSec=5
+UMask=0077
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+ReadWritePaths=/var/lib/gway-mcp-auth
+[Install]
+WantedBy=multi-user.target

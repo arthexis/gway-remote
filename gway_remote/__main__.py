@@ -301,6 +301,12 @@ def main() -> None:
     execute.add_argument("task", choices=TASKS)
     execute.add_argument("--repository", default="")
     execute.add_argument("--sha", default="")
+    bearer_parser = subparsers.add_parser("bearer", help="Local Watchtower-only MCP bearer administration")
+    bearer_ops = bearer_parser.add_subparsers(dest="bearer_action", required=True)
+    bearer_issue = bearer_ops.add_parser("issue", help="Generate a read-only bearer at the local console")
+    bearer_issue.add_argument("--days", type=int, default=30)
+    bearer_revoke = bearer_ops.add_parser("revoke", help="Revoke an issued bearer by public ID")
+    bearer_revoke.add_argument("key_id")
     export_parser = subparsers.add_parser("deploy-targets", help="Export authoritative deployment targets")
     export_parser.add_argument("--json", action="store_true")
     inspection = subparsers.add_parser("reconcile", help="Read-only appliance deployment report")
@@ -426,6 +432,29 @@ def main() -> None:
         except (OSError, ValueError, KeyError, RuntimeError) as exc:
             parser.exit(1, "gway-remote: Watchtower registration unavailable: "
                         + type(exc).__name__ + "\\n")
+        return
+    if args.command == "bearer":
+        # CLI-exclusive operator action. Never registered in MCP, mobile API, or
+        # Agent Ops adapters. Issue requires an interactive console to avoid
+        # leaking the one-time plaintext token to CI, log capture, or agents.
+        from .mcp_bearer import BearerRegistry
+        if os.geteuid() == 0:
+            parser.exit(1, "gway-remote: run bearer operations as dedicated auth service owner, not root\\n")
+        if args.bearer_action == "issue" and not (sys.stdin.isatty() and sys.stdout.isatty()):
+            parser.exit(1, "gway-remote: issuing a bearer requires an interactive console\\n")
+        registry = BearerRegistry("/var/lib/gway-mcp-auth/credentials.sqlite3")
+        try:
+            if args.bearer_action == "issue":
+                if not 1 <= args.days <= 90:
+                    parser.error("bearer issue --days must be 1..90")
+                print(registry.issue(lifetime=args.days * 86400))
+                print("Save the credential securely; this value will not be shown again.", file=sys.stderr)
+            elif not registry.revoke(args.key_id):
+                parser.exit(1, "gway-remote: bearer not found or already revoked\\n")
+            else:
+                print("Bearer revoked")
+        except (OSError, ValueError) as exc:
+            parser.exit(1, "gway-remote: local bearer administration unavailable: " + type(exc).__name__ + "\\n")
         return
     if args.command == "watchtower":
         from .watchtower_enrollment import Ledger, Provisioner, SubprocessWireGuard, serve
