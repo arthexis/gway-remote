@@ -9,6 +9,7 @@ import os
 import secrets
 import sqlite3
 import time
+import stat
 from pathlib import Path
 
 SCOPES = frozenset({"gway:read"})
@@ -28,7 +29,8 @@ class BearerRegistry:
         if self.path.is_symlink():
             raise ValueError("unsafe_registry_path")
         self.path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
-        os.chmod(self.path.parent, 0o700)
+        if self.path.exists() and (not self.path.is_file() or self.path.stat().st_mode & 0o077):
+            raise ValueError("unsafe_registry_permissions")
         con = sqlite3.connect(self.path, timeout=10)
         try:
             os.chmod(self.path, 0o600)
@@ -64,9 +66,10 @@ class BearerRegistry:
             supplied = _digest(parts[2])
         except (UnicodeError, ValueError):
             return False
-        with self._db() as con:
-            row = con.execute("SELECT digest,scope,expires_at,revoked_at FROM credentials WHERE key_id=?",
-                              (parts[1],)).fetchone()
+        try:
+            row = _lookup(self.path, parts[1])
+        except (OSError, sqlite3.Error, ValueError):
+            return False
         return bool(row and row[3] is None and row[2] > int(time.time())
                     and row[1] == required_scope and hmac.compare_digest(row[0], supplied))
 
@@ -76,3 +79,36 @@ class BearerRegistry:
         with self._db() as con:
             return con.execute("UPDATE credentials SET revoked_at=? WHERE key_id=? AND revoked_at IS NULL",
                                (int(time.time()), key_id)).rowcount == 1
+
+
+def _lookup(path, key_id):
+    """Read-only SQLite lookup; never creates files or mutates the registry."""
+    path = Path(path)
+    if path.is_symlink() or not path.is_file():
+        raise ValueError("invalid_registry")
+    if path.stat().st_mode & 0o077:
+        raise ValueError("unsafe_registry_permissions")
+    with sqlite3.connect("file:" + str(path.resolve()) + "?mode=ro", uri=True, timeout=3) as con:
+        return con.execute("SELECT digest,scope,expires_at,revoked_at FROM credentials WHERE key_id=?",
+                           (key_id,)).fetchone()
+
+
+class BearerVerifier:
+    """Gateway-side capability: verify only; no issue, revoke, or schema creation."""
+    def __init__(self, path):
+        self.path = Path(path)
+
+    def verify(self, credential, *, required_scope="gway:read"):
+        if required_scope != "gway:read" or not isinstance(credential, str):
+            return False
+        parts = credential.split("_", 2)
+        if len(parts) != 3 or parts[0] != "gwr" or len(parts[1]) != 24:
+            return False
+        try:
+            int(parts[1], 16)
+            supplied = _digest(parts[2])
+            row = _lookup(self.path, parts[1])
+        except (UnicodeError, ValueError, OSError, sqlite3.Error):
+            return False
+        return bool(row and row[3] is None and row[2] > int(time.time())
+                    and row[1] == required_scope and hmac.compare_digest(row[0], supplied))
