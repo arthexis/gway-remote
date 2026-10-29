@@ -134,6 +134,8 @@ class Ledger:
             raise ValueError("unsafe enrollment ledger")
         with self._connect() as connection:
             connection.executescript(SCHEMA)
+            from .watchtower_replacement import SCHEMA as replacement_schema
+            connection.executescript(replacement_schema)
             columns = {row["name"] for row in connection.execute("PRAGMA table_info(invitations)")}
             if "purpose" not in columns:
                 connection.execute(
@@ -168,6 +170,8 @@ class Ledger:
             raise ValueError("invitation lifetime must be between 1 and 60 minutes")
         if purpose not in {"enroll", "host_identity_repair"}:
             raise ValueError("invalid Watchtower invitation purpose")
+        if replace and purpose != "enroll":
+            raise ValueError("replacement and host identity repair are mutually exclusive")
         token = secrets.token_urlsafe(32)
         ident = secrets.token_hex(16)
         expires = (datetime.now(timezone.utc) + timedelta(minutes=minutes)).isoformat()
@@ -214,13 +218,13 @@ class Ledger:
             raise EnrollmentRejected("bootstrap rejected")
         with self._connect() as connection:
             row = connection.execute(
-                "SELECT s.*, i.revoked_at AS invitation_revoked, i.consumed_at AS invitation_consumed, i.purpose, i.replace_authorized "
+                "SELECT s.*, i.revoked_at AS invitation_revoked, i.consumed_at AS invitation_consumed, i.purpose, i.replace_authorized, i.device AS invited_device, i.expires_at AS invitation_expiry "
                 "FROM bootstrap_sessions s JOIN invitations i ON i.id=s.invitation_id "
                 "WHERE s.session_hash=?", (_digest(secret),),
             ).fetchone()
         if (row is None or row["revoked_at"] or row["consumed_at"] or
-                row["invitation_revoked"] or
-                row["expires_at"] <= _now()):
+                row["invitation_revoked"] or row["device"] != row["invited_device"] or
+                min(row["expires_at"], row["invitation_expiry"]) <= _now()):
             raise EnrollmentRejected("bootstrap rejected")
         return {"id": row["id"], "device": row["device"], "expires_at": row["expires_at"],
                 "repair_host_identity": row["purpose"] == "host_identity_repair",
@@ -230,9 +234,12 @@ class Ledger:
         """Consume URL after client confirms local installation and startup."""
         with self._transaction() as connection:
             row = connection.execute(
-                "SELECT * FROM bootstrap_sessions WHERE session_hash=?", (_digest(secret),),
+                "SELECT s.*,i.replace_authorized,i.revoked_at AS invitation_revoked,i.expires_at AS invitation_expiry "
+                "FROM bootstrap_sessions s JOIN invitations i ON i.id=s.invitation_id WHERE s.session_hash=?", (_digest(secret),),
             ).fetchone()
-            if row is None or row["device"] != device or row["revoked_at"]:
+            if (row is None or row["device"] != device or row["revoked_at"]
+                    or row["replace_authorized"] or row["invitation_revoked"]
+                    or min(row["expires_at"], row["invitation_expiry"]) <= _now()):
                 raise EnrollmentRejected("bootstrap rejected")
             peer = connection.execute(
                 "SELECT 1 FROM devices WHERE device=? AND public_key=? AND state='active'",
@@ -256,6 +263,8 @@ class Ledger:
             ).fetchone()
             if row is None:
                 return False
+            if connection.execute("SELECT 1 FROM replacements WHERE invitation_id=? AND state IN ('acknowledged','committed')", (row["invitation_id"],)).fetchone():
+                return False
             now = _now()
             connection.execute("UPDATE bootstrap_sessions SET revoked_at=? WHERE id=?", (now, session_id))
             connection.execute("UPDATE invitations SET revoked_at=? WHERE id=? AND consumed_at IS NULL",
@@ -273,6 +282,8 @@ class Ledger:
 
     def revoke(self, invitation_id: str) -> bool:
         with self._transaction() as connection:
+            if connection.execute("SELECT 1 FROM replacements WHERE invitation_id=? AND state IN ('acknowledged','committed')", (invitation_id,)).fetchone():
+                return False
             result = connection.execute("UPDATE invitations SET revoked_at=? WHERE id=? AND consumed_at IS NULL AND revoked_at IS NULL", (_now(), invitation_id))
         return result.rowcount == 1
 
@@ -286,6 +297,7 @@ class Ledger:
             if item.version == 4:
                 reserved.update(item.hosts() if item.prefixlen < 32 else [item.network_address])
         reserved.update(IPv4Address(row[0].split("/", 1)[0]) for row in connection.execute("SELECT address FROM devices WHERE state != 'revoked'"))
+        reserved.update(IPv4Address(row[0].split("/", 1)[0]) for row in connection.execute("SELECT address FROM replacements WHERE state NOT IN ('committed','rolled_back')"))
         for candidate in self.network.hosts():
             if candidate not in reserved:
                 return f"{candidate}/32"
@@ -314,7 +326,7 @@ class Ledger:
                 raise EnrollmentRejected("enrollment rejected")
             if invitation["device"] != device:
                 raise EnrollmentRejected("enrollment rejected")
-            if invitation["purpose"] != "enroll":
+            if invitation["purpose"] != "enroll" or invitation["replace_authorized"]:
                 raise EnrollmentRejected("enrollment rejected")
             existing = connection.execute("SELECT * FROM devices WHERE device=?", (device,)).fetchone()
             if existing is not None:
@@ -375,7 +387,7 @@ class Ledger:
                 ).fetchone()
                 token_hash = invitation["token_hash"] if invitation else token_hash
             if (invitation is None or invitation["device"] != device or invitation["revoked_at"]
-                    or invitation["purpose"] != "host_identity_repair"):
+                    or invitation["purpose"] != "host_identity_repair" or invitation["replace_authorized"]):
                 raise EnrollmentRejected("host identity repair rejected")
             peer = connection.execute(
                 "SELECT * FROM devices WHERE device=? AND state='active'", (device,)
@@ -461,6 +473,7 @@ class Ledger:
         with self._transaction() as db:
             invitation = db.execute(
                 "SELECT id FROM invitations WHERE token_hash=? AND device=? "
+                "AND purpose='enroll' AND replace_authorized=0 "
                 "AND consumed_at IS NULL AND revoked_at IS NULL AND expires_at>?",
                 (_digest(invitation_token), device, now),
             ).fetchone()
@@ -507,7 +520,7 @@ class Ledger:
 
     def status(self) -> dict:
         with self._connect() as connection:
-            return {"invitations": connection.execute("SELECT count(*) FROM invitations WHERE consumed_at IS NULL AND revoked_at IS NULL").fetchone()[0], "devices": connection.execute("SELECT count(*) FROM devices WHERE state='active'").fetchone()[0], "pending_operations": connection.execute("SELECT count(*) FROM operations WHERE state NOT IN ('committed','rolled_back')").fetchone()[0]}
+            return {"invitations": connection.execute("SELECT count(*) FROM invitations WHERE consumed_at IS NULL AND revoked_at IS NULL").fetchone()[0], "devices": connection.execute("SELECT count(*) FROM devices WHERE state='active'").fetchone()[0], "pending_operations": connection.execute("SELECT count(*) FROM operations WHERE state NOT IN ('committed','rolled_back')").fetchone()[0] + connection.execute("SELECT count(*) FROM replacements WHERE state NOT IN ('committed','rolled_back')").fetchone()[0]}
 
 
 def occupied_addresses(config: str) -> set[str]:
@@ -533,6 +546,12 @@ def render_managed_peer(config: str, enrollment: Enrollment) -> str:
 
 
 class WireGuard:
+    def peer_snapshot(self) -> dict[str, tuple[str, ...]]:
+        raise NotImplementedError
+
+    def latest_handshake(self, public_key: str) -> int:
+        raise NotImplementedError
+
     def set_peer(self, public_key: str, address: str) -> None:
         raise NotImplementedError
 
@@ -563,12 +582,33 @@ class SubprocessWireGuard(WireGuard):
     def remove_peer(self, public_key: str) -> None:
         self._run("set", self.interface, "peer", public_key, "remove")
 
+    def peer_snapshot(self) -> dict[str, tuple[str, ...]]:
+        peers = {}
+        for line in self._run("show", self.interface, "allowed-ips").stdout.splitlines():
+            key, addresses = line.split("\t", 1)
+            if key in peers or addresses == "(none)":
+                raise EnrollmentFailure("ambiguous Watchtower runtime peer")
+            peers[key] = tuple(sorted(str(ip_network(item.strip(), strict=True))
+                                      for item in addresses.split(",")))
+        return peers
+
+    def latest_handshake(self, public_key: str) -> int:
+        values = {}
+        for line in self._run("show", self.interface, "latest-handshakes").stdout.splitlines():
+            key, stamp = line.split("\t", 1)
+            if key in values:
+                raise EnrollmentFailure("ambiguous Watchtower handshake")
+            values[key] = int(stamp)
+        return values.get(public_key, 0)
+
 
 class Provisioner:
     """Ordered file/runtime operation with recorded rollback material."""
     def __init__(self, ledger: Ledger, config: Path, backups: Path, wireguard: WireGuard):
         self.ledger, self.config, self.backups, self.wireguard = ledger, Path(config), Path(backups), wireguard
         self._thread_lock = threading.RLock()
+        from .watchtower_replacement import Replacements
+        self.replacements = Replacements(self)
 
     def _write(self, desired: str) -> None:
         fd, temporary = tempfile.mkstemp(prefix=".gway-remote-", dir=self.config.parent, text=True)
@@ -579,6 +619,8 @@ class Provisioner:
                 os.fsync(handle.fileno())
             os.chmod(temporary, 0o600)
             os.replace(temporary, self.config)
+            from .watchtower_replacement import _sync_directory
+            _sync_directory(self.config.parent)
             if self.config.read_text(encoding="utf-8") != desired:
                 raise EnrollmentFailure("Watchtower config verification failed")
         finally:
@@ -664,7 +706,7 @@ class Provisioner:
         for operation in self.ledger.pending():
             self._resume(operation)
             recovered += 1
-        return recovered
+        return recovered + self.replacements.recover_locked()
 
     def recover(self) -> int:
         with self._thread_lock, self._config_lock():
@@ -691,7 +733,7 @@ def make_handler(provisioner: Provisioner | None, *, public_url: str, wireguard_
                 self.wfile.write(encoded)
 
         def _script(self, secret: str, device: str, server_key: str,
-                    *, repair_host_identity: bool = False) -> bytes:
+                    *, repair_host_identity: bool = False, replace: bool = False) -> bytes:
             """HTTPS-distributed stage-one script; never includes an invitation token."""
             # URL bearer characters are restricted by the route regexp.
             source = f"""#!/bin/sh
@@ -714,13 +756,20 @@ apt-get update -qq
 apt-get install -y -qq python3 curl wireguard-tools
 temp="$(mktemp -d)"
 trap 'rm -rf "$temp"' EXIT HUP INT TERM
-curl -fsS --proto '=https' --max-redirs 0 'https://register.gelectriic.com/v1/bootstrap/{secret}/client.py' -o "$temp/client.py"
+curl -fsS --proto '=https' --max-redirs 0 'https://register.gelectriic.com/v1/bootstrap/{secret}/client.py{'?replace=true' if replace else ''}' -o "$temp/client.py"
 printf '%s' '{secret}' > "$temp/session"
 python3 "$temp/client.py" bootstrap --device '{device}' --server-public-key '{server_key}' --token-file "$temp/session"{' --repair' if repair_host_identity else ''}
 pub="$(wg show gway public-key)"
 printf '{{"device":"%s","public_key":"%s"}}' '{device}' "$pub" > "$temp/ack.json"
 curl -fsS --proto '=https' --max-redirs 0 -X POST -H 'Content-Type: application/json' --data-binary @"$temp/ack.json" 'https://register.gelectriic.com/v1/bootstrap/{secret}/complete' >/dev/null
 """
+            if replace:
+                # The replacement client owns activation/ack/rollback. Never
+                # run the legacy completion path, including with an old client.
+                source = source.split('python3 "$temp/client.py" bootstrap', 1)[0]
+                source += (f'python3 "$temp/client.py" bootstrap --device \'{device}\' '
+                           f'--server-public-key \'{server_key}\' --token-file "$temp/session" '
+                           '--replace --replacement-protocol gway-replace-v1\n')
             return source.encode("utf-8")
 
         def _send_artifact(self, data: bytes, media_type: str) -> None:
@@ -742,13 +791,12 @@ curl -fsS --proto '=https' --max-redirs 0 -X POST -H 'Content-Type: application/
             if bootstrap_match and not read_only_stage and provisioner is not None:
                 try:
                     session = provisioner.ledger.bootstrap_session(bootstrap_match.group(1))
-                    expected_query = "replace=true" if session["replace"] and not bootstrap_match.group(2) else ""
-                    if parsed_path.query != expected_query or parsed_path.fragment:
+                    expected_query = "replace=true" if session["replace"] else ""
+                    expected_path = bootstrap_match.group(0) + ("?" + expected_query if expected_query else "")
+                    if self.path != expected_path:
                         raise EnrollmentRejected("bootstrap rejected")
-                    if session["replace"]:
-                        # No replacement transaction is implemented yet: never present a regular
-                        # enrollment script as a valid replacement operation.
-                        raise EnrollmentRejected("replacement bootstrap not yet supported")
+                    if session["replace"] and session["repair_host_identity"]:
+                        raise EnrollmentRejected("bootstrap rejected")
                     if bootstrap_match.group(2):
                         data = Path(__file__).with_name("wireguard_satellite.py").read_bytes()
                         self._send_artifact(data, "text/x-python; charset=utf-8")
@@ -759,7 +807,8 @@ curl -fsS --proto '=https' --max-redirs 0 -X POST -H 'Content-Type: application/
                         ).stdout.strip()
                         self._send_artifact(
                             self._script(bootstrap_match.group(1), session["device"], key,
-                                         repair_host_identity=session["repair_host_identity"]),
+                                         repair_host_identity=session["repair_host_identity"],
+                                         replace=session["replace"]),
                             "text/x-shellscript; charset=utf-8",
                         )
                 except (EnrollmentRejected, OSError, subprocess.CalledProcessError):
@@ -773,6 +822,75 @@ curl -fsS --proto '=https' --max-redirs 0 -X POST -H 'Content-Type: application/
         do_HEAD = do_GET
 
         def do_POST(self) -> None:
+            from urllib.parse import urlsplit
+            parsed = urlsplit(self.path)
+            replacement = re.fullmatch(
+                r"/v1/bootstrap/([A-Za-z0-9_-]{32,128})/replacement/(prepare|ack|rollback|status)", parsed.path,
+            )
+            if replacement:
+                if self.path != replacement.group(0) + "?replace=true":
+                    self._send(404, {"error": "not_found"})
+                    return
+                try:
+                    from .watchtower_replacement import PROTOCOL
+                    def unique_fields(pairs):
+                        value = {}
+                        for key, item in pairs:
+                            if key in value:
+                                raise ValueError("ambiguous request")
+                            value[key] = item
+                        return value
+                    length = self.headers.get("Content-Length", "")
+                    if (self.headers.get("Content-Type") != "application/json"
+                            or len(self.headers.get_all("Content-Type", [])) != 1
+                            or self.headers.get("Transfer-Encoding")
+                            or len(self.headers.get_all("Content-Length", [])) != 1
+                            or not re.fullmatch(r"[0-9]{1,4}", length)
+                            or not 0 < int(length) <= MAX_REQUEST_BYTES):
+                        raise ValueError("invalid request")
+                    data = json.loads(self.rfile.read(int(length)), object_pairs_hook=unique_fields)
+                    action = replacement.group(2)
+                    required = {"protocol", "device", "public_key"}
+                    fields = (required if action == "prepare" else required | {"operation_id"})
+                    if action == "ack":
+                        fields |= {"activated"}
+                    if (not isinstance(data, dict) or data.get("protocol") != PROTOCOL
+                            or set(data) not in (fields, fields | {"ssh_host_key"} if action == "prepare" else fields)
+                            or (action == "ack" and data["activated"] is not True)):
+                        raise ValueError("invalid request")
+                    if "ssh_host_key" in data and not isinstance(data["ssh_host_key"], str):
+                        raise ValueError("invalid request")
+                    device, key, secret = validate_enrollment({
+                        "device": data["device"], "public_key": data["public_key"], "token": replacement.group(1),
+                    })
+                    if action != "prepare" and (not isinstance(data["operation_id"], str) or not re.fullmatch(r"[0-9a-f]{32}", data["operation_id"])):
+                        raise ValueError("invalid request")
+                    if read_only_stage or provisioner is None:
+                        raise EnrollmentRejected("replacement rejected")
+                    manager = provisioner.replacements
+                    if action == "prepare":
+                        receipt = manager.prepare(secret, device, key, ssh_host_key=data.get("ssh_host_key"))
+                    elif action == "ack":
+                        receipt = manager.acknowledge(secret, device, key, data["operation_id"])
+                    elif action == "rollback":
+                        receipt = manager.rollback(secret, device, key, data["operation_id"])
+                    else:
+                        receipt = manager.status(secret, device, key, data["operation_id"])
+                    if action == "prepare":
+                        receipt.update(server_endpoint=wireguard_endpoint,
+                                       server_tunnel_ip=str(provisioner.ledger.gateway),
+                                       server_public_key=subprocess.run(
+                                           ["wg", "show", "gway", "public-key"], check=True,
+                                           capture_output=True, text=True).stdout.strip())
+                except (ValueError, TypeError, KeyError):
+                    self._send(400, {"error": "invalid_request"})
+                except EnrollmentRejected:
+                    self._send(403, {"error": "replacement_rejected"})
+                except Exception:
+                    self._send(500, {"error": "replacement_failed"})
+                else:
+                    self._send(200, receipt)
+                return
             completion = re.fullmatch(
                 r"/v1/bootstrap/([A-Za-z0-9_-]{32,128})/complete", self.path,
             )
