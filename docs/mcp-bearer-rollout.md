@@ -37,3 +37,28 @@ for revocation/audit and follow approved secure backup retention.
 
 IMPORTANT: private-plugin fixed bearer storage and real ChatGPT tool calls
 remain separate acceptance tests; do not infer support from a manifest alone.
+
+## Private bridge preparation
+The staged gway-mcp-private-bridge.service binds ONLY Watchtower
+127.0.0.1:19011 and transports to gway-001 127.0.0.1:8770 through a
+host-key-pinned SSH session over WireGuard. The example ssh-config requires
+a verified WireGuard address, a dedicated restricted SSH identity and a
+pre-pinned known_hosts entry. The example 10.90.0.2 address must be
+checked against current WireGuard state before enabling.
+Do not reuse enrollment signing keys or the mobile API token.
+
+Provision /etc/gway-mcp-gateway/ssh-config, bridge_identity, and known_hosts
+with permissions allowing only the gway-mcp-bridge service identity to read
+them. Deny SSH shell/remote commands for this identity at gway-001; permit
+only the single local port forward via SSH server-side restrictions.
+Separately start bridge and verify exact /mcp upstream, then start gateway.
+The stage script deliberately starts neither unit.
+
+## Readiness gates
+- CI and local integration tests green.
+- SSH target host identity pinned; bridge port forwarded only on loopback.
+- Auth CLI issuer and verifier service users separated; verify group DB
+  access 0640 without gateway DB write access.
+- Backend MCP service active on gway-001 loopback with a separate secret.
+- No public Nginx route until authorized, negative tests pass and actual
+  private-plugin bearer support has been established.
