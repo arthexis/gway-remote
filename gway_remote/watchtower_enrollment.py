@@ -53,7 +53,7 @@ CREATE TABLE IF NOT EXISTS invitations (
     expires_at TEXT NOT NULL,
     consumed_at TEXT,
     revoked_at TEXT,
-    purpose TEXT NOT NULL DEFAULT 'enroll' CHECK(purpose IN ('enroll','host_identity_repair'))
+    purpose TEXT NOT NULL DEFAULT 'enroll' CHECK(purpose IN ('enroll','host_identity_repair','replace'))
 );
 CREATE UNIQUE INDEX IF NOT EXISTS one_live_invitation
     ON invitations(device) WHERE consumed_at IS NULL AND revoked_at IS NULL;
@@ -163,7 +163,7 @@ class Ledger:
             raise ValueError("invalid Watchtower device")
         if not 1 <= minutes <= 60:
             raise ValueError("invitation lifetime must be between 1 and 60 minutes")
-        if purpose not in {"enroll", "host_identity_repair"}:
+        if purpose not in {"enroll", "host_identity_repair", "replace"}:
             raise ValueError("invalid Watchtower invitation purpose")
         token = secrets.token_urlsafe(32)
         ident = secrets.token_hex(16)
@@ -177,7 +177,7 @@ class Ledger:
         return {"id": ident, "device": device, "token": token, "expires_at": expires}
 
     def register(self, device: str, *, minutes: int = 15, public_url: str,
-                 repair_host_identity: bool = False) -> dict:
+                 repair_host_identity: bool = False, replace: bool = False) -> dict:
         """Create one short-lived URL bearer; underlying invitation token stays private."""
         from urllib.parse import urlsplit
 
@@ -186,9 +186,11 @@ class Ledger:
                 or origin.username or origin.password or origin.query or origin.fragment
                 or origin.path not in ("", "/") or origin.port not in (None, 443)):
             raise ValueError("invalid approved registration origin")
+        if repair_host_identity and replace:
+            raise ValueError("replacement and host identity repair are mutually exclusive")
         invitation = self.invite(
             device, minutes=minutes,
-            purpose="host_identity_repair" if repair_host_identity else "enroll",
+            purpose="replace" if replace else ("host_identity_repair" if repair_host_identity else "enroll"),
         )
         secret = secrets.token_urlsafe(32)
         session_id = secrets.token_hex(16)
@@ -199,7 +201,8 @@ class Ledger:
             )
         return {"id": session_id, "device": device,
                 "repair_host_identity": repair_host_identity,
-                "url": f"https://register.gelectriic.com/v1/bootstrap/{secret}",
+                "replace": replace,
+                "url": f"https://register.gelectriic.com/v1/bootstrap/{secret}" + ("?replace=true" if replace else ""),
                 "expires_at": invitation["expires_at"]}
 
     def bootstrap_session(self, secret: str) -> dict:
@@ -217,7 +220,8 @@ class Ledger:
                 row["expires_at"] <= _now()):
             raise EnrollmentRejected("bootstrap rejected")
         return {"id": row["id"], "device": row["device"], "expires_at": row["expires_at"],
-                "repair_host_identity": row["purpose"] == "host_identity_repair"}
+                "repair_host_identity": row["purpose"] == "host_identity_repair",
+                "replace": row["purpose"] == "replace"}
 
     def complete_bootstrap(self, secret: str, device: str, public_key: str) -> bool:
         """Consume URL after client confirms local installation and startup."""
@@ -733,6 +737,13 @@ curl -fsS --proto '=https' --max-redirs 0 -X POST -H 'Content-Type: application/
             if bootstrap_match and not read_only_stage and provisioner is not None:
                 try:
                     session = provisioner.ledger.bootstrap_session(bootstrap_match.group(1))
+                    expected_query = "replace=true" if session["replace"] and not bootstrap_match.group(2) else ""
+                    if parsed_path.query != expected_query or parsed_path.fragment:
+                        raise EnrollmentRejected("bootstrap rejected")
+                    if session["replace"]:
+                        # No replacement transaction is implemented yet: never present a regular
+                        # enrollment script as a valid replacement operation.
+                        raise EnrollmentRejected("replacement bootstrap not yet supported")
                     if bootstrap_match.group(2):
                         data = Path(__file__).with_name("wireguard_satellite.py").read_bytes()
                         self._send_artifact(data, "text/x-python; charset=utf-8")
