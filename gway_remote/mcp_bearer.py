@@ -9,7 +9,6 @@ import os
 import secrets
 import sqlite3
 import time
-import stat
 from pathlib import Path
 
 SCOPES = frozenset({"gway:read"})
@@ -28,12 +27,12 @@ class BearerRegistry:
     def _db(self):
         if self.path.is_symlink():
             raise ValueError("unsafe_registry_path")
-        self.path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
-        if self.path.exists() and (not self.path.is_file() or self.path.stat().st_mode & 0o077):
+        self.path.parent.mkdir(parents=True, exist_ok=True, mode=0o750)
+        if self.path.exists() and (not self.path.is_file() or self.path.stat().st_mode & 0o007):
             raise ValueError("unsafe_registry_permissions")
         con = sqlite3.connect(self.path, timeout=10)
         try:
-            os.chmod(self.path, 0o600)
+            os.chmod(self.path, 0o640)
             con.execute("""CREATE TABLE IF NOT EXISTS credentials (
                 key_id TEXT PRIMARY KEY, digest BLOB NOT NULL,
                 scope TEXT NOT NULL, expires_at INTEGER NOT NULL,
@@ -86,7 +85,7 @@ def _lookup(path, key_id):
     path = Path(path)
     if path.is_symlink() or not path.is_file():
         raise ValueError("invalid_registry")
-    if path.stat().st_mode & 0o077:
+    if path.stat().st_mode & 0o007:
         raise ValueError("unsafe_registry_permissions")
     with sqlite3.connect("file:" + str(path.resolve()) + "?mode=ro", uri=True, timeout=3) as con:
         return con.execute("SELECT digest,scope,expires_at,revoked_at FROM credentials WHERE key_id=?",
