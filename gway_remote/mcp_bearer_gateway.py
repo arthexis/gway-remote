@@ -7,7 +7,7 @@ import os
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, build_opener, HTTPRedirectHandler
-from .mcp_bearer import BearerRegistry
+from .mcp_bearer import BearerVerifier
 
 MAX_BODY = 65536
 MAX_RESPONSE = 262144
@@ -54,6 +54,8 @@ class Handler(BaseHTTPRequestHandler):
             return self.reject(404)
         if self.headers.get("Origin") is not None:
             return self.reject(403)
+        if len(self.headers.get_all("Authorization", [])) != 1:
+            return self.reject(401)
         supplied = self.headers.get("Authorization", "")
         if not supplied.startswith("Bearer "):
             return self.reject(401)
@@ -84,7 +86,7 @@ class Handler(BaseHTTPRequestHandler):
         except HTTPError as exc:
             status, body, typ = exc.code, b"", "application/json"
             exc.close()
-        except (OSError, URLError):
+        except (OSError, URLError, ValueError):
             return self.reject(502)
         if len(body) > MAX_RESPONSE:
             return self.reject(502)
@@ -98,8 +100,12 @@ class Handler(BaseHTTPRequestHandler):
         self.wfile.write(body)
 
 def make_server(address, registry, upstream, backend_token):
-    if not upstream.startswith("http://127.0.0.1:") or not upstream.endswith("/mcp"):
+    from urllib.parse import urlsplit
+    parsed = urlsplit(upstream)
+    if parsed.scheme != "http" or parsed.hostname != "127.0.0.1" or not parsed.port or parsed.path != "/mcp" or parsed.query or parsed.fragment or parsed.username or parsed.password:
         raise ValueError("private_loopback_upstream_required")
+    if address[0] != "127.0.0.1":
+        raise ValueError("loopback_bind_required")
     if not backend_token:
         raise ValueError("backend_secret_required")
     server = ThreadingHTTPServer(address, Handler)
@@ -117,7 +123,7 @@ def main():
     parser.add_argument("--upstream", default="http://127.0.0.1:19011/mcp")
     args = parser.parse_args()
     token = os.environ.get("GWAY_MCP_BACKEND_BEARER", "")
-    with make_server(("127.0.0.1", args.port), BearerRegistry(args.database), args.upstream, token) as service:
+    with make_server(("127.0.0.1", args.port), BearerVerifier(args.database), args.upstream, token) as service:
         service.serve_forever()
 
 if __name__ == "__main__":
