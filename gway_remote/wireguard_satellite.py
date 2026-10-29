@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import argparse
 import base64
+import binascii
 import getpass
 import ipaddress
 import json
@@ -62,9 +63,30 @@ def _identity(path):
     return private, _key(_run("wg", "pubkey", input=private + "\n")), None
 
 
+def _validate_ssh_host_public_key(value):
+    """Validate the ED25519 SSH wire key without package imports.
+
+    The bootstrap URL serves this file alone as client.py, outside a package.
+    Keep this check self-contained and fail closed on malformed key material.
+    """
+    if not isinstance(value, str):
+        raise ValueError("missing SSH public key")
+    parts = value.split()
+    if len(parts) != 2 or parts[0] != "ssh-ed25519":
+        raise ValueError("SSH host key must be ED25519 without extra fields")
+    try:
+        raw = base64.b64decode(parts[1], validate=True)
+    except (binascii.Error, ValueError) as exc:
+        raise ValueError("invalid SSH public key encoding") from exc
+    if (len(raw) != 51 or raw[:4] != bytes((0, 0, 0, 11))
+            or raw[4:15] != b"ssh-ed25519"
+            or raw[15:19] != bytes((0, 0, 0, 32))):
+        raise ValueError("invalid SSH ED25519 wire key")
+    return "ssh-ed25519 " + parts[1]
+
+
 def _ssh_host_public_key(path=Path("/etc/ssh/ssh_host_ed25519_key.pub")):
     """Ensure a single ED25519 host key exists, preserving unmanaged identities."""
-    from .host_identity import validate_public_key
     private = path.with_suffix("")
     if path.is_symlink() or private.is_symlink() or path.parent.is_symlink():
         raise ValueError("unsafe SSH host key path")
@@ -78,7 +100,7 @@ def _ssh_host_public_key(path=Path("/etc/ssh/ssh_host_ed25519_key.pub")):
                        capture_output=True, text=True)
     if not path.is_file() or not private.is_file() or private.stat().st_mode & 0o077:
         raise ValueError("unsafe SSH host key permissions")
-    return validate_public_key(path.read_text().strip())
+    return _validate_ssh_host_public_key(path.read_text().strip())
 
 
 def _enroll(url, device, public, token, *, ssh_host_key=None,
