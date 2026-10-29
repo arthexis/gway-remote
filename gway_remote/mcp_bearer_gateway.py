@@ -41,7 +41,7 @@ class Handler(BaseHTTPRequestHandler):
     def reject(self, status):
         self.send_response(status)
         if status == 401:
-            self.send_header("WWW-Authenticate", "Bearer")
+            self.send_header("WWW-Authenticate", 'Bearer resource_metadata="https://remote.arthexis.com/.well-known/oauth-protected-resource/mcp"')
         self.send_header("Cache-Control", "no-store")
         self.send_header("Content-Length", "0")
         self.end_headers()
