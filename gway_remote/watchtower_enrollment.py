@@ -53,7 +53,8 @@ CREATE TABLE IF NOT EXISTS invitations (
     expires_at TEXT NOT NULL,
     consumed_at TEXT,
     revoked_at TEXT,
-    purpose TEXT NOT NULL DEFAULT 'enroll' CHECK(purpose IN ('enroll','host_identity_repair','replace'))
+    purpose TEXT NOT NULL DEFAULT 'enroll' CHECK(purpose IN ('enroll','host_identity_repair')),
+    replace_authorized INTEGER NOT NULL DEFAULT 0 CHECK(replace_authorized IN (0,1))
 );
 CREATE UNIQUE INDEX IF NOT EXISTS one_live_invitation
     ON invitations(device) WHERE consumed_at IS NULL AND revoked_at IS NULL;
@@ -138,6 +139,8 @@ class Ledger:
                 connection.execute(
                     "ALTER TABLE invitations ADD COLUMN purpose TEXT NOT NULL DEFAULT 'enroll'"
                 )
+            if "replace_authorized" not in columns:
+                connection.execute("ALTER TABLE invitations ADD COLUMN replace_authorized INTEGER NOT NULL DEFAULT 0")
         self.path.chmod(0o600)
 
     def _connect(self) -> sqlite3.Connection:
@@ -158,12 +161,12 @@ class Ledger:
                 connection.execute("COMMIT")
 
     def invite(self, device: str, *, minutes: int = 15,
-               purpose: str = "enroll") -> dict:
+               purpose: str = "enroll", replace: bool = False) -> dict:
         if not isinstance(device, str) or not DEVICE.fullmatch(device):
             raise ValueError("invalid Watchtower device")
         if not 1 <= minutes <= 60:
             raise ValueError("invitation lifetime must be between 1 and 60 minutes")
-        if purpose not in {"enroll", "host_identity_repair", "replace"}:
+        if purpose not in {"enroll", "host_identity_repair"}:
             raise ValueError("invalid Watchtower invitation purpose")
         token = secrets.token_urlsafe(32)
         ident = secrets.token_hex(16)
@@ -171,8 +174,8 @@ class Ledger:
         with self._transaction() as connection:
             connection.execute("UPDATE invitations SET revoked_at=? WHERE device=? AND consumed_at IS NULL AND revoked_at IS NULL AND expires_at<=?", (_now(), device, _now()))
             connection.execute(
-                "INSERT INTO invitations(id,device,token_hash,expires_at,purpose) VALUES(?,?,?,?,?)",
-                (ident, device, _digest(token), expires, purpose),
+                "INSERT INTO invitations(id,device,token_hash,expires_at,purpose,replace_authorized) VALUES(?,?,?,?,?,?)",
+                (ident, device, _digest(token), expires, purpose, int(replace)),
             )
         return {"id": ident, "device": device, "token": token, "expires_at": expires}
 
@@ -190,7 +193,7 @@ class Ledger:
             raise ValueError("replacement and host identity repair are mutually exclusive")
         invitation = self.invite(
             device, minutes=minutes,
-            purpose="replace" if replace else ("host_identity_repair" if repair_host_identity else "enroll"),
+            purpose="host_identity_repair" if repair_host_identity else "enroll", replace=replace,
         )
         secret = secrets.token_urlsafe(32)
         session_id = secrets.token_hex(16)
@@ -211,7 +214,7 @@ class Ledger:
             raise EnrollmentRejected("bootstrap rejected")
         with self._connect() as connection:
             row = connection.execute(
-                "SELECT s.*, i.revoked_at AS invitation_revoked, i.consumed_at AS invitation_consumed, i.purpose "
+                "SELECT s.*, i.revoked_at AS invitation_revoked, i.consumed_at AS invitation_consumed, i.purpose, i.replace_authorized "
                 "FROM bootstrap_sessions s JOIN invitations i ON i.id=s.invitation_id "
                 "WHERE s.session_hash=?", (_digest(secret),),
             ).fetchone()
@@ -221,7 +224,7 @@ class Ledger:
             raise EnrollmentRejected("bootstrap rejected")
         return {"id": row["id"], "device": row["device"], "expires_at": row["expires_at"],
                 "repair_host_identity": row["purpose"] == "host_identity_repair",
-                "replace": row["purpose"] == "replace"}
+                "replace": bool(row["replace_authorized"])}
 
     def complete_bootstrap(self, secret: str, device: str, public_key: str) -> bool:
         """Consume URL after client confirms local installation and startup."""
