@@ -1,0 +1,18 @@
+[Unit]
+Description=Private GWA MCP bearer gateway
+After=network-online.target
+[Service]
+Type=simple
+User=gway-mcp-gateway
+Group=gway-mcp-read
+EnvironmentFile=/etc/gway-mcp-gateway/backend.env
+ExecStart=/usr/local/bin/python3 -m gway_remote.mcp_bearer_gateway --database /var/lib/gway-mcp-auth/credentials.sqlite3 --port 19010 --upstream http://127.0.0.1:19011/mcp
+Restart=on-failure
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+CapabilityBoundingSet=
+ReadOnlyPaths=/var/lib/gway-mcp-auth
+[Install]
+WantedBy=multi-user.target
