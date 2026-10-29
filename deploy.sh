@@ -40,7 +40,8 @@ if [ "$#" -eq 0 ] &&
   printf 'GWay Remote revision %s already installed and healthy; skipped Ansible.\n' "$revision"
   exit 0
 fi
-ansible-playbook "$ROOT/ansible/playbook.yml" -i 'gway_remote,' -c local "$@"
+ansible-playbook "$ROOT/ansible/playbook.yml" -i 'gway_remote,' -c local \
+  -e "gway_remote_runner_user=$(id -un)" "$@"
 # Only the ordinary managed deployment can certify the default installation.
 if [ "$#" -eq 0 ]; then
   mkdir -p "$(dirname "$marker")"
