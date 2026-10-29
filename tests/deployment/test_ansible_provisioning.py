@@ -6,7 +6,11 @@ class ProvisioningTests(unittest.TestCase):
     def test_role_only_installs_cli_and_checks_status(self):
         tasks = Path("ansible/roles/gway_remote/tasks/main.yml").read_text()
         self.assertIn("install-cli.sh", tasks)
-        self.assertIn("gway-remote status --json", tasks)
+        status = tasks.split("- name: Verify read-only status JSON as runner user", 1)[1].split("\n- name:", 1)[0]
+        self.assertIn("- /usr/local/bin/gway-remote", status)
+        self.assertIn("- status", status)
+        self.assertIn("- --json", status)
+        self.assertIn("- /usr/bin/sudo", status)
         self.assertIn("/etc/gway-remote/deployment.yml", tasks)
         self.assertIn('src: "{{ playbook_dir }}/inventory/deployment.yml"', tasks)
         self.assertNotIn('src: "{{ playbook_dir }}/../inventory/deployment.yml"', tasks)
