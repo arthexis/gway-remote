@@ -14,5 +14,6 @@ install -d -o root -g root -m 0755 /etc/gway-mcp-gateway
 install -d -o root -g gway-mcp-bridge -m 0750 /etc/gway-mcp-gateway/bridge
 install -m 0644 ./deploy/mcp-bearer/gway-mcp-gateway.service /etc/systemd/system/gway-mcp-gateway.service
 install -m 0644 ./deploy/mcp-bearer/gway-mcp-private-bridge.service /etc/systemd/system/gway-mcp-private-bridge.service
+install -m 0644 ./deploy/mcp-bearer/gway-mcp-link.service /etc/systemd/system/gway-mcp-link.service
 systemctl daemon-reload
 echo "STAGED only; no activation, credentials or Nginx changes"
