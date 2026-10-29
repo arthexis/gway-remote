@@ -1,0 +1,39 @@
+# M2.1 private deployment runbook
+
+The Watchtower gate remains separate from main deployment. The stage script
+creates restricted Linux users/groups and directories and installs an inert
+systemd unit. It does not start/enable the service or modify Nginx.
+
+## Preconditions
+- Confirm the package is importable by /usr/local/bin/python3.
+- Independently configure and verify host-identity-pinned private forwarding
+  from Watchtower 127.0.0.1:19011/mcp through WireGuard/SSH to gway-001
+  127.0.0.1:8770/mcp. This PR does NOT create the bridge.
+- Keep the private gway-001 MCP bearer different from any client bearer.
+- Store GWAY_MCP_BACKEND_BEARER in /etc/gway-mcp-gateway/backend.env with
+  root owner and restricted group read for the gateway service.
+- Keep credentials.sqlite3 owned by gway-mcp-auth:gway-mcp-read, mode 0640,
+  and directory mode 0750. Gateway is a different user, with read only.
+- Verify that the gateway cannot write DB or issue a bearer.
+
+## Staging (explicit operator-approved Watchtower action)
+    sudo sh deploy/mcp-bearer/stage.sh
+    sudo -u gway-mcp-auth gway-remote bearer issue --days 30
+    sudo -u gway-mcp-auth gway-remote bearer revoke KEY_ID
+
+Use a secure interactive terminal. Never paste bearer secrets into GitHub,
+ChatGPT, URL query parameters, logs or shell command arguments.
+
+Only after backend transport and negative tests pass, authorize a local
+systemctl start. Publish the Nginx example separately after TLS and
+ChatGPT bearer compatibility are verified. The remote Mobile API and
+WireGuard enrollment are not part of this change.
+
+## Rollback
+Stop the dedicated gway-mcp-gateway service. If a separate ingress activation
+was approved, remove ONLY the new /mcp location, validate nginx -t and reload.
+Leave Agent Ops and existing Watchtower services untouched. Preserve DB
+for revocation/audit and follow approved secure backup retention.
+
+IMPORTANT: private-plugin fixed bearer storage and real ChatGPT tool calls
+remain separate acceptance tests; do not infer support from a manifest alone.
