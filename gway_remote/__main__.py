@@ -355,7 +355,7 @@ def main() -> None:
     register_parser.add_argument("session_id", nargs="?")
     register_parser.add_argument("--minutes", type=int, default=15)
     register_parser.add_argument("--replace", action="store_true", help="issue a server-authorized replacement URL")
-    register_parser.add_argument("--repair-host-identity", action="store_true",
+    register_parser.add_argument("--repair", dest="repair_host_identity", action="store_true",
                                  help="issue an explicit one-time attestation repair bootstrap")
     register_parser.add_argument("--settings", type=Path, default=Path("/etc/gway-remote/watchtower.json"))
     watchtower_parser = subparsers.add_parser("watchtower", help="Root-only Watchtower enrollment administration")
@@ -373,7 +373,7 @@ def main() -> None:
     watchtower_parser.add_argument("--rotation-token-file", type=Path)
     watchtower_parser.add_argument("--authorize-rotation", action="store_true")
     watchtower_parser.add_argument("--minutes", type=int, default=15)
-    watchtower_parser.add_argument("--repair-host-identity", action="store_true")
+    watchtower_parser.add_argument("--repair", dest="repair_host_identity", action="store_true")
     watchtower_parser.add_argument("--replace", action="store_true")
     watchtower_parser.add_argument("--host", default="127.0.0.1")
     watchtower_parser.add_argument("--port", type=int, default=8788)
