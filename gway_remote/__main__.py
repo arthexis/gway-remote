@@ -354,7 +354,8 @@ def main() -> None:
     register_parser.add_argument("target", help="gway-NNN node, status, or revoke")
     register_parser.add_argument("session_id", nargs="?")
     register_parser.add_argument("--minutes", type=int, default=15)
-    register_parser.add_argument("--repair-host-identity", action="store_true",
+    register_parser.add_argument("--replace", action="store_true", help="issue a server-authorized replacement URL")
+    register_parser.add_argument("--repair", dest="repair_host_identity", action="store_true",
                                  help="issue an explicit one-time attestation repair bootstrap")
     register_parser.add_argument("--settings", type=Path, default=Path("/etc/gway-remote/watchtower.json"))
     watchtower_parser = subparsers.add_parser("watchtower", help="Root-only Watchtower enrollment administration")
@@ -372,7 +373,8 @@ def main() -> None:
     watchtower_parser.add_argument("--rotation-token-file", type=Path)
     watchtower_parser.add_argument("--authorize-rotation", action="store_true")
     watchtower_parser.add_argument("--minutes", type=int, default=15)
-    watchtower_parser.add_argument("--repair-host-identity", action="store_true")
+    watchtower_parser.add_argument("--repair", dest="repair_host_identity", action="store_true")
+    watchtower_parser.add_argument("--replace", action="store_true")
     watchtower_parser.add_argument("--host", default="127.0.0.1")
     watchtower_parser.add_argument("--port", type=int, default=8788)
     watchtower_parser.add_argument("--public-url", help="approved public HTTPS enrollment URL")
@@ -407,11 +409,11 @@ def main() -> None:
             ledger = Ledger(Path(settings["ledger"]), network=settings["network"],
                             gateway=settings["gateway"])
             if args.target == "status":
-                if args.session_id or args.repair_host_identity:
+                if args.session_id or args.repair_host_identity or args.replace:
                     parser.error("register status takes no session ID")
                 print(json.dumps(ledger.bootstrap_status(), sort_keys=True))
             elif args.target == "revoke":
-                if not args.session_id or args.repair_host_identity:
+                if not args.session_id or args.repair_host_identity or args.replace:
                     parser.error("register revoke requires a session ID")
                 print(json.dumps({"revoked": ledger.revoke_bootstrap(args.session_id)}, sort_keys=True))
             else:
@@ -419,7 +421,7 @@ def main() -> None:
                     parser.error("register requires exactly one valid gway-NNN node")
                 url = ledger.register(args.target, minutes=args.minutes,
                                       public_url=settings["public_url"],
-                                      repair_host_identity=args.repair_host_identity)["url"]
+                                      repair_host_identity=args.repair_host_identity, replace=args.replace)["url"]
                 print(f"curl -fsSL '{url}' | sudo sh")
         except (OSError, ValueError, KeyError, RuntimeError) as exc:
             parser.exit(1, "gway-remote: Watchtower registration unavailable: "
@@ -456,7 +458,7 @@ def main() -> None:
                     parser.error("watchtower register requires --device and --public-url")
                 print(json.dumps(ledger.register(args.device, minutes=args.minutes,
                                                  public_url=args.public_url,
-                                                 repair_host_identity=args.repair_host_identity), sort_keys=True))
+                                                 repair_host_identity=args.repair_host_identity, replace=args.replace), sort_keys=True))
                 return
             if args.action == "revoke-bootstrap":
                 if not args.session_id:

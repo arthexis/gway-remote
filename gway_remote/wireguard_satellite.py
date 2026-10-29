@@ -214,7 +214,7 @@ def main(argv=None):
     boot.add_argument("--server-public-key", required=True, help="Watchtower WireGuard public key, verified out of band")
     boot.add_argument("--token-file", type=Path)
     boot.add_argument("--url", default=DEFAULT_URL)
-    boot.add_argument("--repair-host-identity", action="store_true",
+    boot.add_argument("--repair", dest="repair_host_identity", action="store_true",
                       help="attest an existing matching tunnel without changing it")
     status = sub.add_parser("status")
     status.add_argument("--config", type=Path, default=Path("/etc/wireguard/gway.conf"))

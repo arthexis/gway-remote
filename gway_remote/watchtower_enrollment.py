@@ -53,7 +53,8 @@ CREATE TABLE IF NOT EXISTS invitations (
     expires_at TEXT NOT NULL,
     consumed_at TEXT,
     revoked_at TEXT,
-    purpose TEXT NOT NULL DEFAULT 'enroll' CHECK(purpose IN ('enroll','host_identity_repair'))
+    purpose TEXT NOT NULL DEFAULT 'enroll' CHECK(purpose IN ('enroll','host_identity_repair')),
+    replace_authorized INTEGER NOT NULL DEFAULT 0 CHECK(replace_authorized IN (0,1))
 );
 CREATE UNIQUE INDEX IF NOT EXISTS one_live_invitation
     ON invitations(device) WHERE consumed_at IS NULL AND revoked_at IS NULL;
@@ -138,6 +139,8 @@ class Ledger:
                 connection.execute(
                     "ALTER TABLE invitations ADD COLUMN purpose TEXT NOT NULL DEFAULT 'enroll'"
                 )
+            if "replace_authorized" not in columns:
+                connection.execute("ALTER TABLE invitations ADD COLUMN replace_authorized INTEGER NOT NULL DEFAULT 0")
         self.path.chmod(0o600)
 
     def _connect(self) -> sqlite3.Connection:
@@ -158,7 +161,7 @@ class Ledger:
                 connection.execute("COMMIT")
 
     def invite(self, device: str, *, minutes: int = 15,
-               purpose: str = "enroll") -> dict:
+               purpose: str = "enroll", replace: bool = False) -> dict:
         if not isinstance(device, str) or not DEVICE.fullmatch(device):
             raise ValueError("invalid Watchtower device")
         if not 1 <= minutes <= 60:
@@ -171,13 +174,13 @@ class Ledger:
         with self._transaction() as connection:
             connection.execute("UPDATE invitations SET revoked_at=? WHERE device=? AND consumed_at IS NULL AND revoked_at IS NULL AND expires_at<=?", (_now(), device, _now()))
             connection.execute(
-                "INSERT INTO invitations(id,device,token_hash,expires_at,purpose) VALUES(?,?,?,?,?)",
-                (ident, device, _digest(token), expires, purpose),
+                "INSERT INTO invitations(id,device,token_hash,expires_at,purpose,replace_authorized) VALUES(?,?,?,?,?,?)",
+                (ident, device, _digest(token), expires, purpose, int(replace)),
             )
         return {"id": ident, "device": device, "token": token, "expires_at": expires}
 
     def register(self, device: str, *, minutes: int = 15, public_url: str,
-                 repair_host_identity: bool = False) -> dict:
+                 repair_host_identity: bool = False, replace: bool = False) -> dict:
         """Create one short-lived URL bearer; underlying invitation token stays private."""
         from urllib.parse import urlsplit
 
@@ -186,9 +189,11 @@ class Ledger:
                 or origin.username or origin.password or origin.query or origin.fragment
                 or origin.path not in ("", "/") or origin.port not in (None, 443)):
             raise ValueError("invalid approved registration origin")
+        if repair_host_identity and replace:
+            raise ValueError("replacement and host identity repair are mutually exclusive")
         invitation = self.invite(
             device, minutes=minutes,
-            purpose="host_identity_repair" if repair_host_identity else "enroll",
+            purpose="host_identity_repair" if repair_host_identity else "enroll", replace=replace,
         )
         secret = secrets.token_urlsafe(32)
         session_id = secrets.token_hex(16)
@@ -199,7 +204,8 @@ class Ledger:
             )
         return {"id": session_id, "device": device,
                 "repair_host_identity": repair_host_identity,
-                "url": f"https://register.gelectriic.com/v1/bootstrap/{secret}",
+                "replace": replace,
+                "url": f"https://register.gelectriic.com/v1/bootstrap/{secret}" + ("?replace=true" if replace else ""),
                 "expires_at": invitation["expires_at"]}
 
     def bootstrap_session(self, secret: str) -> dict:
@@ -208,7 +214,7 @@ class Ledger:
             raise EnrollmentRejected("bootstrap rejected")
         with self._connect() as connection:
             row = connection.execute(
-                "SELECT s.*, i.revoked_at AS invitation_revoked, i.consumed_at AS invitation_consumed, i.purpose "
+                "SELECT s.*, i.revoked_at AS invitation_revoked, i.consumed_at AS invitation_consumed, i.purpose, i.replace_authorized "
                 "FROM bootstrap_sessions s JOIN invitations i ON i.id=s.invitation_id "
                 "WHERE s.session_hash=?", (_digest(secret),),
             ).fetchone()
@@ -217,7 +223,8 @@ class Ledger:
                 row["expires_at"] <= _now()):
             raise EnrollmentRejected("bootstrap rejected")
         return {"id": row["id"], "device": row["device"], "expires_at": row["expires_at"],
-                "repair_host_identity": row["purpose"] == "host_identity_repair"}
+                "repair_host_identity": row["purpose"] == "host_identity_repair",
+                "replace": bool(row["replace_authorized"])}
 
     def complete_bootstrap(self, secret: str, device: str, public_key: str) -> bool:
         """Consume URL after client confirms local installation and startup."""
@@ -709,7 +716,7 @@ temp="$(mktemp -d)"
 trap 'rm -rf "$temp"' EXIT HUP INT TERM
 curl -fsS --proto '=https' --max-redirs 0 'https://register.gelectriic.com/v1/bootstrap/{secret}/client.py' -o "$temp/client.py"
 printf '%s' '{secret}' > "$temp/session"
-python3 "$temp/client.py" bootstrap --device '{device}' --server-public-key '{server_key}' --token-file "$temp/session"{' --repair-host-identity' if repair_host_identity else ''}
+python3 "$temp/client.py" bootstrap --device '{device}' --server-public-key '{server_key}' --token-file "$temp/session"{' --repair' if repair_host_identity else ''}
 pub="$(wg show gway public-key)"
 printf '{{"device":"%s","public_key":"%s"}}' '{device}' "$pub" > "$temp/ack.json"
 curl -fsS --proto '=https' --max-redirs 0 -X POST -H 'Content-Type: application/json' --data-binary @"$temp/ack.json" 'https://register.gelectriic.com/v1/bootstrap/{secret}/complete' >/dev/null
@@ -727,12 +734,21 @@ curl -fsS --proto '=https' --max-redirs 0 -X POST -H 'Content-Type: application/
                 self.wfile.write(data)
 
         def do_GET(self) -> None:
+            from urllib.parse import urlsplit
+            parsed_path = urlsplit(self.path)
             bootstrap_match = re.fullmatch(
-                r"/v1/bootstrap/([A-Za-z0-9_-]{32,128})(/client\.py)?", self.path,
+                r"/v1/bootstrap/([A-Za-z0-9_-]{32,128})(/client\.py)?", parsed_path.path,
             )
             if bootstrap_match and not read_only_stage and provisioner is not None:
                 try:
                     session = provisioner.ledger.bootstrap_session(bootstrap_match.group(1))
+                    expected_query = "replace=true" if session["replace"] and not bootstrap_match.group(2) else ""
+                    if parsed_path.query != expected_query or parsed_path.fragment:
+                        raise EnrollmentRejected("bootstrap rejected")
+                    if session["replace"]:
+                        # No replacement transaction is implemented yet: never present a regular
+                        # enrollment script as a valid replacement operation.
+                        raise EnrollmentRejected("replacement bootstrap not yet supported")
                     if bootstrap_match.group(2):
                         data = Path(__file__).with_name("wireguard_satellite.py").read_bytes()
                         self._send_artifact(data, "text/x-python; charset=utf-8")
