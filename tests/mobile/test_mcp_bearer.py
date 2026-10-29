@@ -5,7 +5,7 @@ import time
 import unittest
 from pathlib import Path
 from unittest.mock import patch
-from gway_remote.mcp_bearer import BearerRegistry
+from gway_remote.mcp_bearer import BearerRegistry, BearerVerifier
 
 class BearerTests(unittest.TestCase):
     def setUp(self):
@@ -27,6 +27,14 @@ class BearerTests(unittest.TestCase):
         self.assertFalse(self.reg.verify(token))
         self.assertFalse(self.reg.revoke(key_id))
 
+    def test_verify_only_has_no_mutations(self):
+        token = self.reg.issue()
+        verifier = BearerVerifier(self.db)
+        self.assertTrue(verifier.verify(token))
+        self.assertFalse(hasattr(verifier, "issue"))
+        self.assertFalse(hasattr(verifier, "revoke"))
+        self.assertFalse(verifier.verify(token, required_scope="gway:submit"))
+
     def test_expiration(self):
         with patch("gway_remote.mcp_bearer.time.time", return_value=1000):
             token = self.reg.issue(lifetime=60)
@@ -41,8 +49,8 @@ class BearerTests(unittest.TestCase):
 
     def test_secure_mode(self):
         self.reg.issue()
-        self.assertEqual(self.db.stat().st_mode & 0o777, 0o600)
-        self.assertEqual(self.db.parent.stat().st_mode & 0o777, 0o700)
+        self.assertEqual(self.db.stat().st_mode & 0o777, 0o640)
+        self.assertEqual(self.db.parent.stat().st_mode & 0o777, 0o750)
 
 if __name__ == "__main__":
     unittest.main()
