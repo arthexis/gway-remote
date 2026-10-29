@@ -716,7 +716,7 @@ temp="$(mktemp -d)"
 trap 'rm -rf "$temp"' EXIT HUP INT TERM
 curl -fsS --proto '=https' --max-redirs 0 'https://register.gelectriic.com/v1/bootstrap/{secret}/client.py' -o "$temp/client.py"
 printf '%s' '{secret}' > "$temp/session"
-python3 "$temp/client.py" bootstrap --device '{device}' --server-public-key '{server_key}' --token-file "$temp/session"{' --repair-host-identity' if repair_host_identity else ''}
+python3 "$temp/client.py" bootstrap --device '{device}' --server-public-key '{server_key}' --token-file "$temp/session"{' --repair' if repair_host_identity else ''}
 pub="$(wg show gway public-key)"
 printf '{{"device":"%s","public_key":"%s"}}' '{device}' "$pub" > "$temp/ack.json"
 curl -fsS --proto '=https' --max-redirs 0 -X POST -H 'Content-Type: application/json' --data-binary @"$temp/ack.json" 'https://register.gelectriic.com/v1/bootstrap/{secret}/complete' >/dev/null
