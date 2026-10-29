@@ -11,6 +11,11 @@ ExecStart=/usr/bin/ssh -F /etc/gway-mcp-gateway/ssh-config -N -T -o BatchMode=ye
 Restart=on-failure
 RestartSec=10
 NoNewPrivileges=true
+UMask=0077
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
 ProtectSystem=strict
 ProtectHome=true
 PrivateTmp=true
