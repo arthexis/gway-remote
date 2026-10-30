@@ -148,7 +148,12 @@ def deploy_reports(sha: str) -> None:
 
 
 def deploy_agent_ops(sha: str) -> None:
-    """Install a pinned Agent Ops CLI without running Codex or adopting credentials."""
+    """Deploy pinned Agent Ops through its canonical, owner-managed wrapper.
+
+    Remote does not build virtualenvs or switch the agent executable. The owner
+    installer serializes activation, maintains rollback links and verifies the
+    installed entrypoint. Remote independently verifies the resulting command.
+    """
     with tempfile.TemporaryDirectory(prefix="agent-ops-deploy-") as directory:
         source = Path(directory) / "source"
         subprocess.run(["git", "clone", "--quiet", "--no-checkout",
@@ -160,38 +165,18 @@ def deploy_agent_ops(sha: str) -> None:
                                          text=True, timeout=20).strip()
         if actual.lower() != sha.lower():
             raise ValueError("Agent Ops checkout SHA mismatch")
-        # Keep installed releases independent of the operator's CODEX_HOME.
-        prefix = Path.home() / ".local/share/gway-agent-ops"
-        releases = prefix / "releases"
-        destination = releases / sha.lower()
-        bin_dir = Path.home() / ".local/bin"
-        entry = bin_dir / "agent"
-        if not destination.exists():
-            releases.mkdir(parents=True, exist_ok=True)
-            # Build in the final location: pip console scripts embed the venv
-            # interpreter's absolute path, so renaming a venv is unsafe.
-            try:
-                subprocess.run([sys.executable, "-m", "venv", str(destination)],
-                               check=True, timeout=90)
-                subprocess.run([str(destination / "bin/pip"), "install", "--no-deps", str(source)],
-                               check=True, timeout=300)
-                subprocess.run([str(destination / "bin/agent"), "--help"], check=True, timeout=30)
-            except Exception:
-                import shutil
-                shutil.rmtree(destination, ignore_errors=True)
-                raise
-        else:
-            subprocess.run([str(destination / "bin/agent"), "--help"], check=True, timeout=30)
-        bin_dir.mkdir(parents=True, exist_ok=True)
-        # Atomic update: the existing CLI remains in place until the replacement is ready.
-        import uuid
-        temporary = bin_dir / (".agent-" + uuid.uuid4().hex)
-        try:
-            temporary.symlink_to(destination / "bin/agent")
-            os.replace(temporary, entry)
-        finally:
-            temporary.unlink(missing_ok=True)
-        # Deliberately do not run agent adopt, Codex, or issue execution here.
+        if not (source / "deploy.sh").is_file():
+            raise RuntimeError("Agent Ops canonical deploy.sh unavailable")
+        subprocess.run(["sh", "./deploy.sh", "--expected-sha", sha.lower()],
+                       cwd=source, check=True, timeout=600)
+        entry = Path.home() / ".local/bin/agent"
+        prefix = Path.home() / ".local/share/gway-agent-ops/releases"
+        expected = prefix / sha.lower() / "bin/agent"
+        if not entry.is_symlink() or entry.resolve(strict=True) != expected:
+            raise RuntimeError("Agent Ops installed command does not match approved SHA")
+        for option in ("--help", "--version"):
+            subprocess.run([str(entry), option], check=True, timeout=30,
+                           stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
 
 def deploy_ap_kiosk(sha: str) -> None:
