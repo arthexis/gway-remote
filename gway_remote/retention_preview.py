@@ -137,7 +137,11 @@ def preview(repository=None, *, home=None, roots=None):
                         entry["protected"].append({"link": str(link), "target": str(ancestor)})
                 elif link.exists():
                     entry["errors"].append("unexpected non-link executable: " + str(link))
-            for release in sorted(directory.iterdir(), key=lambda p: p.name):
+            release_entries = sorted(directory.iterdir(), key=lambda p: p.name)
+            if len(release_entries) > 256:
+                entry["errors"].append("release count limit exceeded (256)")
+                continue
+            for release in release_entries:
                 if release.is_symlink():
                     entry["errors"].append("symlink release skipped: " + release.name)
                     continue
