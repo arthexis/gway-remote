@@ -24,7 +24,9 @@ class AgentOpsDeploymentTests(unittest.TestCase):
         source = inspect.getsource(cli.deploy_agent_ops)
         self.assertIn("git", source)
         self.assertIn("Agent Ops checkout SHA mismatch", source)
-        self.assertIn("os.replace", source)
+        self.assertIn("sh\", \"./deploy.sh", source)
+        self.assertNotIn("os.replace", source)
+        self.assertNotIn("venv", source)
         self.assertNotIn('["agent", "issue"', source)
         self.assertNotIn('["agent", "adopt"', source)
 
