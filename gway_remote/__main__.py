@@ -325,6 +325,10 @@ def main() -> None:
     logs_parser.add_argument("--lines", type=int, default=None)
     report_parser = subparsers.add_parser("report-bundle", help="Export sanitized artifact report")
     report_parser.add_argument("--output", required=True)
+    retention_parser = subparsers.add_parser("retention", help="Read-only managed release retention preview")
+    retention_parser.add_argument("repository", nargs="?", choices=[name for name, _ in DEPLOYMENT_TARGETS])
+    retention_parser.add_argument("--dry-run", action="store_true", help="Explicit preview (always read-only)")
+    retention_parser.add_argument("--json", action="store_true")
     deployments_parser = subparsers.add_parser("deployments", help="Inspect configured appliance deployments")
     deployments_parser.add_argument("repository", nargs="?", choices=[name for name, _ in DEPLOYMENT_TARGETS])
     deployments_parser.add_argument("--json", action="store_true")
@@ -721,6 +725,14 @@ def main() -> None:
             print(json.dumps(report(GitHub(), attempts=attempted_shas()), indent=2, sort_keys=True))
         except Exception as exc:
             parser.exit(1, f"gway-remote: reconciliation unavailable: {exc}\n")
+        return
+    if args.command == "retention":
+        from .retention_preview import preview, format_preview
+        try:
+            result = preview(args.repository)
+            print(json.dumps(result, indent=2, sort_keys=True) if args.json else format_preview(result))
+        except (OSError, ValueError, RuntimeError) as exc:
+            parser.exit(1, f"gway-remote: retention preview unavailable: {exc}\n")
         return
     if args.command == "deployments":
         from .deployments import inventory, format_inventory

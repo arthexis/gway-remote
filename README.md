@@ -108,6 +108,30 @@ represents the last attempt state update, not necessarily its start time.
 GitHub access is required to read the latest main revisions. The journal
 keeps only the most recent attempt per target, not a full history.
 
+## Managed release retention preview (issue #306, read-only)
+
+```sh
+gway-remote retention --dry-run
+gway-remote retention ocpp-csms --json
+gway-remote retention gway-agent-ops --json
+```
+
+This initial implementation inspects only fixed managed release locations from the
+approved deployment target registry. It reports release directories, allocated
+regular-file bytes, activation/current/previous/executable link references, and
+unsafe or missing evidence. An `unverified` release is **not** safe to remove:
+the preview does not yet prove runtime service/process references, verified
+rollback eligibility, shared dependency consumers, or owner lock state.
+`potential_bytes` is an inventory aid, **not a reclaimable-space estimate**.
+
+No deletion, install, service restart, lock acquisition, or network call is
+performed. Every discovered release has `deletable: false`, and
+`deletion_enabled: false` remains mandatory until owner-side verification and
+separate acceptance. Repositories with unknown layouts are reported
+`unsupported`; missing installs are `absent`. The command accepts no custom
+root paths. Run on the actual managed node as the owning appliance user
+for meaningful results; do not treat a preview from Watchtower as a remote probe.
+
 ## Local appliance status
 
 Run `python3 -m gway_remote status` or `python3 -m gway_remote status --json`.
