@@ -191,53 +191,9 @@ class OperationViewModel(
             apiHealth = SystemCheck()
             systemStatus = SystemCheck()
         }
-        if (id == "tasks") {
-            taskDetailRequest++
-            taskDetail = null
-            taskDetailLoading = false
-            taskDetailError = null
-            taskDetailSelection = null
-        }
     }
     fun move(id: String, index: Int) { panels = panels.move(id, index) }
     fun input(id: String, key: String, value: String) { panels = panels.input(id, key, value) }
-    var taskDetail by mutableStateOf<String?>(null)
-        private set
-    var taskDetailLoading by mutableStateOf(false)
-        private set
-    var taskDetailError by mutableStateOf<String?>(null)
-        private set
-    var taskDetailSelection by mutableStateOf<String?>(null)
-        private set
-    private var taskDetailRequest = 0L
-
-    fun inspectTask(taskId: String) {
-        val request = OperationRequests.explicit("task-detail", mapOf("task_id" to taskId)) ?: return
-        if (panels.panels.none { it.id == "tasks" }) return
-        val selection = ++taskDetailRequest
-        taskDetailSelection = taskId
-        taskDetailLoading = true
-        taskDetailError = null
-        taskDetail = null
-        val (endpoint, token) = credentials()
-        requestScope.launch {
-            try {
-                val response = runner.execute(endpoint, token, request)
-                if (selection == taskDetailRequest && panels.panels.any { it.id == "tasks" }) {
-                    taskDetail = response.toString(2)
-                    taskDetailLoading = false
-                }
-            } catch (e: CancellationException) {
-                if (selection == taskDetailRequest) taskDetailLoading = false
-                throw e
-            } catch (e: Exception) {
-                if (selection == taskDetailRequest && panels.panels.any { it.id == "tasks" }) {
-                    taskDetailError = e.message ?: "Task inspection failed"
-                    taskDetailLoading = false
-                }
-            }
-        }
-    }
     fun selectSimulatorPeer(host: String, port: String) {
         panels = panels.open("simulator").state
             .input("simulator", "host", host)

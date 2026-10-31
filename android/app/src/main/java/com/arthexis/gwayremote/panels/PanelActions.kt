@@ -18,19 +18,7 @@ internal fun PanelActions(
     when (spec.policy) {
         ExecutionPolicy.AUTO_READ -> Unit // Pull-to-refresh owns safe reads.
         ExecutionPolicy.EXPLICIT_INPUT -> {
-            if (panel.id == "task-detail") {
-                val taskId = panel.inputs["task_id"].orEmpty()
-                OutlinedTextField(
-                    value = taskId,
-                    onValueChange = { onInput(panel.id, "task_id", it) },
-                    label = { Text("Task UUID") },
-                    singleLine = true
-                )
-                Button(
-                    enabled = !panel.loading && TASK_UUID.matches(taskId),
-                    onClick = { onExecute(panel.id, mapOf("task_id" to taskId)) }
-                ) { Text("Inspect task") }
-            } else if (panel.id == "csms-view") {
+            if (panel.id == "csms-view") {
                 val views = listOf("status", "chargers", "charge-points", "transactions",
                     "events", "alerts", "rfid-report", "report")
                 val selected = panel.inputs["view"] ?: "status"
