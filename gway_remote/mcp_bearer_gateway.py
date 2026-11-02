@@ -63,6 +63,10 @@ class Handler(BaseHTTPRequestHandler):
             return self.reject(401)
         if self.headers.get("Content-Type", "").split(";", 1)[0].strip().lower() != "application/json":
             return self.reject(415)
+        if (self.headers.get("Transfer-Encoding") is not None
+                or len(self.headers.get_all("Content-Length", [])) != 1
+                or len(self.headers.get_all("Content-Type", [])) != 1):
+            return self.reject(400)
         try:
             length = int(self.headers.get("Content-Length", ""))
         except ValueError:

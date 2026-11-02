@@ -10,9 +10,13 @@ from html import escape
 import hmac
 import secrets
 import time
+import threading
+from functools import wraps
 from urllib.parse import urlencode, urlsplit
 
-from .mcp_bearer import BearerRegistry
+from .mcp_bearer import BearerRegistry, _lookup
+
+MAX_PENDING = 1024
 
 RESOURCE = "https://remote.arthexis.com/mcp"
 
@@ -53,6 +57,14 @@ def _html(form_token, error=""):
             "<button type='submit'>Connect</button></form></main></body></html>")
 
 
+def _serialized(method):
+    @wraps(method)
+    def call(self, *args, **kwargs):
+        with self._lock:
+            return method(self, *args, **kwargs)
+    return call
+
+
 class LinkFlow:
     """Ephemeral browser state; no token retained in session state."""
     def __init__(self, registry, *, client_id, redirect_uri, resource=RESOURCE):
@@ -64,9 +76,16 @@ class LinkFlow:
         self.client_id = client_id
         self.redirect_uri = redirect_uri
         self.resource = resource
+        self._lock = threading.RLock()
         self.pending = {}
         self.codes = {}
 
+    def _purge(self):
+        now = time.monotonic()
+        self.pending = {k: v for k, v in self.pending.items() if v[3] > now}
+        self.codes = {k: v for k, v in self.codes.items() if v[1] > now}
+
+    @_serialized
     def begin(self, *, client_id, redirect_uri, resource, response_type,
               code_challenge, code_challenge_method, state, scope):
         if client_id != self.client_id or not _safe_redirect(redirect_uri, self.redirect_uri):
@@ -79,11 +98,15 @@ class LinkFlow:
             raise ValueError("invalid_pkce")
         if not isinstance(state, str) or not 8 <= len(state) <= 2048:
             raise ValueError("invalid_state")
+        self._purge()
+        if len(self.pending) + len(self.codes) >= MAX_PENDING:
+            raise ValueError("link_capacity_reached")
         session = secrets.token_urlsafe(32)
         csrf = secrets.token_urlsafe(32)
         self.pending[session] = (csrf, code_challenge, state, time.monotonic() + 300)
         return session, _html(csrf)
 
+    @_serialized
     def connect(self, session, csrf, bearer):
         pending = self.pending.pop(session, None)
         if pending is None or time.monotonic() > pending[3]:
@@ -93,10 +116,11 @@ class LinkFlow:
         if not self.registry.verify(bearer):
             raise ValueError("invalid_bearer")
         code = secrets.token_urlsafe(40)
-        self.codes[hashlib.sha256(code.encode()).digest()] = (pending[1], time.monotonic() + 60)
+        self.codes[hashlib.sha256(code.encode()).digest()] = (pending[1], time.monotonic() + 60, bearer.split("_", 2)[1])
         return self.redirect_uri + ("&" if "?" in self.redirect_uri else "?") + urlencode(
             {"code": code, "state": pending[2], "iss": "https://remote.arthexis.com"})
 
+    @_serialized
     def redeem(self, *, client_id, code, redirect_uri, code_verifier, grant_type, resource):
         if client_id != self.client_id or redirect_uri != self.redirect_uri or resource != self.resource or grant_type != "authorization_code":
             raise ValueError("invalid_grant")
@@ -107,5 +131,6 @@ class LinkFlow:
             raise ValueError("invalid_grant")
         # A separate read-only credential is minted after console bearer proof.
         # These credentials carry only gway:read. No submit/admin capability.
-        access = self.registry.issue(scope="gway:read", lifetime=3600)
-        return {"access_token": access, "token_type": "Bearer", "expires_in": 3600, "scope": "gway:read"}
+        access = self.registry.issue(scope="gway:read", lifetime=3600, parent_id=stored[2])
+        expires = _lookup(self.registry.path, access.split("_", 2)[1])[2]
+        return {"access_token": access, "token_type": "Bearer", "expires_in": max(0, expires - int(time.time())), "scope": "gway:read"}
