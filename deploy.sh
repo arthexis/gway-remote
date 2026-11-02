@@ -26,6 +26,32 @@ if [ -z "$ansible_version" ] ||
   printf '%s\n' "On Ubuntu 22.04 use: sudo apt install ansible-core (not the ansible metapackage)." >&2
   exit 1
 fi
+# Opt-in immutable staging only: do not change the installed zipapp or Mobile API.
+if [ "${1:-}" = "--stage-release" ]; then
+  shift
+  if [ "$#" -ne 0 ]; then
+    echo "Usage: ./deploy.sh --stage-release" >&2
+    exit 2
+  fi
+  state_dir="$HOME/.local/state/gway-remote"
+  if [ -L "$HOME/.local/state" ] || [ -L "$state_dir" ]; then
+    echo "Unsafe GWay Remote deployment state directory" >&2
+    exit 2
+  fi
+  (umask 077; mkdir -p "$state_dir")
+  if [ -L "$state_dir/deploy.lock" ]; then
+    echo "Unsafe GWay Remote deployment lock" >&2
+    exit 2
+  fi
+  (umask 077; : >> "$state_dir/deploy.lock")
+  exec 9<>"$state_dir/deploy.lock"
+  if ! flock -n 9; then
+    echo "GWay Remote stage operation already running" >&2
+    exit 3
+  fi
+  exec ansible-playbook "$ROOT/ansible/playbooks/stage-release.yml" -i localhost, -c local
+fi
+
 # This marker is only a hint: every fast-path check validates live artifacts.
 revision=$(git -C "$ROOT" rev-parse --verify HEAD)
 marker="$HOME/.local/state/gway-remote/deployed-commit"
