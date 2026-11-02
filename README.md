@@ -268,3 +268,29 @@ that attempt is marked installed.
 ## Agent Ops appliance deployment
 
 The appliance batch includes `arthexis/gway-agent-ops` as a fourth trusted repository. Manual `Appliance Deploy` calls `deploy-batch --now` and can install a green, merged Agent Ops main revision. The installer verifies the exact Git SHA, creates an isolated versioned Python environment under `~/.local/share/gway-agent-ops/releases/`, checks `agent --help`, and atomically updates `~/.local/bin/agent`. It does **not** adopt Codex credentials, execute GitHub issues, or start a daemon. `--now` bypasses only the quiet period, not SHA/CI verification or one-attempt policy. A separate Remote-to-Agent Ops interface and field verification are required before the mobile surface can assign the LCD Sound test issue.
+
+## Immutable backend migration — increment 1 (staging only)
+
+An explicit operator command stages a versioned CLI zipapp **without activating
+it**:
+
+```sh
+./deploy.sh --stage-release
+```
+
+The non-root operator retains an owner lock while Ansible builds a verified
+root-owned `/opt/gway-remote/releases/<full-git-SHA>/gway-remote.pyz`
+and `REVISION` marker. The staged artifact passes its independent `--help`
+probe. Repeating the same stage command checks the existing immutable release.
+Modified/untracked package sources and unsafe symlinked release directories
+are refused.
+
+The normal `./deploy.sh`, `/usr/local/bin/gway-remote`, existing deployment
+workflow, Mobile API user service, WireGuard configuration, bearer tokens,
+runtime data, and deployed-commit marker are **unchanged**. This increment
+does not activate, restart, rollback or prune. A staged release is not proof
+that the Mobile API is serving it.
+
+Later increments will introduce health-gated `current`/`previous` cutover,
+rollback and finally `--prune`. Do not manually replace the live executable
+with a staged zipapp.
