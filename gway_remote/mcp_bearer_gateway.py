@@ -11,6 +11,8 @@ from .mcp_bearer import BearerVerifier
 
 MAX_BODY = 65536
 MAX_RESPONSE = 262144
+# Agent Ops read adapters may take 20 seconds; allow bounded bridge overhead.
+UPSTREAM_TIMEOUT = 30
 ALLOWED_METHODS = frozenset({"initialize", "notifications/initialized", "tools/list", "tools/call"})
 ALLOWED_TOOLS = frozenset({"agent_list_issues", "agent_status", "agent_preview", "agent_observe",
     "github_workflow_runs", "github_workflow_status", "github_workflow_errors"})
@@ -83,7 +85,7 @@ class Handler(BaseHTTPRequestHandler):
                    "MCP-Protocol-Version": "2025-03-26"}
         req = Request(self.server.upstream, raw, headers, method="POST")
         try:
-            with self.server.opener.open(req, timeout=8) as response:
+            with self.server.opener.open(req, timeout=UPSTREAM_TIMEOUT) as response:
                 status = response.status
                 body = response.read(MAX_RESPONSE + 1)
                 typ = response.headers.get("Content-Type", "application/json")
