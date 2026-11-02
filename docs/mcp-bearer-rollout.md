@@ -5,7 +5,9 @@ creates restricted Linux users/groups and directories and installs an inert
 systemd unit. It does not start/enable the service or modify Nginx.
 
 ## Preconditions
-- Confirm the package is importable by /usr/local/bin/python3.
+- Confirm `/usr/bin/python3` is available. The dedicated MCP runtime is staged
+  from an exact reviewed Git SHA under `/opt/gway-mcp/releases/SHA`, independently
+  of the installed global zipapp and site packages.
 - Independently configure and verify host-identity-pinned private forwarding
   from Watchtower 127.0.0.1:19011/mcp through WireGuard/SSH to gway-001
   127.0.0.1:8770/mcp. This PR does NOT create the bridge.
@@ -17,9 +19,9 @@ systemd unit. It does not start/enable the service or modify Nginx.
 - Verify that the gateway cannot write DB or issue a bearer.
 
 ## Staging (explicit operator-approved Watchtower action)
-    sudo sh deploy/mcp-bearer/stage.sh
-    sudo -u gway-mcp-auth gway-remote bearer issue --days 30
-    sudo -u gway-mcp-auth gway-remote bearer revoke KEY_ID
+    sudo sh deploy/mcp-bearer/stage.sh EXACT_REVIEWED_COMMIT_SHA
+    sudo -u gway-mcp-auth /usr/bin/python3 -I /opt/gway-mcp/current/run.py bearer issue --days 30
+    sudo -u gway-mcp-auth /usr/bin/python3 -I /opt/gway-mcp/current/run.py bearer revoke KEY_ID
 
 Use a secure interactive terminal. Never paste bearer secrets into GitHub,
 ChatGPT, URL query parameters, logs or shell command arguments.
@@ -80,10 +82,33 @@ SSH authorized_keys permitopen restricts destination but cannot alone
 restrict every local listening address; Watchtower's -L explicitly binds
 127.0.0.1 and must be verified on the live host.
 
-Do not stage if the installed /usr/local/bin/python3 cannot import
-gway_remote.mcp_bearer_gateway. The staging script now checks this before
-changing users or writing service files. It still does not create a bridge
-key or an OAuth/MCP bearer.
+The stage script requires an exact 40-character reviewed commit SHA and exports
+only committed package and deployment files. It tests imports with the actual
+`/usr/bin/python3 -I` launcher before changing users or units. It does not need
+pip, network downloads, `/usr/local/bin/python3`, global site packages or a
+replacement global `gway-remote`. Service users cannot modify root-owned code.
+The release contains `manifest.json` with its commit and per-file SHA256 values;
+a modified existing release is rejected. No bridge key or OAuth/MCP bearer is
+created by staging.
+
+For a separately approved gway-001 backend runtime only (no users, units or
+service actions), use:
+
+    sudo /usr/bin/python3 -I scripts/stage-mcp-runtime.py --revision EXACT_REVIEWED_COMMIT_SHA
+    /usr/bin/python3 -I /opt/gway-mcp/current/run.py --check
+
+Point the dedicated backend unit at `/usr/bin/python3 -I
+/opt/gway-mcp/current/run.py mcp_http` with its independent protected environment.
+The staging helper supports `--prefix` for hermetic packaging validation. The
+production units use the fixed `/opt/gway-mcp` prefix.
+
+`current` selects the staged release for the next service start; an existing
+process keeps running. `previous` retains the preceding selected release and
+idempotent restaging does not overwrite it. Before changing a selection, record
+the old link. A separately authorized rollback stops only the MCP services,
+atomically replaces `current` with a link to the recorded prior release, and
+starts only those services again. Staging itself never starts, enables or
+restarts a service and never edits Nginx. Keep old releases for rollback.
 
 Use root:gway-mcp-read 0640 for /etc/gway-mcp-gateway/backend.env
 and verify that the gateway service user can read it, while other users
