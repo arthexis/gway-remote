@@ -1,0 +1,204 @@
+---
+# Stage-only immutable CLI. Does not change /usr/local, runtime services or data.
+- name: Stage a verified immutable GWay Remote zipapp
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  vars:
+    remote_stage_source: "{{ playbook_dir }}/../.."
+    remote_stage_root: /opt/gway-remote
+  tasks:
+    - name: Require non-root operator and canonical stage root
+      ansible.builtin.assert:
+        that:
+          - lookup('pipe', 'id -u') | int != 0
+          - remote_stage_root == '/opt/gway-remote'
+
+    - name: Resolve source Git SHA
+      ansible.builtin.command:
+        argv: [git, -C, "{{ remote_stage_source }}", rev-parse, --verify, HEAD]
+      changed_when: false
+      register: remote_stage_commit
+
+    - name: Require complete SHA
+      ansible.builtin.assert:
+        that: remote_stage_commit.stdout is match('^[0-9a-f]{40}$')
+
+    - name: Ensure shipped package is unchanged from the commit
+      ansible.builtin.command:
+        argv:
+          - git
+          - -C
+          - "{{ remote_stage_source }}"
+          - status
+          - --porcelain
+          - --untracked-files=all
+          - --
+          - gway_remote
+      changed_when: false
+      register: remote_stage_dirty
+
+    - name: Reject dirty or untracked package files
+      ansible.builtin.assert:
+        that: remote_stage_dirty.stdout | trim == ''
+
+    - name: Select immutable release paths
+      ansible.builtin.set_fact:
+        remote_stage_releases: "{{ remote_stage_root }}/releases"
+        remote_stage_target: "{{ remote_stage_root }}/releases/{{ remote_stage_commit.stdout }}"
+
+    - name: Inspect stage root and releases for unsafe links
+      become: true
+      ansible.builtin.stat:
+        path: "{{ item }}"
+        follow: false
+      loop:
+        - "{{ remote_stage_root }}"
+        - "{{ remote_stage_root }}/releases"
+      register: remote_stage_parents
+
+    - name: Reject unsafe existing parents
+      ansible.builtin.assert:
+        that:
+          - not item.stat.exists or
+            ((item.stat.isdir | default(false)) and
+             not (item.stat.islnk | default(false)))
+      loop: "{{ remote_stage_parents.results }}"
+
+    - name: Prepare root-owned immutable release directory
+      become: true
+      ansible.builtin.file:
+        path: "{{ remote_stage_releases }}"
+        state: directory
+        owner: root
+        group: root
+        mode: '0755'
+        follow: false
+
+    - name: Inspect existing immutable release
+      become: true
+      ansible.builtin.stat:
+        path: "{{ remote_stage_target }}"
+        follow: false
+      register: remote_stage_existing
+
+    - name: Reject unsafe existing release entry
+      ansible.builtin.assert:
+        that:
+          - not remote_stage_existing.stat.exists or
+            ((remote_stage_existing.stat.isdir | default(false)) and
+             not (remote_stage_existing.stat.islnk | default(false)))
+
+    - name: Create a private unpublished stage directory
+      become: true
+      ansible.builtin.tempfile:
+        state: directory
+        path: "{{ remote_stage_releases }}"
+        prefix: .staging-
+      register: remote_stage_temp
+      when: not remote_stage_existing.stat.exists
+
+    - name: Build and verify new release
+      when: not remote_stage_existing.stat.exists
+      block:
+        - name: Copy versioned package to unpublished staging area
+          become: true
+          ansible.builtin.copy:
+            src: "{{ remote_stage_source }}/gway_remote/"
+            dest: "{{ remote_stage_temp.path }}/package/gway_remote/"
+            owner: root
+            group: root
+            mode: preserve
+
+        - name: Write zipapp entrypoint
+          become: true
+          ansible.builtin.copy:
+            dest: "{{ remote_stage_temp.path }}/package/__main__.py"
+            content: "from gway_remote.__main__ import main\nmain()\n"
+            owner: root
+            group: root
+            mode: '0644'
+
+        - name: Build release-local Python zipapp
+          become: true
+          ansible.builtin.command:
+            argv:
+              - /usr/bin/python3
+              - -m
+              - zipapp
+              - "{{ remote_stage_temp.path }}/package"
+              - -p
+              - /usr/bin/env python3
+              - -o
+              - "{{ remote_stage_temp.path }}/gway-remote.pyz"
+
+        - name: Mark zipapp executable
+          become: true
+          ansible.builtin.file:
+            path: "{{ remote_stage_temp.path }}/gway-remote.pyz"
+            mode: '0755'
+
+        - name: Record staged revision
+          become: true
+          ansible.builtin.copy:
+            dest: "{{ remote_stage_temp.path }}/REVISION"
+            content: "{{ remote_stage_commit.stdout }}\n"
+            owner: root
+            group: root
+            mode: '0644'
+
+        - name: Verify staged zipapp independently of installed CLI
+          become: true
+          ansible.builtin.command:
+            argv: [/usr/bin/python3, "{{ remote_stage_temp.path }}/gway-remote.pyz", --help]
+          changed_when: false
+
+        - name: Publish immutable stage without activating it
+          become: true
+          ansible.builtin.command:
+            argv: [mv, -T, --, "{{ remote_stage_temp.path }}", "{{ remote_stage_target }}"]
+          changed_when: true
+      always:
+        - name: Remove unpublished temporary stage on error
+          become: true
+          ansible.builtin.file:
+            path: "{{ remote_stage_temp.path }}"
+            state: absent
+          when: remote_stage_temp.path is defined
+
+    - name: Validate existing or newly staged revision marker
+      become: true
+      ansible.builtin.slurp:
+        src: "{{ remote_stage_target }}/REVISION"
+      register: remote_stage_manifest
+
+    - name: Require marker to match the requested commit
+      ansible.builtin.assert:
+        that: (remote_stage_manifest.content | b64decode | trim) == remote_stage_commit.stdout
+
+    - name: Verify immutable zipapp structure and CLI help
+      become: true
+      ansible.builtin.command:
+        argv:
+          - /usr/bin/python3
+          - -c
+          - |
+            import pathlib, sys, zipfile
+            path = pathlib.Path(sys.argv[1])
+            assert path.is_file() and not path.is_symlink()
+            assert zipfile.is_zipfile(path)
+            with zipfile.ZipFile(path) as archive:
+                assert '__main__.py' in archive.namelist()
+                assert 'gway_remote/__main__.py' in archive.namelist()
+          - "{{ remote_stage_target }}/gway-remote.pyz"
+      changed_when: false
+
+    - name: Verify staged zipapp command
+      become: true
+      ansible.builtin.command:
+        argv: [/usr/bin/python3, "{{ remote_stage_target }}/gway-remote.pyz", --help]
+      changed_when: false
+
+    - name: Confirm stage-only completion
+      ansible.builtin.debug:
+        msg: "Verified staged GWay Remote {{ remote_stage_target }} (NOT ACTIVATED)"
