@@ -37,21 +37,30 @@ class BearerRegistry:
                 key_id TEXT PRIMARY KEY, digest BLOB NOT NULL,
                 scope TEXT NOT NULL, expires_at INTEGER NOT NULL,
                 revoked_at INTEGER)""")
+            con.execute("CREATE TABLE IF NOT EXISTS delegations (key_id TEXT PRIMARY KEY, parent_id TEXT NOT NULL)")
             con.commit()
         except Exception:
             con.close()
             raise
         return con
 
-    def issue(self, *, scope="gway:read", lifetime=DEFAULT_LIFETIME):
+    def issue(self, *, scope="gway:read", lifetime=DEFAULT_LIFETIME, parent_id=None):
         if scope not in SCOPES or not isinstance(lifetime, int) or not 60 <= lifetime <= 90 * 86400:
             raise ValueError("invalid_scope_or_lifetime")
+        expires_at = int(time.time()) + lifetime
+        if parent_id is not None:
+            parent = _lookup(self.path, parent_id)
+            if not parent or parent[3] is not None or parent[2] <= int(time.time()) or parent[1] != scope:
+                raise ValueError("invalid_parent_credential")
+            expires_at = min(expires_at, parent[2])
         key_id = secrets.token_hex(12)
         secret = secrets.token_urlsafe(32)
         credential = TOKEN_PREFIX + key_id + "_" + secret
         with self._db() as con:
             con.execute("INSERT INTO credentials VALUES (?, ?, ?, ?, NULL)",
-                        (key_id, _digest(secret), scope, int(time.time()) + lifetime))
+                        (key_id, _digest(secret), scope, expires_at))
+            if parent_id is not None:
+                con.execute("INSERT INTO delegations VALUES (?, ?)", (key_id, parent_id))
         return credential
 
     def verify(self, credential, *, required_scope="gway:read"):
@@ -88,8 +97,26 @@ def _lookup(path, key_id):
     if path.stat().st_mode & 0o007:
         raise ValueError("unsafe_registry_permissions")
     with sqlite3.connect("file:" + str(path.resolve()) + "?mode=ro", uri=True, timeout=3) as con:
-        return con.execute("SELECT digest,scope,expires_at,revoked_at FROM credentials WHERE key_id=?",
-                           (key_id,)).fetchone()
+        row = con.execute("SELECT digest,scope,expires_at,revoked_at FROM credentials WHERE key_id=?",
+                          (key_id,)).fetchone()
+        # Legacy console-only registries have no delegation table. New OAuth
+        # credentials retain their proof lineage, so revocation/expiry of any
+        # ancestor invalidates descendants even after service restart.
+        if not row or not con.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='delegations'").fetchone():
+            return row
+        seen = set()
+        current = key_id
+        while True:
+            if current in seen or len(seen) >= 32:
+                return None
+            seen.add(current)
+            parent = con.execute("SELECT parent_id FROM delegations WHERE key_id=?", (current,)).fetchone()
+            if not parent:
+                return row
+            current = parent[0]
+            ancestor = con.execute("SELECT scope,expires_at,revoked_at FROM credentials WHERE key_id=?", (current,)).fetchone()
+            if not ancestor or ancestor[0] != row[1] or ancestor[1] <= int(time.time()) or ancestor[2] is not None:
+                return None
 
 
 class BearerVerifier:

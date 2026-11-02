@@ -44,18 +44,27 @@ class Handler(BaseHTTPRequestHandler):
         return "" if morsel is None else morsel.value
 
     def form(self):
+        if (self.headers.get("Transfer-Encoding") is not None
+                or any(len(self.headers.get_all(name, [])) != 1 for name in ("Content-Length", "Content-Type"))
+                or len(self.headers.get_all("Cookie", [])) > 1):
+            return None
         try:
             size = int(self.headers.get("Content-Length", ""))
         except ValueError:
-            return {}
+            return None
         if not 0 < size <= 8192 or self.headers.get("Content-Type", "").split(";")[0] != "application/x-www-form-urlencoded":
-            return {}
+            return None
         try:
-            return {k: v[0] for k, v in parse_qs(self.rfile.read(size).decode("utf-8"), keep_blank_values=True).items()}
+            values = parse_qs(self.rfile.read(size).decode("utf-8"), keep_blank_values=True)
+            if any(len(v) != 1 for v in values.values()):
+                return None
+            return {k: v[0] for k, v in values.items()}
         except (ValueError, UnicodeError):
-            return {}
+            return None
 
     def do_GET(self):
+        if len(self.headers.get_all("Cookie", [])) > 1:
+            return self.respond(400)
         path = urlsplit(self.path)
         if path.path == "/.well-known/oauth-authorization-server":
             data = {"issuer": ISSUER, "authorization_endpoint": ISSUER + "/oauth/authorize",
@@ -83,6 +92,8 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_POST(self):
         params = self.form()
+        if params is None:
+            return self.respond(400)
         if self.path == "/connect":
             try:
                 dest = self.server.link.connect(self.get_cookie(), params.get("csrf"), params.get("bearer"))

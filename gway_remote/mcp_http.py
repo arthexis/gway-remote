@@ -25,8 +25,10 @@ def handle(payload):
         if type(params) is not dict:
             return None, -32602, "Invalid params"
         requested = params.get("protocolVersion", PROTOCOL)
-        if requested != PROTOCOL:
-            return None, -32602, "Unsupported protocol version"
+        if not isinstance(requested, str) or not requested:
+            return None, -32602, "Invalid protocol version"
+        # MCP lifecycle negotiation: offer our supported version when the
+        # client requests another; the client decides whether it can use it.
         return {"protocolVersion": PROTOCOL, "capabilities": {"tools": {}},
                 "serverInfo": {"name": "gway-agent-ops", "version": "0.1.0"}}, None, None
     if method == "notifications/initialized" and "id" not in payload:
@@ -67,9 +69,12 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
 
     def _authorized(self):
+        if len(self.headers.get_all("Authorization", [])) != 1:
+            self._empty(401, WWW_Authenticate="Bearer")
+            return False
         token = os.environ.get("GWAY_MCP_BEARER_TOKEN", "")
         supplied = self.headers.get("Authorization", "")
-        if not token or not hmac.compare_digest(supplied, "Bearer " + token):
+        if not token or not hmac.compare_digest(supplied.encode("utf-8"), ("Bearer " + token).encode("utf-8")):
             self._empty(401, WWW_Authenticate="Bearer")
             return False
         # Reject ALL browser origins by default; allow only server-to-server clients.
@@ -103,6 +108,11 @@ class Handler(BaseHTTPRequestHandler):
             return
         version = self.headers.get("MCP-Protocol-Version")
         if version is not None and version != PROTOCOL:
+            self._empty(400)
+            return
+        if (self.headers.get("Transfer-Encoding") is not None
+                or len(self.headers.get_all("Content-Length", [])) != 1
+                or len(self.headers.get_all("Content-Type", [])) != 1):
             self._empty(400)
             return
         try:

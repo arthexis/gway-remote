@@ -24,6 +24,13 @@ Files: `gway_remote/mcp_link.py`, `gway_remote/mcp_link_http.py`,
   protected `/etc/gway-mcp-gateway/link.env` as
   `GWAY_MCP_OAUTH_CLIENT_ID` and `GWAY_MCP_OAUTH_REDIRECT_URI`.
   Do not use test/example callbacks in production.
+- Console proof revocation or expiry invalidates its outstanding authorization
+  codes and all derived access tokens, including after a gateway restart.
+  Access-token lifetime cannot exceed its parent proof lifetime. The registry
+  adds a delegation table when the administrator next issues a credential;
+  existing console credentials remain valid.
+- Pending sessions/codes are bounded to 1024 combined entries, expired entries
+  are reclaimed before admission, and concurrent exchanges are serialized.
 - Authorization codes/sessions are in process memory, so a restart aborts
   an in-flight login. The service runs as a single process.
 - The current flow has no refresh-token grant, dynamic registration,
