@@ -153,6 +153,12 @@
             argv: [/usr/bin/python3, "{{ remote_stage_temp.path }}/gway-remote.pyz", --help]
           changed_when: false
 
+        - name: Remove release-local build tree after zipapp validation
+          become: true
+          ansible.builtin.file:
+            path: "{{ remote_stage_temp.path }}/package"
+            state: absent
+
         - name: Publish immutable stage without activating it
           become: true
           ansible.builtin.command:
