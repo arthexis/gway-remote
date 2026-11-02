@@ -25,8 +25,10 @@ def handle(payload):
         if type(params) is not dict:
             return None, -32602, "Invalid params"
         requested = params.get("protocolVersion", PROTOCOL)
-        if requested != PROTOCOL:
-            return None, -32602, "Unsupported protocol version"
+        if not isinstance(requested, str) or not requested:
+            return None, -32602, "Invalid protocol version"
+        # MCP lifecycle negotiation: offer our supported version when the
+        # client requests another; the client decides whether it can use it.
         return {"protocolVersion": PROTOCOL, "capabilities": {"tools": {}},
                 "serverInfo": {"name": "gway-agent-ops", "version": "0.1.0"}}, None, None
     if method == "notifications/initialized" and "id" not in payload:
