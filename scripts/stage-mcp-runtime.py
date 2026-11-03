@@ -17,7 +17,7 @@ import runpy
 import sys
 sys.dont_write_bytecode = True
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-modules = ("mcp_http", "mcp_bearer_gateway", "mcp_link_http")
+modules = ("mcp_http", "mcp_bearer_gateway", "mcp_link_http", "node_registry_inventory")
 command = sys.argv.pop(1) if len(sys.argv) > 1 else ""
 if command == "--check":
     for name in modules:
@@ -25,6 +25,8 @@ if command == "--check":
     print("MCP runtime imports OK")
 elif command in modules:
     runpy.run_module("gway_remote." + command, run_name="__main__")
+elif command == "node_inventory":
+    runpy.run_module("gway_remote.node_registry_inventory", run_name="__main__")
 elif command == "bearer":
     sys.argv.insert(1, "bearer")
     runpy.run_module("gway_remote.__main__", run_name="__main__")
