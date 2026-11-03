@@ -1,4 +1,4 @@
-# Optional RTC and ambient thermometer diagnostics
+# Read-only local hardware inventory
 
 Run locally on any GWay node:
 
@@ -6,6 +6,17 @@ Run locally on any GWay node:
 gway-remote hardware
 gway-remote hardware --json
 ```
+
+This complements `gway-remote status` and `diagnose`, which report deployments
+and service health rather than general host resources. The hardware command also
+reports CPU architecture/count/current frequency, SoC temperature, device model,
+RAM total/available/used percentage, uptime, and root filesystem capacity/free
+space/used percentage using Linux procfs/sysfs and standard library reads.
+
+All host fields are best-effort and nullable if a source is absent or unreadable.
+There is no assumption that the host is a Raspberry Pi; on systems without Pi
+specific interfaces, those fields stay null. The system model or RTC sensor
+must not become a deployment prerequisite.
 
 The command inspects Linux's registered `/sys/class/rtc/rtc*` devices
 and the optional DS3231-compatible temperature sysfs input under
@@ -25,7 +36,7 @@ sysfs interface return `unavailable` with null readings and **exit successfully*
 They do not become unhealthy and no deployment gate changes. Unexpected missing,
 malformed, or inaccessible readings are ignored.
 
-The diagnostic uses read-only sysfs files; it never calls `hwclock`, modifies
+The diagnostic uses read-only sysfs/procfs files and filesystem statistics; it never calls `hwclock`, modifies
 Linux time, configures device-tree overlays, or initiates raw I²C transactions.
 No systemd unit, restart, or additional dependency is introduced.
 
