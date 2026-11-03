@@ -9,7 +9,6 @@ Personal-account repositories trigger **repository_dispatch** on this repository
 The initial job catalog is deliberately narrow:
 
 - `system-health`: read-only environment diagnostics
-- `ocpp-simulator`: isolated OCPP simulator smoke test at a pinned commit from `arthexis/ocpp-csms`
 - `lcd-sound-deploy`: deploy only the verified LCD Sound `main` SHA to Gway-001 after passing its tests; keep observer shadow-only
 - `ocpp-stage`: reserved for a future audited deploy path; **not yet enabled**
 
@@ -20,26 +19,8 @@ No event payload can specify a command, workflow, checkout URL, or host path.
 1. Register the existing `gway-001` ARM64 runner with **this repository**, using labels `self-hosted`, `Linux`, `ARM64`, `gway-001`. Stop/unregister it from `ocpp-csms` **only after migration works**.
 2. Grant each trusted caller a fine-grained GitHub token (or preferably a GitHub App installation token), with **Contents: read/write** access to `arthexis/gway-remote` sufficient to create repository dispatch events. Store it as `GWAY_REMOTE_DISPATCH_TOKEN` in the *calling* repository's Actions secrets. Never put this token in untrusted PR jobs.
 3. Configure the calling workflow to dispatch one of the approved events. Do not grant dispatch permission to fork PRs or unreviewed workflow modifications.
-4. Ensure `gway-001` has Python 3, `git`, and access to the public source checkout. The initial simulator job uses a private temporary checkout and virtualenv.
+4. Ensure `gway-001` has Python 3, `git`, and access to the public source checkout.
 5. Run `workflow_dispatch` with `system-health` first, and confirm the runner labels match.
-
-### Example caller workflow step
-
-```yaml
-- name: Dispatch simulator to gway-001
-  env:
-    GH_TOKEN: ${{ secrets.GWAY_REMOTE_DISPATCH_TOKEN }}
-    SHA: ${{ github.event.pull_request.head.sha }}
-  run: |
-    gh api repos/arthexis/gway-remote/dispatches \
-      -f event_type=ocpp-simulator \
-      -f client_payload[repository]=arthexis/ocpp-csms \
-      -f client_payload[sha]="$SHA"
-```
-
-**Security:** only enable this for trusted same-repository PR heads authored/approved by the maintainer. The dispatch API authenticates the *token*, not the provenance of `client_payload`; payload fields are untrusted. Commit ownership must be enforced by the caller and later by an authenticated GitHub App-backed dispatcher. The worker does not accept shell instructions.
-
-**CI status:** `repository_dispatch` returns an accepted request, **not** a completed result. Do not make a caller's required `CI` check depend on this request until a result callback/check-run integration is implemented. The existing `ocpp-csms` self-hosted workflow should remain active through that migration.
 
 ## Local validation
 
@@ -53,7 +34,7 @@ python3 -m gway_remote run system-health
 
 1. Verify `system-health` against the runner in this repo.
 2. Implement authenticated cross-repo result delivery and maintain the existing consolidated CI contract.
-3. Switch the `ocpp-csms` runner registration and simulator workflow after end-to-end validation.
+3. Switch the `ocpp-csms` runner registration only after end-to-end validation.
 4. Add separate approval and privilege boundaries for staging/deploying to a live appliance.
 
 ## LCD Sound deployment
@@ -161,7 +142,7 @@ from the same OS account as the deployment runner:
 ```sh
 gway-remote logs
 gway-remote logs ocpp-csms
-gway-remote logs ocpp-simulator --lines 100
+gway-remote logs ocpp-reports --lines 100
 ```
 
 The listing command shows recent log filenames. Add `--lines` to display
@@ -231,7 +212,7 @@ safety checks remain in force.
 
 After **Python checks** succeeds for a push to `main`, the **Deploy GWay Remote backend** workflow runs on the `gway-001` self-hosted runner. It verifies that the tested SHA is still the current main tip, runs unit tests again on the appliance, installs the versioned source into the system-wide `/usr/local/bin/gway-remote` zipapp, and verifies the installed CLI status schema. Superseded runs skip installation. The workflow shares the appliance concurrency group so batch deployments do not overlap.
 
-This updates the **GWay Remote CLI/backend package**, not other repositories (CSMS, LCD Sound, or simulator), and restarts the existing mobile API user service after installation, using its explicit user-bus context. A bounded authenticated health probe must succeed; otherwise the workflow attempts rollback. The runner must have permission to install the CLI (including configured noninteractive sudo if required). Failed validation prevents installation; installation or verification failures fail the workflow rather than claiming success.
+This updates the **GWay Remote CLI/backend package**, not other repositories (CSMS or LCD Sound), and restarts the existing mobile API user service after installation, using its explicit user-bus context. A bounded authenticated health probe must succeed; otherwise the workflow attempts rollback. The runner must have permission to install the CLI (including configured noninteractive sudo if required). Failed validation prevents installation; installation or verification failures fail the workflow rather than claiming success.
 
 Android APK publishing remains a separate workflow. For changes requiring both server and APK, coordinate readiness via the two workflow outcomes rather than assuming that a successful APK build implies the server has been updated.
 
@@ -261,8 +242,7 @@ continues to respect one attempt per SHA.
 
 Appliance reports show **Attempted SHA** (journal) separately from **Installed
 SHA** (read independently from a versioned release symlink when available).
-Unknown means the current installed revision cannot be verified, notably for
-the simulator. Do not infer the installed revision from an attempt, even if
+Unknown means the current installed revision cannot be verified. Do not infer the installed revision from an attempt, even if
 that attempt is marked installed.
 
 ## Agent Ops appliance deployment
