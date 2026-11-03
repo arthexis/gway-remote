@@ -64,9 +64,9 @@ class BestEffortTests(unittest.TestCase):
         self.assertEqual(self.calls, [name for name, _ in TARGETS] * 2)
 
     def test_manual_all_failure_identifies_component_and_continues(self):
-        result = execute(self.client, NOW, self.installers(("ocpp-simulator",)), self.path, deploy_all=True)
+        result = execute(self.client, NOW, self.installers(("ocpp-reports",)), self.path, deploy_all=True)
         self.assertEqual(result["decision"], "partial")
-        failed = next(item for item in result["results"] if item["name"] == "ocpp-simulator")
+        failed = next(item for item in result["results"] if item["name"] == "ocpp-reports")
         self.assertEqual(failed["sha"], SHA)
         self.assertEqual(failed["status"], "failed")
         self.assertIn("simulated failure", failed["reason"])
@@ -86,9 +86,9 @@ class BestEffortTests(unittest.TestCase):
         self.assertEqual(len(self.calls), len(TARGETS))
 
     def test_failure_stops_batch_without_retry(self):
-        execute(self.client, NOW, self.installers(("ocpp-simulator",)), self.path)
-        self.assertEqual(self.calls, [name for name, _ in TARGETS[:next(i for i, (name, _) in enumerate(TARGETS) if name == "ocpp-simulator") + 1]])
-        self.assertEqual(read_attempts(self.path)["ocpp-simulator"]["status"], "failed")
+        execute(self.client, NOW, self.installers(("ocpp-reports",)), self.path)
+        self.assertEqual(self.calls, [name for name, _ in TARGETS[:next(i for i, (name, _) in enumerate(TARGETS) if name == "ocpp-reports") + 1]])
+        self.assertEqual(read_attempts(self.path)["ocpp-reports"]["status"], "failed")
         execute(self.client, NOW, self.installers(), self.path)
         self.assertEqual(self.calls, [name for name, _ in TARGETS])
 
