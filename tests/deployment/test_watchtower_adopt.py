@@ -9,7 +9,7 @@ from gway_remote.watchtower_enrollment import Ledger
 
 
 # Valid WireGuard key from operator's verified peer, not a credential.
-PUB = "tSET7tj4Zb2BPYp2qaUDPRqRgYfWtwBqEQQU7htSKh0="
+PUB = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="
 
 
 class AdoptTests(unittest.TestCase):
@@ -49,7 +49,7 @@ class AdoptTests(unittest.TestCase):
 
     def test_wrong_key_or_ambiguous_peer_fails_closed(self):
         with self.assertRaisesRegex(ValueError, "exactly once"):
-            adopt(self.ledger, node="gway-001", public_key="AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
+            adopt(self.ledger, node="gway-001", public_key="BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBA=",
                   config=self.config, runner=self.runner)
         self.config.write_text(self.config.read_text() +
                                "[Peer]\nPublicKey = " + PUB + "\nAllowedIPs = 10.90.0.3/32\n")
