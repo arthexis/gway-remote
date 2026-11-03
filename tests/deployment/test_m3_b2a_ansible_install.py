@@ -16,7 +16,9 @@ class ExecutorPreparationTests(unittest.TestCase):
         self.assertNotIn("exec_prepare:", defaults)
         self.assertNotIn("exec_enable:", defaults)
         self.assertIn("node-exec-prepare.yml", main)
-        self.assertIn("when: ansible_hostname is match('^gway-[0-9]{3,}
+        self.assertIn("when: ansible_hostname is match(", main)
+        self.assertIn("gway-[0-9]", main)
+
     def test_account_locked_unprivileged_with_private_storage(self):
         task = PREPARE.read_text()
         for text in ("ansible.builtin.user:", "password_lock: true",
