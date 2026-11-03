@@ -16,7 +16,7 @@ import kotlinx.coroutines.withContext
 import org.json.JSONObject
 
 private val allowedRepos = listOf(
-    "arthexis/ocpp-csms", "arthexis/gway-remote", "arthexis/ocpp-simulator",
+    "arthexis/ocpp-csms", "arthexis/gway-remote",
     "arthexis/gway-rfid", "arthexis/gway-ap-kiosk"
 )
 
