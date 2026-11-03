@@ -10,9 +10,8 @@ from http.cookies import SimpleCookie
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlsplit
 from .mcp_bearer import BearerRegistry
-from .mcp_link import LinkFlow, RESOURCE
+from .mcp_link import LinkFlow, RESOURCE, ISSUER
 
-ISSUER = "https://remote.arthexis.com"
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -83,10 +82,23 @@ class Handler(BaseHTTPRequestHandler):
         params = parse_qs(path.query, keep_blank_values=True)
         if any(len(v) != 1 for v in params.values()):
             return self.respond(400)
+        values = {k: v[0] for k, v in params.items()}
         try:
-            session, page = self.server.link.begin(**{k: v[0] for k, v in params.items()})
-        except (TypeError, ValueError):
-            return self.respond(400)
+            session, page = self.server.link.begin(**values)
+        except (TypeError, ValueError) as exc:
+            # Invalid clients and callback URIs must never be redirected.
+            # Valid registered clients receive RFC 9207 issuer identification
+            # on OAuth errors, not just on successful authorization codes.
+            reason = str(exc)
+            error = ("invalid_scope" if reason == "invalid_scope_or_pkce"
+                     else "invalid_request")
+            destination = self.server.link.authorization_error_redirect(
+                client_id=values.get("client_id"),
+                redirect_uri=values.get("redirect_uri"),
+                state=values.get("state"), error=error)
+            if destination is None:
+                return self.respond(400)
+            return self.respond(303, headers=[("Location", destination)])
         return self.respond(200, page, "text/html; charset=utf-8",
                             [("Set-Cookie", "gwa_link=" + session + "; Path=/; Secure; HttpOnly; SameSite=Lax; Max-Age=300")])
 

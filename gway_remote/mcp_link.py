@@ -19,6 +19,7 @@ from .mcp_bearer import BearerRegistry, _lookup
 MAX_PENDING = 1024
 
 RESOURCE = "https://remote.arthexis.com/mcp"
+ISSUER = "https://remote.arthexis.com"
 
 
 def _challenge(verifier):
@@ -118,7 +119,24 @@ class LinkFlow:
         code = secrets.token_urlsafe(40)
         self.codes[hashlib.sha256(code.encode()).digest()] = (pending[1], time.monotonic() + 60, bearer.split("_", 2)[1])
         return self.redirect_uri + ("&" if "?" in self.redirect_uri else "?") + urlencode(
-            {"code": code, "state": pending[2], "iss": "https://remote.arthexis.com"})
+            {"code": code, "state": pending[2], "iss": ISSUER})
+
+
+    def authorization_error_redirect(self, *, client_id, redirect_uri, state, error="invalid_request"):
+        """RFC 9207: return issuer on safe, client-bound OAuth error redirects.
+
+        Never redirect to a caller-supplied callback unless it exactly matches
+        the pre-registered client. Invalid clients stay local HTTP 400.
+        """
+        if (client_id != self.client_id or
+                not isinstance(redirect_uri, str) or
+                not _safe_redirect(redirect_uri, self.redirect_uri) or
+                not isinstance(state, str) or not 8 <= len(state) <= 2048):
+            return None
+        if error not in ("invalid_request", "invalid_scope", "unsupported_response_type"):
+            error = "invalid_request"
+        return self.redirect_uri + ("&" if "?" in self.redirect_uri else "?") + urlencode(
+            {"error": error, "state": state, "iss": ISSUER})
 
     @_serialized
     def redeem(self, *, client_id, code, redirect_uri, code_verifier, grant_type, resource):
