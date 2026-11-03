@@ -205,6 +205,10 @@
             state: started
 
         - name: Verify dynamic inventory can read registered hosts
+          # The inventory lives beneath /var/lib/gway-mcp-auth (0750).
+          # Authenticate via Ansible's existing sudo boundary instead of
+          # granting the operator access to the bearer credential directory.
+          become: true
           ansible.builtin.command:
             argv: [/usr/local/sbin/gway-enrolled-inventory, --list]
           changed_when: false
