@@ -11,13 +11,12 @@ class PanelHostStructureTests(unittest.TestCase):
         host = (ANDROID / "panels/OperationPanelHost.kt").read_text()
         self.assertIn("OperationPanelHost(", palette)
         self.assertNotIn("state.panels.forEachIndexed", palette)
-        self.assertNotIn('panel.id == "simulator-discover"', palette)
         self.assertNotIn('panel.id == "benchmark"', palette)
         self.assertIn("state.panels.forEachIndexed", host)
         self.assertIn("StandardPanel(", host)
         self.assertIn("PanelContent(", host)
         self.assertIn("PanelActions(", host)
-        self.assertIn("ConfirmPanelAction(", host)
+        self.assertNotIn("SimulatorUnifiedPanel(", host)
 
     def test_search_and_actions_remain_in_palette(self):
         palette = (ANDROID / "OperationPalette.kt").read_text()
