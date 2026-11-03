@@ -81,6 +81,92 @@ class ArchiveInstallerTests(unittest.TestCase):
         self.assertIn("PYTHONPATH={{ gway_remote_install_root }}", task)
         self.assertIn("changed_when: false", task)
 
+    def test_dormant_executor_installs_account_scoped_polkit_deny(self):
+        tasks = (ROOT / "ansible/roles/gway_remote/tasks/node-exec-prepare.yml").read_text()
+        main = (ROOT / "ansible/roles/gway_remote/tasks/main.yml").read_text()
+        self.assertIn("include_tasks: node-exec-prepare.yml", main)
+        self.assertIn("match('^gway-[0-9]+
+        initial = self.install()
+        cache = self.repo / "gway_remote/__pycache__"
+        cache.mkdir()
+        (cache / "node_exec_worker.cpython-311.pyc").write_bytes(b"nonsense")
+        (self.repo / "gway_remote/private.txt").write_text("untracked")
+        again = self.install()
+        self.assertFalse(again["changed"])
+        self.assertEqual(again["sha256"], initial["sha256"])
+        self.assertFalse((self.root / "gway_remote/__pycache__").exists())
+        self.assertFalse((self.root / "gway_remote/private.txt").exists())
+
+    def test_changed_package_switches_pointer_after_validation(self):
+        old = self.install()
+        (self.repo / "gway_remote/__main__.py").write_text("answer = 2\n")
+        self.commit()
+        new = self.install()
+        self.assertTrue(new["changed"])
+        self.assertNotEqual(new["sha256"], old["sha256"])
+        self.assertEqual((self.root / "gway_remote/__main__.py").read_text(),
+                         "answer = 2\n")
+        self.assertEqual((self.root / ".package-releases" / old["sha256"] /
+                          "gway_remote/__main__.py").read_text(), "answer = 1\n")
+
+    def test_pre_activation_failure_keeps_current_release(self):
+        old = self.install()
+        (self.repo / "gway_remote/__main__.py").write_text("answer = 2\n")
+        self.commit()
+        def failed():
+            raise RuntimeError("simulated failure before activation")
+        with self.assertRaisesRegex(RuntimeError, "simulated"):
+            self.install(before_activate=failed)
+        self.assertEqual((self.root / "gway_remote/__main__.py").read_text(),
+                         "answer = 1\n")
+        self.assertEqual(os.readlink(self.root / "gway_remote"),
+                         ".package-releases/" + old["sha256"] + "/gway_remote")
+
+    def test_invalid_python_cannot_be_activated(self):
+        self.install()
+        (self.repo / "gway_remote/__main__.py").write_text("def broken(:\n")
+        self.commit()
+        with self.assertRaises(SyntaxError):
+            self.install()
+        self.assertEqual((self.root / "gway_remote/__main__.py").read_text(),
+                         "answer = 1\n")
+
+    def test_legacy_directory_is_preserved_during_migration(self):
+        legacy = self.root / "gway_remote"
+        legacy.mkdir()
+        (legacy / "local").write_text("old content")
+        self.assertTrue(self.install()["changed"])
+        self.assertEqual((self.root / ".gway_remote.legacy-before-archive" /
+                          "local").read_text(), "old content")
+        self.assertTrue(legacy.is_symlink())
+
+    def test_unmanaged_symlink_is_rejected(self):
+        (self.root / "gway_remote").symlink_to("/etc")
+        with self.assertRaisesRegex(ValueError, "unmanaged"):
+            self.install()
+
+    def test_role_uses_one_archive_install_and_preserves_cli_gate(self):
+        tasks = (ROOT / "ansible/roles/gway_remote/tasks/main.yml").read_text()
+        self.assertIn("scripts/install-package-archive.py", tasks)
+        self.assertIn("changed_when: (gway_remote_source.stdout | from_json).changed | bool", tasks)
+        self.assertNotIn('src: "{{ playbook_dir }}/../gway_remote/"', tasks)
+        self.assertIn("gway_remote_source.changed or gway_remote_installer.changed", tasks)
+
+
+if __name__ == "__main__":
+    unittest.main()
+)", main)
+        self.assertIn("/etc/polkit-1/rules.d/00-gway-exec-deny.rules", tasks)
+        self.assertIn("owner: root", tasks)
+        self.assertIn('mode: "0644"', tasks)
+        self.assertIn('subject.user === "gway-exec"', tasks)
+        self.assertIn("return polkit.Result.NO;", tasks)
+        # A missing branch must not accidentally grant authorization to others.
+        rule = tasks.split("polkit.addRule(function(action, subject) {", 1)[1]
+        self.assertIn('if (subject.user === "gway-exec")', rule)
+        self.assertIn("return polkit.Result.NO;", rule)
+        self.assertNotIn("polkit.Result.YES", rule)
+
     def test_untracked_pycache_does_not_enter_archive_or_change_digest(self):
         initial = self.install()
         cache = self.repo / "gway_remote/__pycache__"
