@@ -17,8 +17,15 @@ from .watchtower_enrollment import _now
 
 def verified_host_key(path: Path) -> str:
     trusted_file(path)
-    value = Path(path).read_text(encoding="utf-8").strip()
-    return validate_public_key(value)
+    lines = Path(path).read_text(encoding="utf-8").strip().splitlines()
+    if len(lines) != 1:
+        raise ValueError("SSH host key file must contain exactly one public key")
+    fields = lines[0].split()
+    if len(fields) < 2 or fields[0] != "ssh-ed25519":
+        raise ValueError("SSH host key must be ED25519")
+    # OpenSSH host *.pub files ordinarily have a trailing hostname comment.
+    # Never interpret that comment as an authenticated identity.
+    return validate_public_key(" ".join(fields[:2]))
 
 
 def attest_in_transaction(db, node: str, host_key: str, *, dry_run: bool = False) -> str:
