@@ -26,7 +26,7 @@ def adapt_component(row: dict, *, observed_at: str | None, depth: str = "deep") 
         installation = "activated"
     else:
         installation = "unknown"
-    runtime_required = name != "ocpp-simulator"
+    runtime_required = True
     runtime = row.get("health", "unknown")
     if depth != "deep" and not bastion:
         runtime = "unknown"
