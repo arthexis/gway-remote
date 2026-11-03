@@ -60,9 +60,11 @@ def _identity(row):
     return bool(host.get("host_public_key"))
 
 
-def build(ledger=LEDGER):
+def build(ledger=LEDGER, *, probe=False):
     """Rebuild from read-only enrollment tables; never infer reachability."""
     registry = snapshot_from_path(ledger)
+    from .node_reachability import observe
+    observations = observe(ledger) if probe else {}
     result = []
     for row in registry["nodes"]:
         name = row.get("node")
@@ -82,8 +84,8 @@ def build(ledger=LEDGER):
             "registration_state": "active",
             "identity_verified": _identity(row),
             "address": str(address.ip),  # private management address, not an execution target
-            "reachable": "unknown",
-            "observed_at": None,
+            "reachable": observations.get(name, {}).get("reachable", "unknown"),
+            "observed_at": observations.get(name, {}).get("observed_at"),
             "capabilities": ["inventory"],
             "execute_available": False,
         })
@@ -143,8 +145,9 @@ def load(path=SNAPSHOT, *, require_owner=True):
                 or row.get("registration_state") != "active"
                 or row.get("registered") is not True
                 or type(row.get("identity_verified")) is not bool
-                or row.get("reachable") != "unknown"
-                or row.get("observed_at") is not None
+                or row.get("reachable") not in ("unknown", "reachable")
+                or (row.get("reachable") == "unknown" and row.get("observed_at") is not None)
+                or (row.get("reachable") == "reachable" and not isinstance(row.get("observed_at"), str))
                 or row.get("execute_available") is not False):
             raise ValueError("invalid inventory node")
         seen.add(row["node"])
@@ -160,7 +163,7 @@ def public_nodes(path=SNAPSHOT):
         "nodes": [
             {"node": row["node"], "registered": True,
              "identity_verified": row["identity_verified"],
-             "reachable": "unknown", "observed_at": None,
+             "reachable": row["reachable"], "observed_at": row["observed_at"],
              "capabilities": ["inventory"], "execute_available": False}
             for row in data["nodes"]
         ],
@@ -175,7 +178,7 @@ def ansible_inventory(path=SNAPSHOT):
             "gway_registered": True,
             "gway_identity_verified": row["identity_verified"],
             "gway_management_address": row["address"],
-            "gway_reachability": "unknown",
+            "gway_reachability": row["reachable"],
             "gway_execute_available": False,
         } for row in data["nodes"]
     }}, "all": {"children": ["gway_enrolled"]},
@@ -191,7 +194,7 @@ def capabilities(node, path=SNAPSHOT):
         raise ValueError("unregistered node")
     return {"node": node, "capabilities": ["inventory"],
             "execute_available": False, "limits": None,
-            "approval_required": True, "reachable": "unknown"}
+            "approval_required": True, "reachable": found["reachable"]}
 
 
 def main(argv=None):
@@ -205,7 +208,7 @@ def main(argv=None):
     if args.publish:
         if args.host:
             parser.error("--host requires --ansible")
-        publish(build())
+        publish(build(probe=True))
         return 0
     if args.ansible:
         data = ansible_inventory()
