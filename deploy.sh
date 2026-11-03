@@ -82,7 +82,9 @@ if [ "$#" -eq 0 ] &&
    [ -f /etc/systemd/system/gway-remote-watch.service ] &&
    [ -f /etc/systemd/system/gway-remote-watch.timer ] &&
    systemctl is-enabled --quiet gway-remote-watch.timer &&
-   systemctl is-active --quiet gway-remote-watch.timer; then
+   systemctl is-active --quiet gway-remote-watch.timer &&
+   { ! hostname -s | grep -Eq '^gway-[0-9]+$' ||
+     sudo -n -u gway-exec env PYTHONPATH=/opt/gway-remote /usr/bin/python3 -c 'import gway_remote.node_exec_worker' >/dev/null 2>&1; }; then
   if [ -n "${GWAY_REMOTE_DEPLOY_NOOP_FILE:-}" ]; then
     printf 'skipped\n' > "$GWAY_REMOTE_DEPLOY_NOOP_FILE"
   fi
