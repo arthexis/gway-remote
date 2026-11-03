@@ -52,13 +52,13 @@ class HardwareDiagnosticTests(TestCase):
         with tempfile.TemporaryDirectory() as root:
             base = Path(root)
             (base / "meminfo").write_text(
-                "MemTotal:        4000000 kB\\nMemAvailable:    1000000 kB\\n")
-            (base / "uptime").write_text("3600.25 1234.0\\n")
+                "MemTotal:        4000000 kB\nMemAvailable:    1000000 kB\n")
+            (base / "uptime").write_text("3600.25 1234.0\n")
             zone = base / "thermal/thermal_zone0"
             zone.mkdir(parents=True)
             (zone / "temp").write_text("54125")
             (base / "freq").write_text("1500000")
-            (base / "model").write_text("Raspberry Pi 4 Model B\\x00")
+            (base / "model").write_text("Raspberry Pi 4 Model B\x00")
             with patch("gway_remote.hardware_diagnostics.shutil.disk_usage") as disk:
                 disk.return_value = type("Usage", (), {
                     "total": 1000, "free": 400})()
