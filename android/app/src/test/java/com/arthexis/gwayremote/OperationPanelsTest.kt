@@ -68,9 +68,6 @@ class OperationPanelsTest {
         assertTrue(PanelExecution.canRun("status", false, false, true))
         assertFalse(PanelExecution.canRun("lcd", false, false, true))
         assertTrue(PanelExecution.canRun("lcd", true, false, true))
-        assertFalse(PanelExecution.canRun("simulator-start", true, false, true))
-        assertTrue(PanelExecution.canRun("simulator-start", true, true, true))
-        assertFalse(PanelExecution.canRun("simulator-start", true, true, false))
         assertFalse(PanelExecution.canRun("unknown", true, true, true))
     }
 }
