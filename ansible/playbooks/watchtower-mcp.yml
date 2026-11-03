@@ -65,6 +65,12 @@
         checksum_algorithm: sha256
       register: mcp_unit_before
 
+    - name: Read current OAuth unit for exact rollback
+      become: true
+      ansible.builtin.slurp:
+        src: /etc/systemd/system/gway-mcp-link.service
+      register: mcp_original_unit
+
     - name: Detect checked-in service unit change
       ansible.builtin.stat:
         path: "{{ mcp_source }}/deploy/mcp-bearer/gway-mcp-link.service"
@@ -147,21 +153,22 @@
           ansible.builtin.shell: |
             set -eu
             cd /opt/gway-mcp
+            rm -f .mcp-rollback-new
             ln -s "{{ mcp_original_target.stdout }}" .mcp-rollback-new
             mv -Tf .mcp-rollback-new current
           args:
             executable: /bin/sh
           when: mcp_original_target.stdout is match('^releases/[0-9a-f]{40}$')
 
-        - name: Restore original unit when the managed service template changed
+        - name: Restore original OAuth service unit exactly
           become: true
           ansible.builtin.copy:
-            src: "{{ mcp_source }}/deploy/mcp-bearer/gway-mcp-link.service"
+            content: "{{ mcp_original_unit.content | b64decode }}"
             dest: /etc/systemd/system/gway-mcp-link.service
             owner: root
             group: root
             mode: '0644'
-          when: false
+          no_log: true
 
         - name: Restart existing OAuth link after rollback
           become: true
