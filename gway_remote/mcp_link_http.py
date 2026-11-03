@@ -4,6 +4,7 @@ Runs under token-admin identity, never under the MCP gateway verifier identity.
 Requires an exact registered ChatGPT callback URL set by the operator.
 """
 import json
+from html import escape
 import os
 import sys
 import threading
@@ -73,6 +74,31 @@ def failure_reason(exc):
     if isinstance(exc, TypeError):
         return "missing_parameter"
     return str(exc) if str(exc) in REASONS else "invalid_request"
+
+
+def callback_handoff(destination):
+    """Top-level navigation, not a cross-origin redirect of a submitted form.
+
+    Chromium may block form submission redirect chains under form-action CSP.
+    A zero-delay meta refresh plus a plain link works without JavaScript; the
+    fallback remains accessible if automatic navigation is restricted.
+    Only the already validated, pre-registered OAuth callback is permitted.
+    """
+    parsed = urlsplit(destination)
+    if (parsed.scheme != "https" or parsed.netloc != "chatgpt.com"
+            or parsed.path != "/connector_platform_oauth_redirect"
+            or parsed.username is not None or parsed.password is not None
+            or parsed.fragment or not parsed.query):
+        raise ValueError("unsafe_callback_handoff")
+    url = escape(destination, quote=True)
+    return ("<!doctype html><html lang='en'><head><meta charset='utf-8'>"
+            "<meta name='viewport' content='width=device-width,initial-scale=1'>"
+            "<meta http-equiv='refresh' content='0;url=" + url + "'>"
+            "<title>Returning to ChatGPT</title></head><body>"
+            "<main><p>Authorization accepted. Returning to ChatGPT...</p>"
+            "<p>If this page does not close automatically, "
+            "<a rel='noreferrer' href='" + url + "'>Continue to ChatGPT</a>.</p>"
+            "</main></body></html>")
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -207,9 +233,17 @@ class Handler(BaseHTTPRequestHandler):
                     return self.respond(403, "This sign-in form expired or was already submitted. "
                                         "Return to ChatGPT and start Connect again.")
                 return self.respond(403)
-            self.audit("connect", "code", 303)
-            return self.respond(303, headers=[("Location", dest),
-                ("Set-Cookie", "gwa_link=; Path=/; Secure; HttpOnly; SameSite=Lax; Max-Age=0")])
+            # Respond with a document, not a cross-origin 303 chained to
+            # the POST. Chromium may suppress the latter under form-action CSP,
+            # consuming the one-shot session while leaving the form displayed.
+            try:
+                handoff = callback_handoff(dest)
+            except ValueError:
+                self.audit("connect", "invalid_request", 403)
+                return self.respond(403)
+            self.audit("connect", "code", 200)
+            return self.respond(200, handoff, "text/html; charset=utf-8",
+                [("Set-Cookie", "gwa_link=; Path=/; Secure; HttpOnly; SameSite=Lax; Max-Age=0")])
         if self.path != "/oauth/token":
             return self.respond(404)
         # Registered as a public PKCE client (token_endpoint_auth_method=none).
