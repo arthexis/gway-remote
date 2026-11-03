@@ -30,6 +30,12 @@ def attest_in_transaction(db, node: str, host_key: str, *, dry_run: bool = False
     peer = db.execute("SELECT * FROM devices WHERE device=? AND state='active'", (node,)).fetchone()
     if peer is None:
         raise ValueError("node is not actively enrolled")
+    duplicate = db.execute(
+        "SELECT device FROM host_identities WHERE host_public_key=? AND device!=? AND state='active'",
+        (host_key, node),
+    ).fetchone()
+    if duplicate is not None:
+        raise ValueError("SSH host public key is already attested to another node")
     existing = db.execute("SELECT * FROM host_identities WHERE device=?", (node,)).fetchone()
     if existing is not None:
         if existing["state"] != "active":
