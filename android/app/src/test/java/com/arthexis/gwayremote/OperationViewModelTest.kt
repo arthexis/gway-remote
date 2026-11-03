@@ -14,15 +14,13 @@ class OperationViewModelTest {
         assertTrue(model.panels.panels.single().inputs.isEmpty())
     }
 
-    @Test fun taskInspectionDoesNotOpenIndependentPanel() {
+    @Test fun removedTasksAreNotRegisteredOrOpened() {
         val model = OperationViewModel()
-        // Inspection is only available inside an already open Tasks panel.
-        model.inspectTask("123")
+        assertNull(OperationRegistry.get("tasks"))
+        assertNull(OperationRegistry.get("task-detail"))
+        model.open("tasks")
+        model.open("task-detail")
         assertTrue(model.panels.panels.isEmpty())
-        assertNull(model.taskDetailSelection)
-        assertNull(model.taskDetail)
-        assertFalse(model.taskDetailLoading)
-        assertNull(model.taskDetailError)
     }
 
     @Test fun peerSelectionIsInputOnly() {
