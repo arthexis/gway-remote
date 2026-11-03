@@ -13,10 +13,10 @@ class ExecutorPreparationTests(unittest.TestCase):
     def test_opt_in_only_never_default_on_watchtower_or_ordinary_deploy(self):
         defaults = DEFAULTS.read_text()
         main = MAIN.read_text()
-        self.assertIn("gway_remote_exec_prepare: false", defaults)
-        self.assertIn("gway_remote_exec_enable_linger: false", defaults)
+        self.assertIn("exec_prepare: false", defaults)
+        self.assertIn("exec_enable: false", defaults)
         self.assertIn("node-exec-prepare.yml", main)
-        self.assertIn("when: gway_remote_exec_prepare | bool", main)
+        self.assertIn("when: exec_prepare | bool", main)
 
     def test_account_locked_unprivileged_with_private_storage(self):
         task = PREPARE.read_text()
@@ -30,7 +30,7 @@ class ExecutorPreparationTests(unittest.TestCase):
 
     def test_no_implicit_linger_or_network_activation(self):
         task = PREPARE.read_text()
-        self.assertIn("when: gway_remote_exec_enable_linger | bool", task)
+        self.assertIn("when: exec_enable | bool", task)
         self.assertIn("loginctl, enable-linger", task)
         self.assertNotIn("ansible.builtin.systemd:", task)
         self.assertNotIn("authorized_key", task)
