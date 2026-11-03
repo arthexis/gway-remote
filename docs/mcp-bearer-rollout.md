@@ -300,3 +300,63 @@ Dry-run opens the ledger read-only and never writes. Adoption inserts one
 an identical existing registration is a no-op. The periodic inventory
 publisher otherwise discovers the change on its next refresh. No host identity
 attestation row is fabricated and no executor role is granted.
+
+
+## M3 — Explicit host attestation and transport reachability
+
+On the node, obtain the **SSH host public key** (not a user key or private key):
+
+```sh
+sudo cat /etc/ssh/ssh_host_ed25519_key.pub
+```
+
+Verify its fingerprint and provenance out of band. Transfer only this verified
+public-key line into a root-controlled file on Watchtower, such as
+`/etc/gway-remote/verified-gway-001-host.pub`. Do NOT use `ssh-keyscan` as
+authorization evidence or copy an unverified network response into the file.
+
+For an already adopted node:
+
+```sh
+sudo gway-remote watchtower attest gway-001 --dry-run
+sudo gway-remote watchtower attest gway-001
+```
+
+For a new already-configured peer, adopt and attest atomically:
+
+```sh
+sudo gway-remote watchtower adopt gway-006 \
+  --public-key '<INDEPENDENTLY_VERIFIED_WG_KEY>' \
+  --attest --dry-run
+sudo gway-remote watchtower adopt gway-006 \
+  --public-key '<INDEPENDENTLY_VERIFIED_WG_KEY>' \
+  --attest
+```
+
+By default, `attest NODE` and `adopt NODE --attest` read the previously
+operator-provisioned file `/etc/gway-remote/verified-NODE-host.pub`.
+`--host-key-file PATH` is still available for an explicit override. No key
+is discovered, fetched, generated, trusted on first use, or written by these
+commands. If the expected verified file is absent or unsafe, they fail closed.
+
+The existing protected `/etc/gway-remote/watchtower.json` supplies ledger,
+network, gateway and WireGuard configuration defaults. Both operations
+remain root-only, refuse conflicting, revoked or expired host identity, and
+never replace keys implicitly. `adopt --attest` rolls back both ledger writes
+if either half fails. Neither operation issues permissions to execute commands.
+
+The existing 45-second inventory refresh timer also inspects
+`wg show gway latest-handshakes` locally on Watchtower. A registered peer's
+**authenticated, recent** WireGuard handshake (at most 240 seconds old)
+produces `reachable="reachable"` and `observed_at` equal to the handshake
+timestamp. No or old handshake, failed inspection, or absent peer yields
+`reachable="unknown"`, never a guessed online/offline state. This field is
+**WireGuard transport contact only** and does not claim SSH/application health
+or authorize execution. The inventory still expires after 120 seconds and
+removes management addresses, SSH keys and infrastructure credentials before
+returning MCP responses.
+
+```sh
+sudo systemctl start gway-mcp-inventory-refresh.service
+sudo ansible-inventory -i /usr/local/sbin/gway-enrolled-inventory --list
+```

@@ -58,7 +58,7 @@ def _peers(config: str) -> list[tuple[str, str]]:
 
 def adopt(ledger, *, node: str, public_key: str, config: Path,
           interface: str = "gway", dry_run: bool = False,
-          runner=subprocess.run) -> dict:
+          host_key_file: Path | None = None, runner=subprocess.run) -> dict:
     """Match operator-approved peer identity against persistent AND live WireGuard."""
     if not isinstance(node, str) or not _NODE.fullmatch(node):
         raise ValueError("invalid node")
@@ -96,7 +96,9 @@ def adopt(ledger, *, node: str, public_key: str, config: Path,
     if any(key != public_key and str(address) in [part.strip() for part in ips.split(",")] for key, ips in runtime):
         raise ValueError("peer address conflicts with another live WireGuard peer")
 
-    # A single IMMEDIATE transaction excludes concurrent enrollment and conflicting IDs.
+    from .watchtower_attest import verified_host_key, attest_in_transaction
+    host_key = verified_host_key(host_key_file) if host_key_file is not None else None
+    # Adoption and optional attestation are one atomic ledger transaction.
     with (ledger._connect() if dry_run else ledger._transaction()) as db:
         existing = db.execute("SELECT * FROM devices WHERE device=?", (node,)).fetchone()
         conflict = db.execute("SELECT device FROM devices WHERE (public_key=? OR address=?) AND device!=?",
@@ -122,6 +124,10 @@ def adopt(ledger, *, node: str, public_key: str, config: Path,
                     "INSERT INTO devices(device,public_key,address,state,operation_id) "
                     "VALUES(?,?,?,'active',?)",
                     (node, public_key, str(address), operation_id))
+        attestation = (attest_in_transaction(db, node, host_key, dry_run=dry_run)
+                       if host_key is not None and (existing is not None or not dry_run)
+                       else "would_attest" if host_key is not None else None)
     return {"node": node, "address": str(address), "state": state,
-            "identity_verified": False, "reachable": "unknown",
-            "execute_available": False, "wireguard_changed": False}
+            "attestation": attestation,
+            "identity_verified": attestation in ("attested", "already_attested"),
+            "reachable": "unknown", "execute_available": False, "wireguard_changed": False}
