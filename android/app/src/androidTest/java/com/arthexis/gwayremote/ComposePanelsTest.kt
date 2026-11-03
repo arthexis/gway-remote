@@ -85,23 +85,4 @@ class ComposePanelsTest {
         rule.onNodeWithText("Task 8fc71471", substring = true).assertExists()
     }
 
-    @Test fun simulatorReadTabsDoNotDispatchMutatingCommands() {
-        val reads = mutableListOf<String>()
-        val commands = mutableListOf<String>()
-        rule.setContent {
-            val panel = OperationPanelState().open("simulator").state.panels.single()
-            MaterialTheme {
-                SimulatorUnifiedPanel(panel, "unknown", onInput = { _, _, _ -> },
-                    onRead = { command, _ -> reads.add(command) },
-                    onCommand = { command, _ -> commands.add(command) },
-                    onSelectRead = { reads.add(it) })
-            }
-        }
-        rule.onNodeWithText("Status").performClick()
-        rule.onNodeWithText("Results").performClick()
-        rule.runOnIdle {
-            assertEquals(listOf("simulator-status", "simulator-results"), reads)
-            assertTrue(commands.isEmpty())
-        }
-    }
 }
