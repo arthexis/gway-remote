@@ -5,7 +5,9 @@ Requires an exact registered ChatGPT callback URL set by the operator.
 """
 import json
 import os
-from http import HTTPStatus
+import sys
+import threading
+import time
 from http.cookies import SimpleCookie
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlsplit
@@ -13,10 +15,81 @@ from .mcp_bearer import BearerRegistry
 from .mcp_link import LinkFlow, RESOURCE, ISSUER
 
 
+AUTHORIZE_FIELDS = frozenset({"client_id", "redirect_uri", "resource", "response_type",
+                             "code_challenge", "code_challenge_method", "state", "scope"})
+TOKEN_FIELDS = frozenset({"client_id", "code", "redirect_uri", "code_verifier", "grant_type", "resource"})
+REASONS = frozenset({"page", "code", "issued", "discovery", "malformed", "missing_parameter",
+                     "invalid_client", "invalid_request", "invalid_scope_or_pkce", "invalid_pkce",
+                     "invalid_state", "link_capacity_reached", "expired_session", "csrf_denied",
+                     "invalid_bearer", "invalid_parent_credential", "invalid_grant", "unsupported_auth"})
+
+
+class OAuthAudit:
+    """Fixed-schema diagnostics: no request text, at most 61 records per minute."""
+    def __init__(self):
+        self.lock = threading.Lock()
+        self.window = 0
+        self.count = 0
+
+    def emit(self, phase, reason, status, comparisons=None):
+        if (os.environ.get("GWAY_MCP_OAUTH_DIAGNOSTICS") == "0" or
+                phase not in {"authorize", "connect", "token", "metadata"} or
+                reason not in REASONS or status not in {200, 303, 400, 403}):
+            return
+        with self.lock:
+            now = int(time.monotonic() // 60)
+            if now != self.window:
+                self.window, self.count = now, 0
+            self.count += 1
+            if self.count > 61:
+                return
+            if self.count == 61:
+                record = {"event": "oauth_link", "phase": "diagnostics", "reason": "rate_limited", "status": 0}
+            else:
+                record = {"event": "oauth_link", "phase": phase, "reason": reason, "status": status}
+                if comparisons is not None:
+                    for key in ("client_match", "redirect_match", "resource_match", "scope_read", "pkce_s256", "grant_code"):
+                        if type(comparisons.get(key)) is bool:
+                            record[key] = comparisons[key]
+            try:
+                sys.stderr.write(json.dumps(record, separators=(",", ":")) + "\n")
+                sys.stderr.flush()
+            except (OSError, ValueError):
+                # Diagnostics must not prevent an otherwise valid OAuth flow.
+                pass
+
+
+AUDIT = OAuthAudit()
+
+
+def oauth_values(values, fields):
+    # RFC 6749 sections 3.1/3.2: unknown parameters are ignored and empty
+    # parameters are treated as omitted. Duplicate occurrences are rejected
+    # before this normalization, including unknown/empty parameters.
+    return {key: value for key, value in values.items() if key in fields and value != ""}
+
+
+def failure_reason(exc):
+    if isinstance(exc, TypeError):
+        return "missing_parameter"
+    return str(exc) if str(exc) in REASONS else "invalid_request"
+
 
 class Handler(BaseHTTPRequestHandler):
     def log_message(self, *_):
         pass
+
+    def audit(self, phase, reason, status, values=None):
+        comparisons = None
+        if values is not None:
+            flow = self.server.link
+            comparisons = {"client_match": values.get("client_id") == flow.client_id,
+                           "redirect_match": values.get("redirect_uri") == flow.redirect_uri,
+                           "resource_match": values.get("resource") == flow.resource,
+                           "scope_read": values.get("scope") == "gway:read",
+                           "pkce_s256": values.get("code_challenge_method") == "S256",
+                           "grant_code": values.get("grant_type") == "authorization_code"}
+        AUDIT.emit(phase, reason, status, comparisons)
 
     def respond(self, status, body=b"", typ="text/plain; charset=utf-8", headers=()):
         if isinstance(body, str):
@@ -54,7 +127,7 @@ class Handler(BaseHTTPRequestHandler):
         if not 0 < size <= 8192 or self.headers.get("Content-Type", "").split(";")[0] != "application/x-www-form-urlencoded":
             return None
         try:
-            values = parse_qs(self.rfile.read(size).decode("utf-8"), keep_blank_values=True)
+            values = parse_qs(self.rfile.read(size).decode("utf-8"), keep_blank_values=True, max_num_fields=64)
             if any(len(v) != 1 for v in values.values()):
                 return None
             return {k: v[0] for k, v in values.items()}
@@ -73,23 +146,33 @@ class Handler(BaseHTTPRequestHandler):
                     "token_endpoint_auth_methods_supported": ["none"],
                     "scopes_supported": ["gway:read"],
                     "authorization_response_iss_parameter_supported": True}
+            self.audit("metadata", "discovery", 200)
             return self.respond(200, json.dumps(data), "application/json")
         if path.path == "/.well-known/oauth-protected-resource/mcp":
+            self.audit("metadata", "discovery", 200)
             return self.respond(200, json.dumps({"resource": RESOURCE,
                    "authorization_servers": [ISSUER], "scopes_supported": ["gway:read"]}), "application/json")
         if path.path != "/oauth/authorize":
             return self.respond(404)
-        params = parse_qs(path.query, keep_blank_values=True)
-        if any(len(v) != 1 for v in params.values()):
+        try:
+            if len(path.query) > 8192:
+                raise ValueError("query_too_large")
+            params = parse_qs(path.query, keep_blank_values=True, max_num_fields=64)
+            if any(len(v) != 1 for v in params.values()):
+                raise ValueError("duplicate_parameter")
+        except ValueError:
+            self.audit("authorize", "malformed", 400)
             return self.respond(400)
-        values = {k: v[0] for k, v in params.items()}
+        values = oauth_values({k: v[0] for k, v in params.items()}, AUTHORIZE_FIELDS)
+        # This pre-registered client has exactly one permissible default scope.
+        values.setdefault("scope", "gway:read")
         try:
             session, page = self.server.link.begin(**values)
         except (TypeError, ValueError) as exc:
             # Invalid clients and callback URIs must never be redirected.
             # Valid registered clients receive RFC 9207 issuer identification
             # on OAuth errors, not just on successful authorization codes.
-            reason = str(exc)
+            reason = failure_reason(exc)
             error = ("invalid_scope" if reason == "invalid_scope_or_pkce"
                      else "invalid_request")
             destination = self.server.link.authorization_error_redirect(
@@ -97,28 +180,44 @@ class Handler(BaseHTTPRequestHandler):
                 redirect_uri=values.get("redirect_uri"),
                 state=values.get("state"), error=error)
             if destination is None:
+                self.audit("authorize", reason, 400, values)
                 return self.respond(400)
+            self.audit("authorize", reason, 303, values)
             return self.respond(303, headers=[("Location", destination)])
+        self.audit("authorize", "page", 200, values)
         return self.respond(200, page, "text/html; charset=utf-8",
                             [("Set-Cookie", "gwa_link=" + session + "; Path=/; Secure; HttpOnly; SameSite=Lax; Max-Age=300")])
 
     def do_POST(self):
         params = self.form()
         if params is None:
+            if self.path in ("/connect", "/oauth/token"):
+                self.audit("connect" if self.path == "/connect" else "token", "malformed", 400)
             return self.respond(400)
         if self.path == "/connect":
             try:
                 dest = self.server.link.connect(self.get_cookie(), params.get("csrf"), params.get("bearer"))
-            except (ValueError, TypeError):
+            except (ValueError, TypeError) as exc:
+                self.audit("connect", failure_reason(exc), 403)
                 return self.respond(403)
+            self.audit("connect", "code", 303)
             return self.respond(303, headers=[("Location", dest),
                 ("Set-Cookie", "gwa_link=; Path=/; Secure; HttpOnly; SameSite=Lax; Max-Age=0")])
         if self.path != "/oauth/token":
             return self.respond(404)
+        # Registered as a public PKCE client (token_endpoint_auth_method=none).
+        # Ignore an empty compatibility field, but never pretend to validate
+        # supplied client authentication for a client with no stored secret.
+        if params.get("client_secret") or self.headers.get("Authorization") is not None:
+            self.audit("token", "unsupported_auth", 400)
+            return self.respond(400, '{"error":"invalid_client"}', "application/json")
+        values = oauth_values(params, TOKEN_FIELDS)
         try:
-            payload = self.server.link.redeem(**params)
-        except (TypeError, ValueError):
+            payload = self.server.link.redeem(**values)
+        except (TypeError, ValueError) as exc:
+            self.audit("token", failure_reason(exc), 400, values)
             return self.respond(400, '{"error":"invalid_grant"}', "application/json")
+        self.audit("token", "issued", 200, values)
         return self.respond(200, json.dumps(payload), "application/json")
 
 def main():
