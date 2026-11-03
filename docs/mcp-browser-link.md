@@ -6,7 +6,7 @@ code with PKCE S256, selecting **Connect** can redirect the browser to
 password-masked **GWA Remote bearer token** field, analogous to Classic GWAY.
 
 The operator creates the original read-only bearer using
-`gway-remote bearer issue` **on the Watchtower console**, and pastes it into
+`sudo gway-remote bearer issue` **on the Watchtower console**, and pastes it into
 the one-time HTTPS linking screen. No API or MCP scope can call issuance.
 
 After verification and CSRF validation, the browser receives a one-time

@@ -20,8 +20,23 @@ systemd unit. It does not start/enable the service or modify Nginx.
 
 ## Staging (explicit operator-approved Watchtower action)
     sudo sh deploy/mcp-bearer/stage.sh EXACT_REVIEWED_COMMIT_SHA
-    sudo -u gway-mcp-auth /usr/bin/python3 -I /opt/gway-mcp/current/run.py bearer issue --days 30
-    sudo -u gway-mcp-auth /usr/bin/python3 -I /opt/gway-mcp/current/run.py bearer revoke KEY_ID
+    sudo gway-remote bearer issue --days 30
+    sudo gway-remote bearer revoke KEY_ID
+
+Run these commands on Watchtower. The CLI drops root's supplementary groups,
+primary group and user identity to the fixed `gway-mcp-auth` service account
+before opening the registry. It never creates a missing account or changes
+registry ownership. Running directly as that auth owner remains supported;
+other unprivileged users receive guidance to use sudo. Issuance requires both
+stdin and stdout to be interactive terminals, including when invoked with sudo.
+
+For an older Watchtower global CLI that lacks `bearer`, install the reviewed
+CLI from a clean, pinned checkout using `sh scripts/install-cli.sh`. Back up
+`/usr/local/bin/gway-remote` first and restore that file to roll back. This
+standalone installer replaces only the global zipapp; it does not restart
+services, modify OAuth configuration, change the isolated MCP runtime pointer,
+or issue a token. Do not use the general backend deployment merely to install
+this console command.
 
 Use a secure interactive terminal. Never paste bearer secrets into GitHub,
 ChatGPT, URL query parameters, logs or shell command arguments.
