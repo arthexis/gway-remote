@@ -1,0 +1,17 @@
+[Unit]
+Description=Publish read-only enrollment inventory for MCP and Ansible
+After=gway-remote-watchtower-enroll.service
+[Service]
+Type=oneshot
+User=root
+Group=root
+ExecStart=/usr/bin/python3 -I /opt/gway-mcp/current/run.py node_inventory --publish
+UMask=0077
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+ReadOnlyPaths=/var/lib/gway-remote/watchtower
+ReadWritePaths=/var/lib/gway-mcp-auth
+[Install]
+WantedBy=multi-user.target
