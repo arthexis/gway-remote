@@ -69,4 +69,4 @@
   ansible.builtin.command:
     argv: [loginctl, enable-linger, "{{ gway_remote_exec_user }}"]
     creates: "/var/lib/systemd/linger/{{ gway_remote_exec_user }}"
-  when: gway_remote_exec_enable_linger | bool
+  when: exec_enable | bool
