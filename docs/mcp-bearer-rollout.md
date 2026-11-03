@@ -198,3 +198,47 @@ After merging, deploy the same branch on Watchtower using
 seven discovered tools. Do not issue/revoke any bearer merely to debug
 MCP tool discovery. Record sanitized HTTP status/protocol version and tool
 count, never authorization headers, credentials, codes or URL queries.
+
+## M3 increment A — one enrollment registry, two read-only consumers
+
+Watchtower's existing protected enrollment SQLite ledger
+(`/var/lib/gway-remote/watchtower/ledger.sqlite3`) remains the **only source
+of registered node identity**. No manually edited node names, IP inventory, or
+independent MCP registry are introduced.
+
+The deployed Watchtower Ansible playbook installs a root-only snapshot publisher
+(`gway-mcp-inventory-refresh.service`) and a periodic timer (45 seconds).
+It exports only active enrolled nodes into a short-lived root-owned
+`/var/lib/gway-mcp-auth/node-inventory.json` (0640 root:gway-mcp-read).
+The snapshot expires after 120 seconds; missing/stale/untrusted data fails
+closed. The gateway has no direct access to the root-owned enrollment database.
+
+Two independent read-only views consume this **same derived snapshot**:
+
+```sh
+# Watchtower: Ansible dynamic inventory. Does not authorize deployment.
+ansible-inventory -i /usr/local/sbin/gway-enrolled-inventory --list
+
+# Combine enrolled identities with existing declarative management policy:
+ansible-inventory -i ansible/inventory/deployment.yml \
+  -i /usr/local/sbin/gway-enrolled-inventory --list
+```
+
+The same connected ChatGPT plugin exposes `node_list` and
+`node_capabilities(node)`; no new OAuth client or MCP connection is needed.
+Only node names, identity-verification state, and explicitly **unknown**
+reachability appear in MCP. Raw WireGuard addresses, SSH host public keys and
+registration evidence are not returned through those tools.
+
+The existing `ansible/inventory/deployment.yml` is still the source of
+**desired management policy**, not registered-node existence. The generated
+Ansible host group `gway_enrolled` does **not** set `ansible_host`,
+`ansible_user`, deployable repository lists, command permissions, or default
+SSH access. An entry in the old static policy but absent from the Watchtower
+ledger is **not** considered enrolled. Older manually established peers may
+need an explicit identity adoption before they appear, rather than being
+silently trusted.
+
+This increment adds no command runner, new roles or public routes, grants
+no execution scope, and does not probe/SSH nodes. A later increment can add
+independently observed health and a separate explicit execution authority.
