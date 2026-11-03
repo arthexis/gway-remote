@@ -41,7 +41,7 @@ class AttestAndReachabilityTests(unittest.TestCase):
             self.assertFalse(node_registry_inventory.build(self.ledger.path)["nodes"][0]["identity_verified"])
             self.assertEqual(attest(self.ledger, node="gway-001", host_key_file=self.key)["state"], "attested")
             self.assertEqual(attest(self.ledger, node="gway-001", host_key_file=self.key)["state"], "already_attested")
-            self.assertTrue(node_registry_inventory.build(self.ledger)["nodes"][0]["identity_verified"])
+            self.assertTrue(node_registry_inventory.build(self.ledger.path)["nodes"][0]["identity_verified"])
 
     def test_atomic_adopt_and_attest(self):
         with patch("gway_remote.watchtower_attest.trusted_file"):
