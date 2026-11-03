@@ -13,7 +13,7 @@ MAX_BODY = 65536
 MAX_RESPONSE = 262144
 # Agent Ops read adapters may take 20 seconds; allow bounded bridge overhead.
 UPSTREAM_TIMEOUT = 30
-ALLOWED_METHODS = frozenset({"initialize", "notifications/initialized", "tools/list", "tools/call"})
+ALLOWED_METHODS = frozenset({"server/discover", "initialize", "notifications/initialized", "tools/list", "tools/call"})
 ALLOWED_TOOLS = frozenset({"agent_list_issues", "agent_status", "agent_preview", "agent_observe",
     "github_workflow_runs", "github_workflow_status", "github_workflow_errors"})
 
@@ -78,11 +78,21 @@ class Handler(BaseHTTPRequestHandler):
         raw = self.rfile.read(length)
         if not inspect_rpc(raw):
             return self.reject(403)
+        # Forward protocol metadata only after parsing the RPC. Never pass
+        # arbitrary client-controlled headers to the private backend.
+        payload = json.loads(raw)
+        version = self.headers.get("MCP-Protocol-Version", "2025-03-26")
+        if version not in ("2025-03-26", "2026-07-28"):
+            return self.reject(400)
+        if version == "2026-07-28":
+            meta = payload.get("params", {}).get("_meta") if type(payload.get("params")) is dict else None
+            if not isinstance(meta, dict) or meta.get("io.modelcontextprotocol/protocolVersion") != version:
+                return self.reject(400)
         # Forward only to a fixed private endpoint; never forward client headers.
         headers = {"Authorization": "Bearer " + self.server.backend_token,
                    "Content-Type": "application/json",
                    "Accept": "application/json, text/event-stream",
-                   "MCP-Protocol-Version": "2025-03-26"}
+                   "MCP-Protocol-Version": version}
         req = Request(self.server.upstream, raw, headers, method="POST")
         try:
             with self.server.opener.open(req, timeout=UPSTREAM_TIMEOUT) as response:
