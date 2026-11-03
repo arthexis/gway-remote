@@ -12,7 +12,7 @@ import time
 
 EVENTS = frozenset({"mcp-exec-started", "mcp-exec-completed",
                     "mcp-exec-failed", "mcp-exec-timed-out"})
-SAFE_ID = re.compile(r"[a-zA-Z0-9_-]{1,96}\\Z")
+SAFE_ID = re.compile(r"[a-zA-Z0-9_-]{1,96}\Z")
 
 
 class McpOperationSound:
