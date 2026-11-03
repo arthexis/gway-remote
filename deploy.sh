@@ -52,14 +52,13 @@ if [ "${1:-}" = "--stage-release" ]; then
   exec ansible-playbook "$ROOT/ansible/playbooks/stage-release.yml" -i localhost, -c local
 fi
 
-# On a Watchtower with an already provisioned and active private OAuth link,
+# On a Watchtower with an already provisioned and enabled private OAuth link,
 # converge its isolated MCP release through Ansible before the ordinary
 # same-revision fast path. Do not infer Watchtower from a hostname.
 if [ "${GWAY_REMOTE_SKIP_MCP:-0}" != "1" ] &&
    [ -f /etc/gway-mcp-gateway/link.env ] &&
    [ -f /etc/systemd/system/gway-mcp-link.service ] &&
-   systemctl is-enabled --quiet gway-mcp-link.service &&
-   systemctl is-active --quiet gway-mcp-link.service; then
+   systemctl is-enabled --quiet gway-mcp-link.service; then
   state_dir="$HOME/.local/state/gway-remote"
   if [ -L "$HOME/.local/state" ] || [ -L "$state_dir" ] ||
      [ -L "$state_dir/deploy.lock" ]; then
