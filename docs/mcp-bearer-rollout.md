@@ -169,3 +169,32 @@ to retain the ordinary GWay Remote deployment without touching MCP.
 First-time MCP setup and public ingress changes remain separate explicit
 operator authorizations. Do not use `stage.sh` as a routine update mechanism
 after this migration.
+
+## ChatGPT action discovery compatibility
+
+The OAuth callback and token exchange can succeed even when ChatGPT's next
+MCP discovery request fails. Modern clients may send the stateless
+`server/discover` protocol probe using revision `2026-07-28` rather than
+the older `initialize` + `tools/list` sequence (`2025-03-26`).
+
+The **Watchtower gateway** now handles an authenticated modern
+`server/discover` response and translates modern read-only `tools/list` /
+`tools/call` messages into the existing legacy private backend protocol.
+It adds the modern required `resultType: complete` to successful results.
+The seven fixed read-only tools and the existing OAuth bearer enforcement are
+unchanged. An unauthenticated discovery remains HTTP 401; `agent_submit`
+and arbitrary RPC methods remain denied. This gateway adaptation allows
+Watchtower to accept modern ChatGPT discovery **without requiring an immediate
+update of gway-001's deployed MCP backend**.
+
+The canonical Watchtower Ansible deployment now restarts and checks the
+previously enabled, dedicated `gway-mcp-gateway.service` when the isolated
+runtime changes, alongside the existing OAuth link; failed activation
+restores the previous release pointer and restarts those dedicated units.
+It does not alter Nginx, WireGuard, the bridge, OCPP, or service credentials.
+
+After merging, deploy the same branch on Watchtower using
+`git pull --ff-only && ./deploy.sh`, then reconnect ChatGPT and verify its
+seven discovered tools. Do not issue/revoke any bearer merely to debug
+MCP tool discovery. Record sanitized HTTP status/protocol version and tool
+count, never authorization headers, credentials, codes or URL queries.

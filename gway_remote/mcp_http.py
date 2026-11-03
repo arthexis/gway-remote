@@ -11,6 +11,7 @@ from . import mcp_agent
 
 MAX_REQUEST = 65536
 PROTOCOL = "2025-03-26"
+MODERN_PROTOCOL = "2026-07-28"
 
 
 def handle(payload):
@@ -21,6 +22,13 @@ def handle(payload):
     if type(method) is not str:
         return None, -32600, "Invalid Request"
     params = payload.get("params", {})
+    if method == "server/discover":
+        if type(params) is not dict:
+            return None, -32602, "Invalid params"
+        return {"resultType": "complete", "supportedVersions": [MODERN_PROTOCOL, PROTOCOL],
+                "capabilities": {"tools": {}},
+                "_meta": {"io.modelcontextprotocol/serverInfo":
+                          {"name": "gway-agent-ops", "version": "0.1.0"}}}, None, None
     if method == "initialize":
         if type(params) is not dict:
             return None, -32602, "Invalid params"
@@ -107,7 +115,7 @@ class Handler(BaseHTTPRequestHandler):
             self._empty(406)
             return
         version = self.headers.get("MCP-Protocol-Version")
-        if version is not None and version != PROTOCOL:
+        if version is not None and version not in (PROTOCOL, MODERN_PROTOCOL):
             self._empty(400)
             return
         if (self.headers.get("Transfer-Encoding") is not None
@@ -131,6 +139,13 @@ class Handler(BaseHTTPRequestHandler):
         if type(payload) is list:
             self._empty(400)
             return
+        if type(payload) is dict and version == MODERN_PROTOCOL:
+            meta = payload.get("params", {}).get("_meta") if type(payload.get("params")) is dict else None
+            if not isinstance(meta, dict) or meta.get("io.modelcontextprotocol/protocolVersion") != MODERN_PROTOCOL:
+                self._empty(400)
+                return
+            if payload.get("method") in ("tools/list", "tools/call"):
+                payload = {**payload, "params": {k: v for k, v in payload["params"].items() if k != "_meta"}}
         result, code, message = handle(payload)
         if result is None and code is None:
             self._empty(202)
@@ -139,11 +154,13 @@ class Handler(BaseHTTPRequestHandler):
         if code is not None:
             response["error"] = {"code": code, "message": message}
         else:
+            if version == MODERN_PROTOCOL and isinstance(result, dict) and "resultType" not in result:
+                result = {"resultType": "complete", **result}
             response["result"] = result
         body = json.dumps(response, separators=(",", ":")).encode("utf-8")
         self.send_response(200)
         self.send_header("Content-Type", "application/json")
-        self.send_header("MCP-Protocol-Version", PROTOCOL)
+        self.send_header("MCP-Protocol-Version", version if version == MODERN_PROTOCOL else PROTOCOL)
         self.send_header("Cache-Control", "no-store")
         self.send_header("Content-Length", str(len(body)))
         self.end_headers()

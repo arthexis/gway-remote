@@ -13,7 +13,7 @@ MAX_BODY = 65536
 MAX_RESPONSE = 262144
 # Agent Ops read adapters may take 20 seconds; allow bounded bridge overhead.
 UPSTREAM_TIMEOUT = 30
-ALLOWED_METHODS = frozenset({"initialize", "notifications/initialized", "tools/list", "tools/call"})
+ALLOWED_METHODS = frozenset({"server/discover", "initialize", "notifications/initialized", "tools/list", "tools/call"})
 ALLOWED_TOOLS = frozenset({"agent_list_issues", "agent_status", "agent_preview", "agent_observe",
     "github_workflow_runs", "github_workflow_status", "github_workflow_errors"})
 
@@ -78,6 +78,41 @@ class Handler(BaseHTTPRequestHandler):
         raw = self.rfile.read(length)
         if not inspect_rpc(raw):
             return self.reject(403)
+        # Forward protocol metadata only after parsing the RPC. Never pass
+        # arbitrary client-controlled headers to the private backend.
+        payload = json.loads(raw)
+        version = self.headers.get("MCP-Protocol-Version", "2025-03-26")
+        if version not in ("2025-03-26", "2026-07-28"):
+            return self.reject(400)
+        if version == "2026-07-28":
+            meta = payload.get("params", {}).get("_meta") if type(payload.get("params")) is dict else None
+            if not isinstance(meta, dict) or meta.get("io.modelcontextprotocol/protocolVersion") != version:
+                return self.reject(400)
+        if version == "2026-07-28" and payload["method"] == "server/discover":
+            result = {"resultType": "complete",
+                      "supportedVersions": ["2026-07-28", "2025-03-26"],
+                      "capabilities": {"tools": {}},
+                      "_meta": {"io.modelcontextprotocol/serverInfo":
+                                {"name": "gway-agent-ops", "version": "0.1.0"}}}
+            body = json.dumps({"jsonrpc": "2.0", "id": payload.get("id"),
+                               "result": result}, separators=(",", ":")).encode()
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("MCP-Protocol-Version", version)
+            self.send_header("Cache-Control", "no-store")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+            return
+        # The field backend may still run legacy MCP. Adapt modern metadata
+        # and complete results in this boundary without changing gway-001.
+        adapt_modern = version == "2026-07-28"
+        if adapt_modern:
+            legacy_params = payload.get("params", {})
+            if type(legacy_params) is dict:
+                legacy_params = {k: v for k, v in legacy_params.items() if k != "_meta"}
+            legacy_payload = {**payload, "params": legacy_params}
+            raw = json.dumps(legacy_payload, separators=(",", ":")).encode("utf-8")
         # Forward only to a fixed private endpoint; never forward client headers.
         headers = {"Authorization": "Bearer " + self.server.backend_token,
                    "Content-Type": "application/json",
@@ -98,8 +133,21 @@ class Handler(BaseHTTPRequestHandler):
             return self.reject(502)
         if status not in (200, 202):
             return self.reject(502)
+        if adapt_modern and status == 200:
+            try:
+                upstream_payload = json.loads(body)
+                if type(upstream_payload) is not dict:
+                    raise ValueError("not an RPC reply")
+                result = upstream_payload.get("result")
+                if type(result) is dict and "resultType" not in result:
+                    upstream_payload["result"] = {"resultType": "complete", **result}
+                body = json.dumps(upstream_payload, separators=(",", ":")).encode()
+                typ = "application/json"
+            except (ValueError, UnicodeError):
+                return self.reject(502)
         self.send_response(status)
         self.send_header("Content-Type", typ)
+        self.send_header("MCP-Protocol-Version", version)
         self.send_header("Cache-Control", "no-store")
         self.send_header("Content-Length", str(len(body)))
         self.end_headers()

@@ -33,12 +33,13 @@ class WatchtowerMCPDeployContract(unittest.TestCase):
             "authorization_response_iss_parameter_supported",
             "mcp_original_target", "mcp_original_unit",
             "ansible.builtin.uri", "rescue:", "mv -Tf",
+            "gway-mcp-gateway.service",
         ):
             self.assertIn(required, text)
         for forbidden in (
             "nginx", "gway-remote-mobile-api.service", "ocpp-csms",
             "ocpp-reports", "ssh-config", "authorized_keys",
-            "gway-mcp-gateway.service", "gway-mcp-private-bridge.service",
+            "gway-mcp-private-bridge.service",
             "link.env\n            content:", "state: enabled",
             "apt:", "pip:",
         ):
