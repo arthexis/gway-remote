@@ -3,7 +3,7 @@
 The manual `.github/workflows/appliance-deploy.yml` runs two independent
 job chains when `repository=all`:
 
-- **SVP / OCPP:** `ocpp-csms` → `ocpp-reports` → `ocpp-simulator`.
+- **SVP / OCPP:** `ocpp-csms` → `ocpp-reports`.
 - **Gateway:** `gway-lcd-sound` → `gway-agent-ops` →
   `gway-ap-kiosk` → `gway-rfid` → `gway-bastion` (stage-only).
 
