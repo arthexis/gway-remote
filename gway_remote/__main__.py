@@ -49,14 +49,13 @@ def run(task: str, repository: str = "", sha: str = "") -> None:
         }, sort_keys=True))
         return
 
-    if task in ("lcd-sound-deploy", "ocpp-csms-deploy", "ocpp-reports-deploy", "ocpp-simulator-deploy", "agent-ops-deploy", "ap-kiosk-deploy", "rfid-deploy", "bastion-deploy"):
+    if task in ("lcd-sound-deploy", "ocpp-csms-deploy", "ocpp-reports-deploy", "agent-ops-deploy", "ap-kiosk-deploy", "rfid-deploy", "bastion-deploy"):
         from .best_effort import manual_execute
         from .github_state import GitHub
         installer = {
             "lcd-sound-deploy": deploy_lcd_sound,
             "ocpp-csms-deploy": deploy_csms,
             "ocpp-reports-deploy": deploy_reports,
-            "ocpp-simulator-deploy": deploy_simulator,
             "agent-ops-deploy": deploy_agent_ops,
             "ap-kiosk-deploy": deploy_ap_kiosk,
             "rfid-deploy": deploy_rfid,
