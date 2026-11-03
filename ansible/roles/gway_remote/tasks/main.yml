@@ -1,7 +1,239 @@
 ---
-- name: Prepare opt-in unprivileged node executor (B2a; no activation)
+- name: Converge dormant executor prerequisites on managed nodes only
   ansible.builtin.include_tasks: node-exec-prepare.yml
-  when: exec_prepare | bool
+  when: ansible_hostname is match('^gway-[0-9]{3,}
+
+- name: Verify runner user exists
+  ansible.builtin.getent:
+    database: passwd
+    key: "{{ gway_remote_runner_user }}"
+
+- name: Inspect existing CLI
+  ansible.builtin.stat:
+    path: /usr/local/bin/gway-remote
+  register: gway_remote_cli
+
+- name: Create installation directories
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+  loop:
+    - "{{ gway_remote_install_root }}"
+    - "{{ gway_remote_install_root }}/scripts"
+
+- name: Create runtime deployment policy directory
+  ansible.builtin.file:
+    path: /etc/gway-remote
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Install canonical deployment policy inventory
+  ansible.builtin.copy:
+    src: "{{ playbook_dir }}/inventory/deployment.yml"
+    dest: /etc/gway-remote/deployment.yml
+    owner: root
+    group: root
+    mode: "0644"
+  register: gway_remote_inventory
+
+- name: Copy application package
+  ansible.builtin.copy:
+    src: "{{ playbook_dir }}/../gway_remote/"
+    dest: "{{ gway_remote_install_root }}/gway_remote/"
+    owner: root
+    group: root
+    mode: preserve
+  register: gway_remote_source
+
+- name: Copy CLI installer
+  ansible.builtin.copy:
+    src: "{{ playbook_dir }}/../scripts/install-cli.sh"
+    dest: "{{ gway_remote_install_root }}/scripts/install-cli.sh"
+    owner: root
+    group: root
+    mode: "0755"
+  register: gway_remote_installer
+
+- name: Install opt-in Agent Ops seed workspace configurator
+  ansible.builtin.copy:
+    src: "{{ playbook_dir }}/../scripts/configure-agent-seed-workspace.sh"
+    dest: "{{ gway_remote_install_root }}/scripts/configure-agent-seed-workspace.sh"
+    owner: root
+    group: root
+    mode: "0755"
+  # Installation only: never run this script or restart the Mobile API service.
+
+- name: Install system-wide executable
+  ansible.builtin.command:
+    cmd: "sh {{ gway_remote_install_root }}/scripts/install-cli.sh"
+  when: gway_remote_source.changed or gway_remote_installer.changed or not gway_remote_cli.stat.exists
+
+- name: Verify read-only status JSON as runner user
+  ansible.builtin.command:
+    argv:
+      - /usr/bin/sudo
+      - -n
+      - -H
+      - -u
+      - "{{ gway_remote_runner_user }}"
+      - /usr/local/bin/gway-remote
+      - status
+      - --json
+  changed_when: false
+  register: gway_remote_status
+
+- name: Verify packaged inspection inventory
+  ansible.builtin.command:
+    argv:
+      - ansible-inventory
+      - -i
+      - /etc/gway-remote/deployment.yml
+      - --host
+      - gway-004
+  changed_when: false
+  register: gway_remote_inspection_inventory
+
+- name: Assert packaged inspection target remains read-only
+  ansible.builtin.assert:
+    that:
+      - (gway_remote_inspection_inventory.stdout | from_json).remote_inspection_allowed | default(false)
+      - (gway_remote_inspection_inventory.stdout | from_json).remote_managed_repositories | default([]) | length == 0
+
+- name: Verify status schema
+  ansible.builtin.assert:
+    that:
+      - (gway_remote_status.stdout | from_json).schema == 'gway-remote/status/v1'
+
+- name: Install fixed-purpose public sound helper
+  ansible.builtin.copy:
+    src: "{{ playbook_dir }}/../scripts/gway-promote-sound"
+    dest: /usr/local/sbin/gway-promote-sound
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Restrict public sound helper sudo to appliance runner
+  ansible.builtin.copy:
+    dest: /etc/sudoers.d/gway-remote-public-sound
+    owner: root
+    group: root
+    mode: "0440"
+    validate: "/usr/sbin/visudo -cf %s"
+    content: |
+      {{ gway_remote_runner_user }} ALL=(root) NOPASSWD: /usr/local/sbin/gway-promote-sound *
+
+- name: Create durable watch state directory
+  ansible.builtin.file:
+    path: "/home/{{ gway_remote_runner_user }}/.local/state/gway-remote"
+    state: directory
+    owner: "{{ gway_remote_runner_user }}"
+    group: "{{ gway_remote_runner_user }}"
+    mode: "0700"
+
+- name: Install appliance watch systemd units
+  ansible.builtin.template:
+    src: "{{ playbook_dir }}/../deploy/systemd/{{ item }}"
+    dest: "/etc/systemd/system/{{ item }}"
+    owner: root
+    group: root
+    mode: "0644"
+  loop:
+    - gway-remote-watch.service
+    - gway-remote-watch.timer
+  register: watch_units
+
+- name: Reload systemd for new appliance watch units
+  ansible.builtin.systemd:
+    daemon_reload: true
+  when: watch_units.changed
+
+- name: Enable periodic GWay Remote appliance watch
+  ansible.builtin.systemd:
+    name: gway-remote-watch.timer
+    enabled: true
+    state: started
+
+- name: Create private GitHub Health configuration directory
+  ansible.builtin.file:
+    path: "/home/{{ gway_remote_runner_user }}/.config/gway-remote"
+    state: directory
+    owner: "{{ gway_remote_runner_user }}"
+    group: "{{ gway_remote_runner_user }}"
+    mode: "0700"
+
+- name: Inspect externally provisioned GitHub Health token configuration
+  ansible.builtin.stat:
+    path: "/home/{{ gway_remote_runner_user }}/.config/gway-remote/github-health.env"
+  register: github_health_token_config
+
+- name: Validate private GitHub Health credentials
+  ansible.builtin.assert:
+    that:
+      - github_health_token_config.stat.isreg | default(false)
+      - github_health_token_config.stat.pw_name == gway_remote_runner_user
+      - github_health_token_config.stat.mode == '0600'
+    fail_msg: >-
+      github-health.env must be a regular file owned by
+      {{ gway_remote_runner_user }} with mode 0600.
+      Fix ownership and permissions before deploying.
+  when: github_health_token_config.stat.exists
+
+- name: Verify API snapshot path is readable by appliance runner
+  ansible.builtin.command:
+    argv:
+      - /usr/bin/sudo
+      - -n
+      - -H
+      - -u
+      - "{{ gway_remote_runner_user }}"
+      - /usr/bin/python3
+      - -c
+      - |
+        import os
+        from pathlib import Path
+        path = Path.home() / ".local/state/gway-remote"
+        assert path.is_dir() and os.access(path, os.R_OK | os.X_OK)
+        snapshot = path / "github-health.json"
+        if snapshot.exists():
+            assert snapshot.is_file() and os.access(snapshot, os.R_OK)
+  changed_when: false
+
+- name: Install GitHub Health collector systemd units
+  ansible.builtin.copy:
+    src: "{{ playbook_dir }}/../deploy/systemd/{{ item }}"
+    dest: "/etc/systemd/system/{{ item }}"
+    owner: root
+    group: root
+    mode: "0644"
+  loop:
+    - gway-remote-health.service
+    - gway-remote-health.timer
+  register: github_health_units
+
+- name: Reload systemd for GitHub Health units
+  ansible.builtin.systemd:
+    daemon_reload: true
+  when: github_health_units.changed
+
+- name: Enable GitHub Health timer only when private token configuration exists
+  ansible.builtin.systemd:
+    name: gway-remote-health.timer
+    enabled: true
+    state: started
+  when: github_health_token_config.stat.exists
+
+- name: Keep GitHub Health timer disabled until private token is provisioned
+  ansible.builtin.systemd:
+    name: gway-remote-health.timer
+    enabled: false
+    state: stopped
+  when: not github_health_token_config.stat.exists
+)
 
 - name: Verify runner user exists
   ansible.builtin.getent:
