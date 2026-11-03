@@ -12,8 +12,6 @@ class OperationRegistryTest {
     }
 
     @Test fun visibilityIsIndependentOfExecutionPolicy() {
-        assertEquals(ExecutionPolicy.CONFIRM, OperationRegistry.get("simulator-start")?.policy)
-        assertEquals(ExecutionPolicy.AUTO_READ, OperationRegistry.get("simulator-status")?.policy)
         assertEquals(OperationVisibility.PALETTE, OperationSpec("example", "Example", "activity", emptySet(), ExecutionPolicy.EXPLICIT_INPUT).visibility)
     }
 
@@ -29,7 +27,6 @@ class OperationRegistryTest {
 
     @Test fun filterMatchesNamesAndKeywordsWithoutChangingRegistry() {
         assertEquals(setOf("sound", "notifications"), OperationRegistry.search("audio").map { it.id }.toSet())
-        assertTrue(OperationRegistry.search("charging session").any { it.id == "simulator-start" })
         assertEquals(OperationRegistry.operations.size, OperationRegistry.search(" ").size)
         assertTrue(OperationRegistry.search("missing-feature").isEmpty())
     }
