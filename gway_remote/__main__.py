@@ -12,12 +12,11 @@ from .reconcile import TARGETS as DEPLOYMENT_TARGETS
 ALLOWED_REPOSITORY = "arthexis/ocpp-csms"
 REPORTS_REPOSITORY = "arthexis/ocpp-reports"
 LCD_REPOSITORY = "arthexis/gway-lcd-sound"
-SIM_REPOSITORY = "arthexis/ocpp-simulator"
 AGENT_REPOSITORY = "arthexis/gway-agent-ops"
 KIOSK_REPOSITORY = "arthexis/gway-ap-kiosk"
 RFID_REPOSITORY = "arthexis/gway-rfid"
 BASTION_REPOSITORY = "arthexis/gway-bastion"
-TASKS = ("system-health", "ocpp-simulator", "lcd-sound-deploy", "ocpp-csms-deploy", "ocpp-reports-deploy", "ocpp-simulator-deploy", "agent-ops-deploy", "ap-kiosk-deploy", "rfid-deploy", "bastion-deploy")
+TASKS = ("system-health", "lcd-sound-deploy", "ocpp-csms-deploy", "ocpp-reports-deploy", "agent-ops-deploy", "ap-kiosk-deploy", "rfid-deploy", "bastion-deploy")
 
 
 def validate(task: str, repository: str = "", sha: str = "") -> None:
@@ -28,7 +27,6 @@ def validate(task: str, repository: str = "", sha: str = "") -> None:
             raise ValueError("Health task takes no repository or sha")
         return
     expected = {"lcd-sound-deploy": LCD_REPOSITORY,
-                "ocpp-simulator-deploy": SIM_REPOSITORY,
                 "agent-ops-deploy": AGENT_REPOSITORY,
                 "ap-kiosk-deploy": KIOSK_REPOSITORY,
                 "rfid-deploy": RFID_REPOSITORY,
@@ -58,7 +56,6 @@ def run(task: str, repository: str = "", sha: str = "") -> None:
             "lcd-sound-deploy": deploy_lcd_sound,
             "ocpp-csms-deploy": deploy_csms,
             "ocpp-reports-deploy": deploy_reports,
-            "ocpp-simulator-deploy": deploy_simulator,
             "agent-ops-deploy": deploy_agent_ops,
             "ap-kiosk-deploy": deploy_ap_kiosk,
             "rfid-deploy": deploy_rfid,
@@ -67,7 +64,6 @@ def run(task: str, repository: str = "", sha: str = "") -> None:
         name = {"lcd-sound-deploy": "gway-lcd-sound",
                 "ocpp-csms-deploy": "ocpp-csms",
                 "ocpp-reports-deploy": "ocpp-reports",
-                "ocpp-simulator-deploy": "ocpp-simulator",
                 "agent-ops-deploy": "gway-agent-ops",
                 "ap-kiosk-deploy": "gway-ap-kiosk",
                 "rfid-deploy": "gway-rfid",
@@ -75,45 +71,10 @@ def run(task: str, repository: str = "", sha: str = "") -> None:
         print(json.dumps(manual_execute(GitHub(), name, sha, installer), sort_keys=True))
         return
 
-    # Disposable workspace, no modification to ~/Repos or production services.
-    with tempfile.TemporaryDirectory(prefix="gway-remote-") as directory:
-        worktree = Path(directory) / "source"
-        subprocess.run(["git", "clone", "--quiet", "--no-checkout",
-                        "https://github.com/arthexis/ocpp-csms.git", str(worktree)],
-                       check=True, timeout=180)
-        subprocess.run(["git", "-C", str(worktree), "checkout", "--detach", sha],
-                       check=True, timeout=60)
-        subprocess.run([sys.executable, "-m", "venv", str(Path(directory) / "venv")],
-                       check=True, timeout=90)
-        python = str(Path(directory) / "venv" / "bin" / "python")
-        subprocess.run([python, "-m", "pip", "install", ".[dev]"],
-                       cwd=worktree, check=True, timeout=360)
-        subprocess.run([python, "scripts/pr_simulator_smoke.py"],
-                       cwd=worktree, check=True, timeout=120)
-
-
-def deploy_simulator(sha: str) -> None:
-    """Install the approved simulator CLI persistently; never start a session or service."""
-    with tempfile.TemporaryDirectory(prefix="simulator-deploy-") as directory:
-        source = Path(directory) / "source"
-        subprocess.run(["git", "clone", "--quiet", "--no-checkout",
-                        "https://github.com/arthexis/ocpp-simulator.git", str(source)],
-                       check=True, timeout=180)
-        subprocess.run(["git", "-C", str(source), "checkout", "--detach", sha],
-                       check=True, timeout=60)
-        actual = subprocess.check_output(["git", "-C", str(source), "rev-parse", "HEAD"],
-                                         text=True, timeout=20).strip()
-        if actual.lower() != sha.lower():
-            raise ValueError("Simulator checkout SHA mismatch")
-        subprocess.run(["sh", "./deploy.sh"], cwd=source, check=True, timeout=600)
-        subprocess.run([str(Path.home() / ".local/bin/ocpp-simulator"), "--help"],
-                       check=True, timeout=30)
-
-
 def deploy_csms(sha: str) -> None:
     """Persistently deploy the approved CSMS main commit via its canonical Ansible wrapper.
 
-    Unlike PR simulator smoke tests, this intentionally updates the appliance.
+    This intentionally updates the appliance through its canonical deployer.
     The upstream deployer owns incumbent traffic detection and cutover.
     """
     with tempfile.TemporaryDirectory(prefix="csms-deploy-") as directory:
@@ -868,7 +829,6 @@ def main() -> None:
             result = execute(GitHub(), datetime.now(timezone.utc), {
                 "ocpp-csms": deploy_csms,
                 "ocpp-reports": deploy_reports,
-                "ocpp-simulator": deploy_simulator,
                 "gway-lcd-sound": deploy_lcd_sound,
                 "gway-agent-ops": deploy_agent_ops,
                 "gway-ap-kiosk": deploy_ap_kiosk,
