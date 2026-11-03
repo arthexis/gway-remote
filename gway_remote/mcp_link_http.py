@@ -13,7 +13,7 @@ from http.cookies import SimpleCookie
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlsplit
 from .mcp_bearer import BearerRegistry
-from .mcp_link import LinkFlow, RESOURCE, ISSUER
+from .mcp_link import LinkFlow, RESOURCE, ISSUER, OAUTH_PAGE_STYLE
 
 
 AUTHORIZE_FIELDS = frozenset({"client_id", "redirect_uri", "resource", "response_type",
@@ -96,9 +96,11 @@ def callback_handoff(destination, registered_callback):
     return ("<!doctype html><html lang='en'><head><meta charset='utf-8'>"
             "<meta name='viewport' content='width=device-width,initial-scale=1'>"
             "<meta http-equiv='refresh' content='0;url=" + url + "'>"
-            "<title>Returning to ChatGPT</title></head><body>"
-            "<main><p>Authorization accepted. Returning to ChatGPT...</p>"
-            "<p>If this page does not close automatically, "
+            "<title>Returning to ChatGPT</title>"
+            + OAUTH_PAGE_STYLE + "</head><body>"
+            "<main><h1>Connected to GWA Remote</h1>"
+            "<p>Authorization accepted. Returning to ChatGPT...</p>"
+            "<p>If you are not redirected automatically, "
             "<a rel='noreferrer' href='" + url + "'>Continue to ChatGPT</a>.</p>"
             "</main></body></html>")
 

@@ -304,6 +304,13 @@ def main() -> None:
     watch_parser.add_argument("--apply", action="store_true", help="Dispatch eligible deployments and file incidents")
     status_parser = subparsers.add_parser("status", help="Inspect local attempts and health")
     status_parser.add_argument("--json", action="store_true")
+    hardware_parser = subparsers.add_parser("hardware", help="Read-only optional local RTC and ambient thermometer")
+    hardware_parser.add_argument("--json", action="store_true")
+    watchdog_parser = subparsers.add_parser("watchdog", help="Inspect or explicitly configure systemd hardware watchdog")
+    watchdog_parser.add_argument("action", choices=("show", "enable", "disable"))
+    watchdog_parser.add_argument("--seconds", type=int, default=None)
+    watchdog_parser.add_argument("--apply", action="store_true", help="Confirm privileged systemd watchdog configuration")
+    watchdog_parser.add_argument("--json", action="store_true")
     subparsers.add_parser("probe-csms", help="Read-only CSMS health diagnosis")
     logs_parser = subparsers.add_parser("logs", help="Inspect local installation logs")
     logs_parser.add_argument("component", nargs="?", choices=tuple(name for name, _ in DEPLOYMENT_TARGETS))
@@ -354,12 +361,14 @@ def main() -> None:
                                  help="issue an explicit one-time attestation repair bootstrap")
     register_parser.add_argument("--settings", type=Path, default=Path("/etc/gway-remote/watchtower.json"))
     watchtower_parser = subparsers.add_parser("watchtower", help="Root-only Watchtower enrollment administration")
-    watchtower_parser.add_argument("action", choices=("serve", "invite", "register", "revoke", "revoke-bootstrap", "bootstrap-status", "status", "snapshot", "recover", "revoke-host", "rotate-host", "adopt"))
-    watchtower_parser.add_argument("node", nargs="?", help="node ID for adopt")
+    watchtower_parser.add_argument("action", choices=("serve", "invite", "register", "revoke", "revoke-bootstrap", "bootstrap-status", "status", "snapshot", "recover", "revoke-host", "rotate-host", "adopt", "attest"))
+    watchtower_parser.add_argument("node", nargs="?", help="node ID for adopt or attest")
     watchtower_parser.add_argument("--settings", type=Path, default=Path("/etc/gway-remote/watchtower.json"), help="root-owned Watchtower settings for adopt")
     watchtower_parser.add_argument("--ledger", help="root-owned SQLite enrollment ledger")
     watchtower_parser.add_argument("--public-key", help="independently verified existing WireGuard peer public key")
-    watchtower_parser.add_argument("--dry-run", action="store_true", help="inspect adoption without writing ledger")
+    watchtower_parser.add_argument("--dry-run", action="store_true", help="inspect without writing ledger")
+    watchtower_parser.add_argument("--attest", action="store_true", help="attest SSH host identity atomically during adopt")
+    watchtower_parser.add_argument("--host-key-file", type=Path, help="independently verified ED25519 SSH host public key file")
     watchtower_parser.add_argument("--network", help="approved IPv4 allocation CIDR")
     watchtower_parser.add_argument("--gateway", help="approved hub IPv4 address")
     watchtower_parser.add_argument("--config", help="root-owned WireGuard configuration")
@@ -467,7 +476,7 @@ def main() -> None:
                 return
             if os.geteuid() != 0:
                 parser.exit(1, "gway-remote: Watchtower administration requires root or sudo\n")
-            if args.action == "adopt":
+            if args.action in ("adopt", "attest"):
                 from .watchtower_settings import adopt_settings
                 settings = adopt_settings(args.settings)
                 args.ledger = args.ledger or settings["ledger"]
@@ -477,14 +486,32 @@ def main() -> None:
             if not args.ledger or not args.network or not args.gateway:
                 parser.error("active Watchtower administration requires --ledger, --network, and --gateway")
             ledger = Ledger(Path(args.ledger), network=args.network, gateway=args.gateway,
-                            read_only=args.action == "adopt" and args.dry_run)
+                            read_only=args.action in ("adopt", "attest") and args.dry_run)
             if args.action == "adopt":
                 if not args.node or not args.public_key or not args.config:
                     parser.error("watchtower adopt requires node, --public-key and --config")
+                if not args.attest and args.host_key_file is not None:
+                    parser.error("--host-key-file requires --attest for adopt")
+                if args.attest and args.host_key_file is None:
+                    from .watchtower_attest import host_key_path
+                    args.host_key_file = host_key_path(args.node)
                 from .watchtower_adopt import adopt
                 result = adopt(ledger, node=args.node, public_key=args.public_key,
-                               config=Path(args.config), dry_run=args.dry_run)
+                               config=Path(args.config), dry_run=args.dry_run,
+                               host_key_file=args.host_key_file)
                 print(json.dumps(result, sort_keys=True))
+                return
+            if args.action == "attest":
+                if not args.node:
+                    parser.error("watchtower attest requires node")
+                if args.attest or args.public_key:
+                    parser.error("watchtower attest takes neither --attest nor --public-key")
+                from .watchtower_attest import attest, host_key_path
+                if args.host_key_file is None:
+                    args.host_key_file = host_key_path(args.node)
+                print(json.dumps(attest(ledger, node=args.node,
+                                        host_key_file=args.host_key_file,
+                                        dry_run=args.dry_run), sort_keys=True))
                 return
             if args.action == "snapshot":
                 print(json.dumps(ledger.inspection_snapshot(), sort_keys=True))
@@ -694,6 +721,25 @@ def main() -> None:
             serve(args.host, args.port)
         except (ValueError, OSError) as exc:
             parser.exit(1, f"gway-remote: API unavailable: {exc}\\n")
+        return
+    if args.command == "hardware":
+        from .hardware_diagnostics import inspect, format_hardware
+        result = inspect()
+        print(json.dumps(result, indent=2, sort_keys=True) if args.json else format_hardware(result))
+        return
+    if args.command == "watchdog":
+        from .watchdog import inspect, configure, format_watchdog
+        if args.action == "show":
+            if args.apply or args.seconds is not None:
+                parser.error("watchdog show does not accept --apply or --seconds")
+            report = inspect()
+        else:
+            try:
+                report = configure(args.action, seconds=args.timeout_seconds, apply=args.apply)
+            except (ValueError, PermissionError, OSError, RuntimeError) as exc:
+                parser.exit(1, f"gway-remote: watchdog: {exc}\n")
+        print(json.dumps(report, indent=2, sort_keys=True) if args.json else
+              format_watchdog(report if args.action == "show" else report["watchdog"]))
         return
     if args.command == "probe-csms":
         from .csms_health import csms_probe

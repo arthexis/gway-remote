@@ -14,6 +14,8 @@ from .reconcile import TARGETS
 from .probe_registry import probe_for
 from .bastion_status import read_bastion_evidence
 from .deployment_evidence import adapt_component
+from .power_status import probe as power_probe, format_power
+from .watchdog import inspect as watchdog_inspect, format_watchdog
 
 
 def installed_revision(name):
@@ -109,7 +111,7 @@ def status(directory=DEFAULT_DIR, probe=component_health, *, depth="deep"):
               total_ms, journal_ms, probe_durations)
     return {"schema": "gway-remote/status/v1", "depth": depth, "node": platform.node(),
             "checked_at": checked_at,
-            "components": components}
+            "components": components, "power": power_probe(), "watchdog": watchdog_inspect()}
 
 
 def format_status(report):
@@ -124,5 +126,7 @@ def format_status(report):
         if item["error"]:
             rows.append("  Error: " + str(item["error"]))
     rows.append("")
+    rows.append(format_power(report.get("power", {"status": "unavailable"})))
+    rows.append(format_watchdog(report.get("watchdog", {"status": "unavailable", "devices": []})))
     rows.append("Installed revision is independently read from release links when available; unknown otherwise.")
     return "\n".join(rows)

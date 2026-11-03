@@ -55,16 +55,19 @@ def _callback_origin(redirect):
     return "https://" + parsed.netloc
 
 
+OAUTH_PAGE_STYLE = ("<style>body{font:1rem system-ui;background:#111827;color:#f9fafb;"
+            "padding:3rem 1rem}main{max-width:30rem;margin:auto}"
+            "input{box-sizing:border-box;width:100%;padding:.85rem;margin:.8rem 0;"
+            "font-size:1rem;border-radius:.5rem}button{padding:.85rem 1.4rem;"
+            "border:0;border-radius:.5rem;cursor:pointer}</style>")
+
+
 def _html(form_token, error=""):
     warning = "<p role='alert'>Invalid or expired bearer token.</p>" if error else ""
     return ("<!doctype html><html lang='en'><head><meta charset='utf-8'>"
             "<meta name='viewport' content='width=device-width,initial-scale=1'>"
             "<title>Connect GWA Remote</title>"
-            "<style>body{font:1rem system-ui;background:#111827;color:#f9fafb;"
-            "padding:3rem 1rem}main{max-width:30rem;margin:auto}"
-            "input{box-sizing:border-box;width:100%;padding:.85rem;margin:.8rem 0;"
-            "font-size:1rem;border-radius:.5rem}button{padding:.85rem 1.4rem;"
-            "border:0;border-radius:.5rem;cursor:pointer}</style></head><body>"
+            + OAUTH_PAGE_STYLE + "</head><body>"
             "<main><h1>Connect GWA Remote</h1><p>Enter the read-only bearer token "
             "generated on your Watchtower console. It is verified once and "
             "is not stored in the browser session.</p>"

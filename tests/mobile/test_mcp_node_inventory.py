@@ -86,15 +86,15 @@ class GatewayNodeInventoryTests(unittest.TestCase):
         finally:
             conn.close()
 
-    def test_tools_list_adds_two_nodes_without_changing_legacy_tools(self):
+    def test_tools_list_adds_preview_without_changing_legacy_tools(self):
         for version in ("2025-03-26", "2026-07-28"):
             with self.subTest(version=version):
                 status, result = self.rpc("tools/list", version=version)
                 self.assertEqual(status, 200)
                 tools = result["result"]["tools"]
-                self.assertEqual(len(tools), 9)
-                self.assertEqual({x["name"] for x in tools[-2:]},
-                                 {"node_list", "node_capabilities"})
+                self.assertEqual(len(tools), 10)
+                self.assertEqual({x["name"] for x in tools[-3:]},
+                                 {"node_list", "node_capabilities", "node_exec_preview"})
                 self.assertTrue(all(x["annotations"]["readOnlyHint"] for x in tools))
                 self.assertNotIn("agent_submit", {x["name"] for x in tools})
 
@@ -119,6 +119,19 @@ class GatewayNodeInventoryTests(unittest.TestCase):
         status, response = self.rpc("tools/call",
                                     {"name": "node_capabilities",
                                      "arguments": {"node": "unknown-host"}})
+        self.assertEqual(status, 200)
+        self.assertTrue(response["result"]["isError"])
+
+    def test_preview_is_read_only_and_requires_attested_identity(self):
+        status, response = self.rpc("tools/call", {"name": "node_exec_preview",
+            "arguments": {"node": "gway-001", "command": "df -h && uptime"}})
+        self.assertEqual(status, 200)
+        preview = json.loads(response["result"]["content"][0]["text"])
+        self.assertEqual(preview["command"], "df -h && uptime")
+        self.assertEqual(preview["status"], "preview_only")
+        self.assertFalse(preview["execute_available"])
+        status, response = self.rpc("tools/call", {"name": "node_exec_preview",
+            "arguments": {"node": "gway-002", "command": "uptime"}})
         self.assertEqual(status, 200)
         self.assertTrue(response["result"]["isError"])
 
