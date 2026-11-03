@@ -32,57 +32,13 @@ class AsyncOperationViewModelTest {
         return Triple(model, runner, scope)
     }
 
-    @Test fun laterTaskSelectionWinsEvenIfEarlierResponseArrivesLast() {
+    @Test fun removedTasksCannotOpenOrExecute() {
         val (model, runner, scope) = fixture()
-        model.open("tasks")
+        assertNull(OperationRegistry.get("tasks"))
+        assertNull(OperationRegistry.get("task-detail"))
+        assertFalse(PanelExecution.canRun("task-detail", true, true, true))
         scope.advanceUntilIdle()
-        assertEquals("codex-tasks", runner.pending.single().request.command)
-        model.inspectTask(taskA)
-        model.inspectTask(taskB)
-        scope.advanceUntilIdle()
-        assertEquals(3, runner.pending.size)
-        runner.pending[2].response.complete(JSONObject().put("result", "B"))
-        scope.advanceUntilIdle()
-        assertTrue(model.taskDetail!!.contains("B"))
-        runner.pending[1].response.complete(JSONObject().put("result", "A"))
-        scope.advanceUntilIdle()
-        assertEquals(taskB, model.taskDetailSelection)
-        assertTrue(model.taskDetail!!.contains("B"))
-        assertFalse(model.taskDetailLoading)
-    }
-
-    @Test fun closingAndReopeningTasksRejectsPriorDetailAndHistory() {
-        val (model, runner, scope) = fixture()
-        model.open("tasks")
-        model.inspectTask(taskA)
-        scope.advanceUntilIdle()
-        model.close("tasks")
-        model.open("tasks")
-        scope.advanceUntilIdle()
-        runner.pending[1].response.complete(JSONObject().put("result", "stale detail"))
-        runner.pending[0].response.complete(JSONObject().put("result", "stale history"))
-        scope.advanceUntilIdle()
-        assertNull(model.taskDetailSelection)
-        assertNull(model.taskDetail)
-        assertNull(model.panels.panels.single().output)
-        runner.pending[2].response.complete(JSONObject().put("result", "fresh history"))
-        scope.advanceUntilIdle()
-        assertTrue(model.panels.panels.single().output!!.contains("fresh history"))
-    }
-
-    @Test fun staleErrorIsIgnoredAndCurrentErrorIsDisplayed() {
-        val (model, runner, scope) = fixture()
-        model.open("tasks")
-        model.inspectTask(taskA)
-        model.inspectTask(taskB)
-        scope.advanceUntilIdle()
-        runner.pending[1].response.completeExceptionally(IllegalStateException("old failure"))
-        scope.advanceUntilIdle()
-        assertNull(model.taskDetailError)
-        runner.pending[2].response.completeExceptionally(IllegalStateException("current failure"))
-        scope.advanceUntilIdle()
-        assertEquals("current failure", model.taskDetailError)
-        assertFalse(model.taskDetailLoading)
+        assertTrue(runner.pending.isEmpty())
     }
 
     @Test fun csmsRefreshRejectsStaleSuccessAndError() {

@@ -14,15 +14,19 @@ class OperationViewModelTest {
         assertTrue(model.panels.panels.single().inputs.isEmpty())
     }
 
-    @Test fun taskInspectionDoesNotOpenIndependentPanel() {
+    @Test fun removedTasksAreNotRegisteredOrOpened() {
         val model = OperationViewModel()
-        // Inspection is only available inside an already open Tasks panel.
-        model.inspectTask("123")
+        assertNull(OperationRegistry.get("tasks"))
+        assertNull(OperationRegistry.get("task-detail"))
+        for (removed in listOf("tasks", "task-detail")) {
+            try {
+                model.open(removed)
+                fail("Removed operation $removed must be rejected")
+            } catch (_: IllegalArgumentException) {
+                // The registry correctly rejects unknown operations.
+            }
+        }
         assertTrue(model.panels.panels.isEmpty())
-        assertNull(model.taskDetailSelection)
-        assertNull(model.taskDetail)
-        assertFalse(model.taskDetailLoading)
-        assertNull(model.taskDetailError)
     }
 
     @Test fun peerSelectionIsInputOnly() {

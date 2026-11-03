@@ -46,11 +46,6 @@ fun OperationPalette(
     onSimulatorRead: (String, JSONObject) -> Unit,
     onSelectSimulatorRead: (String) -> Unit,
     onSelectSimulatorPeer: (String, String) -> Unit,
-    onInspectTask: (String) -> Unit,
-    taskDetail: String?,
-    taskDetailLoading: Boolean,
-    taskDetailError: String?,
-    taskDetailSelection: String?,
     agentAssignments: List<JSONObject>,
     agentInstance: String,
     agentAssignmentsLoading: Boolean,
@@ -87,11 +82,6 @@ fun OperationPalette(
             onSimulatorRead = onSimulatorRead,
             onSelectSimulatorRead = onSelectSimulatorRead,
             onSelectSimulatorPeer = onSelectSimulatorPeer,
-            onInspectTask = onInspectTask,
-            taskDetail = taskDetail,
-            taskDetailLoading = taskDetailLoading,
-            taskDetailError = taskDetailError,
-            taskDetailSelection = taskDetailSelection,
             agentAssignments = agentAssignments,
             agentInstance = agentInstance,
             agentAssignmentsLoading = agentAssignmentsLoading,
@@ -221,59 +211,6 @@ internal fun CsmsInspectionPanel(output: String?, view: String = "status") {
     }
     val content = result.optString("output", "")
     CsmsCompactInspection(view, content)
-}
-
-internal val TASK_UUID = Regex("[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}")
-
-@Composable
-internal fun TaskHistoryPanel(output: String?, inspect: (String) -> Unit) {
-    if (output == null) return
-    val tasks = remember(output) {
-        runCatching { JSONObject(output).optJSONObject("result")?.optJSONArray("tasks") }.getOrNull()
-    }
-    if (tasks == null) {
-        Text("Task history unavailable", color = MaterialTheme.colorScheme.error)
-        return
-    }
-    if (tasks.length() == 0) Text("No recorded tasks")
-    for (index in 0 until tasks.length()) {
-        val entry = tasks.optJSONObject(index) ?: continue
-        val task = entry.optJSONObject("task") ?: continue
-        val execution = entry.optJSONObject("execution")
-        val id = task.optString("id")
-        val state = task.optString("state", "unknown")
-        val result = execution?.optString("status")?.takeIf { it.isNotBlank() }
-        Text("Task ${id.take(8)} · $state" + (result?.let { " · $it" } ?: ""))
-        val issue = task.optString("issue_number")
-        val repository = task.optString("repository")
-        if (repository.isNotBlank() && issue.isNotBlank()) Text("$repository#$issue",
-            style = MaterialTheme.typography.bodySmall)
-        if (TASK_UUID.matches(id)) TextButton(onClick = { inspect(id) }) { Text("Inspect details") }
-        HorizontalDivider()
-    }
-}
-
-@Composable
-internal fun TaskDetailPanel(output: String?) {
-    if (output == null) return
-    val result = remember(output) {
-        runCatching { JSONObject(output).optJSONObject("result") }.getOrNull()
-    }
-    if (result == null) {
-        Text("Task details unavailable", color = MaterialTheme.colorScheme.error)
-        return
-    }
-    val task = result.optJSONObject("task")
-    val execution = result.optJSONObject("execution")
-    Text("Task: ${task?.optString("id", "unknown") ?: "unknown"}")
-    Text("State: ${task?.optString("state", "unknown") ?: "unknown"}")
-    Text("Execution: ${execution?.optString("status", "not recorded") ?: "not recorded"}")
-    execution?.optString("summary")?.takeIf { it.isNotBlank() }?.let { Text(it) }
-    var showRaw by remember { mutableStateOf(false) }
-    TextButton(onClick = { showRaw = !showRaw }) {
-        Text(if (showRaw) "Hide JSON" else "Show JSON")
-    }
-    if (showRaw) Text(result.toString(2), style = MaterialTheme.typography.bodySmall)
 }
 
 @Composable

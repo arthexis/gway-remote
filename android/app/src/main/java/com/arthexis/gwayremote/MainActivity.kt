@@ -502,11 +502,6 @@ fun CompanionScreen(store: SecretStore, appearance: AppearanceMode = AppearanceM
                 }
             },
             onAgentSend = agentModel::send,
-            onInspectTask = operationModel::inspectTask,
-            taskDetail = operationModel.taskDetail,
-            taskDetailLoading = operationModel.taskDetailLoading,
-            taskDetailError = operationModel.taskDetailError,
-            taskDetailSelection = operationModel.taskDetailSelection,
             onSelectSimulatorPeer = operationModel::selectSimulatorPeer,
             benchmarkContent = benchmarkPanelContent,
             simulatorStatus = simulatorStatus,

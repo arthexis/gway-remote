@@ -56,6 +56,14 @@ class OperationPanelsTest {
         assertTrue(restored.panels.all { !it.loading && it.output == null })
     }
 
+    @Test fun legacyTasksAreDiscardedDuringPanelRestore() {
+        val restored = OperationPanelState().restore(listOf("tasks", "task-detail", "agent-ops", "status"))
+        assertEquals(listOf("agent-ops", "status"), restored.panels.map { it.id })
+        assertFalse(restored.unopened().any { it.id == "tasks" || it.id == "task-detail" })
+        assertFalse(PanelExecution.canRun("tasks", true, true, true))
+        assertFalse(PanelExecution.canRun("task-detail", true, true, true))
+    }
+
     @Test fun executionGateRequiresDeliberateMutations() {
         assertTrue(PanelExecution.canRun("status", false, false, true))
         assertFalse(PanelExecution.canRun("lcd", false, false, true))
