@@ -1,3 +1,9 @@
 ---
 gway_remote_install_root: /opt/gway-remote
 gway_remote_runner_user: arthe  # Explicit playbook runs may override; deploy.sh passes the invoking operator
+
+# B2a: prepare the local unprivileged executor only on an explicitly selected Pi.
+# No account, linger, service, SSH key or MCP execution authorization by default.
+gway_remote_exec_prepare: false
+gway_remote_exec_user: gway-exec
+gway_remote_exec_state_dir: /var/lib/gway-exec
