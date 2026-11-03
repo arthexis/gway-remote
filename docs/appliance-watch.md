@@ -57,7 +57,7 @@ appliance deployment workflow; enabling this timer does not implicitly run
 
 ## Revision provenance
 
-- CSMS, LCD Sound, RFID and Simulator: existing immutable-release symlinks.
+- CSMS, LCD Sound and RFID: existing immutable-release symlinks.
 - Reports and Agent Ops: installed executable symlinks into a SHA-named
   release directory; reject broken and malformed release links.
 - AP Kiosk: `/var/lib/gway-ap-kiosk/installed-revision`, written **after**
