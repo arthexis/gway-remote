@@ -97,7 +97,6 @@ fun CompanionScreen(store: SecretStore, appearance: AppearanceMode = AppearanceM
     val agentIssuesError = agentModel.issuesError
     val agentIssuesLoading = agentModel.issuesLoading
     var refreshStatus by remember { mutableStateOf("") }
-    val simulatorStatus = operationModel.simulatorStatus
     var expandedWriteOperation by remember { mutableStateOf<String?>(null) }
     var lcdDuration by remember { mutableFloatStateOf(30f) }
     var lcdLine1 by remember { mutableStateOf("") }
@@ -252,10 +251,6 @@ fun CompanionScreen(store: SecretStore, appearance: AppearanceMode = AppearanceM
                         if (item.optBoolean("read_only") && (item.optJSONObject("arguments")?.length() ?: 0) == 0)
                             item.optString("name").takeIf { it.isNotBlank() } else null
                     }
-                }
-                if (command == "simulator-status" || command == "simulator-start" || command == "simulator-stop") {
-                    val data = response.optJSONObject("result")
-                    operationModel.updateSimulatorStatus(response)
                 }
                 result = response.toString(2)
             } catch (e: Exception) {
@@ -502,12 +497,7 @@ fun CompanionScreen(store: SecretStore, appearance: AppearanceMode = AppearanceM
                 }
             },
             onAgentSend = agentModel::send,
-            onSelectSimulatorPeer = operationModel::selectSimulatorPeer,
             benchmarkContent = benchmarkPanelContent,
-            simulatorStatus = simulatorStatus,
-            onSimulatorCommand = operationModel::runConfirmedSimulator,
-            onSimulatorRead = operationModel::simulatorRead,
-            onSelectSimulatorRead = operationModel::selectSimulatorRead,
             motifs = availableMotifs,
             lcdNotification = operationModel.lcdNotification,
             soundNotification = operationModel.soundNotification,
