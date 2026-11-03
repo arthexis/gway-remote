@@ -8,52 +8,44 @@ Parent [#317](https://github.com/arthexis/gway-remote/issues/317), successor to 
 
 Each job has `MemoryMax=128M`, `TasksMax=32`, `RuntimeMaxSec=70s` (60s worker timeout plus cleanup headroom), `KillMode=control-group` and an explicit job name. Cancellation is an independent `systemctl --user kill --kill-whom=all` call; no HTTP disconnect triggers cancellation. Failed or unobservable jobs are never silently replayed: `reconcile()` reports `unknown` if the systemd unit disappears without a committed result. There is one active job per node initially; output is capped to 1 MiB with a 16 KiB result-page limit.
 
-## Ansible installation (opt-in, no remote execution)
+## Standard node bootstrap and Ansible convergence
 
-The existing `ansible/roles/gway_remote` role includes
-`tasks/node-exec-prepare.yml` **only** when `exec_prepare=true`.
-This avoids provisioning an executor account on Watchtower or other hosts
-during normal deployments.
+**No per-node execution flags.** Every authorized, newly bootstrapped node
+receives the same **dormant** executor prerequisites. The standalone
+`wireguard_satellite.py` client prepares the fixed `gway-exec` system user,
+group, locked account, private `/var/lib/gway-exec` directory (0700), and
+persistent systemd user-manager linger **after successfully establishing
+WireGuard**. It uses standard Debian system tools; bootstrap never requires
+Ansible. Existing successful bootstrap reruns converge the same prerequisites.
+Host-identity repair alone does not mutate executor installation.
 
-After reviewing the target is the intended `gway-001` Pi, run its ordinary
-operator deployment with explicit extra-vars:
+Subsequent Ansible deployments use the existing `gway_remote` role's
+`node-exec-prepare.yml` automatically **only on hosts whose Ansible-reported
+hostname matches `gway-NNN`**. This maintains the account/group, private
+directory and linger without options. A Watchtower install is not a node
+install, so the node preparation task must not be applied there. No special
+`exec_prepare` or `exec_enable` flags remain. Both paths are intended to
+converge equivalent local prerequisites.
 
-```sh
-./deploy.sh -e exec_prepare=true
-```
+**This is not execution authorization.** There is no MCP executor listener,
+SSH command key, new sudo/polkit grant, or remote dispatch endpoint in B2a.
+The existing Watchtower enrollment ledger is the sole source of node identity;
+B2b must add an explicit default-deny *central execution eligibility* setting
+there, together with attestation/readiness checks and request-specific operator
+approval. Installed prerequisites, active user linger, or a WireGuard handshake
+alone must never imply `execute_available=true`.
 
-This creates the **locked, non-login** `gway-exec` account, its dedicated
-primary group and private `/var/lib/gway-exec` directory (0700).
-Supplementary groups are removed and verified. Account name and state path
-cannot be overridden to a privileged identity. Ansible does **not** create
-SSH keys, a command listener, sudo rights or an MCP execution endpoint.
+The transient worker loads modules from root-owned `/opt/gway-remote` when
+Ansible has deployed the package. On freshly bootstrapped satellites that have
+not yet received the package, the account exists but cannot run jobs. Central
+execution eligibility must remain disabled until that package and the
+authenticated transport are installed and field-verified.
 
-For an approved field test that needs a persistent user systemd manager,
-the separately opt-in variant is:
-
-```sh
-./deploy.sh -e exec_prepare=true -e exec_enable=true
-```
-
-The second variable invokes `loginctl enable-linger gway-exec` once when
-needed. It does not enable command execution through MCP. **Do not enable
-linger on Watchtower or an unapproved target.** A future removal/revocation
-procedure should explicitly disable linger and safely retain or retire job
-records; regular repeat deployments do not remove an existing account.
-
-The worker's systemd-run invocation sets a fixed import path to the
-root-owned `/opt/gway-remote` package and working directory to the private
-job directory. It must never rely on a writable Python module path.
-This is preparation only; test on the actual Pi that the user manager is
-reachable and the cgroups behave as expected before any remote executor is
-activated.
-
-**Field gates still mandatory:** verify the `gway-exec` identity has no
-sudo/polkit, privileged groups, Docker socket, OCPP state write permissions,
-or access to SSH/WireGuard secrets. Test job subprocess lifetime, descendant
-cancellation, disk cap, memory/task limits and restart recovery. Real
-`node_capabilities.execute_available` remains **false**. Nothing in this
-PR installs or enables a network listener or lets Watchtower run commands.
+Before B2b is enabled: verify no sensitive filesystem access, privileged
+groups or service-control rights; validate user systemd manager, cgroup
+limits, descendant cancellation, output limits, restart recovery, and the
+failure behavior with no active charging. Revocation should prevent new
+submissions centrally without implicitly killing already-running jobs.
 
 ## B2b remains a separate gated PR
 
