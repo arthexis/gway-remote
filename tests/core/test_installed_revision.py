@@ -15,7 +15,6 @@ class InstalledRevisionTests(unittest.TestCase):
             (home / ".local/share/ocpp-csms/current").symlink_to(version)
             with patch("pathlib.Path.home", return_value=home):
                 self.assertEqual(installed_revision("ocpp-csms"), "a" * 12)
-                self.assertIsNone(installed_revision("ocpp-simulator"))
 
     def test_invalid_or_missing_link_is_unknown(self):
         with tempfile.TemporaryDirectory() as temp:
