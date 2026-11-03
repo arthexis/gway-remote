@@ -354,12 +354,14 @@ def main() -> None:
                                  help="issue an explicit one-time attestation repair bootstrap")
     register_parser.add_argument("--settings", type=Path, default=Path("/etc/gway-remote/watchtower.json"))
     watchtower_parser = subparsers.add_parser("watchtower", help="Root-only Watchtower enrollment administration")
-    watchtower_parser.add_argument("action", choices=("serve", "invite", "register", "revoke", "revoke-bootstrap", "bootstrap-status", "status", "snapshot", "recover", "revoke-host", "rotate-host", "adopt"))
-    watchtower_parser.add_argument("node", nargs="?", help="node ID for adopt")
+    watchtower_parser.add_argument("action", choices=("serve", "invite", "register", "revoke", "revoke-bootstrap", "bootstrap-status", "status", "snapshot", "recover", "revoke-host", "rotate-host", "adopt", "attest"))
+    watchtower_parser.add_argument("node", nargs="?", help="node ID for adopt or attest")
     watchtower_parser.add_argument("--settings", type=Path, default=Path("/etc/gway-remote/watchtower.json"), help="root-owned Watchtower settings for adopt")
     watchtower_parser.add_argument("--ledger", help="root-owned SQLite enrollment ledger")
     watchtower_parser.add_argument("--public-key", help="independently verified existing WireGuard peer public key")
-    watchtower_parser.add_argument("--dry-run", action="store_true", help="inspect adoption without writing ledger")
+    watchtower_parser.add_argument("--dry-run", action="store_true", help="inspect without writing ledger")
+    watchtower_parser.add_argument("--attest", action="store_true", help="attest SSH host identity atomically during adopt")
+    watchtower_parser.add_argument("--host-key-file", type=Path, help="independently verified ED25519 SSH host public key file")
     watchtower_parser.add_argument("--network", help="approved IPv4 allocation CIDR")
     watchtower_parser.add_argument("--gateway", help="approved hub IPv4 address")
     watchtower_parser.add_argument("--config", help="root-owned WireGuard configuration")
@@ -467,7 +469,7 @@ def main() -> None:
                 return
             if os.geteuid() != 0:
                 parser.exit(1, "gway-remote: Watchtower administration requires root or sudo\n")
-            if args.action == "adopt":
+            if args.action in ("adopt", "attest"):
                 from .watchtower_settings import adopt_settings
                 settings = adopt_settings(args.settings)
                 args.ledger = args.ledger or settings["ledger"]
@@ -477,14 +479,29 @@ def main() -> None:
             if not args.ledger or not args.network or not args.gateway:
                 parser.error("active Watchtower administration requires --ledger, --network, and --gateway")
             ledger = Ledger(Path(args.ledger), network=args.network, gateway=args.gateway,
-                            read_only=args.action == "adopt" and args.dry_run)
+                            read_only=args.action in ("adopt", "attest") and args.dry_run)
             if args.action == "adopt":
                 if not args.node or not args.public_key or not args.config:
                     parser.error("watchtower adopt requires node, --public-key and --config")
+                if args.attest and args.host_key_file is None:
+                    parser.error("watchtower adopt --attest requires --host-key-file")
+                if not args.attest and args.host_key_file is not None:
+                    parser.error("--host-key-file requires --attest for adopt")
                 from .watchtower_adopt import adopt
                 result = adopt(ledger, node=args.node, public_key=args.public_key,
-                               config=Path(args.config), dry_run=args.dry_run)
+                               config=Path(args.config), dry_run=args.dry_run,
+                               host_key_file=args.host_key_file)
                 print(json.dumps(result, sort_keys=True))
+                return
+            if args.action == "attest":
+                if not args.node or args.host_key_file is None:
+                    parser.error("watchtower attest requires node and --host-key-file")
+                if args.attest or args.public_key:
+                    parser.error("watchtower attest takes neither --attest nor --public-key")
+                from .watchtower_attest import attest
+                print(json.dumps(attest(ledger, node=args.node,
+                                        host_key_file=args.host_key_file,
+                                        dry_run=args.dry_run), sort_keys=True))
                 return
             if args.action == "snapshot":
                 print(json.dumps(ledger.inspection_snapshot(), sort_keys=True))
