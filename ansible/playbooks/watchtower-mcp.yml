@@ -1,0 +1,176 @@
+---
+# Applied by the ordinary deploy.sh only on an already-provisioned Watchtower.
+# Does not manage Nginx, bearer credentials, WireGuard or gway-001 services.
+- name: Converge existing Watchtower MCP OAuth link
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  vars:
+    mcp_source: "{{ playbook_dir }}/../.."
+    mcp_root: /opt/gway-mcp
+    mcp_unit: gway-mcp-link.service
+  tasks:
+    - name: Resolve reviewed repository commit
+      ansible.builtin.command:
+        argv: [git, -C, "{{ mcp_source }}", rev-parse, --verify, HEAD]
+      changed_when: false
+      register: mcp_sha
+
+    - name: Require a full pinned revision
+      ansible.builtin.assert:
+        that: mcp_sha.stdout is match('^[0-9a-f]{40}$')
+
+    - name: Require existing isolated link configuration and installed service
+      become: true
+      ansible.builtin.stat:
+        path: "{{ item }}"
+        follow: false
+      loop:
+        - /etc/gway-mcp-gateway/link.env
+        - /etc/systemd/system/gway-mcp-link.service
+        - /opt/gway-mcp/current
+      register: mcp_prerequisites
+
+    - name: Refuse first-time deployment or unexpected paths
+      ansible.builtin.assert:
+        that:
+          - mcp_prerequisites.results[0].stat.isreg | default(false)
+          - not (mcp_prerequisites.results[0].stat.islnk | default(false))
+          - mcp_prerequisites.results[1].stat.isreg | default(false)
+          - not (mcp_prerequisites.results[1].stat.islnk | default(false))
+          - mcp_prerequisites.results[2].stat.islnk | default(false)
+        fail_msg: Watchtower MCP requires prior explicit credential/service provisioning.
+
+    - name: Read existing release pointer
+      become: true
+      ansible.builtin.command:
+        argv: [readlink, /opt/gway-mcp/current]
+      changed_when: false
+      register: mcp_original_target
+
+    - name: Reject unexpected current pointer
+      ansible.builtin.assert:
+        that: mcp_original_target.stdout is match('^releases/[0-9a-f]{40}$')
+
+    - name: Verify original isolated runtime before convergence
+      become: true
+      ansible.builtin.command:
+        argv: [/usr/bin/python3, -I, /opt/gway-mcp/current/run.py, --check]
+      changed_when: false
+
+    - name: Check current OAuth link unit content
+      become: true
+      ansible.builtin.stat:
+        path: /etc/systemd/system/gway-mcp-link.service
+        checksum_algorithm: sha256
+      register: mcp_unit_before
+
+    - name: Detect checked-in service unit change
+      ansible.builtin.stat:
+        path: "{{ mcp_source }}/deploy/mcp-bearer/gway-mcp-link.service"
+        checksum_algorithm: sha256
+      register: mcp_unit_source
+
+    - name: Determine whether service restart is required
+      ansible.builtin.set_fact:
+        mcp_activation_needed: >-
+          {{ mcp_original_target.stdout != 'releases/' ~ mcp_sha.stdout or
+             mcp_unit_before.stat.checksum != mcp_unit_source.stat.checksum }}
+
+    - name: Stage and activate only the dedicated MCP runtime
+      block:
+        - name: Stage reviewed isolated MCP runtime and advance current pointer
+          become: true
+          ansible.builtin.command:
+            argv:
+              - /usr/bin/python3
+              - -I
+              - "{{ mcp_source }}/scripts/stage-mcp-runtime.py"
+              - --source
+              - "{{ mcp_source }}"
+              - --revision
+              - "{{ mcp_sha.stdout }}"
+          register: mcp_staging
+          changed_when: mcp_activation_needed | bool
+
+        - name: Verify staged runtime before service restart
+          become: true
+          ansible.builtin.command:
+            argv: [/usr/bin/python3, -I, /opt/gway-mcp/current/run.py, --check]
+          changed_when: false
+
+        - name: Install only the reviewed OAuth link service unit
+          become: true
+          ansible.builtin.copy:
+            src: "{{ mcp_source }}/deploy/mcp-bearer/gway-mcp-link.service"
+            dest: /etc/systemd/system/gway-mcp-link.service
+            owner: root
+            group: root
+            mode: '0644'
+          register: mcp_unit_update
+
+        - name: Reload systemd when the OAuth unit changed
+          become: true
+          ansible.builtin.systemd:
+            daemon_reload: true
+          when: mcp_unit_update.changed
+
+        - name: Restart only the dedicated OAuth link on a new release
+          become: true
+          ansible.builtin.systemd:
+            name: "{{ mcp_unit }}"
+            state: restarted
+          when: mcp_activation_needed | bool
+
+        - name: Confirm OAuth service health on loopback
+          ansible.builtin.uri:
+            url: http://127.0.0.1:19012/.well-known/oauth-authorization-server
+            method: GET
+            status_code: 200
+            return_content: true
+            timeout: 8
+          register: mcp_discovery
+          retries: 5
+          delay: 1
+          until: mcp_discovery.status == 200
+          changed_when: false
+
+        - name: Verify expected issuer and PKCE metadata
+          ansible.builtin.assert:
+            that:
+              - mcp_discovery.json.issuer == 'https://remote.arthexis.com'
+              - mcp_discovery.json.authorization_response_iss_parameter_supported | bool
+              - "'S256' in mcp_discovery.json.code_challenge_methods_supported"
+      rescue:
+        - name: Restore previous pointer atomically if activation failed
+          become: true
+          ansible.builtin.shell: |
+            set -eu
+            cd /opt/gway-mcp
+            ln -s "{{ mcp_original_target.stdout }}" .mcp-rollback-new
+            mv -Tf .mcp-rollback-new current
+          args:
+            executable: /bin/sh
+          when: mcp_original_target.stdout is match('^releases/[0-9a-f]{40}$')
+
+        - name: Restore original unit when the managed service template changed
+          become: true
+          ansible.builtin.copy:
+            src: "{{ mcp_source }}/deploy/mcp-bearer/gway-mcp-link.service"
+            dest: /etc/systemd/system/gway-mcp-link.service
+            owner: root
+            group: root
+            mode: '0644'
+          when: false
+
+        - name: Restart existing OAuth link after rollback
+          become: true
+          ansible.builtin.systemd:
+            name: "{{ mcp_unit }}"
+            state: restarted
+            daemon_reload: true
+          when: mcp_activation_needed | bool
+
+        - name: Stop on failed MCP release activation
+          ansible.builtin.fail:
+            msg: MCP OAuth health validation failed and current was returned to the previous release.
