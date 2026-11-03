@@ -270,21 +270,25 @@ single private management /32 in the configured network. A mismatched key,
 address, duplicate peer, revoked record, or existing different node identity
 must fail closed.
 
-Run on Watchtower as root, substituting the **existing** enrollment service's
-ledger, network, gateway, and WireGuard configuration values:
+Get the key **on gway-001** (only public material is printed):
+
+```sh
+sudo gway-remote wireguard public-key
+```
+
+Independently verify that key before adoption. On Watchtower, `adopt`
+automatically loads the same protected `/etc/gway-remote/watchtower.json`
+used by `register` (ledger, network, gateway; and the configured WireGuard
+file or the canonical `/etc/wireguard/gway.conf`). You may override settings
+with `--settings PATH` when needed. The operator-supplied peer key remains
+mandatory.
 
 ```sh
 sudo gway-remote watchtower adopt gway-001 \
-  --ledger /var/lib/gway-remote/watchtower/ledger.sqlite3 \
-  --network <WATCHTOWER_NETWORK_CIDR> --gateway <WATCHTOWER_GATEWAY_IP> \
-  --config <EXISTING_WIREGUARD_CONFIG> \
   --public-key '<INDEPENDENTLY_VERIFIED_NODE_WG_PUBLIC_KEY>' --dry-run
 
-# Remove --dry-run only after reviewing the identity/address.
+# Review identity/address, then remove --dry-run.
 sudo gway-remote watchtower adopt gway-001 \
-  --ledger /var/lib/gway-remote/watchtower/ledger.sqlite3 \
-  --network <WATCHTOWER_NETWORK_CIDR> --gateway <WATCHTOWER_GATEWAY_IP> \
-  --config <EXISTING_WIREGUARD_CONFIG> \
   --public-key '<INDEPENDENTLY_VERIFIED_NODE_WG_PUBLIC_KEY>'
 
 sudo systemctl start gway-mcp-inventory-refresh.service
