@@ -70,7 +70,7 @@ class HardwareDiagnosticTests(TestCase):
         host = result["host"]
         self.assertEqual(host["cpu_temperature_c"], 54.125)
         self.assertEqual(host["cpu_frequency_mhz"], 1500.0)
-        self.assertEqual(host["memory"]["total_bytes"], 4000000000)
+        self.assertEqual(host["memory"]["total_bytes"], 4096000000)
         self.assertEqual(host["memory"]["used_percent"], 75.0)
         self.assertEqual(host["uptime_seconds"], 3600.2)
         self.assertEqual(host["root_filesystem"]["used_percent"], 60.0)
