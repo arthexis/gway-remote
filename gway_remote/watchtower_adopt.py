@@ -96,7 +96,7 @@ def adopt(ledger, *, node: str, public_key: str, config: Path,
         raise ValueError("peer address conflicts with another live WireGuard peer")
 
     # A single IMMEDIATE transaction excludes concurrent enrollment and conflicting IDs.
-    with ledger._transaction() as db:
+    with (ledger._connect() if dry_run else ledger._transaction()) as db:
         existing = db.execute("SELECT * FROM devices WHERE device=?", (node,)).fetchone()
         conflict = db.execute("SELECT device FROM devices WHERE (public_key=? OR address=?) AND device!=?",
                               (public_key, str(address), node)).fetchone()
