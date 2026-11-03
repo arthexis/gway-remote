@@ -18,8 +18,14 @@ class OperationViewModelTest {
         val model = OperationViewModel()
         assertNull(OperationRegistry.get("tasks"))
         assertNull(OperationRegistry.get("task-detail"))
-        model.open("tasks")
-        model.open("task-detail")
+        for (removed in listOf("tasks", "task-detail")) {
+            try {
+                model.open(removed)
+                fail("Removed operation $removed must be rejected")
+            } catch (_: IllegalArgumentException) {
+                // The registry correctly rejects unknown operations.
+            }
+        }
         assertTrue(model.panels.panels.isEmpty())
     }
 
