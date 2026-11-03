@@ -19,7 +19,7 @@ import java.util.UUID
 fun DeploymentsPanel(endpoint: String, token: String) {
     val context = LocalContext.current
     val prefs = remember { context.getSharedPreferences("deployment-follow", 0) }
-    val targets = listOf("all", "ocpp-csms", "ocpp-reports", "ocpp-simulator",
+    val targets = listOf("all", "ocpp-csms", "ocpp-reports",
         "gway-agent-ops", "gway-ap-kiosk", "gway-rfid", "gway-lcd-sound", "gway-bastion")
     var selected by remember { mutableStateOf("all") }
     var expanded by remember { mutableStateOf(false) }
