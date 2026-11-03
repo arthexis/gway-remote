@@ -14,7 +14,7 @@ class DeploySelectorTests(unittest.TestCase):
 
     def test_multi_match(self):
         self.assertEqual(resolve_targets("ocpp"), (
-            "ocpp-csms", "ocpp-reports", "ocpp-simulator"))
+            "ocpp-csms", "ocpp-reports"))
         self.assertEqual(resolve_targets("gway"), tuple(
             name for name in TARGETS[1:] if name.startswith("gway-")))
 
