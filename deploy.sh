@@ -86,17 +86,17 @@ if [ "$#" -eq 0 ] &&
    { ! hostname -s | grep -Eq '^gway-[0-9]+$' ||
      sudo -n -u gway-exec env PYTHONPATH=/opt/gway-remote /usr/bin/python3 -c 'import gway_remote.node_exec_worker' >/dev/null 2>&1; }; then
   if [ -n "${GWAY_REMOTE_DEPLOY_NOOP_FILE:-}" ]; then
-    printf 'skipped\\n' > "$GWAY_REMOTE_DEPLOY_NOOP_FILE"
+    printf 'skipped\n' > "$GWAY_REMOTE_DEPLOY_NOOP_FILE"
   fi
-  printf 'GWay Remote revision %s already installed and healthy; skipped Ansible.\\n' "$revision"
+  printf 'GWay Remote revision %s already installed and healthy; skipped Ansible.\n' "$revision"
   exit 0
 fi
-ansible-playbook "$ROOT/ansible/playbook.yml" -i 'gway_remote,' -c local \\
+ansible-playbook "$ROOT/ansible/playbook.yml" -i 'gway_remote,' -c local \
   -e "gway_remote_runner_user=$(id -un)" "$@"
 # Only the ordinary managed deployment can certify the default installation.
 if [ "$#" -eq 0 ]; then
   mkdir -p "$(dirname "$marker")"
   tmp=$(mktemp "${marker}.XXXXXX")
-  printf '%s\\n' "$revision" > "$tmp"
+  printf '%s\n' "$revision" > "$tmp"
   mv -f "$tmp" "$marker"
 fi
