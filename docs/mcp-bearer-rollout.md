@@ -318,10 +318,8 @@ authorization evidence or copy an unverified network response into the file.
 For an already adopted node:
 
 ```sh
-sudo gway-remote watchtower attest gway-001 \
-  --host-key-file /etc/gway-remote/verified-gway-001-host.pub --dry-run
-sudo gway-remote watchtower attest gway-001 \
-  --host-key-file /etc/gway-remote/verified-gway-001-host.pub
+sudo gway-remote watchtower attest gway-001 --dry-run
+sudo gway-remote watchtower attest gway-001
 ```
 
 For a new already-configured peer, adopt and attest atomically:
@@ -329,11 +327,17 @@ For a new already-configured peer, adopt and attest atomically:
 ```sh
 sudo gway-remote watchtower adopt gway-006 \
   --public-key '<INDEPENDENTLY_VERIFIED_WG_KEY>' \
-  --attest --host-key-file /etc/gway-remote/verified-gway-006-host.pub --dry-run
+  --attest --dry-run
 sudo gway-remote watchtower adopt gway-006 \
   --public-key '<INDEPENDENTLY_VERIFIED_WG_KEY>' \
-  --attest --host-key-file /etc/gway-remote/verified-gway-006-host.pub
+  --attest
 ```
+
+By default, `attest NODE` and `adopt NODE --attest` read the previously
+operator-provisioned file `/etc/gway-remote/verified-NODE-host.pub`.
+`--host-key-file PATH` is still available for an explicit override. No key
+is discovered, fetched, generated, trusted on first use, or written by these
+commands. If the expected verified file is absent or unsafe, they fail closed.
 
 The existing protected `/etc/gway-remote/watchtower.json` supplies ledger,
 network, gateway and WireGuard configuration defaults. Both operations
