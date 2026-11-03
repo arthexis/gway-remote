@@ -67,7 +67,7 @@ def _html(form_token, error=""):
     return ("<!doctype html><html lang='en'><head><meta charset='utf-8'>"
             "<meta name='viewport' content='width=device-width,initial-scale=1'>"
             "<title>Connect GWA Remote</title>"
-            OAUTH_PAGE_STYLE + "</head><body>"
+            + OAUTH_PAGE_STYLE + "</head><body>"
             "<main><h1>Connect GWA Remote</h1><p>Enter the read-only bearer token "
             "generated on your Watchtower console. It is verified once and "
             "is not stored in the browser session.</p>"
