@@ -33,13 +33,13 @@ def _archive(source: Path) -> bytes:
     ).stdout
 
 
-def _validate_root(root: Path):
+def _validate_root(root: Path, expected_uid=0):
     if not root.is_absolute() or root.is_symlink():
         raise ValueError("installation root must be an absolute real directory")
     if not root.is_dir():
         raise ValueError("installation root missing")
     info = root.stat()
-    if info.st_uid != 0 or info.st_mode & 0o022:
+    if info.st_uid != expected_uid or info.st_mode & 0o022:
         raise PermissionError("installation root must be root-owned, not writable by other users")
 
 
@@ -78,15 +78,15 @@ def _unpack(archive: bytes, package_dir: Path):
             ast.parse((package_dir / name).read_text(encoding="utf-8"), filename=name)
 
 
-def install(source: Path, root: Path, *, before_activate=None):
-    _validate_root(root)
+def install(source: Path, root: Path, *, before_activate=None, expected_uid=0):
+    _validate_root(root, expected_uid=expected_uid)
     archive = _archive(source)
     digest = hashlib.sha256(archive).hexdigest()
     releases = root / RELEASES
     if releases.is_symlink():
         raise ValueError("release directory must not be a symlink")
     releases.mkdir(mode=0o755, exist_ok=True)
-    if releases.stat().st_uid != 0 or releases.stat().st_mode & 0o022:
+    if releases.stat().st_uid != expected_uid or releases.stat().st_mode & 0o022:
         raise PermissionError("unsafe release directory")
 
     relative = f"{RELEASES}/{digest}/{PACKAGE}"
