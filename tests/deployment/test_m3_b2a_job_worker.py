@@ -36,6 +36,8 @@ class JobTests(unittest.TestCase):
         job_id = self.submit(cmd, runner=run)
         args, kwargs = captured[0]
         self.assertEqual(args[:3], ["systemd-run", "--user", "--collect"])
+        self.assertIn("--setenv=PYTHONPATH=/opt/gway-remote", args)
+        self.assertIn("--working-directory=/var/lib/gway-exec", args)
         self.assertIn("--property=KillMode=control-group", args)
         self.assertIn("--property=MemoryMax=134217728", args)
         self.assertIn("--property=TasksMax=32", args)
