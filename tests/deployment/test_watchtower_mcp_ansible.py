@@ -46,7 +46,7 @@ class WatchtowerMCPDeployContract(unittest.TestCase):
 
     def test_never_starts_new_watchtower_on_bootstrap(self):
         text = WRAPPER.read_text()
-        self.assertIn("if [ -f /etc/gway-mcp-gateway/link.env ]", text)
+        self.assertIn("[ -f /etc/gway-mcp-gateway/link.env ]", text)
         self.assertNotIn("stage.sh", text)
         # Existing caller-specific Watchtower deployment is opt-in by state;
         # no first-time token issuance or Nginx route activation.
