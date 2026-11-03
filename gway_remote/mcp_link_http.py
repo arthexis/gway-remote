@@ -76,7 +76,7 @@ def failure_reason(exc):
     return str(exc) if str(exc) in REASONS else "invalid_request"
 
 
-def callback_handoff(destination):
+def callback_handoff(destination, registered_callback):
     """Top-level navigation, not a cross-origin redirect of a submitted form.
 
     Chromium may block form submission redirect chains under form-action CSP.
@@ -85,10 +85,12 @@ def callback_handoff(destination):
     Only the already validated, pre-registered OAuth callback is permitted.
     """
     parsed = urlsplit(destination)
-    if (parsed.scheme != "https" or parsed.netloc != "chatgpt.com"
-            or parsed.path != "/connector_platform_oauth_redirect"
+    configured = urlsplit(registered_callback)
+    delimiter = "&" if configured.query else "?"
+    if (parsed.scheme != "https" or parsed.netloc != configured.netloc
+            or parsed.path != configured.path
             or parsed.username is not None or parsed.password is not None
-            or parsed.fragment or not parsed.query):
+            or parsed.fragment or not destination.startswith(registered_callback + delimiter)):
         raise ValueError("unsafe_callback_handoff")
     url = escape(destination, quote=True)
     return ("<!doctype html><html lang='en'><head><meta charset='utf-8'>"
@@ -237,7 +239,7 @@ class Handler(BaseHTTPRequestHandler):
             # the POST. Chromium may suppress the latter under form-action CSP,
             # consuming the one-shot session while leaving the form displayed.
             try:
-                handoff = callback_handoff(dest)
+                handoff = callback_handoff(dest, self.server.link.redirect_uri)
             except ValueError:
                 self.audit("connect", "invalid_request", 403)
                 return self.respond(403)
