@@ -8,25 +8,19 @@ class OperationExecutorTest {
         assertEquals("/api/v1/health", OperationRequests.automatic("api-health")?.path)
         assertEquals("status-quick", OperationRequests.automatic("status")?.command)
         assertNull(OperationRequests.automatic("sound"))
-        assertNull(OperationRequests.automatic("simulator-start"))
+        assertNull(OperationRequests.automatic("unknown"))
         assertNull(OperationRequests.automatic("arbitrary-shell"))
         assertNull(OperationRequests.automatic("agent-ops"))
     }
 
     @Test fun explicitInputsAreValidatedAndPreservePayloads() {
-        assertNull(OperationRequests.explicit("simulator-discover", mapOf("port" to "65536")))
-        val discover = OperationRequests.explicit("simulator-discover",
-            mapOf("port" to "9000", "host" to "192.0.2.5"))!!
-        assertEquals("simulator-discover", discover.command)
-        assertEquals(9000, discover.parameters["port"])
-        assertEquals("192.0.2.5", discover.parameters["host"])
         assertNull(OperationRequests.explicit("task-detail", mapOf("task_id" to "bogus")))
         assertEquals("sound-play", OperationRequests.explicit("sound",
             mapOf("sound" to "notice", "motif" to "start"))?.command)
     }
 
     @Test fun confirmationPolicyCannotBeBypassed() {
-        assertNull(OperationRequests.explicit("simulator-start", emptyMap()))
+        assertNull(OperationRequests.explicit("unknown-operation", emptyMap()))
         assertNull(OperationRequests.explicit("unknown", emptyMap()))
         assertNull(OperationRequests.explicit("status", emptyMap()))
     }
