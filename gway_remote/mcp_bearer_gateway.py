@@ -16,7 +16,7 @@ UPSTREAM_TIMEOUT = 30
 ALLOWED_METHODS = frozenset({"server/discover", "initialize", "notifications/initialized", "tools/list", "tools/call"})
 ALLOWED_TOOLS = frozenset({"agent_list_issues", "agent_status", "agent_preview", "agent_observe",
     "github_workflow_runs", "github_workflow_status", "github_workflow_errors",
-    "node_list", "node_capabilities"})
+    "node_list", "node_capabilities", "node_exec_preview"})
 
 NODE_TOOLS = (
     {"name": "node_list", "description": "List active enrolled nodes from Watchtower (read-only; reachability unknown).",
@@ -25,6 +25,11 @@ NODE_TOOLS = (
     {"name": "node_capabilities", "description": "Inspect registration capability for one enrolled node; no command execution.",
      "inputSchema": {"type": "object", "properties": {"node": {"type": "string"}},
                      "required": ["node"], "additionalProperties": False},
+     "annotations": {"readOnlyHint": True}},
+    {"name": "node_exec_preview", "description": "Preview a shell command for an attested node; never executes.",
+     "inputSchema": {"type": "object",
+                     "properties": {"node": {"type": "string"}, "command": {"type": "string", "maxLength": 4096}},
+                     "required": ["node", "command"], "additionalProperties": False},
      "annotations": {"readOnlyHint": True}},
 )
 
@@ -35,6 +40,9 @@ def local_node_result(method, arguments):
         return node_registry_inventory.public_nodes()
     if method == "node_capabilities" and type(arguments) is dict and set(arguments) == {"node"}:
         return node_registry_inventory.capabilities(arguments["node"])
+    if method == "node_exec_preview" and type(arguments) is dict and set(arguments) == {"node", "command"}:
+        from .node_exec_contract import preview
+        return preview(arguments["node"], arguments["command"], node_registry_inventory.public_nodes())
     raise ValueError("invalid node inventory arguments")
 
 
@@ -109,7 +117,7 @@ class Handler(BaseHTTPRequestHandler):
             meta = payload.get("params", {}).get("_meta") if type(payload.get("params")) is dict else None
             if not isinstance(meta, dict) or meta.get("io.modelcontextprotocol/protocolVersion") != version:
                 return self.reject(400)
-        if payload["method"] == "tools/call" and payload.get("params", {}).get("name") in {"node_list", "node_capabilities"}:
+        if payload["method"] == "tools/call" and payload.get("params", {}).get("name") in {"node_list", "node_capabilities", "node_exec_preview"}:
             # The enrollment ledger lives on Watchtower. Never pass these tools
             # to gway-001, and never grant the gateway access to the root DB.
             arguments = payload["params"].get("arguments", {})
@@ -185,7 +193,7 @@ class Handler(BaseHTTPRequestHandler):
                 tools = result["tools"]
                 if (type(tools) is not list or
                         any(type(tool) is not dict or tool.get("name") in
-                            {"node_list", "node_capabilities"} for tool in tools)):
+                            {"node_list", "node_capabilities", "node_exec_preview"} for tool in tools)):
                     raise ValueError("upstream tool collision")
                 result["tools"] = tools + list(NODE_TOOLS)
                 body = json.dumps(upstream_payload, separators=(",", ":")).encode()
