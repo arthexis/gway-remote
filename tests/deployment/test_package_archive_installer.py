@@ -64,10 +64,12 @@ class ArchiveInstallerTests(unittest.TestCase):
         installed = self.install()
         target = self.root / ".package-releases" / installed["sha256"]
         target.chmod(0o700)
+        (target / "gway_remote").chmod(0o700)
         repair = self.install()
         self.assertEqual(repair["sha256"], installed["sha256"])
         self.assertTrue(repair["changed"])
         self.assertEqual(target.stat().st_mode & 0o777, 0o755)
+        self.assertEqual((target / "gway_remote").stat().st_mode & 0o777, 0o755)
         self.assertFalse(self.install()["changed"])
 
     def test_deploy_checks_real_executor_import_not_only_cli_status(self):
