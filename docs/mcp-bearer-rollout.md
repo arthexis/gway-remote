@@ -213,14 +213,23 @@ It exports only active enrolled nodes into a short-lived root-owned
 The snapshot expires after 120 seconds; missing/stale/untrusted data fails
 closed. The gateway has no direct access to the root-owned enrollment database.
 
+The parent `/var/lib/gway-mcp-auth` is mode `0750` and contains credential
+registry material. Normal operator accounts **must not** be added to
+`gway-mcp-read` just to run Ansible inventory. The Watchtower Ansible
+playbook verifies the exporter with task-local `become: true`, and
+interactive `ansible-inventory` commands use `sudo` for this protected view.
+No file or directory mode is relaxed by this fix.
+
 Two independent read-only views consume this **same derived snapshot**:
 
 ```sh
 # Watchtower: Ansible dynamic inventory. Does not authorize deployment.
-ansible-inventory -i /usr/local/sbin/gway-enrolled-inventory --list
+# Run discovery with sudo because snapshot resides under the protected
+# MCP authentication directory. Do not add the operator to gway-mcp-read.
+sudo ansible-inventory -i /usr/local/sbin/gway-enrolled-inventory --list
 
 # Combine enrolled identities with existing declarative management policy:
-ansible-inventory -i ansible/inventory/deployment.yml \
+sudo ansible-inventory -i ansible/inventory/deployment.yml \
   -i /usr/local/sbin/gway-enrolled-inventory --list
 ```
 
