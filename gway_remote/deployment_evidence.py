@@ -38,10 +38,6 @@ def adapt_component(row: dict, *, observed_at: str | None, depth: str = "deep") 
     # activated Bastion is healthy from the release record.
     if bastion:
         runtime = "not_applicable" if installation == "staged" else "unknown"
-    # The simulator is a CLI package; its executable probe is not a service
-    # liveness test.
-    elif name == "ocpp-simulator":
-        runtime = "not_applicable"
     evidence = []
     if staged:
         evidence.append("verified_staged_release")
@@ -63,7 +59,7 @@ def adapt_component(row: dict, *, observed_at: str | None, depth: str = "deep") 
         "capabilities": {
             "staging": bastion,
             "activation": True,
-            "runtime_probe": not bastion and name != "ocpp-simulator" and spec.kind != "unknown",
+            "runtime_probe": not bastion and spec.kind != "unknown",
             "runtime_required": runtime_required,
         },
     }
