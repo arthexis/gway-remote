@@ -90,17 +90,19 @@ def install(source: Path, root: Path, *, before_activate=None, expected_uid=0):
         raise PermissionError("unsafe release directory")
 
     def ensure_traversable_release(target):
-        # TemporaryDirectory creates 0700; the published release must be
-        # traversable by the unprivileged appliance runner and gway-exec.
-        info = target.lstat()
-        if not stat.S_ISDIR(info.st_mode) or info.st_uid != expected_uid:
-            raise PermissionError("unsafe existing release directory")
-        if info.st_mode & 0o022:
-            raise PermissionError("release directory writable by other users")
-        if stat.S_IMODE(info.st_mode) != 0o755:
-            target.chmod(0o755)
-            return True
-        return False
+        # Both the release root and package directory must be traversable.
+        # umask 077 can also make explicitly requested mkdir(0755) private.
+        repaired = False
+        for folder in (target, target / PACKAGE):
+            info = folder.lstat()
+            if not stat.S_ISDIR(info.st_mode) or info.st_uid != expected_uid:
+                raise PermissionError("unsafe existing package release")
+            if info.st_mode & 0o022:
+                raise PermissionError("package release must not be group/world writable")
+            if stat.S_IMODE(info.st_mode) != 0o755:
+                folder.chmod(0o755)
+                repaired = True
+        return repaired
 
     relative = f"{RELEASES}/{digest}/{PACKAGE}"
     current = root / PACKAGE
@@ -124,8 +126,8 @@ def install(source: Path, root: Path, *, before_activate=None, expected_uid=0):
             package_dir = stage / PACKAGE
             package_dir.mkdir(mode=0o755)
             _unpack(archive, package_dir)
-            # TemporaryDirectory starts mode 0700: make the release
-            # traversable before publishing it under the live package path.
+            # Validate while private; publish traversable only once complete.
+            package_dir.chmod(0o755)
             stage.chmod(0o755)
             os.rename(stage, target)
     ensure_traversable_release(target)
