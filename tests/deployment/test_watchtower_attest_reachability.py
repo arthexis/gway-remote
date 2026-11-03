@@ -38,7 +38,7 @@ class AttestAndReachabilityTests(unittest.TestCase):
         adopt(self.ledger, node="gway-001", public_key=WG, config=self.conf, runner=self.runner)
         with patch("gway_remote.watchtower_attest.trusted_file"):
             self.assertEqual(attest(self.ledger, node="gway-001", host_key_file=self.key, dry_run=True)["state"], "would_attest")
-            self.assertFalse(node_registry_inventory.build(self.ledger)["nodes"][0]["identity_verified"])
+            self.assertFalse(node_registry_inventory.build(self.ledger.path)["nodes"][0]["identity_verified"])
             self.assertEqual(attest(self.ledger, node="gway-001", host_key_file=self.key)["state"], "attested")
             self.assertEqual(attest(self.ledger, node="gway-001", host_key_file=self.key)["state"], "already_attested")
             self.assertTrue(node_registry_inventory.build(self.ledger)["nodes"][0]["identity_verified"])
