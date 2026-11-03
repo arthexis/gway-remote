@@ -21,7 +21,7 @@ _TIME = re.compile(r"\d{2}:\d{2}:\d{2}\Z")
 
 def _read(path: Path) -> str | None:
     try:
-        value = path.read_text(encoding="ascii").strip().rstrip("\\x00")
+        value = path.read_text(encoding="ascii").strip().rstrip("\x00")
     except (OSError, UnicodeError, ValueError):
         return None
     return value if value else None
