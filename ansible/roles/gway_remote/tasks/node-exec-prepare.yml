@@ -1,6 +1,6 @@
 ---
-# M3 B2a: additive, opt-in preparation on a selected Raspberry Pi only.
-# No runner, listener, SSH key, systemd service, linger, or MCP permission.
+# M3 B2a: converge dormant prerequisites on named GWAY nodes.
+# No runner, listener, SSH key, sudo privileges or MCP authorization.
 - name: Reject unsafe executor preparation overrides
   ansible.builtin.assert:
     that:
@@ -65,8 +65,7 @@
       - gway_remote_exec_state.stat.gr_name == gway_remote_exec_user
       - gway_remote_exec_state.stat.mode == '0700'
 
-- name: Optionally enable executor user systemd manager for local cgroup acceptance
+- name: Enable executor user manager for eventual bounded cgroup jobs
   ansible.builtin.command:
     argv: [loginctl, enable-linger, "{{ gway_remote_exec_user }}"]
     creates: "/var/lib/systemd/linger/{{ gway_remote_exec_user }}"
-  when: exec_enable | bool
