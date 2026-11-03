@@ -12,7 +12,6 @@ Exactly these repositories:
 
 - `arthexis/ocpp-csms`
 - `arthexis/gway-remote`
-- `arthexis/ocpp-simulator`
 - `arthexis/gway-rfid`
 - `arthexis/gway-ap-kiosk`
 
@@ -47,7 +46,7 @@ Response schema version 1:
 }
 ```
 
-The example is illustrative, not live health data. Production responses must cover all five repositories with both pass flags true before reporting a complete snapshot. Missing, stale, invalid, or unauthenticated source data is an explicit unavailable/error state.
+The example is illustrative, not live health data. Production responses must cover all four repositories with both pass flags true before reporting a complete snapshot. Missing, stale, invalid, or unauthenticated source data is an explicit unavailable/error state.
 
 ## Lifecycle and UI
 
