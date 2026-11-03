@@ -11,7 +11,7 @@ Each job has `MemoryMax=128M`, `TasksMax=32`, `RuntimeMaxSec=70s` (60s worker ti
 ## Ansible installation (opt-in, no remote execution)
 
 The existing `ansible/roles/gway_remote` role includes
-`tasks/node-exec-prepare.yml` **only** when `gway_remote_exec_prepare=true`.
+`tasks/node-exec-prepare.yml` **only** when `exec_prepare=true`.
 This avoids provisioning an executor account on Watchtower or other hosts
 during normal deployments.
 
@@ -19,7 +19,7 @@ After reviewing the target is the intended `gway-001` Pi, run its ordinary
 operator deployment with explicit extra-vars:
 
 ```sh
-./deploy.sh -e gway_remote_exec_prepare=true
+./deploy.sh -e exec_prepare=true
 ```
 
 This creates the **locked, non-login** `gway-exec` account, its dedicated
@@ -32,7 +32,7 @@ For an approved field test that needs a persistent user systemd manager,
 the separately opt-in variant is:
 
 ```sh
-./deploy.sh -e gway_remote_exec_prepare=true -e gway_remote_exec_enable_linger=true
+./deploy.sh -e exec_prepare=true -e exec_enable=true
 ```
 
 The second variable invokes `loginctl enable-linger gway-exec` once when
