@@ -83,6 +83,9 @@ if [ "$#" -eq 0 ] &&
    [ -f /etc/systemd/system/gway-remote-watch.timer ] &&
    systemctl is-enabled --quiet gway-remote-watch.timer &&
    systemctl is-active --quiet gway-remote-watch.timer; then
+  if [ -n "${GWAY_REMOTE_DEPLOY_NOOP_FILE:-}" ]; then
+    printf 'skipped\n' > "$GWAY_REMOTE_DEPLOY_NOOP_FILE"
+  fi
   printf 'GWay Remote revision %s already installed and healthy; skipped Ansible.\n' "$revision"
   exit 0
 fi
