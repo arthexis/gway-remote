@@ -85,7 +85,16 @@ class ArchiveInstallerTests(unittest.TestCase):
         tasks = (ROOT / "ansible/roles/gway_remote/tasks/node-exec-prepare.yml").read_text()
         main = (ROOT / "ansible/roles/gway_remote/tasks/main.yml").read_text()
         self.assertIn("include_tasks: node-exec-prepare.yml", main)
-        self.assertIn("match('^gway-[0-9]+
+        self.assertIn("gway-[0-9]+", main)
+        self.assertIn("/etc/polkit-1/rules.d/00-gway-exec-deny.rules", tasks)
+        self.assertIn("owner: root", tasks)
+        self.assertIn('mode: "0644"', tasks)
+        self.assertIn('subject.user === "gway-exec"', tasks)
+        self.assertIn("return polkit.Result.NO;", tasks)
+        rule = tasks.split("polkit.addRule(function(action, subject) {", 1)[1]
+        self.assertNotIn("polkit.Result.YES", rule)
+
+    def test_untracked_pycache_does_not_enter_archive_or_change_digest(self):
         initial = self.install()
         cache = self.repo / "gway_remote/__pycache__"
         cache.mkdir()
