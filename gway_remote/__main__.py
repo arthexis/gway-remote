@@ -468,7 +468,8 @@ def main() -> None:
                 parser.exit(1, "gway-remote: Watchtower administration requires root or sudo\n")
             if not args.ledger or not args.network or not args.gateway:
                 parser.error("active Watchtower administration requires --ledger, --network, and --gateway")
-            ledger = Ledger(Path(args.ledger), network=args.network, gateway=args.gateway)
+            ledger = Ledger(Path(args.ledger), network=args.network, gateway=args.gateway,
+                            read_only=args.action == "adopt" and args.dry_run)
             if args.action == "adopt":
                 if not args.node or not args.public_key or not args.config:
                     parser.error("watchtower adopt requires node, --public-key and --config")
