@@ -6,7 +6,6 @@ Source inspection on 2026-10-28. **Not** a live host audit. The authoritative cu
 | --- | --- | --- | --- |
 | ocpp-csms | `~/.local/share/ocpp-csms/current` symlink, 12-hex (optional -dev) | `csms` | No separate staged/activated evidence or probe timestamp in status envelope |
 | ocpp-reports | `/usr/local/bin/ocpp-reports` executable link resolving under `releases/<40-hex>` | `executable` | Verify real role-specific runtime independently; no staging evidence in Remote |
-| ocpp-simulator | `~/.local/share/ocpp-simulator/current` link, 12-hex | `executable` | Confirm whether CLI-only runtime should be `not_applicable`, not merely executable presence |
 | gway-lcd-sound | `~/.local/share/gway-lcd-sound/current` link, 12-hex optional -dev | `lcd` | User-service runtime evidence and staged state not in shared envelope |
 | gway-agent-ops | `~/.local/bin/agent` executable link resolving under `releases/<40-hex>` | `executable` | No root deploy.sh in original audit; inspect actual role/installer before changing; service health not implied by binary |
 | gway-ap-kiosk | `/var/lib/gway-ap-kiosk/installed-revision` plain file, 40-hex | `systemd:gway-kiosk-status.service` | Revision file is not activation/runtime proof by itself |
