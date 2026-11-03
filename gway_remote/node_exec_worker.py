@@ -157,8 +157,8 @@ class Jobs:
             db.execute("UPDATE jobs SET cancel_requested=1 WHERE id=? AND status IN ('queued','running')",
                        (job_id,))
         try:
-            execute(["systemctl", "--user", "kill", "--kill-whom=all",
-                     "--signal=SIGTERM", unit_name(job_id)],
+            execute(["systemctl", "--user", "kill", "--kill-whom=main",
+                     "--signal=SIGUSR1", unit_name(job_id)],
                     check=True, capture_output=True, timeout=5)
         except (OSError, subprocess.SubprocessError):
             # Do not claim successful cancellation if service-manager kill fails.
@@ -240,6 +240,11 @@ def worker(database, job_id):
         deadline = time.monotonic() + JOB_TIMEOUT
         expired = False
         while True:
+            # The cancel caller persists intent before notifying this worker.
+            # Never kill the worker itself: it must record the terminal state.
+            if jobs.row(job_id)["cancel_requested"]:
+                _stop_group(process)
+                break
             if time.monotonic() >= deadline:
                 expired = True
                 _stop_group(process)
@@ -257,6 +262,9 @@ def worker(database, job_id):
                 continue
         if expired:
             state = "timed_out"
+            code = None
+        elif jobs.row(job_id)["cancel_requested"]:
+            state = "cancelled"
             code = None
         else:
             code = process.wait(timeout=2)
@@ -287,6 +295,10 @@ def main():
     args = p.parse_args()
     jobs = Jobs(args.database)
     if args.run:
+        # SIGUSR1 is a wake-up hint (not a termination signal); the durable
+        # SQLite cancellation flag is authoritative and polled by the worker.
+        # This keeps the worker alive to kill its child group and save result.
+        signal.signal(signal.SIGUSR1, lambda _signum, _frame: None)
         return worker(args.database, args.run)
     if args.cancel:
         print(jobs.cancel(args.cancel))

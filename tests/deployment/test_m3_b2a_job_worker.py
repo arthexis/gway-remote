@@ -69,8 +69,8 @@ class JobTests(unittest.TestCase):
             calls.append(args)
             return subprocess.CompletedProcess(args, 0, "", "")
         self.assertEqual(self.store.cancel(job_id, execute=capture), "cancel_requested")
-        self.assertEqual(calls[0], ["systemctl", "--user", "kill", "--kill-whom=all",
-                                    "--signal=SIGTERM", worker.unit_name(job_id)])
+        self.assertEqual(calls[0], ["systemctl", "--user", "kill", "--kill-whom=main",
+                                    "--signal=SIGUSR1", worker.unit_name(job_id)])
         self.assertNotIn("sleep 20", str(calls[0]))
         self.assertTrue(self.store.row(job_id)["cancel_requested"])
 
@@ -114,6 +114,33 @@ class JobTests(unittest.TestCase):
         self.assertEqual(result["exit_code"], 0)
         self.assertIn("ready", result["stdout"])
         self.assertIn("diagnostic", result["stdout"])
+
+    def test_cancel_running_worker_persists_terminal_state_promptly(self):
+        import threading
+        import time
+        job_id = self.submit("sleep 20")
+        runner = threading.Thread(target=worker.worker, args=(self.store.path, job_id))
+        runner.start()
+        try:
+            for _ in range(100):
+                if self.store.row(job_id)["status"] == "running":
+                    break
+                time.sleep(0.02)
+            self.assertEqual(self.store.row(job_id)["status"], "running")
+            started = time.monotonic()
+            result = self.store.cancel(
+                job_id, execute=lambda args, **kwargs:
+                subprocess.CompletedProcess(args, 0, "", ""))
+            self.assertEqual(result, "cancel_requested")
+            runner.join(timeout=5)
+            self.assertFalse(runner.is_alive())
+            self.assertLess(time.monotonic() - started, 5)
+            final = self.store.result(job_id)
+            self.assertEqual(final["status"], "cancelled")
+            self.assertIsNone(final["exit_code"])
+            self.assertIsNotNone(final["finished_at"])
+        finally:
+            runner.join(timeout=2)
 
     def test_job_history_capacity_fails_closed(self):
         with self.store.connection() as db:
