@@ -330,9 +330,9 @@ def main() -> None:
     batch_parser.add_argument("--all", action="store_true", help="Explicitly reinstall all latest main revisions regardless of prior attempts or CI")
     batch_parser.add_argument("--now", action="store_true", help="Bypass quiet period for operator-requested batch")
     batch_parser.add_argument("--retry-failed", action="store_true", help="Explicitly retry failed revisions, never installed or interrupted ones")
-    wg_parser = subparsers.add_parser("wireguard", help="Configure WireGuard registration origin")
-    wg_parser.add_argument("action", choices=("endpoint",))
-    wg_parser.add_argument("operation", choices=("show", "set"))
+    wg_parser = subparsers.add_parser("wireguard", help="WireGuard registration origin and local public identity")
+    wg_parser.add_argument("action", choices=("endpoint", "public-key"))
+    wg_parser.add_argument("operation", nargs="?", choices=("show", "set"))
     wg_parser.add_argument("value", nargs="?")
     rotate_parser = subparsers.add_parser("inspection-host-rotate", help="Operator-authorized SSH host identity rotation")
     rotate_parser.add_argument("--node", required=True)
@@ -356,6 +356,7 @@ def main() -> None:
     watchtower_parser = subparsers.add_parser("watchtower", help="Root-only Watchtower enrollment administration")
     watchtower_parser.add_argument("action", choices=("serve", "invite", "register", "revoke", "revoke-bootstrap", "bootstrap-status", "status", "snapshot", "recover", "revoke-host", "rotate-host", "adopt"))
     watchtower_parser.add_argument("node", nargs="?", help="node ID for adopt")
+    watchtower_parser.add_argument("--settings", type=Path, default=Path("/etc/gway-remote/watchtower.json"), help="root-owned Watchtower settings for adopt")
     watchtower_parser.add_argument("--ledger", help="root-owned SQLite enrollment ledger")
     watchtower_parser.add_argument("--public-key", help="independently verified existing WireGuard peer public key")
     watchtower_parser.add_argument("--dry-run", action="store_true", help="inspect adoption without writing ledger")
@@ -466,6 +467,13 @@ def main() -> None:
                 return
             if os.geteuid() != 0:
                 parser.exit(1, "gway-remote: Watchtower administration requires root or sudo\n")
+            if args.action == "adopt":
+                from .watchtower_settings import adopt_settings
+                settings = adopt_settings(args.settings)
+                args.ledger = args.ledger or settings["ledger"]
+                args.network = args.network or settings["network"]
+                args.gateway = args.gateway or settings["gateway"]
+                args.config = args.config or settings["config"]
             if not args.ledger or not args.network or not args.gateway:
                 parser.error("active Watchtower administration requires --ledger, --network, and --gateway")
             ledger = Ledger(Path(args.ledger), network=args.network, gateway=args.gateway,
@@ -585,6 +593,17 @@ def main() -> None:
         print(json.dumps({"node": args.node, "pin_created": changed}, sort_keys=True))
         return
     if args.command == "wireguard":
+        if args.action == "public-key":
+            if args.operation or args.value:
+                parser.error("wireguard public-key takes no arguments")
+            from .wireguard_identity import public_key
+            try:
+                print(public_key())
+            except (ValueError, OSError, RuntimeError) as exc:
+                parser.exit(1, f"gway-remote: local WireGuard public key unavailable: {exc}\\n")
+            return
+        if not args.operation:
+            parser.error("wireguard endpoint requires show or set")
         from .wireguard_endpoint import endpoint, set_endpoint
         if args.operation == "set" and not args.value:
             parser.error("wireguard endpoint set requires an HTTPS origin")
