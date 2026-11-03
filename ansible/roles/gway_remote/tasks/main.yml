@@ -1,7 +1,7 @@
 ---
 - name: Converge dormant executor prerequisites on managed nodes only
   ansible.builtin.include_tasks: node-exec-prepare.yml
-  when: ansible_hostname is match('^gway-[0-9]{3,}
+  when: (ansible_hostname | default('')) is match('^gway-[0-9]+$')
 
 - name: Verify runner user exists
   ansible.builtin.getent:

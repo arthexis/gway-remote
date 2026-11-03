@@ -16,8 +16,14 @@ class ExecutorPreparationTests(unittest.TestCase):
         self.assertNotIn("exec_prepare:", defaults)
         self.assertNotIn("exec_enable:", defaults)
         self.assertIn("node-exec-prepare.yml", main)
-        self.assertIn("when: ansible_hostname is match(", main)
-        self.assertIn("gway-[0-9]", main)
+        gate = "when: (ansible_hostname | default('')) is match('^gway-[0-9]+$')"
+        self.assertIn(gate, main)
+        import re
+        pattern = r"^gway-[0-9]+$"
+        for host in ("gway-001", "gway-002", "gway-005"):
+            self.assertIsNotNone(re.fullmatch(pattern, host))
+        for host in ("", "watchtower", "ip-172-26-10-176", "gway-001-extra"):
+            self.assertIsNone(re.fullmatch(pattern, host))
 
     def test_account_locked_unprivileged_with_private_storage(self):
         task = PREPARE.read_text()
