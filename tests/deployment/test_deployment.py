@@ -58,6 +58,28 @@ class DeploymentTests(unittest.TestCase):
         self.assertEqual(self.calls, ["install", "health"])
         self.assertEqual(sum(c[-1] == SERVICE and "restart" in c for c in self.commands), 1)
 
+    def test_unchanged_healthy_install_skips_restart(self):
+        def unchanged():
+            self.calls.append("install")
+            return False
+
+        self.install = unchanged
+        self.run_deploy()
+        self.assertEqual(self.executable.read_text(), "old")
+        self.assertEqual(self.calls, ["install", "health"])
+        self.assertEqual(self.events, ["deploy-started", "deploy-skipped"])
+        self.assertFalse(any("restart" in command for command in self.commands))
+
+    def test_unchanged_install_with_failed_health_does_not_report_success(self):
+        def unchanged():
+            return False
+
+        self.install = unchanged
+        self.fail_probe = True
+        with self.assertRaisesRegex(RuntimeError, "health failed"):
+            self.run_deploy()
+        self.assertNotIn("deploy-skipped", self.events)
+
     def test_missing_token_fails_before_install(self):
         with self.assertRaises(ValueError):
             self.run_deploy(token="")

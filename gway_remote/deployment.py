@@ -105,7 +105,13 @@ def deploy(*, token, install, execute=run, probe=health, executable=EXECUTABLE,
             try:
                 changed = True
                 emit("deploy-started")
-                install()
+                installed = install()
+                if installed is False:
+                    # The installer explicitly confirmed an unchanged, healthy release.
+                    # Do not restart the API merely because CI ran again.
+                    probe(token)
+                    emit("deploy-skipped")
+                    return
                 installed_digest = hashlib.sha256(executable.read_bytes()).digest()
                 emit("deploy-activated")
                 systemctl("restart", SERVICE)

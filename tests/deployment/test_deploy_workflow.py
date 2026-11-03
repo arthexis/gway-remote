@@ -38,7 +38,15 @@ class DeploymentWorkflowTests(unittest.TestCase):
     def test_transactional_deployment_module_is_invoked(self):
         self.assertIn("from gway_remote.deployment import deploy", self.workflow)
         self.assertIn("deploy(", self.workflow)
-        self.assertIn('install=lambda: subprocess.run(["sh", "deploy.sh"], check=True)', self.workflow)
+        # The installer callback now returns whether a deployment changed the
+        # installed release. A verified no-op must still pass the health probe
+        # while skipping the Mobile API restart.
+        self.assertIn("def install():", self.workflow)
+        self.assertIn('env["GWAY_REMOTE_DEPLOY_NOOP_FILE"] = str(marker)', self.workflow)
+        self.assertIn('subprocess.run(["sh", "deploy.sh"], check=True, env=env)', self.workflow)
+        self.assertIn('return not (marker.is_file() and marker.read_text().strip() == "skipped")',
+                      self.workflow)
+        self.assertIn("deploy(token=local_api_token(), install=install)", self.workflow)
         self.assertNotIn("systemctl enable", self.workflow)
 
     def test_one_automatic_deployer(self):
