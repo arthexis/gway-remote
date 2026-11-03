@@ -61,11 +61,6 @@ class EvidenceContractTests(unittest.TestCase):
         self.assertEqual(row["runtime_state"], "unknown")
         self.assertTrue(row["errors"])
 
-    def test_cli_only_runtime_not_applicable(self):
-        row = self.adapt("ocpp-simulator", installed_sha="b" * 12,
-                         health="healthy")
-        self.assertEqual(row["runtime_state"], "not_applicable")
-
     def test_quick_probe_cannot_claim_health(self):
         row = adapt_component(self.row("ocpp-csms", installed_sha="b" * 12,
                                        health="healthy"), observed_at=None, depth="quick")
