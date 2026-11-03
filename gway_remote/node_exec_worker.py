@@ -6,6 +6,7 @@ manager. Future Watchtower B2b transport must authenticate separately.
 from __future__ import annotations
 
 import argparse
+from contextlib import contextmanager
 from datetime import datetime, timezone, timedelta
 import json
 import os
@@ -59,6 +60,7 @@ class Jobs:
         if self.path.is_symlink():
             raise PermissionError("job database must not be symlink")
 
+    @contextmanager
     def connection(self):
         self._validate_dir()
         if self.path.exists():
@@ -71,14 +73,18 @@ class Jobs:
         finally:
             os.umask(old)
         db.row_factory = sqlite3.Row
-        db.execute("""CREATE TABLE IF NOT EXISTS jobs (
-            id TEXT PRIMARY KEY, node TEXT NOT NULL, command TEXT NOT NULL,
-            status TEXT NOT NULL, created_at TEXT NOT NULL,
-            started_at TEXT, finished_at TEXT, exit_code INTEGER,
-            output BLOB NOT NULL DEFAULT X'', truncated INTEGER NOT NULL DEFAULT 0,
-            cancel_requested INTEGER NOT NULL DEFAULT 0
-        )""")
-        return db
+        try:
+            db.execute("""CREATE TABLE IF NOT EXISTS jobs (
+                id TEXT PRIMARY KEY, node TEXT NOT NULL, command TEXT NOT NULL,
+                status TEXT NOT NULL, created_at TEXT NOT NULL,
+                started_at TEXT, finished_at TEXT, exit_code INTEGER,
+                output BLOB NOT NULL DEFAULT X'', truncated INTEGER NOT NULL DEFAULT 0,
+                cancel_requested INTEGER NOT NULL DEFAULT 0
+            )""")
+            with db:
+                yield db
+        finally:
+            db.close()
 
     def submit(self, node, command, *, execute=subprocess.run, python=sys.executable):
         validate_command(node, command)
