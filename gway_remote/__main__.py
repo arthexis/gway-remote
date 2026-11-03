@@ -304,6 +304,8 @@ def main() -> None:
     watch_parser.add_argument("--apply", action="store_true", help="Dispatch eligible deployments and file incidents")
     status_parser = subparsers.add_parser("status", help="Inspect local attempts and health")
     status_parser.add_argument("--json", action="store_true")
+    hardware_parser = subparsers.add_parser("hardware", help="Read-only optional local RTC and ambient thermometer")
+    hardware_parser.add_argument("--json", action="store_true")
     subparsers.add_parser("probe-csms", help="Read-only CSMS health diagnosis")
     logs_parser = subparsers.add_parser("logs", help="Inspect local installation logs")
     logs_parser.add_argument("component", nargs="?", choices=tuple(name for name, _ in DEPLOYMENT_TARGETS))
@@ -714,6 +716,11 @@ def main() -> None:
             serve(args.host, args.port)
         except (ValueError, OSError) as exc:
             parser.exit(1, f"gway-remote: API unavailable: {exc}\\n")
+        return
+    if args.command == "hardware":
+        from .hardware_diagnostics import inspect, format_hardware
+        result = inspect()
+        print(json.dumps(result, indent=2, sort_keys=True) if args.json else format_hardware(result))
         return
     if args.command == "probe-csms":
         from .csms_health import csms_probe
