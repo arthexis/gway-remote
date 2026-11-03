@@ -8,6 +8,7 @@ import base64
 import hashlib
 from html import escape
 import hmac
+import re
 import secrets
 import time
 import threading
@@ -35,6 +36,23 @@ def _safe_redirect(value, redirect):
     allowed = urlsplit(redirect)
     return bool(value == redirect and parsed.scheme == "https"
                 and parsed.netloc == allowed.netloc and not parsed.fragment)
+
+
+def _callback_origin(redirect):
+    """Build a CSP source from protected configuration, never request input."""
+    try:
+        if not isinstance(redirect, str) or any(ord(char) <= 32 or ord(char) == 127 for char in redirect):
+            raise ValueError()
+        parsed = urlsplit(redirect)
+        if (parsed.scheme != "https" or not parsed.hostname or parsed.fragment
+                or parsed.username is not None or parsed.password is not None
+                or parsed.netloc.endswith(":")
+                or not re.fullmatch(r"[A-Za-z0-9.\[\]:-]+", parsed.netloc)
+                or (parsed.port is not None and parsed.port < 1)):
+            raise ValueError()
+    except ValueError:
+        raise ValueError("pre_registered_https_redirect_required") from None
+    return "https://" + parsed.netloc
 
 
 def _html(form_token, error=""):
@@ -73,6 +91,7 @@ class LinkFlow:
             raise ValueError("pre_registered_https_redirect_required")
         if resource != RESOURCE:
             raise ValueError("unexpected_resource")
+        self.callback_origin = _callback_origin(redirect_uri)
         self.registry = registry
         self.client_id = client_id
         self.redirect_uri = redirect_uri
@@ -110,7 +129,9 @@ class LinkFlow:
     @_serialized
     def connect(self, session, csrf, bearer):
         pending = self.pending.pop(session, None)
-        if pending is None or time.monotonic() > pending[3]:
+        if pending is None:
+            raise ValueError("session_unavailable")
+        if time.monotonic() > pending[3]:
             raise ValueError("expired_session")
         if not isinstance(csrf, str) or not hmac.compare_digest(csrf, pending[0]):
             raise ValueError("csrf_denied")

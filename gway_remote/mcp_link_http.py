@@ -20,7 +20,7 @@ AUTHORIZE_FIELDS = frozenset({"client_id", "redirect_uri", "resource", "response
 TOKEN_FIELDS = frozenset({"client_id", "code", "redirect_uri", "code_verifier", "grant_type", "resource"})
 REASONS = frozenset({"page", "code", "issued", "discovery", "malformed", "missing_parameter",
                      "invalid_client", "invalid_request", "invalid_scope_or_pkce", "invalid_pkce",
-                     "invalid_state", "link_capacity_reached", "expired_session", "csrf_denied",
+                     "invalid_state", "link_capacity_reached", "expired_session", "session_unavailable", "csrf_denied",
                      "invalid_bearer", "invalid_parent_credential", "invalid_grant", "unsupported_auth"})
 
 
@@ -100,7 +100,10 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Cache-Control", "no-store")
         self.send_header("X-Content-Type-Options", "nosniff")
         self.send_header("Referrer-Policy", "no-referrer")
-        self.send_header("Content-Security-Policy", "default-src 'none'; style-src 'unsafe-inline'; form-action 'self'; base-uri 'none'")
+        # Chromium applies form-action to the post-submission callback redirect.
+        # Only the protected, registered callback origin may leave this site.
+        self.send_header("Content-Security-Policy", "default-src 'none'; style-src 'unsafe-inline'; "
+                         "form-action 'self' " + self.server.link.callback_origin + "; base-uri 'none'")
         for key, value in headers:
             self.send_header(key, value)
         self.end_headers()
@@ -198,7 +201,11 @@ class Handler(BaseHTTPRequestHandler):
             try:
                 dest = self.server.link.connect(self.get_cookie(), params.get("csrf"), params.get("bearer"))
             except (ValueError, TypeError) as exc:
-                self.audit("connect", failure_reason(exc), 403)
+                reason = failure_reason(exc)
+                self.audit("connect", reason, 403)
+                if reason in ("expired_session", "session_unavailable"):
+                    return self.respond(403, "This sign-in form expired or was already submitted. "
+                                        "Return to ChatGPT and start Connect again.")
                 return self.respond(403)
             self.audit("connect", "code", 303)
             return self.respond(303, headers=[("Location", dest),

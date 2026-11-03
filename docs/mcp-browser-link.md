@@ -88,3 +88,22 @@ defect, not proof of why a particular ChatGPT attempt failed. Use the safe
 phase/reason diagnostics from a new real attempt to establish that boundary.
 
 Reference: https://www.rfc-editor.org/rfc/rfc6749.html#section-3.1
+
+## Browser callback policy and repeated submissions
+
+The authorization page allows form navigation to its own origin and the
+configured HTTPS callback origin. Chromium can enforce `form-action` against
+the redirect after the bearer form POST; `form-action 'self'` alone blocks
+the return to ChatGPT even when the server accepted the bearer and sent 303.
+The permitted external origin comes only from protected registered-client
+configuration. Request parameters cannot add CSP origins, and the application
+still requires the exact registered callback URI.
+
+The form is one-time and expires after five minutes. A successful first click
+consumes the session; submitting it again is `session_unavailable`, not proof
+that its five-minute timer elapsed or the bearer was invalid. An expired or
+unavailable form displays instructions to return to ChatGPT and start Connect
+again. Keep the existing bearer; its validity is independent of the form timer.
+
+Browser behavior reference:
+https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Headers/Content-Security-Policy/form-action
