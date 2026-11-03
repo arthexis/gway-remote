@@ -8,7 +8,7 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
-from gway_remote.watchtower_attest import attest
+from gway_remote.watchtower_attest import attest, host_key_path, verified_host_key
 from gway_remote.watchtower_adopt import adopt
 from gway_remote.watchtower_enrollment import Ledger
 from gway_remote.node_reachability import observe
@@ -33,6 +33,23 @@ class AttestAndReachabilityTests(unittest.TestCase):
         self.key.write_text(SSH + "\n")
         self.key.chmod(0o600)
         self.runner = lambda argv, **kw: subprocess.CompletedProcess(argv, 0, stdout=WG + "\t10.90.0.2/32\n")
+
+    def test_inferred_host_key_path_is_canonical(self):
+        self.assertEqual(str(host_key_path("gway-001")),
+                         "/etc/gway-remote/verified-gway-001-host.pub")
+        self.assertEqual(str(host_key_path("gway-005")),
+                         "/etc/gway-remote/verified-gway-005-host.pub")
+        for node in ("../../tmp/pwn", "gway-001/../../etc", "", "other"):
+            with self.subTest(node=node), self.assertRaises(ValueError):
+                host_key_path(node)
+
+    def test_missing_or_untrusted_inferred_key_never_auto_discovered(self):
+        with self.assertRaises(ValueError):
+            verified_host_key(self.root / "missing.pub")
+        unsafe = self.root / "linked.pub"
+        unsafe.symlink_to(self.key)
+        with self.assertRaises(ValueError):
+            verified_host_key(unsafe)
 
     def test_attest_after_adoption(self):
         adopt(self.ledger, node="gway-001", public_key=WG, config=self.conf, runner=self.runner)
