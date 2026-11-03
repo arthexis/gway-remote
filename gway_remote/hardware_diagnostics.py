@@ -89,4 +89,4 @@ def format_hardware(report: dict) -> str:
     lines.append("Ambient: " + (
         f"{sensor['celsius']} C ({sensor['source']})"
         if sensor["status"] == "available" else "unavailable"))
-    return "\\n".join(lines)
+    return "\n".join(lines)
