@@ -1,4 +1,8 @@
 ---
+- name: Prepare opt-in unprivileged node executor (B2a; no activation)
+  ansible.builtin.include_tasks: node-exec-prepare.yml
+  when: gway_remote_exec_prepare | bool
+
 - name: Verify runner user exists
   ansible.builtin.getent:
     database: passwd
