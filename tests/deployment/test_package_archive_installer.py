@@ -54,6 +54,22 @@ class ArchiveInstallerTests(unittest.TestCase):
         self.assertFalse(self.install()["changed"])
         self.assertEqual(self.install()["sha256"], initial["sha256"])
 
+    def test_new_release_is_traversable_by_unprivileged_importers(self):
+        installed = self.install()
+        release = self.root / ".package-releases" / installed["sha256"]
+        self.assertEqual(release.stat().st_mode & 0o777, 0o755)
+        self.assertEqual((release / "gway_remote").stat().st_mode & 0o777, 0o755)
+
+    def test_existing_private_release_is_repaired_without_new_digest(self):
+        installed = self.install()
+        release = self.root / ".package-releases" / installed["sha256"]
+        release.chmod(0o700)
+        fixed = self.install()
+        self.assertTrue(fixed["changed"])
+        self.assertEqual(fixed["sha256"], installed["sha256"])
+        self.assertEqual(release.stat().st_mode & 0o777, 0o755)
+        self.assertFalse(self.install()["changed"])
+
     def test_untracked_pycache_does_not_enter_archive_or_change_digest(self):
         initial = self.install()
         cache = self.repo / "gway_remote/__pycache__"
