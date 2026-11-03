@@ -107,3 +107,21 @@ again. Keep the existing bearer; its validity is independent of the form timer.
 
 Browser behavior reference:
 https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Headers/Content-Security-Policy/form-action
+
+## Browser handoff after bearer proof
+
+Some Chromium configurations block a cross-origin HTTP 303 at the end of a
+form submission because of `Content-Security-Policy: form-action`. The bearer
+proof is one-time, so pressing Connect a second time then returns 403 even
+though the authorization code was minted successfully. The link service now
+returns a same-origin HTML handoff page with a zero-delay meta refresh to the
+exact configured OAuth callback and a **Continue to ChatGPT** link as fallback.
+No JavaScript, new permissions, widened redirect allowlist, or additional
+credential storage is required. If automatic navigation is blocked, click
+**Continue to ChatGPT**, **not Connect again**. Restart authentication from
+ChatGPT if the one-time authorization code expires.
+
+Field validation: after deploying the reviewed release on Watchtower, retry
+in a fresh ChatGPT Connect session and confirm the callback reaches ChatGPT,
+that the token exchange succeeds and that a read-only tool can be called.
+A passing HTTP-level regression test alone does not prove this browser flow.

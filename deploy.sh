@@ -52,6 +52,26 @@ if [ "${1:-}" = "--stage-release" ]; then
   exec ansible-playbook "$ROOT/ansible/playbooks/stage-release.yml" -i localhost, -c local
 fi
 
+# On a Watchtower with an already provisioned and enabled private OAuth link,
+# converge its isolated MCP release through Ansible before the ordinary
+# same-revision fast path. Do not infer Watchtower from a hostname.
+if [ "${GWAY_REMOTE_SKIP_MCP:-0}" != "1" ] &&
+   [ -f /etc/gway-mcp-gateway/link.env ] &&
+   [ -f /etc/systemd/system/gway-mcp-link.service ] &&
+   systemctl is-enabled --quiet gway-mcp-link.service; then
+  state_dir="$HOME/.local/state/gway-remote"
+  if [ -L "$HOME/.local/state" ] || [ -L "$state_dir" ] ||
+     [ -L "$state_dir/deploy.lock" ]; then
+    echo "Unsafe GWay Remote MCP deployment lock path" >&2
+    exit 2
+  fi
+  (umask 077; mkdir -p "$state_dir")
+  (umask 077; : >> "$state_dir/deploy.lock")
+  exec 9<>"$state_dir/deploy.lock"
+  flock -n 9 || { echo "GWay Remote deployment/prune already running" >&2; exit 3; }
+  ansible-playbook "$ROOT/ansible/playbooks/watchtower-mcp.yml" -i localhost, -c local
+fi
+
 # This marker is only a hint: every fast-path check validates live artifacts.
 revision=$(git -C "$ROOT" rev-parse --verify HEAD)
 marker="$HOME/.local/state/gway-remote/deployed-commit"

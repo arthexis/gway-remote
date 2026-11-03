@@ -87,28 +87,33 @@ class StableCallbackTests(unittest.TestCase):
                 self.assertEqual(directives["base-uri"], "'none'")
                 self.assertNotIn("attacker.invalid", headers["Content-Security-Policy"])
 
-    def test_successful_post_has_an_allowed_callback_and_repeat_has_clear_error(self):
+    def test_successful_post_returns_navigable_handoff_and_repeated_submit_is_denied(self):
+        import html
         status, headers, page = self.authorize()
         self.assertEqual(status, 200)
-        policy = headers["Content-Security-Policy"]
         cookie = headers["Set-Cookie"].split(";", 1)[0]
         csrf = re.search(rb"name='csrf' value='([^']+)'", page).group(1).decode()
         proof = self.registry.issue()
         body = urlencode({"csrf": csrf, "bearer": proof})
         form_headers = {"Content-Type": "application/x-www-form-urlencoded", "Cookie": cookie}
-        status, headers, _ = self.request("/connect", "POST", body, form_headers)
-        self.assertEqual(status, 303)
-        target = urlsplit(headers["Location"])
+        status, headers, page = self.request("/connect", "POST", body, form_headers)
+        self.assertEqual(status, 200)
+        self.assertNotIn("Location", headers)
+        self.assertIn("text/html", headers["Content-Type"])
+        self.assertIn("Max-Age=0", headers["Set-Cookie"])
+        self.assertIn(b"http-equiv='refresh'", page)
+        self.assertIn(b"Continue to ChatGPT</a>", page)
+        self.assertNotIn(proof.encode(), page)
+        match = re.search(rb"href='([^']+)'", page)
+        self.assertIsNotNone(match)
+        target = urlsplit(html.unescape(match.group(1).decode()))
         self.assertEqual(target.scheme + "://" + target.netloc + target.path, CALLBACK)
-        self.assertIn(target.scheme + "://" + target.netloc, policy.split("form-action ", 1)[1].split(";", 1)[0].split())
-        self.assertEqual(headers["Content-Security-Policy"], policy)
         self.assertEqual(parse_qs(target.query)["iss"], [ISSUER])
         self.assertEqual(len(self.flow.codes), 1)
         status, headers, error = self.request("/connect", "POST", body, form_headers)
         self.assertEqual(status, 403)
         self.assertNotIn("Location", headers)
         self.assertIn(b"already submitted", error)
-        self.assertIn(b"ChatGPT", error)
         self.assertNotIn(proof.encode(), error)
         self.assertEqual(len(self.flow.codes), 1)
 

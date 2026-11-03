@@ -136,3 +136,36 @@ minimum read-only proxy, not yet proven compatible with every streamed
 MCP response and session behavior. Keep public endpoint disabled until
 a real client initialize/tools/list/tools/call exercise succeeds over
 the exact deployed transport, including expected content types.
+
+## Ongoing updates via canonical Ansible deployment
+
+**After initial private OAuth provisioning**, an already enabled Watchtower
+`gway-mcp-link.service` with protected
+`/etc/gway-mcp-gateway/link.env` and an existing
+`/opt/gway-mcp/current` release is managed automatically by the normal:
+
+```sh
+git pull --ff-only
+./deploy.sh
+```
+
+The regular wrapper invokes `ansible/playbooks/watchtower-mcp.yml`
+**before** the same-revision shortcut. Ansible stages the precise Git SHA
+into the existing root-owned isolated MCP runtime, validates Python imports,
+updates the OAuth unit only when different, and restarts only
+`gway-mcp-link.service` when the SHA or unit changes (or the enabled service
+is stopped). The loopback OAuth discovery metadata must return a 200 with
+the expected issuer, PKCE and RFC 9207 support. On failure it restores the
+previous selected runtime and the original OAuth unit, restarts the dedicated
+link service, and exits with an error.
+
+The existing CLI/API Ansible deployment still runs unchanged. This does **not**
+install MCP on unprovisioned hosts, publish Nginx, restart gateway/bridge,
+touch WireGuard, or issue credentials. The currently installed
+`gway-mcp-link.service` must already be enabled; no first-time activation is
+inferred. For emergency isolation, run `GWAY_REMOTE_SKIP_MCP=1 ./deploy.sh`
+to retain the ordinary GWay Remote deployment without touching MCP.
+
+First-time MCP setup and public ingress changes remain separate explicit
+operator authorizations. Do not use `stage.sh` as a routine update mechanism
+after this migration.

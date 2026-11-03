@@ -47,6 +47,7 @@ jobs:
           python -m pip install 'ansible-core>=2.16,<2.19'
           ansible-playbook --syntax-check -i 'localhost,' ansible/playbook.yml
           ansible-playbook --syntax-check -i 'localhost,' ansible/playbooks/stage-release.yml
+          ansible-playbook --syntax-check -i 'localhost,' ansible/playbooks/watchtower-mcp.yml
 
   ansible-core-2-12:
     name: Ansible Core 2.12 syntax

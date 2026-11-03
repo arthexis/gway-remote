@@ -105,8 +105,11 @@ class OAuthInteropTests(unittest.TestCase):
             csrf = self.flow.pending[session][0]
             status, headers, _ = self.request('POST', '/connect', urlencode({'csrf': csrf, 'bearer': proof}),
                                              {'Content-Type': 'application/x-www-form-urlencoded', 'Cookie': cookie})
-            self.assertEqual(status, 303)
-            code = parse_qs(urlsplit(headers['Location']).query)['code'][0]
+            self.assertEqual(status, 200)
+            self.assertIn(b"Returning to ChatGPT", _)
+            import re
+            callback = re.search(rb"href='([^']+)'", _).group(1).decode().replace("&amp;", "&")
+            code = parse_qs(urlsplit(callback).query)['code'][0]
             form = dict(client_id=CLIENT, redirect_uri=CALLBACK, resource=RESOURCE,
                         grant_type='authorization_code', code=code, code_verifier=self.verifier, client_secret='')
             status, _, body = self.request('POST', '/oauth/token', urlencode(form),
@@ -120,7 +123,7 @@ class OAuthInteropTests(unittest.TestCase):
             self.assertNotIn(private, logs)
         records = [json.loads(line) for line in logs.splitlines()]
         self.assertEqual([(r['phase'], r['reason'], r['status']) for r in records],
-                         [('authorize', 'page', 200), ('connect', 'code', 303),
+                         [('authorize', 'page', 200), ('connect', 'code', 200),
                           ('token', 'issued', 200), ('authorize', 'invalid_client', 400)])
         self.assertFalse(records[-1]['client_match'])
         self.assertTrue(records[-1]['redirect_match'])
