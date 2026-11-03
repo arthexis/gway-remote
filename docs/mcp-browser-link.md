@@ -46,3 +46,19 @@ Files: `gway_remote/mcp_link.py`, `gway_remote/mcp_link_http.py`,
   `/usr/local/bin/python3` does not exist and `gway_remote` is not
   importable on Watchtower. An installed, isolated runtime is still
   required before any staging or activation.
+
+## Stable ChatGPT callback (RFC 9207)
+
+For the ChatGPT connection whose UI displays
+`https://chatgpt.com/connector_platform_oauth_redirect`, configure that **exact**
+URL as `GWAY_MCP_OAUTH_REDIRECT_URI` in the protected Watchtower `link.env`.
+Keep the pre-registered `GWAY_MCP_OAUTH_CLIENT_ID` aligned with the client
+chosen in ChatGPT; our current server does **not** implement DCR or CIMD.
+
+The built-in OAuth metadata advertises
+`authorization_response_iss_parameter_supported: true` and canonical issuer
+`https://remote.arthexis.com`. The browser flow includes that exact `iss`
+on both successful authorization-code callbacks and redirectable OAuth errors.
+Unknown client IDs, wrong redirect URIs and missing/invalid states fail locally
+without redirecting. Do not enable Nginx OAuth/MCP public routes until the
+operator has completed issue #305's real ChatGPT browser acceptance.
