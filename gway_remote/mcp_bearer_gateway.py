@@ -15,7 +15,28 @@ MAX_RESPONSE = 262144
 UPSTREAM_TIMEOUT = 30
 ALLOWED_METHODS = frozenset({"server/discover", "initialize", "notifications/initialized", "tools/list", "tools/call"})
 ALLOWED_TOOLS = frozenset({"agent_list_issues", "agent_status", "agent_preview", "agent_observe",
-    "github_workflow_runs", "github_workflow_status", "github_workflow_errors"})
+    "github_workflow_runs", "github_workflow_status", "github_workflow_errors",
+    "node_list", "node_capabilities"})
+
+NODE_TOOLS = (
+    {"name": "node_list", "description": "List active enrolled nodes from Watchtower (read-only; reachability unknown).",
+     "inputSchema": {"type": "object", "properties": {}, "additionalProperties": False},
+     "annotations": {"readOnlyHint": True}},
+    {"name": "node_capabilities", "description": "Inspect registration capability for one enrolled node; no command execution.",
+     "inputSchema": {"type": "object", "properties": {"node": {"type": "string"}},
+                     "required": ["node"], "additionalProperties": False},
+     "annotations": {"readOnlyHint": True}},
+)
+
+def local_node_result(method, arguments):
+    """Only inventory operations, never a shell or user-supplied address."""
+    from . import node_registry_inventory
+    if method == "node_list" and arguments == {}:
+        return node_registry_inventory.public_nodes()
+    if method == "node_capabilities" and type(arguments) is dict and set(arguments) == {"node"}:
+        return node_registry_inventory.capabilities(arguments["node"])
+    raise ValueError("invalid node inventory arguments")
+
 
 class NoRedirect(HTTPRedirectHandler):
     def redirect_request(self, req, fp, code, msg, headers, newurl):
@@ -88,6 +109,28 @@ class Handler(BaseHTTPRequestHandler):
             meta = payload.get("params", {}).get("_meta") if type(payload.get("params")) is dict else None
             if not isinstance(meta, dict) or meta.get("io.modelcontextprotocol/protocolVersion") != version:
                 return self.reject(400)
+        if payload["method"] == "tools/call" and payload.get("params", {}).get("name") in {"node_list", "node_capabilities"}:
+            # The enrollment ledger lives on Watchtower. Never pass these tools
+            # to gway-001, and never grant the gateway access to the root DB.
+            arguments = payload["params"].get("arguments", {})
+            try:
+                selected = local_node_result(payload["params"]["name"], arguments)
+                result = {"content": [{"type": "text", "text": json.dumps(selected, separators=(",", ":"))}]}
+            except (OSError, ValueError, KeyError, TypeError, json.JSONDecodeError):
+                result = {"content": [{"type": "text", "text": "Node inventory unavailable"}],
+                          "isError": True}
+            if version == "2026-07-28":
+                result = {"resultType": "complete", **result}
+            body = json.dumps({"jsonrpc": "2.0", "id": payload.get("id"), "result": result},
+                              separators=(",", ":")).encode()
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("MCP-Protocol-Version", version)
+            self.send_header("Cache-Control", "no-store")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+            return
         if version == "2026-07-28" and payload["method"] == "server/discover":
             result = {"resultType": "complete",
                       "supportedVersions": ["2026-07-28", "2025-03-26"],
@@ -133,6 +176,23 @@ class Handler(BaseHTTPRequestHandler):
             return self.reject(502)
         if status not in (200, 202):
             return self.reject(502)
+        if status == 200 and payload["method"] == "tools/list":
+            # Merge the seven existing private tools with two Watchtower-local
+            # registry views. Do not let upstream override or shadow them.
+            try:
+                upstream_payload = json.loads(body)
+                result = upstream_payload["result"]
+                tools = result["tools"]
+                if (type(tools) is not list or
+                        any(type(tool) is not dict or tool.get("name") in
+                            {"node_list", "node_capabilities"} for tool in tools)):
+                    raise ValueError("upstream tool collision")
+                result["tools"] = tools + list(NODE_TOOLS)
+                body = json.dumps(upstream_payload, separators=(",", ":")).encode()
+            except (ValueError, TypeError, KeyError, UnicodeError):
+                return self.reject(502)
+            if len(body) > MAX_RESPONSE:
+                return self.reject(502)
         if adapt_modern and status == 200:
             try:
                 upstream_payload = json.loads(body)
