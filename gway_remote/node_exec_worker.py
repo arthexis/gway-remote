@@ -105,7 +105,12 @@ class Jobs:
                 raise RuntimeError("executor busy")
             db.execute("INSERT INTO jobs (id,node,command,status,created_at) VALUES (?,?,?,?,?)",
                        (job_id, node, command, "queued", utcnow()))
-        argv = ["systemd-run", "--user", "--collect", "--unit=" + unit_name(job_id),
+        # The systemd user manager does not inherit the caller's Python import
+        # context. Use the Ansible-owned package tree, never a writable job dir.
+        argv = ["systemd-run", "--user", "--collect",
+                "--setenv=PYTHONPATH=/opt/gway-remote",
+                "--working-directory=/var/lib/gway-exec",
+                "--unit=" + unit_name(job_id),
                 "--property=MemoryMax=" + str(DEFAULT_LIMITS["memory_max_bytes"]),
                 "--property=TasksMax=" + str(DEFAULT_LIMITS["tasks_max"]),
                 "--property=RuntimeMaxSec=" + str(JOB_TIMEOUT + 10),
