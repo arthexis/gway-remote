@@ -45,6 +45,19 @@ class WatchtowerMCPDeployContract(unittest.TestCase):
         ):
             self.assertNotIn(forbidden, text)
 
+    def test_protected_inventory_verification_uses_task_local_become(self):
+        # Do not chmod the auth directory or add the operator to a group
+        # that also exposes the Watchtower bearer credential registry.
+        text = PLAYBOOK.read_text()
+        verification = text.split(
+            "- name: Verify dynamic inventory can read registered hosts", 1
+        )[1].split("- name: Validate Ansible export", 1)[0]
+        self.assertIn("become: true", verification)
+        self.assertIn("/usr/local/sbin/gway-enrolled-inventory", verification)
+        self.assertNotIn("mode:", verification)
+        self.assertNotIn("group:", verification)
+        self.assertNotIn("user:", verification)
+
     def test_never_starts_new_watchtower_on_bootstrap(self):
         text = WRAPPER.read_text()
         self.assertIn("[ -f /etc/gway-mcp-gateway/link.env ]", text)
