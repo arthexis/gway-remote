@@ -308,7 +308,7 @@ def main() -> None:
     hardware_parser.add_argument("--json", action="store_true")
     watchdog_parser = subparsers.add_parser("watchdog", help="Inspect or explicitly configure systemd hardware watchdog")
     watchdog_parser.add_argument("action", choices=("show", "enable", "disable"))
-    watchdog_parser.add_argument("--timeout-seconds", type=int, default=None)
+    watchdog_parser.add_argument("--seconds", type=int, default=None)
     watchdog_parser.add_argument("--apply", action="store_true", help="Confirm privileged systemd watchdog configuration")
     watchdog_parser.add_argument("--json", action="store_true")
     subparsers.add_parser("probe-csms", help="Read-only CSMS health diagnosis")
@@ -730,8 +730,8 @@ def main() -> None:
     if args.command == "watchdog":
         from .watchdog import inspect, configure, format_watchdog
         if args.action == "show":
-            if args.apply or args.timeout_seconds is not None:
-                parser.error("watchdog show does not accept --apply or --timeout-seconds")
+            if args.apply or args.seconds is not None:
+                parser.error("watchdog show does not accept --apply or --seconds")
             report = inspect()
         else:
             try:
