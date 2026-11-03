@@ -141,6 +141,80 @@
             argv: [/usr/bin/python3, -I, /opt/gway-mcp/current/run.py, --check]
           changed_when: false
 
+        - name: Inspect authoritative enrollment ledger
+          become: true
+          ansible.builtin.stat:
+            path: /var/lib/gway-remote/watchtower/ledger.sqlite3
+            follow: false
+          register: mcp_enrollment_ledger
+
+        - name: Require an existing root-owned enrollment ledger
+          ansible.builtin.assert:
+            that:
+              - mcp_enrollment_ledger.stat.isreg | default(false)
+              - not (mcp_enrollment_ledger.stat.islnk | default(false))
+              - mcp_enrollment_ledger.stat.pw_name == 'root'
+            fail_msg: Enrollment ledger unavailable; refusing to create a separate node registry.
+
+        - name: Publish initial read-only inventory from the authoritative ledger
+          become: true
+          ansible.builtin.command:
+            argv: [/usr/bin/python3, -I, /opt/gway-mcp/current/run.py, node_inventory, --publish]
+          changed_when: false
+
+        - name: Install read-only Ansible dynamic enrollment inventory helper
+          become: true
+          ansible.builtin.copy:
+            src: "{{ mcp_source }}/scripts/gway-enrolled-inventory"
+            dest: /usr/local/sbin/gway-enrolled-inventory
+            owner: root
+            group: root
+            mode: '0755'
+
+        - name: Install periodic inventory export unit
+          become: true
+          ansible.builtin.copy:
+            src: "{{ mcp_source }}/deploy/mcp-bearer/gway-mcp-inventory-refresh.service"
+            dest: /etc/systemd/system/gway-mcp-inventory-refresh.service
+            owner: root
+            group: root
+            mode: '0644'
+          register: mcp_inventory_unit
+
+        - name: Install periodic inventory export timer
+          become: true
+          ansible.builtin.copy:
+            src: "{{ mcp_source }}/deploy/mcp-bearer/gway-mcp-inventory-refresh.timer"
+            dest: /etc/systemd/system/gway-mcp-inventory-refresh.timer
+            owner: root
+            group: root
+            mode: '0644'
+          register: mcp_inventory_timer
+
+        - name: Reload systemd for inventory unit and timer
+          become: true
+          ansible.builtin.systemd:
+            daemon_reload: true
+          when: mcp_inventory_unit.changed or mcp_inventory_timer.changed
+
+        - name: Enable only the read-only inventory refresh timer
+          become: true
+          ansible.builtin.systemd:
+            name: gway-mcp-inventory-refresh.timer
+            enabled: true
+            state: started
+
+        - name: Verify dynamic inventory can read registered hosts
+          ansible.builtin.command:
+            argv: [/usr/local/sbin/gway-enrolled-inventory, --list]
+          changed_when: false
+          register: mcp_ansible_nodes
+
+        - name: Validate Ansible export has a single enrolled-node group
+          ansible.builtin.assert:
+            that:
+              - (mcp_ansible_nodes.stdout | from_json).gway_enrolled.hosts is defined
+
         - name: Install only the reviewed OAuth link service unit
           become: true
           ansible.builtin.copy:
