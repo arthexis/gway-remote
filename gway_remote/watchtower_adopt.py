@@ -12,7 +12,7 @@ import secrets
 import subprocess
 from pathlib import Path
 
-from .watchtower_enrollment import EnrollmentFailure, _now
+from .watchtower_enrollment import _now
 
 _NODE = re.compile(r"gway-[0-9]{3,}$")
 
@@ -82,17 +82,17 @@ def adopt(ledger, *, node: str, public_key: str, config: Path,
         result = runner(["wg", "show", interface, "allowed-ips"],
                         check=True, capture_output=True, text=True, timeout=10)
     except (OSError, subprocess.CalledProcessError, subprocess.TimeoutExpired) as exc:
-        raise EnrollmentFailure("live WireGuard peer inspection failed") from exc
+        raise RuntimeError("live WireGuard peer inspection failed") from exc
     runtime = []
     for line in result.stdout.splitlines():
         columns = line.split(None, 1)
         if len(columns) != 2:
-            raise EnrollmentFailure("malformed live WireGuard peer inventory")
+            raise RuntimeError("malformed live WireGuard peer inventory")
         runtime.append((columns[0], columns[1].strip()))
     live = [ips for key, ips in runtime if key == public_key]
     if live != [str(address)]:
         raise ValueError("live WireGuard peer does not match persistent /32 identity")
-    if any(key != public_key and str(address) in ips.split(",") for key, ips in runtime):
+    if any(key != public_key and str(address) in [part.strip() for part in ips.split(",")] for key, ips in runtime):
         raise ValueError("peer address conflicts with another live WireGuard peer")
 
     # A single IMMEDIATE transaction excludes concurrent enrollment and conflicting IDs.
