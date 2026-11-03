@@ -29,6 +29,7 @@
         - /etc/gway-mcp-gateway/link.env
         - /etc/systemd/system/gway-mcp-link.service
         - /opt/gway-mcp/current
+        - /etc/systemd/system/gway-mcp-gateway.service
       register: mcp_prerequisites
 
     - name: Refuse first-time deployment or unexpected paths
@@ -39,6 +40,8 @@
           - mcp_prerequisites.results[1].stat.isreg | default(false)
           - not (mcp_prerequisites.results[1].stat.islnk | default(false))
           - mcp_prerequisites.results[2].stat.islnk | default(false)
+          - mcp_prerequisites.results[3].stat.isreg | default(false)
+          - not (mcp_prerequisites.results[3].stat.islnk | default(false))
         fail_msg: Watchtower MCP requires prior explicit credential/service provisioning.
 
     - name: Read existing release pointer
@@ -84,6 +87,31 @@
       failed_when: false
       changed_when: false
 
+    - name: Check whether the dedicated MCP gateway is enabled
+      ansible.builtin.command:
+        argv: [systemctl, is-enabled, --quiet, gway-mcp-gateway.service]
+      register: mcp_gateway_enabled
+      failed_when: false
+      changed_when: false
+
+    - name: Require an already enabled private gateway
+      ansible.builtin.assert:
+        that: mcp_gateway_enabled.rc == 0
+        fail_msg: Refusing implicit gateway activation; provision the MCP gateway explicitly.
+
+    - name: Check whether the private MCP gateway is running
+      ansible.builtin.command:
+        argv: [systemctl, is-active, --quiet, gway-mcp-gateway.service]
+      register: mcp_gateway_active
+      failed_when: false
+      changed_when: false
+
+    - name: Determine gateway restart requirement
+      ansible.builtin.set_fact:
+        mcp_gateway_activation_needed: >-
+          {{ mcp_original_target.stdout != 'releases/' ~ mcp_sha.stdout or
+             mcp_gateway_active.rc != 0 }}
+
     - name: Determine whether service restart is required
       ansible.builtin.set_fact:
         mcp_activation_needed: >-
@@ -128,6 +156,25 @@
           ansible.builtin.systemd:
             daemon_reload: true
           when: mcp_unit_update.changed
+
+        - name: Restart the dedicated MCP gateway for new protocol code
+          become: true
+          ansible.builtin.systemd:
+            name: gway-mcp-gateway.service
+            state: restarted
+          when: mcp_gateway_activation_needed | bool
+
+        - name: Verify gateway is reachable only on its existing loopback listener
+          ansible.builtin.uri:
+            url: http://127.0.0.1:19010/mcp
+            method: GET
+            status_code: 405
+            timeout: 8
+          register: mcp_gateway_check
+          retries: 5
+          delay: 1
+          until: mcp_gateway_check.status == 405
+          changed_when: false
 
         - name: Restart only the dedicated OAuth link on a new release
           become: true
@@ -178,6 +225,13 @@
             mode: '0644'
           no_log: true
 
+        - name: Restart previous private gateway after release rollback
+          become: true
+          ansible.builtin.systemd:
+            name: gway-mcp-gateway.service
+            state: restarted
+          when: mcp_gateway_activation_needed | bool
+
         - name: Restart existing OAuth link after rollback
           become: true
           ansible.builtin.systemd:
@@ -188,4 +242,4 @@
 
         - name: Stop on failed MCP release activation
           ansible.builtin.fail:
-            msg: MCP OAuth health validation failed and current was returned to the previous release.
+            msg: MCP gateway or OAuth health validation failed; restored the previous selected release.
