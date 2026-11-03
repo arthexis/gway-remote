@@ -77,9 +77,9 @@ class ModernDiscoveryTests(unittest.TestCase):
         self.assertEqual(status, 200)
         result = json.loads(body)["result"]
         self.assertEqual(result["resultType"], "complete")
-        self.assertEqual(len(result["tools"]), 9)
-        self.assertEqual({x["name"] for x in result["tools"][-2:]},
-                         {"node_list", "node_capabilities"})
+        self.assertEqual(len(result["tools"]), 10)
+        self.assertEqual({x["name"] for x in result["tools"][-3:]},
+                         {"node_list", "node_capabilities", "node_exec_preview"})
         self.assertTrue(all(tool["annotations"]["readOnlyHint"] for tool in result["tools"]))
         self.assertNotIn("agent_submit", {tool["name"] for tool in result["tools"]})
 
