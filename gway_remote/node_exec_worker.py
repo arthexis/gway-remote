@@ -6,7 +6,7 @@ manager. Future Watchtower B2b transport must authenticate separately.
 from __future__ import annotations
 
 import argparse
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 import json
 import os
 from pathlib import Path
@@ -25,6 +25,8 @@ ACCOUNT = "gway-exec"
 DEFAULT_STATE = Path("/var/lib/gway-exec/jobs.sqlite3")
 MAX_OUTPUT = DEFAULT_LIMITS["max_output_bytes"]
 MAX_ACTIVE = DEFAULT_LIMITS["concurrent_jobs_per_node"]
+MAX_HISTORY = 256
+RETENTION_DAYS = 7
 JOB_TIMEOUT = DEFAULT_LIMITS["job_timeout_seconds"]
 
 
@@ -85,6 +87,13 @@ class Jobs:
         job_id = secrets.token_hex(16)
         with self.connection() as db:
             db.execute("BEGIN IMMEDIATE")
+            # Bound persistent metadata as well as each job's output spool.
+            db.execute("DELETE FROM jobs WHERE status NOT IN ('queued','running') "
+                       "AND created_at < ?",
+                       ((datetime.now(timezone.utc) - timedelta(days=RETENTION_DAYS)).isoformat(),))
+            count = db.execute("SELECT count(*) FROM jobs").fetchone()[0]
+            if count >= MAX_HISTORY:
+                raise RuntimeError("job history capacity exceeded")
             active = db.execute("SELECT count(*) FROM jobs WHERE status IN ('queued','running')").fetchone()[0]
             if active >= MAX_ACTIVE:
                 raise RuntimeError("executor busy")
@@ -200,12 +209,18 @@ def worker(database, job_id):
     # Capture into a bounded spool. No command output enters the service journal.
     output = bytearray()
     truncated = False
-    process = subprocess.Popen(["/bin/sh", "-c", row["command"]],
-                               stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
-                               stderr=subprocess.STDOUT, start_new_session=True,
-                               env={"PATH": "/usr/local/bin:/usr/bin:/bin",
-                                    "HOME": str(pwd.getpwuid(os.geteuid()).pw_dir),
-                                    "LANG": "C.UTF-8"})
+    try:
+        process = subprocess.Popen(["/bin/sh", "-c", row["command"]],
+                                   stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
+                                   stderr=subprocess.STDOUT, start_new_session=True,
+                                   env={"PATH": "/usr/local/bin:/usr/bin:/bin",
+                                        "HOME": str(pwd.getpwuid(os.geteuid()).pw_dir),
+                                        "LANG": "C.UTF-8"})
+    except OSError:
+        with jobs.connection() as db:
+            db.execute("UPDATE jobs SET status='failed', finished_at=? WHERE id=? AND status='running'",
+                       (utcnow(), job_id))
+        return 1
     try:
         # readline can grow unbounded on no-newline output. Use bounded reads.
         import selectors
