@@ -7,7 +7,6 @@ from pathlib import Path
 REPOSITORIES = (
     "arthexis/ocpp-csms",
     "arthexis/gway-remote",
-    "arthexis/ocpp-simulator",
     "arthexis/gway-rfid",
     "arthexis/gway-ap-kiosk",
 )
