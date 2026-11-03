@@ -6,14 +6,13 @@ from gway_remote import mobile
 # Review every addition to this list as an API exposure/security change.
 EXPECTED_COMMANDS = frozenset({
     "status", "status-quick", "probe-csms", "lcd-message", "sound-play", "sound-motifs",
-    "simulator-discover", "simulator-start", "simulator-stop",
-    "simulator-status", "simulator-results", "csms-view", "benchmark-echo",
+    "csms-view", "benchmark-echo",
     "codex-tasks", "codex-task", "codex-issues", "agent-issues", "agent-status", "agent-observe", "agent-issue", "agent-preview",
     "deployments-overview", "deployments-progress", "deployments-validate", "deployments-dispatch", "deployments-observe", "deployments-follow",
 })
 READ_ONLY = frozenset({
-    "status", "status-quick", "probe-csms", "sound-motifs", "simulator-discover",
-    "simulator-status", "simulator-results", "csms-view", "benchmark-echo",
+    "status", "status-quick", "probe-csms", "sound-motifs",
+    "csms-view", "benchmark-echo",
     "codex-tasks", "codex-task", "codex-issues", "agent-issues", "agent-status", "agent-observe", "agent-preview",
     "deployments-overview", "deployments-progress", "deployments-validate", "deployments-observe", "deployments-follow",
 })
