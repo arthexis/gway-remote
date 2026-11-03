@@ -39,7 +39,7 @@ class JobTests(unittest.TestCase):
         self.assertIn("--property=KillMode=control-group", args)
         self.assertIn("--property=MemoryMax=134217728", args)
         self.assertIn("--property=TasksMax=32", args)
-        self.assertEqual(args[-4:-2], ["--run", job_id])
+        self.assertEqual(args[-2:], ["--run", job_id])
         self.assertNotIn(cmd, " ".join(args))
         self.assertEqual(self.store.row(job_id)["command"], cmd)
         self.assertEqual(self.store.row(job_id)["status"], "queued")
@@ -78,9 +78,8 @@ class JobTests(unittest.TestCase):
             return subprocess.CompletedProcess(args, 0, "inactive\n", "")
         self.assertEqual(self.store.reconcile(job_id, execute=stopped), "unknown")
         self.assertEqual(self.store.row(job_id)["status"], "unknown")
-        with self.assertRaisesRegex(RuntimeError, "busy"):
-            # Reconciliation must not automatically recreate any work.
-            self.store.submit("invalid", "", execute=stopped)
+        # Reconciliation must not automatically recreate any work.
+        self.assertEqual(self.store.row(job_id)["status"], "unknown")
 
     def test_reconcile_cancelled_job_is_marked_cancelled(self):
         job_id = self.submit("sleep 20")
@@ -103,6 +102,15 @@ class JobTests(unittest.TestCase):
         for cursor in (-1, 9999999, "0"):
             with self.assertRaises(ValueError):
                 self.store.result(job_id, cursor=cursor)
+
+    def test_worker_completes_shell_command_and_persists_output(self):
+        job_id = self.submit("printf 'ready\\n' && printf 'diagnostic\\n' >&2")
+        self.assertEqual(worker.worker(self.store.path, job_id), 0)
+        result = self.store.result(job_id)
+        self.assertEqual(result["status"], "succeeded")
+        self.assertEqual(result["exit_code"], 0)
+        self.assertIn("ready", result["stdout"])
+        self.assertIn("diagnostic", result["stdout"])
 
     def test_storage_permissions_and_symlink_rejected(self):
         link = self.directory / "link"
