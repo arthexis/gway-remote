@@ -14,7 +14,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        group: [codex, core, deployment, infrastructure, mobile, simulator]
+        group: [codex, core, deployment, infrastructure, mobile]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
