@@ -1,0 +1,71 @@
+---
+# M3 B2a: converge dormant prerequisites on named GWAY nodes.
+# No runner, listener, SSH key, sudo privileges or MCP authorization.
+- name: Reject unsafe executor preparation overrides
+  ansible.builtin.assert:
+    that:
+      - gway_remote_exec_user == 'gway-exec'
+      - gway_remote_exec_state_dir == '/var/lib/gway-exec'
+      - gway_remote_exec_user != gway_remote_runner_user
+      - gway_remote_exec_user != 'root'
+    fail_msg: B2a executor identity and private storage paths are fixed.
+
+- name: Create dedicated executor primary group
+  ansible.builtin.group:
+    name: "{{ gway_remote_exec_user }}"
+    system: true
+    state: present
+
+- name: Create locked non-login executor account without supplementary groups
+  ansible.builtin.user:
+    name: "{{ gway_remote_exec_user }}"
+    group: "{{ gway_remote_exec_user }}"
+    groups: ""
+    append: false
+    home: "{{ gway_remote_exec_state_dir }}"
+    create_home: false
+    shell: /usr/sbin/nologin
+    password_lock: true
+    system: true
+    state: present
+
+- name: Create private durable executor job directory
+  ansible.builtin.file:
+    path: "{{ gway_remote_exec_state_dir }}"
+    state: directory
+    owner: "{{ gway_remote_exec_user }}"
+    group: "{{ gway_remote_exec_user }}"
+    mode: "0700"
+    follow: false
+
+- name: Verify executor account has no extra Unix groups
+  ansible.builtin.command:
+    argv: [id, -nG, "{{ gway_remote_exec_user }}"]
+  register: gway_remote_exec_groups
+  changed_when: false
+
+- name: Refuse unexpected executor supplementary groups
+  ansible.builtin.assert:
+    that:
+      - gway_remote_exec_groups.stdout.split() == [gway_remote_exec_user]
+    fail_msg: gway-exec must not be a member of sudo, adm, docker or another group.
+
+- name: Inspect private executor state directory
+  ansible.builtin.stat:
+    path: "{{ gway_remote_exec_state_dir }}"
+    follow: false
+  register: gway_remote_exec_state
+
+- name: Verify executor storage ownership and permissions
+  ansible.builtin.assert:
+    that:
+      - gway_remote_exec_state.stat.isdir | default(false)
+      - not (gway_remote_exec_state.stat.islnk | default(false))
+      - gway_remote_exec_state.stat.pw_name == gway_remote_exec_user
+      - gway_remote_exec_state.stat.gr_name == gway_remote_exec_user
+      - gway_remote_exec_state.stat.mode == '0700'
+
+- name: Enable executor user manager for eventual bounded cgroup jobs
+  ansible.builtin.command:
+    argv: [loginctl, enable-linger, "{{ gway_remote_exec_user }}"]
+    creates: "/var/lib/systemd/linger/{{ gway_remote_exec_user }}"
