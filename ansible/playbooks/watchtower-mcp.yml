@@ -77,11 +77,19 @@
         checksum_algorithm: sha256
       register: mcp_unit_source
 
+    - name: Check whether OAuth link service is currently active
+      ansible.builtin.command:
+        argv: [systemctl, is-active, --quiet, gway-mcp-link.service]
+      register: mcp_active
+      failed_when: false
+      changed_when: false
+
     - name: Determine whether service restart is required
       ansible.builtin.set_fact:
         mcp_activation_needed: >-
           {{ mcp_original_target.stdout != 'releases/' ~ mcp_sha.stdout or
-             mcp_unit_before.stat.checksum != mcp_unit_source.stat.checksum }}
+             mcp_unit_before.stat.checksum != mcp_unit_source.stat.checksum or
+             mcp_active.rc != 0 }}
 
     - name: Stage and activate only the dedicated MCP runtime
       block:
