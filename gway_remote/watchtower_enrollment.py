@@ -121,14 +121,19 @@ class Enrollment:
 class Ledger:
     """Durable registry. Tokens are hashes; request tokens are never persisted."""
 
-    def __init__(self, path: Path, *, network: str, gateway: str):
+    def __init__(self, path: Path, *, network: str, gateway: str, read_only: bool = False):
         self.path = Path(path)
+        self.read_only = read_only
         self.network = ip_network(network, strict=True)
         if not isinstance(self.network, IPv4Network):
             raise ValueError("Watchtower network must be IPv4")
         self.gateway = IPv4Address(gateway)
         if self.gateway not in self.network:
             raise ValueError("gateway must be inside Watchtower network")
+        if self.read_only:
+            if self.path.is_symlink() or not self.path.is_file():
+                raise ValueError("unsafe or missing enrollment ledger")
+            return
         self.path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
         if self.path.is_symlink():
             raise ValueError("unsafe enrollment ledger")
@@ -144,7 +149,12 @@ class Ledger:
         self.path.chmod(0o600)
 
     def _connect(self) -> sqlite3.Connection:
-        connection = sqlite3.connect(self.path, timeout=30, isolation_level=None)
+        if self.read_only:
+            connection = sqlite3.connect(self.path.resolve().as_uri() + "?mode=ro",
+                                         uri=True, timeout=30, isolation_level=None)
+            connection.execute("PRAGMA query_only=ON")
+        else:
+            connection = sqlite3.connect(self.path, timeout=30, isolation_level=None)
         connection.row_factory = sqlite3.Row
         return connection
 

@@ -251,3 +251,48 @@ silently trusted.
 This increment adds no command runner, new roles or public routes, grants
 no execution scope, and does not probe/SSH nodes. A later increment can add
 independently observed health and a separate explicit execution authority.
+
+
+## M3B prerequisite — adopt an already-configured WireGuard peer
+
+`watchtower adopt` adds an existing **operator-approved** WireGuard peer to the
+authoritative Watchtower enrollment ledger, without bootstrap URLs, key rotation,
+address allocation, editing `wg-quick` configuration, calling `wg set`, changing
+SSH trust, or enabling command execution. It does **not** prove SSH host identity;
+the MCP projection must report `identity_verified=false` until separately attested.
+
+Before adoption, independently confirm the node's WireGuard public key with the
+node operator over a trusted administrative channel. The exact key is mandatory:
+hostname, peer IP, and WireGuard connectivity alone are insufficient to authorize
+registration. Verify the existing peer is in both Watchtower's persistent
+WireGuard config and its live `wg show gway allowed-ips` output, with the same
+single private management /32 in the configured network. A mismatched key,
+address, duplicate peer, revoked record, or existing different node identity
+must fail closed.
+
+Run on Watchtower as root, substituting the **existing** enrollment service's
+ledger, network, gateway, and WireGuard configuration values:
+
+```sh
+sudo gway-remote watchtower adopt gway-001 \
+  --ledger /var/lib/gway-remote/watchtower/ledger.sqlite3 \
+  --network <WATCHTOWER_NETWORK_CIDR> --gateway <WATCHTOWER_GATEWAY_IP> \
+  --config <EXISTING_WIREGUARD_CONFIG> \
+  --public-key '<INDEPENDENTLY_VERIFIED_NODE_WG_PUBLIC_KEY>' --dry-run
+
+# Remove --dry-run only after reviewing the identity/address.
+sudo gway-remote watchtower adopt gway-001 \
+  --ledger /var/lib/gway-remote/watchtower/ledger.sqlite3 \
+  --network <WATCHTOWER_NETWORK_CIDR> --gateway <WATCHTOWER_GATEWAY_IP> \
+  --config <EXISTING_WIREGUARD_CONFIG> \
+  --public-key '<INDEPENDENTLY_VERIFIED_NODE_WG_PUBLIC_KEY>'
+
+sudo systemctl start gway-mcp-inventory-refresh.service
+sudo ansible-inventory -i /usr/local/sbin/gway-enrolled-inventory --list
+```
+
+Dry-run opens the ledger read-only and never writes. Adoption inserts one
+`active` device and a committed `adopt` audit operation atomically;
+an identical existing registration is a no-op. The periodic inventory
+publisher otherwise discovers the change on its next refresh. No host identity
+attestation row is fabricated and no executor role is granted.

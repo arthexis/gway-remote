@@ -354,8 +354,11 @@ def main() -> None:
                                  help="issue an explicit one-time attestation repair bootstrap")
     register_parser.add_argument("--settings", type=Path, default=Path("/etc/gway-remote/watchtower.json"))
     watchtower_parser = subparsers.add_parser("watchtower", help="Root-only Watchtower enrollment administration")
-    watchtower_parser.add_argument("action", choices=("serve", "invite", "register", "revoke", "revoke-bootstrap", "bootstrap-status", "status", "snapshot", "recover", "revoke-host", "rotate-host"))
+    watchtower_parser.add_argument("action", choices=("serve", "invite", "register", "revoke", "revoke-bootstrap", "bootstrap-status", "status", "snapshot", "recover", "revoke-host", "rotate-host", "adopt"))
+    watchtower_parser.add_argument("node", nargs="?", help="node ID for adopt")
     watchtower_parser.add_argument("--ledger", help="root-owned SQLite enrollment ledger")
+    watchtower_parser.add_argument("--public-key", help="independently verified existing WireGuard peer public key")
+    watchtower_parser.add_argument("--dry-run", action="store_true", help="inspect adoption without writing ledger")
     watchtower_parser.add_argument("--network", help="approved IPv4 allocation CIDR")
     watchtower_parser.add_argument("--gateway", help="approved hub IPv4 address")
     watchtower_parser.add_argument("--config", help="root-owned WireGuard configuration")
@@ -465,7 +468,16 @@ def main() -> None:
                 parser.exit(1, "gway-remote: Watchtower administration requires root or sudo\n")
             if not args.ledger or not args.network or not args.gateway:
                 parser.error("active Watchtower administration requires --ledger, --network, and --gateway")
-            ledger = Ledger(Path(args.ledger), network=args.network, gateway=args.gateway)
+            ledger = Ledger(Path(args.ledger), network=args.network, gateway=args.gateway,
+                            read_only=args.action == "adopt" and args.dry_run)
+            if args.action == "adopt":
+                if not args.node or not args.public_key or not args.config:
+                    parser.error("watchtower adopt requires node, --public-key and --config")
+                from .watchtower_adopt import adopt
+                result = adopt(ledger, node=args.node, public_key=args.public_key,
+                               config=Path(args.config), dry_run=args.dry_run)
+                print(json.dumps(result, sort_keys=True))
+                return
             if args.action == "snapshot":
                 print(json.dumps(ledger.inspection_snapshot(), sort_keys=True))
                 return
