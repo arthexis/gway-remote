@@ -1,0 +1,9 @@
+[Unit]
+Description=Refresh GWay enrolled-node view from authoritative Watchtower ledger
+[Timer]
+OnBootSec=20s
+OnUnitActiveSec=45s
+AccuracySec=5s
+Unit=gway-mcp-inventory-refresh.service
+[Install]
+WantedBy=timers.target

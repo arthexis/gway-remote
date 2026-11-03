@@ -1,0 +1,17 @@
+#!/bin/sh
+# Dynamic Ansible inventory: registered nodes only, no authorization grants.
+set -eu
+case "${1:---list}" in
+  --list)
+    [ "$#" -eq 0 ] || [ "$#" -eq 1 ] || exit 2
+    exec /usr/bin/python3 -I /opt/gway-mcp/current/run.py node_inventory --ansible
+    ;;
+  --host)
+    [ "$#" -eq 2 ] || exit 2
+    exec /usr/bin/python3 -I /opt/gway-mcp/current/run.py node_inventory --ansible --host "$2"
+    ;;
+  *)
+    echo "Usage: gway-enrolled-inventory [--list|--host NODE]" >&2
+    exit 2
+    ;;
+esac

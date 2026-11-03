@@ -148,7 +148,12 @@ def deploy_reports(sha: str) -> None:
 
 
 def deploy_agent_ops(sha: str) -> None:
-    """Install a pinned Agent Ops CLI without running Codex or adopting credentials."""
+    """Deploy pinned Agent Ops through its canonical, owner-managed wrapper.
+
+    Remote does not build virtualenvs or switch the agent executable. The owner
+    installer serializes activation, maintains rollback links and verifies the
+    installed entrypoint. Remote independently verifies the resulting command.
+    """
     with tempfile.TemporaryDirectory(prefix="agent-ops-deploy-") as directory:
         source = Path(directory) / "source"
         subprocess.run(["git", "clone", "--quiet", "--no-checkout",
@@ -160,38 +165,18 @@ def deploy_agent_ops(sha: str) -> None:
                                          text=True, timeout=20).strip()
         if actual.lower() != sha.lower():
             raise ValueError("Agent Ops checkout SHA mismatch")
-        # Keep installed releases independent of the operator's CODEX_HOME.
-        prefix = Path.home() / ".local/share/gway-agent-ops"
-        releases = prefix / "releases"
-        destination = releases / sha.lower()
-        bin_dir = Path.home() / ".local/bin"
-        entry = bin_dir / "agent"
-        if not destination.exists():
-            releases.mkdir(parents=True, exist_ok=True)
-            # Build in the final location: pip console scripts embed the venv
-            # interpreter's absolute path, so renaming a venv is unsafe.
-            try:
-                subprocess.run([sys.executable, "-m", "venv", str(destination)],
-                               check=True, timeout=90)
-                subprocess.run([str(destination / "bin/pip"), "install", "--no-deps", str(source)],
-                               check=True, timeout=300)
-                subprocess.run([str(destination / "bin/agent"), "--help"], check=True, timeout=30)
-            except Exception:
-                import shutil
-                shutil.rmtree(destination, ignore_errors=True)
-                raise
-        else:
-            subprocess.run([str(destination / "bin/agent"), "--help"], check=True, timeout=30)
-        bin_dir.mkdir(parents=True, exist_ok=True)
-        # Atomic update: the existing CLI remains in place until the replacement is ready.
-        import uuid
-        temporary = bin_dir / (".agent-" + uuid.uuid4().hex)
-        try:
-            temporary.symlink_to(destination / "bin/agent")
-            os.replace(temporary, entry)
-        finally:
-            temporary.unlink(missing_ok=True)
-        # Deliberately do not run agent adopt, Codex, or issue execution here.
+        if not (source / "deploy.sh").is_file():
+            raise RuntimeError("Agent Ops canonical deploy.sh unavailable")
+        subprocess.run(["sh", "./deploy.sh", "--expected-sha", sha.lower()],
+                       cwd=source, check=True, timeout=600)
+        entry = Path.home() / ".local/bin/agent"
+        prefix = Path.home() / ".local/share/gway-agent-ops/releases"
+        expected = prefix / sha.lower() / "bin/agent"
+        if not entry.is_symlink() or entry.resolve(strict=True) != expected:
+            raise RuntimeError("Agent Ops installed command does not match approved SHA")
+        for option in ("--help", "--version"):
+            subprocess.run([str(entry), option], check=True, timeout=30,
+                           stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
 
 def deploy_ap_kiosk(sha: str) -> None:
@@ -301,6 +286,12 @@ def main() -> None:
     execute.add_argument("task", choices=TASKS)
     execute.add_argument("--repository", default="")
     execute.add_argument("--sha", default="")
+    bearer_parser = subparsers.add_parser("bearer", help="Local Watchtower-only MCP bearer administration")
+    bearer_ops = bearer_parser.add_subparsers(dest="bearer_action", required=True)
+    bearer_issue = bearer_ops.add_parser("issue", help="Generate a read-only bearer at the local console")
+    bearer_issue.add_argument("--days", type=int, default=30)
+    bearer_revoke = bearer_ops.add_parser("revoke", help="Revoke an issued bearer by public ID")
+    bearer_revoke.add_argument("key_id")
     export_parser = subparsers.add_parser("deploy-targets", help="Export authoritative deployment targets")
     export_parser.add_argument("--json", action="store_true")
     inspection = subparsers.add_parser("reconcile", help="Read-only appliance deployment report")
@@ -313,12 +304,23 @@ def main() -> None:
     watch_parser.add_argument("--apply", action="store_true", help="Dispatch eligible deployments and file incidents")
     status_parser = subparsers.add_parser("status", help="Inspect local attempts and health")
     status_parser.add_argument("--json", action="store_true")
+    hardware_parser = subparsers.add_parser("hardware", help="Read-only optional local RTC and ambient thermometer")
+    hardware_parser.add_argument("--json", action="store_true")
+    watchdog_parser = subparsers.add_parser("watchdog", help="Inspect or explicitly configure systemd hardware watchdog")
+    watchdog_parser.add_argument("action", choices=("show", "enable", "disable"))
+    watchdog_parser.add_argument("--seconds", type=int, default=None)
+    watchdog_parser.add_argument("--apply", action="store_true", help="Confirm privileged systemd watchdog configuration")
+    watchdog_parser.add_argument("--json", action="store_true")
     subparsers.add_parser("probe-csms", help="Read-only CSMS health diagnosis")
     logs_parser = subparsers.add_parser("logs", help="Inspect local installation logs")
     logs_parser.add_argument("component", nargs="?", choices=tuple(name for name, _ in DEPLOYMENT_TARGETS))
     logs_parser.add_argument("--lines", type=int, default=None)
     report_parser = subparsers.add_parser("report-bundle", help="Export sanitized artifact report")
     report_parser.add_argument("--output", required=True)
+    retention_parser = subparsers.add_parser("retention", help="Read-only managed release retention preview")
+    retention_parser.add_argument("repository", nargs="?", choices=[name for name, _ in DEPLOYMENT_TARGETS])
+    retention_parser.add_argument("--dry-run", action="store_true", help="Explicit preview (always read-only)")
+    retention_parser.add_argument("--json", action="store_true")
     deployments_parser = subparsers.add_parser("deployments", help="Inspect configured appliance deployments")
     deployments_parser.add_argument("repository", nargs="?", choices=[name for name, _ in DEPLOYMENT_TARGETS])
     deployments_parser.add_argument("--json", action="store_true")
@@ -335,9 +337,9 @@ def main() -> None:
     batch_parser.add_argument("--all", action="store_true", help="Explicitly reinstall all latest main revisions regardless of prior attempts or CI")
     batch_parser.add_argument("--now", action="store_true", help="Bypass quiet period for operator-requested batch")
     batch_parser.add_argument("--retry-failed", action="store_true", help="Explicitly retry failed revisions, never installed or interrupted ones")
-    wg_parser = subparsers.add_parser("wireguard", help="Configure WireGuard registration origin")
-    wg_parser.add_argument("action", choices=("endpoint",))
-    wg_parser.add_argument("operation", choices=("show", "set"))
+    wg_parser = subparsers.add_parser("wireguard", help="WireGuard registration origin and local public identity")
+    wg_parser.add_argument("action", choices=("endpoint", "public-key"))
+    wg_parser.add_argument("operation", nargs="?", choices=("show", "set"))
     wg_parser.add_argument("value", nargs="?")
     rotate_parser = subparsers.add_parser("inspection-host-rotate", help="Operator-authorized SSH host identity rotation")
     rotate_parser.add_argument("--node", required=True)
@@ -354,12 +356,19 @@ def main() -> None:
     register_parser.add_argument("target", help="gway-NNN node, status, or revoke")
     register_parser.add_argument("session_id", nargs="?")
     register_parser.add_argument("--minutes", type=int, default=15)
-    register_parser.add_argument("--repair-host-identity", action="store_true",
+    register_parser.add_argument("--replace", action="store_true", help="issue a server-authorized replacement URL")
+    register_parser.add_argument("--repair", dest="repair_host_identity", action="store_true",
                                  help="issue an explicit one-time attestation repair bootstrap")
     register_parser.add_argument("--settings", type=Path, default=Path("/etc/gway-remote/watchtower.json"))
     watchtower_parser = subparsers.add_parser("watchtower", help="Root-only Watchtower enrollment administration")
-    watchtower_parser.add_argument("action", choices=("serve", "invite", "register", "revoke", "revoke-bootstrap", "bootstrap-status", "status", "snapshot", "recover", "revoke-host", "rotate-host"))
+    watchtower_parser.add_argument("action", choices=("serve", "invite", "register", "revoke", "revoke-bootstrap", "bootstrap-status", "status", "snapshot", "recover", "revoke-host", "rotate-host", "adopt", "attest"))
+    watchtower_parser.add_argument("node", nargs="?", help="node ID for adopt or attest")
+    watchtower_parser.add_argument("--settings", type=Path, default=Path("/etc/gway-remote/watchtower.json"), help="root-owned Watchtower settings for adopt")
     watchtower_parser.add_argument("--ledger", help="root-owned SQLite enrollment ledger")
+    watchtower_parser.add_argument("--public-key", help="independently verified existing WireGuard peer public key")
+    watchtower_parser.add_argument("--dry-run", action="store_true", help="inspect without writing ledger")
+    watchtower_parser.add_argument("--attest", action="store_true", help="attest SSH host identity atomically during adopt")
+    watchtower_parser.add_argument("--host-key-file", type=Path, help="independently verified ED25519 SSH host public key file")
     watchtower_parser.add_argument("--network", help="approved IPv4 allocation CIDR")
     watchtower_parser.add_argument("--gateway", help="approved hub IPv4 address")
     watchtower_parser.add_argument("--config", help="root-owned WireGuard configuration")
@@ -372,7 +381,8 @@ def main() -> None:
     watchtower_parser.add_argument("--rotation-token-file", type=Path)
     watchtower_parser.add_argument("--authorize-rotation", action="store_true")
     watchtower_parser.add_argument("--minutes", type=int, default=15)
-    watchtower_parser.add_argument("--repair-host-identity", action="store_true")
+    watchtower_parser.add_argument("--repair", dest="repair_host_identity", action="store_true")
+    watchtower_parser.add_argument("--replace", action="store_true")
     watchtower_parser.add_argument("--host", default="127.0.0.1")
     watchtower_parser.add_argument("--port", type=int, default=8788)
     watchtower_parser.add_argument("--public-url", help="approved public HTTPS enrollment URL")
@@ -407,11 +417,11 @@ def main() -> None:
             ledger = Ledger(Path(settings["ledger"]), network=settings["network"],
                             gateway=settings["gateway"])
             if args.target == "status":
-                if args.session_id or args.repair_host_identity:
+                if args.session_id or args.repair_host_identity or args.replace:
                     parser.error("register status takes no session ID")
                 print(json.dumps(ledger.bootstrap_status(), sort_keys=True))
             elif args.target == "revoke":
-                if not args.session_id or args.repair_host_identity:
+                if not args.session_id or args.repair_host_identity or args.replace:
                     parser.error("register revoke requires a session ID")
                 print(json.dumps({"revoked": ledger.revoke_bootstrap(args.session_id)}, sort_keys=True))
             else:
@@ -419,11 +429,37 @@ def main() -> None:
                     parser.error("register requires exactly one valid gway-NNN node")
                 url = ledger.register(args.target, minutes=args.minutes,
                                       public_url=settings["public_url"],
-                                      repair_host_identity=args.repair_host_identity)["url"]
+                                      repair_host_identity=args.repair_host_identity, replace=args.replace)["url"]
                 print(f"curl -fsSL '{url}' | sudo sh")
         except (OSError, ValueError, KeyError, RuntimeError) as exc:
             parser.exit(1, "gway-remote: Watchtower registration unavailable: "
                         + type(exc).__name__ + "\\n")
+        return
+    if args.command == "bearer":
+        # CLI-exclusive operator action. Never registered in MCP, mobile API, or
+        # Agent Ops adapters. Issue requires an interactive console to avoid
+        # leaking the one-time plaintext token to CI, log capture, or agents.
+        if args.bearer_action == "issue" and not (sys.stdin.isatty() and sys.stdout.isatty()):
+            parser.exit(1, "gway-remote: issuing a bearer requires an interactive console\\n")
+        from .mcp_bearer_cli import assume_auth_identity, BearerAdminError
+        try:
+            assume_auth_identity()
+        except BearerAdminError as exc:
+            parser.exit(1, "gway-remote: " + str(exc) + "\n")
+        from .mcp_bearer import BearerRegistry
+        registry = BearerRegistry("/var/lib/gway-mcp-auth/credentials.sqlite3")
+        try:
+            if args.bearer_action == "issue":
+                if not 1 <= args.days <= 90:
+                    parser.error("bearer issue --days must be 1..90")
+                print(registry.issue(lifetime=args.days * 86400))
+                print("Save the credential securely; this value will not be shown again.", file=sys.stderr)
+            elif not registry.revoke(args.key_id):
+                parser.exit(1, "gway-remote: bearer not found or already revoked\\n")
+            else:
+                print("Bearer revoked")
+        except (OSError, ValueError) as exc:
+            parser.exit(1, "gway-remote: local bearer administration unavailable: " + type(exc).__name__ + "\\n")
         return
     if args.command == "watchtower":
         from .watchtower_enrollment import Ledger, Provisioner, SubprocessWireGuard, serve
@@ -440,9 +476,43 @@ def main() -> None:
                 return
             if os.geteuid() != 0:
                 parser.exit(1, "gway-remote: Watchtower administration requires root or sudo\n")
+            if args.action in ("adopt", "attest"):
+                from .watchtower_settings import adopt_settings
+                settings = adopt_settings(args.settings)
+                args.ledger = args.ledger or settings["ledger"]
+                args.network = args.network or settings["network"]
+                args.gateway = args.gateway or settings["gateway"]
+                args.config = args.config or settings["config"]
             if not args.ledger or not args.network or not args.gateway:
                 parser.error("active Watchtower administration requires --ledger, --network, and --gateway")
-            ledger = Ledger(Path(args.ledger), network=args.network, gateway=args.gateway)
+            ledger = Ledger(Path(args.ledger), network=args.network, gateway=args.gateway,
+                            read_only=args.action in ("adopt", "attest") and args.dry_run)
+            if args.action == "adopt":
+                if not args.node or not args.public_key or not args.config:
+                    parser.error("watchtower adopt requires node, --public-key and --config")
+                if not args.attest and args.host_key_file is not None:
+                    parser.error("--host-key-file requires --attest for adopt")
+                if args.attest and args.host_key_file is None:
+                    from .watchtower_attest import host_key_path
+                    args.host_key_file = host_key_path(args.node)
+                from .watchtower_adopt import adopt
+                result = adopt(ledger, node=args.node, public_key=args.public_key,
+                               config=Path(args.config), dry_run=args.dry_run,
+                               host_key_file=args.host_key_file)
+                print(json.dumps(result, sort_keys=True))
+                return
+            if args.action == "attest":
+                if not args.node:
+                    parser.error("watchtower attest requires node")
+                if args.attest or args.public_key:
+                    parser.error("watchtower attest takes neither --attest nor --public-key")
+                from .watchtower_attest import attest, host_key_path
+                if args.host_key_file is None:
+                    args.host_key_file = host_key_path(args.node)
+                print(json.dumps(attest(ledger, node=args.node,
+                                        host_key_file=args.host_key_file,
+                                        dry_run=args.dry_run), sort_keys=True))
+                return
             if args.action == "snapshot":
                 print(json.dumps(ledger.inspection_snapshot(), sort_keys=True))
                 return
@@ -456,7 +526,7 @@ def main() -> None:
                     parser.error("watchtower register requires --device and --public-url")
                 print(json.dumps(ledger.register(args.device, minutes=args.minutes,
                                                  public_url=args.public_url,
-                                                 repair_host_identity=args.repair_host_identity), sort_keys=True))
+                                                 repair_host_identity=args.repair_host_identity, replace=args.replace), sort_keys=True))
                 return
             if args.action == "revoke-bootstrap":
                 if not args.session_id:
@@ -550,6 +620,17 @@ def main() -> None:
         print(json.dumps({"node": args.node, "pin_created": changed}, sort_keys=True))
         return
     if args.command == "wireguard":
+        if args.action == "public-key":
+            if args.operation or args.value:
+                parser.error("wireguard public-key takes no arguments")
+            from .wireguard_identity import public_key
+            try:
+                print(public_key())
+            except (ValueError, OSError, RuntimeError) as exc:
+                parser.exit(1, f"gway-remote: local WireGuard public key unavailable: {exc}\\n")
+            return
+        if not args.operation:
+            parser.error("wireguard endpoint requires show or set")
         from .wireguard_endpoint import endpoint, set_endpoint
         if args.operation == "set" and not args.value:
             parser.error("wireguard endpoint set requires an HTTPS origin")
@@ -641,6 +722,25 @@ def main() -> None:
         except (ValueError, OSError) as exc:
             parser.exit(1, f"gway-remote: API unavailable: {exc}\\n")
         return
+    if args.command == "hardware":
+        from .hardware_diagnostics import inspect, format_hardware
+        result = inspect()
+        print(json.dumps(result, indent=2, sort_keys=True) if args.json else format_hardware(result))
+        return
+    if args.command == "watchdog":
+        from .watchdog import inspect, configure, format_watchdog
+        if args.action == "show":
+            if args.apply or args.seconds is not None:
+                parser.error("watchdog show does not accept --apply or --seconds")
+            report = inspect()
+        else:
+            try:
+                report = configure(args.action, seconds=args.timeout_seconds, apply=args.apply)
+            except (ValueError, PermissionError, OSError, RuntimeError) as exc:
+                parser.exit(1, f"gway-remote: watchdog: {exc}\n")
+        print(json.dumps(report, indent=2, sort_keys=True) if args.json else
+              format_watchdog(report if args.action == "show" else report["watchdog"]))
+        return
     if args.command == "probe-csms":
         from .csms_health import csms_probe
         print(json.dumps(csms_probe(), indent=2, sort_keys=True))
@@ -690,6 +790,14 @@ def main() -> None:
             print(json.dumps(report(GitHub(), attempts=attempted_shas()), indent=2, sort_keys=True))
         except Exception as exc:
             parser.exit(1, f"gway-remote: reconciliation unavailable: {exc}\n")
+        return
+    if args.command == "retention":
+        from .retention_preview import preview, format_preview
+        try:
+            result = preview(args.repository)
+            print(json.dumps(result, indent=2, sort_keys=True) if args.json else format_preview(result))
+        except (OSError, ValueError, RuntimeError) as exc:
+            parser.exit(1, f"gway-remote: retention preview unavailable: {exc}\n")
         return
     if args.command == "deployments":
         from .deployments import inventory, format_inventory

@@ -34,13 +34,19 @@ class MCPTransportTests(unittest.TestCase):
     def test_malformed_json_rpc_and_notifications(self):
         self.assertEqual(mcp_http.handle([])[1], -32600)
         self.assertEqual(mcp_http.handle({"jsonrpc": "2.0", "method": "initialize",
-                          "params": {"protocolVersion": "2099-01-01"}})[1], -32602)
+                          "params": {"protocolVersion": 123}})[1], -32602)
         self.assertEqual(mcp_http.handle({"jsonrpc": "2.0", "method": "notifications/initialized"}),
                          (None, None, None))
         self.assertEqual(mcp_http.handle({"jsonrpc": "2.0", "method": "notifications/unknown"}),
                          (None, None, None))
         self.assertEqual(mcp_http.handle({"jsonrpc": "2.0", "id": 1, "method": "tools/list",
                                            "params": {"unexpected": 1}})[1], -32602)
+
+    def test_newer_client_negotiates_supported_legacy_version(self):
+        result, error, _ = mcp_http.handle({"jsonrpc": "2.0", "id": 1, "method": "initialize",
+                                           "params": {"protocolVersion": "2025-11-25"}})
+        self.assertIsNone(error)
+        self.assertEqual(result["protocolVersion"], "2025-03-26")
 
     def test_bind_restriction(self):
         with self.assertRaises(ValueError):

@@ -108,6 +108,30 @@ represents the last attempt state update, not necessarily its start time.
 GitHub access is required to read the latest main revisions. The journal
 keeps only the most recent attempt per target, not a full history.
 
+## Managed release retention preview (issue #306, read-only)
+
+```sh
+gway-remote retention --dry-run
+gway-remote retention ocpp-csms --json
+gway-remote retention gway-agent-ops --json
+```
+
+This initial implementation inspects only fixed managed release locations from the
+approved deployment target registry. It reports release directories, allocated
+regular-file bytes, activation/current/previous/executable link references, and
+unsafe or missing evidence. An `unverified` release is **not** safe to remove:
+the preview does not yet prove runtime service/process references, verified
+rollback eligibility, shared dependency consumers, or owner lock state.
+`potential_bytes` is an inventory aid, **not a reclaimable-space estimate**.
+
+No deletion, install, service restart, lock acquisition, or network call is
+performed. Every discovered release has `deletable: false`, and
+`deletion_enabled: false` remains mandatory until owner-side verification and
+separate acceptance. Repositories with unknown layouts are reported
+`unsupported`; missing installs are `absent`. The command accepts no custom
+root paths. Run on the actual managed node as the owning appliance user
+for meaningful results; do not treat a preview from Watchtower as a remote probe.
+
 ## Local appliance status
 
 Run `python3 -m gway_remote status` or `python3 -m gway_remote status --json`.
@@ -244,3 +268,29 @@ that attempt is marked installed.
 ## Agent Ops appliance deployment
 
 The appliance batch includes `arthexis/gway-agent-ops` as a fourth trusted repository. Manual `Appliance Deploy` calls `deploy-batch --now` and can install a green, merged Agent Ops main revision. The installer verifies the exact Git SHA, creates an isolated versioned Python environment under `~/.local/share/gway-agent-ops/releases/`, checks `agent --help`, and atomically updates `~/.local/bin/agent`. It does **not** adopt Codex credentials, execute GitHub issues, or start a daemon. `--now` bypasses only the quiet period, not SHA/CI verification or one-attempt policy. A separate Remote-to-Agent Ops interface and field verification are required before the mobile surface can assign the LCD Sound test issue.
+
+## Immutable backend migration — increment 1 (staging only)
+
+An explicit operator command stages a versioned CLI zipapp **without activating
+it**:
+
+```sh
+./deploy.sh --stage-release
+```
+
+The non-root operator retains an owner lock while Ansible builds a verified
+root-owned `/opt/gway-remote/releases/<full-git-SHA>/gway-remote.pyz`
+and `REVISION` marker. The staged artifact passes its independent `--help`
+probe. Repeating the same stage command checks the existing immutable release.
+Modified/untracked package sources and unsafe symlinked release directories
+are refused.
+
+The normal `./deploy.sh`, `/usr/local/bin/gway-remote`, existing deployment
+workflow, Mobile API user service, WireGuard configuration, bearer tokens,
+runtime data, and deployed-commit marker are **unchanged**. This increment
+does not activate, restart, rollback or prune. A staged release is not proof
+that the Mobile API is serving it.
+
+Later increments will introduce health-gated `current`/`previous` cutover,
+rollback and finally `--prune`. Do not manually replace the live executable
+with a staged zipapp.

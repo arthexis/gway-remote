@@ -1,0 +1,24 @@
+[Unit]
+Description=Private SSH loopback forward to gway-001 MCP over WireGuard
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=gway-mcp-bridge
+Group=gway-mcp-bridge
+ExecStart=/usr/bin/ssh -F /etc/gway-mcp-gateway/ssh-config -N -T -o BatchMode=yes -o ExitOnForwardFailure=yes -o StrictHostKeyChecking=yes -o ServerAliveInterval=30 -o ServerAliveCountMax=2 -L 127.0.0.1:19011:127.0.0.1:8770 gway-mcp-target
+Restart=on-failure
+RestartSec=10
+NoNewPrivileges=true
+UMask=0077
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+CapabilityBoundingSet=
+[Install]
+WantedBy=multi-user.target

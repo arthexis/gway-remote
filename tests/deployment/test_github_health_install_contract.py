@@ -8,10 +8,10 @@ ROOT = Path(__file__).resolve().parents[2]
 class GithubHealthInstallContractTests(unittest.TestCase):
     def test_health_service_uses_runner_snapshot_and_source(self):
         service = (ROOT / "deploy/systemd/gway-remote-health.service").read_text()
-        self.assertIn("User=arthe", service)
+        self.assertIn("User={{ gway_remote_runner_user }}", service)
         self.assertIn("PYTHONPATH=/opt/gway-remote", service)
-        self.assertIn("GWAY_REMOTE_GITHUB_HEALTH_SNAPSHOT=/home/arthe/.local/state/gway-remote/github-health.json", service)
-        self.assertIn("EnvironmentFile=/home/arthe/.config/gway-remote/github-health.env", service)
+        self.assertIn("GWAY_REMOTE_GITHUB_HEALTH_SNAPSHOT=/home/{{ gway_remote_runner_user }}/.local/state/gway-remote/github-health.json", service)
+        self.assertIn("EnvironmentFile=/home/{{ gway_remote_runner_user }}/.config/gway-remote/github-health.env", service)
 
     def test_installer_checks_private_token_and_runner_readability(self):
         tasks = (ROOT / "ansible/roles/gway_remote/tasks/main.yml").read_text()
@@ -19,7 +19,13 @@ class GithubHealthInstallContractTests(unittest.TestCase):
         self.assertIn("github_health_token_config.stat.mode == '0600'", tasks)
         self.assertIn("github_health_token_config.stat.isreg | default(false)", tasks)
         self.assertIn("Verify API snapshot path is readable by appliance runner", tasks)
-        self.assertIn('become_user: "{{ gway_remote_runner_user }}"', tasks)
+        snapshot = tasks.split("- name: Verify API snapshot path is readable by appliance runner", 1)[1].split("\n- name:", 1)[0]
+        self.assertNotIn("become_user:", snapshot)
+        self.assertIn("- /usr/bin/sudo", snapshot)
+        self.assertIn("- -n", snapshot)
+        self.assertIn("- -H", snapshot)
+        self.assertIn("- -u", snapshot)
+        self.assertIn('- "{{ gway_remote_runner_user }}"', snapshot)
 
 
 if __name__ == "__main__":

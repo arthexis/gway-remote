@@ -13,6 +13,9 @@ from .health import component_health, quick_component_check
 from .reconcile import TARGETS
 from .probe_registry import probe_for
 from .bastion_status import read_bastion_evidence
+from .deployment_evidence import adapt_component
+from .power_status import probe as power_probe, format_power
+from .watchdog import inspect as watchdog_inspect, format_watchdog
 
 
 def installed_revision(name):
@@ -100,12 +103,15 @@ def status(directory=DEFAULT_DIR, probe=component_health, *, depth="deep"):
                            "release_state": release["release_state"] if release else None,
                            "staged_sha": release["staged_sha"] if release else None,
                            "error": error, "log": log})
+    checked_at = datetime.now(timezone.utc).isoformat()
+    for item in components:
+        item["deployment_evidence"] = adapt_component(item, observed_at=checked_at, depth=depth)
     total_ms = round((perf_counter_ns() - started_ns) / 1_000_000, 2)
     _LOG.info("status timing total_ms=%.2f journal_ms=%.2f probe_ms=%s",
               total_ms, journal_ms, probe_durations)
     return {"schema": "gway-remote/status/v1", "depth": depth, "node": platform.node(),
-            "checked_at": datetime.now(timezone.utc).isoformat(),
-            "components": components}
+            "checked_at": checked_at,
+            "components": components, "power": power_probe(), "watchdog": watchdog_inspect()}
 
 
 def format_status(report):
@@ -120,5 +126,7 @@ def format_status(report):
         if item["error"]:
             rows.append("  Error: " + str(item["error"]))
     rows.append("")
+    rows.append(format_power(report.get("power", {"status": "unavailable"})))
+    rows.append(format_watchdog(report.get("watchdog", {"status": "unavailable", "devices": []})))
     rows.append("Installed revision is independently read from release links when available; unknown otherwise.")
     return "\n".join(rows)

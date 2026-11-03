@@ -1,4 +1,9 @@
 ---
+- name: Verify runner user exists
+  ansible.builtin.getent:
+    database: passwd
+    key: "{{ gway_remote_runner_user }}"
+
 - name: Inspect existing CLI
   ansible.builtin.stat:
     path: /usr/local/bin/gway-remote
@@ -66,8 +71,15 @@
 
 - name: Verify read-only status JSON as runner user
   ansible.builtin.command:
-    cmd: /usr/local/bin/gway-remote status --json
-  become_user: "{{ gway_remote_runner_user }}"
+    argv:
+      - /usr/bin/sudo
+      - -n
+      - -H
+      - -u
+      - "{{ gway_remote_runner_user }}"
+      - /usr/local/bin/gway-remote
+      - status
+      - --json
   changed_when: false
   register: gway_remote_status
 
@@ -120,7 +132,7 @@
     mode: "0700"
 
 - name: Install appliance watch systemd units
-  ansible.builtin.copy:
+  ansible.builtin.template:
     src: "{{ playbook_dir }}/../deploy/systemd/{{ item }}"
     dest: "/etc/systemd/system/{{ item }}"
     owner: root
@@ -170,6 +182,11 @@
 - name: Verify API snapshot path is readable by appliance runner
   ansible.builtin.command:
     argv:
+      - /usr/bin/sudo
+      - -n
+      - -H
+      - -u
+      - "{{ gway_remote_runner_user }}"
       - /usr/bin/python3
       - -c
       - |
@@ -180,7 +197,6 @@
         snapshot = path / "github-health.json"
         if snapshot.exists():
             assert snapshot.is_file() and os.access(snapshot, os.R_OK)
-  become_user: "{{ gway_remote_runner_user }}"
   changed_when: false
 
 - name: Install GitHub Health collector systemd units

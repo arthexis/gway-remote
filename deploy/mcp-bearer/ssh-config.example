@@ -1,0 +1,18 @@
+# Copy to /etc/gway-mcp-gateway/ssh-config only after verifying the WireGuard
+# endpoint and pinning the SSH server's genuine host key out of band.
+Host gway-mcp-target
+    HostName 10.90.0.2
+    User gway-mcp-forward
+    Port 22
+    IdentitiesOnly yes
+    IdentityFile /etc/gway-mcp-gateway/bridge/id_ed25519
+    UserKnownHostsFile /etc/gway-mcp-gateway/bridge/known_hosts
+    StrictHostKeyChecking yes
+    BatchMode yes
+    ProxyCommand none
+    ForwardAgent no
+    PermitLocalCommand no
+    RequestTTY no
+    PasswordAuthentication no
+    KbdInteractiveAuthentication no
+    GSSAPIAuthentication no

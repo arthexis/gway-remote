@@ -54,16 +54,25 @@ jobs:
           export XDG_RUNTIME_DIR="/run/user/$(id -u)"
           export DBUS_SESSION_BUS_ADDRESS="unix:path=$XDG_RUNTIME_DIR/bus"
           python3 - <<'PY'
+          import os
+          import pathlib
           import subprocess
+          import tempfile
           from gway_remote.deployment import deploy, local_api_token
-          deploy(
-              token=local_api_token(),
-              install=lambda: subprocess.run(["sh", "deploy.sh"], check=True),
-          )
+
+          def install():
+              with tempfile.TemporaryDirectory() as temp:
+                  marker = pathlib.Path(temp) / "no-op"
+                  env = os.environ.copy()
+                  env["GWAY_REMOTE_DEPLOY_NOOP_FILE"] = str(marker)
+                  subprocess.run(["sh", "deploy.sh"], check=True, env=env)
+                  return not (marker.is_file() and marker.read_text().strip() == "skipped")
+
+          deploy(token=local_api_token(), install=install)
           PY
           /usr/local/bin/gway-remote status --json | python3 -c 'import json,sys; assert json.load(sys.stdin)["schema"] == "gway-remote/status/v1"'
       - name: Deployment summary
         if: env.skip != 'true'
         env:
           VERIFIED_SHA: ${{ github.event.workflow_run.head_sha }}
-        run: echo "Installed and restarted GWay Remote mobile API from $VERIFIED_SHA on gway-001" >> "$GITHUB_STEP_SUMMARY"
+        run: echo "Validated GWay Remote mobile API deployment for $VERIFIED_SHA on gway-001" >> "$GITHUB_STEP_SUMMARY"
