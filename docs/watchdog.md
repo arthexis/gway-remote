@@ -18,7 +18,7 @@ not an unhealthy node. No new health or deployment gates are introduced.
 On a machine with a supported device, local operator-only configuration:
 
 ```sh
-sudo gway-remote watchdog enable --timeout-seconds 15 --apply
+sudo gway-remote watchdog enable --seconds 15 --apply
 sudo gway-remote watchdog disable --apply
 ```
 
