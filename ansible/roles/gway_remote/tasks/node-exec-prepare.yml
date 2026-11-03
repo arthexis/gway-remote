@@ -69,3 +69,30 @@
   ansible.builtin.command:
     argv: [loginctl, enable-linger, "{{ gway_remote_exec_user }}"]
     creates: "/var/lib/systemd/linger/{{ gway_remote_exec_user }}"
+
+# #345: a locked service UID must never gain privileged polkit authority
+# simply because a caller launched it from an active desktop/login session.
+# This is account-specific and does not change policy for ordinary users.
+- name: Ensure root-owned polkit rules directory exists
+  ansible.builtin.file:
+    path: /etc/polkit-1/rules.d
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Deny all privileged polkit actions for dedicated executor identity
+  ansible.builtin.copy:
+    dest: /etc/polkit-1/rules.d/00-gway-exec-deny.rules
+    owner: root
+    group: root
+    mode: "0644"
+    content: |
+      // gway-remote #345: no privileged polkit authorization for this
+      // dedicated command-execution account in any login/session context.
+      // Run before broader group/session allow rules.
+      polkit.addRule(function(action, subject) {
+          if (subject.user === "gway-exec") {
+              return polkit.Result.NO;
+          }
+      });
