@@ -8,11 +8,52 @@ Parent [#317](https://github.com/arthexis/gway-remote/issues/317), successor to 
 
 Each job has `MemoryMax=128M`, `TasksMax=32`, `RuntimeMaxSec=70s` (60s worker timeout plus cleanup headroom), `KillMode=control-group` and an explicit job name. Cancellation is an independent `systemctl --user kill --kill-whom=all` call; no HTTP disconnect triggers cancellation. Failed or unobservable jobs are never silently replayed: `reconcile()` reports `unknown` if the systemd unit disappears without a committed result. There is one active job per node initially; output is capped to 1 MiB with a 16 KiB result-page limit.
 
-## Local host preparation and gate
+## Ansible installation (opt-in, no remote execution)
 
-**Do not deploy or activate on production automatically.** This source change does **not** provision the account, service manager, SSH keys, public routes, or MCP tools; `node_capabilities.execute_available` remains **false**. Field readiness requires a deliberately reviewed Ansible role or console procedure that provisions a dedicated unprivileged `gway-exec` account with a private `/var/lib/gway-exec` directory (owner `gway-exec`, mode `0700`) and a working, persistent user systemd manager (systemd on actual Raspberry Pi). Start the job broker and transient units as that account, never through a shell-enabled privileged service. No sudo, polkit authorization, privileged groups, Docker socket, OCPP configuration write access, or access to private SSH/WireGuard keys. Audit effective ACLs and permissions rather than assuming non-root implies read-only.
+The existing `ansible/roles/gway_remote` role includes
+`tasks/node-exec-prepare.yml` **only** when `gway_remote_exec_prepare=true`.
+This avoids provisioning an executor account on Watchtower or other hosts
+during normal deployments.
 
-The worker is a Python API/testable module only in B2a. On an actual Pi, deployment must first prove that `systemd-run --user` works with this service account, that unit cgroups enforce limits, that the installed Python package resolves from a transient user's systemd context, that a unit survives the submitting process exit, and that cancellation kills forked/background descendants. Test reboot/restart journal recovery and inability to read protected system material before enabling any remote dispatch.
+After reviewing the target is the intended `gway-001` Pi, run its ordinary
+operator deployment with explicit extra-vars:
+
+```sh
+./deploy.sh -e gway_remote_exec_prepare=true
+```
+
+This creates the **locked, non-login** `gway-exec` account, its dedicated
+primary group and private `/var/lib/gway-exec` directory (0700).
+Supplementary groups are removed and verified. Account name and state path
+cannot be overridden to a privileged identity. Ansible does **not** create
+SSH keys, a command listener, sudo rights or an MCP execution endpoint.
+
+For an approved field test that needs a persistent user systemd manager,
+the separately opt-in variant is:
+
+```sh
+./deploy.sh -e gway_remote_exec_prepare=true -e gway_remote_exec_enable_linger=true
+```
+
+The second variable invokes `loginctl enable-linger gway-exec` once when
+needed. It does not enable command execution through MCP. **Do not enable
+linger on Watchtower or an unapproved target.** A future removal/revocation
+procedure should explicitly disable linger and safely retain or retire job
+records; regular repeat deployments do not remove an existing account.
+
+The worker's systemd-run invocation sets a fixed import path to the
+root-owned `/opt/gway-remote` package and working directory to the private
+job directory. It must never rely on a writable Python module path.
+This is preparation only; test on the actual Pi that the user manager is
+reachable and the cgroups behave as expected before any remote executor is
+activated.
+
+**Field gates still mandatory:** verify the `gway-exec` identity has no
+sudo/polkit, privileged groups, Docker socket, OCPP state write permissions,
+or access to SSH/WireGuard secrets. Test job subprocess lifetime, descendant
+cancellation, disk cap, memory/task limits and restart recovery. Real
+`node_capabilities.execute_available` remains **false**. Nothing in this
+PR installs or enables a network listener or lets Watchtower run commands.
 
 ## B2b remains a separate gated PR
 
