@@ -41,14 +41,17 @@
     mode: "0644"
   register: gway_remote_inventory
 
-- name: Copy application package
-  ansible.builtin.copy:
-    src: "{{ playbook_dir }}/../gway_remote/"
-    dest: "{{ gway_remote_install_root }}/gway_remote/"
-    owner: root
-    group: root
-    mode: preserve
+- name: Install committed application package from one local archive
+  ansible.builtin.command:
+    argv:
+      - /usr/bin/python3
+      - "{{ playbook_dir }}/../scripts/install-package-archive.py"
+      - --source
+      - "{{ playbook_dir }}/.."
+      - --root
+      - "{{ gway_remote_install_root }}"
   register: gway_remote_source
+  changed_when: (gway_remote_source.stdout | from_json).changed | bool
 
 - name: Copy CLI installer
   ansible.builtin.copy:
