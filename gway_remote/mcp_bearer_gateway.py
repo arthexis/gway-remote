@@ -8,7 +8,6 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, build_opener, HTTPRedirectHandler
 from .mcp_bearer import BearerVerifier
-from . import node_registry_inventory
 
 MAX_BODY = 65536
 MAX_RESPONSE = 262144
@@ -31,6 +30,7 @@ NODE_TOOLS = (
 
 def local_node_result(method, arguments):
     """Only inventory operations, never a shell or user-supplied address."""
+    from . import node_registry_inventory
     if method == "node_list" and arguments == {}:
         return node_registry_inventory.public_nodes()
     if method == "node_capabilities" and type(arguments) is dict and set(arguments) == {"node"}:
