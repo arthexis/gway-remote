@@ -14,16 +14,21 @@ class WorkloadPolicyTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             validate("arbitrary-command")
 
-    def test_allowed_simulator(self):
-        validate("ocpp-simulator", "arthexis/ocpp-csms", "a" * 40)
+    def test_retired_simulator_tasks_are_denied(self):
+        for task in ("ocpp-simulator", "ocpp-simulator-deploy"):
+            with self.subTest(task=task), self.assertRaisesRegex(ValueError, "Unknown task"):
+                validate(task, "arthexis/ocpp-simulator", "a" * 40)
+
+    def test_allowed_csms(self):
+        validate("ocpp-csms-deploy", "arthexis/ocpp-csms", "a" * 40)
 
     def test_repository_denied(self):
         with self.assertRaises(ValueError):
-            validate("ocpp-simulator", "evil/repo", "a" * 40)
+            validate("ocpp-csms-deploy", "evil/repo", "a" * 40)
 
     def test_mutable_ref_denied(self):
         with self.assertRaises(ValueError):
-            validate("ocpp-simulator", "arthexis/ocpp-csms", "main")
+            validate("ocpp-csms-deploy", "arthexis/ocpp-csms", "main")
 
 
 if __name__ == "__main__":

@@ -17,7 +17,7 @@ class PanelHostStructureTests(unittest.TestCase):
         self.assertIn("StandardPanel(", host)
         self.assertIn("PanelContent(", host)
         self.assertIn("PanelActions(", host)
-        self.assertIn("ConfirmPanelAction(", host)
+        self.assertNotIn("simulator", host.lower())
 
     def test_search_and_actions_remain_in_palette(self):
         palette = (ANDROID / "OperationPalette.kt").read_text()

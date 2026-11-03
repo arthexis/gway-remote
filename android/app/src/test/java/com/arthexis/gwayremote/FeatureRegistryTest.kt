@@ -34,8 +34,7 @@ class FeatureRegistryTest {
     @Test fun localFeaturesCannotClaimBackendOperations() {
         assertTrue(FeatureRegistry.features.filter { it.kind == FeatureKind.LOCAL_PANEL }
             .all { it.operation == null })
-        assertTrue(OperationRegistry.get("simulator-start")!!.requiresConfirmation)
-        assertTrue(OperationRegistry.get("simulator-stop")!!.requiresConfirmation)
+        assertTrue(OperationRegistry.operations.none { it.id.startsWith("simulator") })
     }
 
     @Test(expected = IllegalArgumentException::class)

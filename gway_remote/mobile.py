@@ -12,8 +12,6 @@ from . import agent_ops_adapter, mobile_deployments, mobile_deploy_dispatch, mob
 from .codex_views import list_tasks, task_detail
 from .codex_issue_views import list_assignments
 from .csms_health import csms_probe
-from .simulator_network import discover
-from . import simulator_runner
 from .status import status
 
 LCD_DIR = Path.home() / ".local" / "state" / "lcd-lockfiles"
@@ -86,14 +84,9 @@ def commands():
                     "task_id": {"type": "string", "required": True}}}]
             + [{"name": "benchmark-echo", "read_only": True, "arguments": {
                 "payload": {"type": "string", "max_length": 4096, "required": True}}}]
-            + [{"name": name, "read_only": name in ("simulator-status", "simulator-results"), "arguments": {}}
-               for name in ("simulator-start", "simulator-stop", "simulator-status", "simulator-results")]
             + [{"name": "csms-view", "read_only": True, "arguments": {
                 "view": {"type": "choice", "choices": list(CSMS_VIEWS), "required": True}}}]
-            + [{"name": "simulator-discover", "read_only": True, "arguments": {
-                "host": {"type": "string", "required": False},
-                "port": {"type": "integer", "required": False}}},
-               {"name": "sound-motifs", "read_only": True, "arguments": {}},
+            + [               {"name": "sound-motifs", "read_only": True, "arguments": {}},
                {"name": "sound-play", "read_only": False, "arguments": {
                 "sound": {"type": "choice", "choices": list(SOUNDS), "required": True},
                 "motif": {"type": "string", "required": False}}},
@@ -213,13 +206,6 @@ def execute(name, arguments):
         return echo(arguments)
     if name == "csms-view":
         return csms_view(arguments)
-    if name in ("simulator-start", "simulator-stop", "simulator-status", "simulator-results"):
-        return {"simulator-start": simulator_runner.start, "simulator-stop": simulator_runner.stop,
-                "simulator-status": simulator_runner.status, "simulator-results": simulator_runner.results}[name](arguments)
-    if name == "simulator-discover":
-        if not isinstance(arguments, dict) or set(arguments) - {"host", "port"}:
-            raise ValueError("invalid_arguments")
-        return discover(**arguments)
     if name == "sound-motifs":
         return sound_motifs(arguments)
     if name == "sound-play":

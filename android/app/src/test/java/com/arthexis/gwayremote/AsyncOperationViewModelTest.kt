@@ -56,24 +56,4 @@ class AsyncOperationViewModelTest {
         assertNull(model.panels.panels.single().error)
     }
 
-    @Test fun simulatorReadRejectsStaleResultAndMutationsNeedConfirmation() {
-        val (model, runner, scope) = fixture()
-        model.selectSimulatorPeer("192.0.2.3", "9000")
-        model.execute("simulator-start", emptyMap())
-        model.runConfirmedSimulator("unapproved", JSONObject())
-        scope.advanceUntilIdle()
-        assertTrue(runner.pending.isEmpty())
-        model.simulatorRead("simulator-results")
-        scope.advanceUntilIdle()
-        model.close("simulator")
-        model.selectSimulatorPeer("192.0.2.4", "9000")
-        model.simulatorRead("simulator-status")
-        scope.advanceUntilIdle()
-        runner.pending[0].response.complete(JSONObject().put("result", "old"))
-        scope.advanceUntilIdle()
-        assertNull(model.panels.panels.single().output)
-        runner.pending[1].response.complete(JSONObject().put("result", JSONObject().put("state", "ready")))
-        scope.advanceUntilIdle()
-        assertTrue(model.panels.panels.single().output!!.contains("ready"))
-    }
 }

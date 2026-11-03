@@ -36,7 +36,7 @@ class ApplianceWorkflowTests(unittest.TestCase):
         jobs = dict(zip(blocks[1::2], blocks[2::2]))
 
         tracks = (
-            ("ocpp_csms", "ocpp_reports", "ocpp_simulator"),
+            ("ocpp_csms", "ocpp_reports"),
             ("gway_lcd_sound", "gway_agent_ops", "gway_ap_kiosk",
              "gway_rfid", "gway_bastion"),
         )

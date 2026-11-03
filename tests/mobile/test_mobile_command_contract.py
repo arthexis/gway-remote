@@ -6,14 +6,13 @@ from gway_remote import mobile
 # Review every addition to this list as an API exposure/security change.
 EXPECTED_COMMANDS = frozenset({
     "status", "status-quick", "probe-csms", "lcd-message", "sound-play", "sound-motifs",
-    "simulator-discover", "simulator-start", "simulator-stop",
-    "simulator-status", "simulator-results", "csms-view", "benchmark-echo",
+    "csms-view", "benchmark-echo",
     "codex-tasks", "codex-task", "codex-issues", "agent-issues", "agent-status", "agent-observe", "agent-issue", "agent-preview",
     "deployments-overview", "deployments-progress", "deployments-validate", "deployments-dispatch", "deployments-observe", "deployments-follow",
 })
 READ_ONLY = frozenset({
-    "status", "status-quick", "probe-csms", "sound-motifs", "simulator-discover",
-    "simulator-status", "simulator-results", "csms-view", "benchmark-echo",
+    "status", "status-quick", "probe-csms", "sound-motifs",
+    "csms-view", "benchmark-echo",
     "codex-tasks", "codex-task", "codex-issues", "agent-issues", "agent-status", "agent-observe", "agent-preview",
     "deployments-overview", "deployments-progress", "deployments-validate", "deployments-observe", "deployments-follow",
 })
@@ -32,3 +31,13 @@ class MobileCommandContractTests(unittest.TestCase):
         for name in ("run", "deploy-batch", "logs", "reconcile", "report-bundle"):
             with self.subTest(name=name), self.assertRaises(ValueError):
                 mobile.execute(name, {})
+
+    def test_retired_simulator_commands_are_not_advertised_or_executable(self):
+        removed = ("simulator-discover", "simulator-start", "simulator-stop",
+                   "simulator-status", "simulator-results")
+        offered = {item["name"] for item in mobile.commands()}
+        for name in removed:
+            with self.subTest(command=name):
+                self.assertNotIn(name, offered)
+                with self.assertRaisesRegex(ValueError, "unknown_command"):
+                    mobile.execute(name, {})

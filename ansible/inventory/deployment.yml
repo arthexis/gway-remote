@@ -8,7 +8,6 @@ all:
           remote_managed_repositories:
             - ocpp-csms
             - ocpp-reports
-            - ocpp-simulator
             - gway-lcd-sound
             - gway-agent-ops
             - gway-ap-kiosk

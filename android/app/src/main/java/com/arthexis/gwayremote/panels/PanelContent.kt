@@ -21,8 +21,6 @@ internal fun PanelContent(
             AgentOpsPanel(panel.output, agentSendLoading, agentSendResult, agentSendError,
                 onAgentSend, onAgentCopyPrompt, agentObserveLoading, agentObserveResult,
                 agentObserveError, onAgentObserve)
-        PanelContentKind.SIMULATOR_RESULTS -> SimulatorResultsPanel(panel.output)
-        PanelContentKind.SIMULATOR_STATUS -> SimulatorStatusPanel(panel.output)
         PanelContentKind.CSMS_HEALTH -> CsmsHealthPanel(panel.output)
         PanelContentKind.CSMS_INSPECTION -> CsmsInspectionPanel(panel.output)
         PanelContentKind.GENERIC -> panel.output?.let { GenericResultRenderer(it) }

@@ -43,12 +43,6 @@ object OperationRequests {
                 args["line2"] = inputs["line2"].orEmpty()
                 args["duration_seconds"] = duration
             }
-            "simulator-discover" -> {
-                val port = inputs["port"]?.toIntOrNull() ?: return null
-                if (port !in 1..65535) return null
-                args["port"] = port
-                inputs["host"]?.trim()?.takeIf(String::isNotEmpty)?.let { args["host"] = it }
-            }
             "task-detail" -> {
                 val idValue = inputs["task_id"].orEmpty()
                 if (!Regex("[0-9a-fA-F]{8}(-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12}").matches(idValue)) return null
