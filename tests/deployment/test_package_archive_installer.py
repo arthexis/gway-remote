@@ -54,21 +54,32 @@ class ArchiveInstallerTests(unittest.TestCase):
         self.assertFalse(self.install()["changed"])
         self.assertEqual(self.install()["sha256"], initial["sha256"])
 
-    def test_new_release_is_traversable_by_unprivileged_importers(self):
+    def test_new_release_is_world_traversable_without_write_permissions(self):
         installed = self.install()
-        release = self.root / ".package-releases" / installed["sha256"]
-        self.assertEqual(release.stat().st_mode & 0o777, 0o755)
-        self.assertEqual((release / "gway_remote").stat().st_mode & 0o777, 0o755)
+        target = self.root / ".package-releases" / installed["sha256"]
+        self.assertEqual(target.stat().st_mode & 0o777, 0o755)
+        self.assertEqual((target / "gway_remote").stat().st_mode & 0o777, 0o755)
 
-    def test_existing_private_release_is_repaired_without_new_digest(self):
+    def test_existing_private_release_is_repaired_on_same_digest(self):
         installed = self.install()
-        release = self.root / ".package-releases" / installed["sha256"]
-        release.chmod(0o700)
-        fixed = self.install()
-        self.assertTrue(fixed["changed"])
-        self.assertEqual(fixed["sha256"], installed["sha256"])
-        self.assertEqual(release.stat().st_mode & 0o777, 0o755)
+        target = self.root / ".package-releases" / installed["sha256"]
+        target.chmod(0o700)
+        (target / "gway_remote").chmod(0o700)
+        repair = self.install()
+        self.assertEqual(repair["sha256"], installed["sha256"])
+        self.assertTrue(repair["changed"])
+        self.assertEqual(target.stat().st_mode & 0o777, 0o755)
+        self.assertEqual((target / "gway_remote").stat().st_mode & 0o777, 0o755)
         self.assertFalse(self.install()["changed"])
+
+    def test_deploy_checks_real_executor_import_not_only_cli_status(self):
+        tasks = (ROOT / "ansible/roles/gway_remote/tasks/main.yml").read_text()
+        start = tasks.index("- name: Verify installed package imports as unprivileged executor")
+        task = tasks[start:].split("- name: Copy CLI installer", 1)[0]
+        self.assertIn("gway_remote_exec_user", task)
+        self.assertIn("gway_remote.node_exec_worker", task)
+        self.assertIn("PYTHONPATH={{ gway_remote_install_root }}", task)
+        self.assertIn("changed_when: false", task)
 
     def test_untracked_pycache_does_not_enter_archive_or_change_digest(self):
         initial = self.install()

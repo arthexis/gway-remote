@@ -53,6 +53,21 @@
   register: gway_remote_source
   changed_when: (gway_remote_source.stdout | from_json).changed | bool
 
+- name: Verify installed package imports as unprivileged executor
+  ansible.builtin.command:
+    argv:
+      - /usr/bin/sudo
+      - -n
+      - -u
+      - "{{ gway_remote_exec_user }}"
+      - /usr/bin/env
+      - "PYTHONPATH={{ gway_remote_install_root }}"
+      - /usr/bin/python3
+      - -c
+      - "import gway_remote.node_exec_worker; print(gway_remote.node_exec_worker.__file__)"
+  changed_when: false
+  when: (ansible_hostname | default('')) is match('^gway-[0-9]+$')
+
 - name: Copy CLI installer
   ansible.builtin.copy:
     src: "{{ playbook_dir }}/../scripts/install-cli.sh"
