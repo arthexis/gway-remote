@@ -1,0 +1,48 @@
+"""Ansible B2a installation gate: no live executor or implied activation."""
+from pathlib import Path
+import unittest
+
+ROOT = Path(__file__).resolve().parents[2]
+DEFAULTS = ROOT / "ansible/roles/gway_remote/defaults/main.yml"
+MAIN = ROOT / "ansible/roles/gway_remote/tasks/main.yml"
+PREPARE = ROOT / "ansible/roles/gway_remote/tasks/node-exec-prepare.yml"
+WORKER = ROOT / "gway_remote/node_exec_worker.py"
+
+
+class ExecutorPreparationTests(unittest.TestCase):
+    def test_opt_in_only_never_default_on_watchtower_or_ordinary_deploy(self):
+        defaults = DEFAULTS.read_text()
+        main = MAIN.read_text()
+        self.assertIn("gway_remote_exec_prepare: false", defaults)
+        self.assertIn("gway_remote_exec_enable_linger: false", defaults)
+        self.assertIn("node-exec-prepare.yml", main)
+        self.assertIn("when: gway_remote_exec_prepare | bool", main)
+
+    def test_account_locked_unprivileged_with_private_storage(self):
+        task = PREPARE.read_text()
+        for text in ("ansible.builtin.user:", "password_lock: true",
+                     "shell: /usr/sbin/nologin", "create_home: false",
+                     'groups: ""', "append: false", 'mode: "0700"',
+                     "gway_remote_exec_groups.stdout.split() == [gway_remote_exec_user]",
+                     "gway_remote_exec_user != 'root'"):
+            with self.subTest(value=text):
+                self.assertIn(text, task)
+
+    def test_no_implicit_linger_or_network_activation(self):
+        task = PREPARE.read_text()
+        self.assertIn("when: gway_remote_exec_enable_linger | bool", task)
+        self.assertIn("loginctl, enable-linger", task)
+        self.assertNotIn("ansible.builtin.systemd:", task)
+        self.assertNotIn("authorized_key", task)
+        self.assertNotIn("sudoers.d", task)
+        self.assertNotIn("gway:execute", task)
+
+    def test_worker_imports_from_root_owned_install_tree(self):
+        worker = WORKER.read_text()
+        self.assertIn("--setenv=PYTHONPATH=/opt/gway-remote", worker)
+        self.assertIn("--working-directory=/var/lib/gway-exec", worker)
+        self.assertIn('"/bin/sh", "-c", row["command"]', worker)
+
+
+if __name__ == "__main__":
+    unittest.main()
