@@ -15,6 +15,14 @@ from .inspection_ssh_trust import trusted_file
 from .watchtower_enrollment import _now
 
 
+def host_key_path(node: str) -> Path:
+    """Canonical operator-provisioned key file; never discover or trust a host key."""
+    from .wireguard_enrollment_contract import DEVICE
+    if not isinstance(node, str) or not DEVICE.fullmatch(node):
+        raise ValueError("invalid node")
+    return Path("/etc/gway-remote") / ("verified-" + node + "-host.pub")
+
+
 def verified_host_key(path: Path) -> str:
     trusted_file(path)
     lines = Path(path).read_text(encoding="utf-8").strip().splitlines()
