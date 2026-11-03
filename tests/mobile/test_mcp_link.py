@@ -3,6 +3,7 @@ import base64
 import hashlib
 import tempfile
 import unittest
+from unittest.mock import patch
 from pathlib import Path
 from gway_remote.mcp_bearer import BearerRegistry, BearerVerifier
 from gway_remote.mcp_link import LinkFlow
@@ -62,6 +63,22 @@ class LinkFlowTests(unittest.TestCase):
                            {"code_challenge_method":"plain"}):
                 with self.assertRaises(ValueError):
                     flow.begin(**{**params, **change})
+
+    def test_expired_and_consumed_sessions_have_distinct_errors(self):
+        with tempfile.TemporaryDirectory() as d:
+            registry = BearerRegistry(Path(d) / "tokens.db")
+            flow = LinkFlow(registry, client_id=CLIENT, redirect_uri=URI)
+            params = dict(client_id=CLIENT, redirect_uri=URI, resource="https://remote.arthexis.com/mcp",
+                          response_type="code", code_challenge="x" * 43, code_challenge_method="S256",
+                          state="state-12345", scope="gway:read")
+            with patch("gway_remote.mcp_link.time.monotonic", return_value=100):
+                session, _ = flow.begin(**params)
+            csrf = flow.pending[session][0]
+            with patch("gway_remote.mcp_link.time.monotonic", return_value=401):
+                with self.assertRaisesRegex(ValueError, "^expired_session$"):
+                    flow.connect(session, csrf, "unused-proof")
+            with self.assertRaisesRegex(ValueError, "^session_unavailable$"):
+                flow.connect(session, csrf, "unused-proof")
 
 
 if __name__ == "__main__":

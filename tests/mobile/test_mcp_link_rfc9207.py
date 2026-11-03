@@ -3,6 +3,7 @@ import base64
 import hashlib
 import http.client
 import json
+import re
 from pathlib import Path
 import tempfile
 import threading
@@ -39,10 +40,10 @@ class StableCallbackTests(unittest.TestCase):
                            code_challenge_method="S256", state="opaque-state123",
                            scope="gway:read")
 
-    def request(self, path):
+    def request(self, path, method="GET", body=None, headers=None):
         client = http.client.HTTPConnection("127.0.0.1", self.server.server_port, timeout=3)
         try:
-            client.request("GET", path)
+            client.request(method, path, body=body, headers=headers or {})
             response = client.getresponse()
             return response.status, dict(response.getheaders()), response.read()
         finally:
@@ -74,6 +75,54 @@ class StableCallbackTests(unittest.TestCase):
         self.assertEqual(response["iss"], [ISSUER])
         self.assertIn("code", response)
         self.assertEqual(response["state"], [self.params["state"]])
+
+    def test_form_policy_allows_only_self_and_the_registered_callback_origin(self):
+        for changes in ({}, {"redirect_uri": "https://attacker.invalid/return"}):
+            with self.subTest(changes=changes):
+                _, headers, _ = self.authorize(**changes)
+                directives = dict(part.strip().split(" ", 1)
+                                  for part in headers["Content-Security-Policy"].split(";"))
+                self.assertEqual(directives["form-action"].split(), ["'self'", "https://chatgpt.com"])
+                self.assertEqual(directives["default-src"], "'none'")
+                self.assertEqual(directives["base-uri"], "'none'")
+                self.assertNotIn("attacker.invalid", headers["Content-Security-Policy"])
+
+    def test_successful_post_has_an_allowed_callback_and_repeat_has_clear_error(self):
+        status, headers, page = self.authorize()
+        self.assertEqual(status, 200)
+        policy = headers["Content-Security-Policy"]
+        cookie = headers["Set-Cookie"].split(";", 1)[0]
+        csrf = re.search(rb"name='csrf' value='([^']+)'", page).group(1).decode()
+        proof = self.registry.issue()
+        body = urlencode({"csrf": csrf, "bearer": proof})
+        form_headers = {"Content-Type": "application/x-www-form-urlencoded", "Cookie": cookie}
+        status, headers, _ = self.request("/connect", "POST", body, form_headers)
+        self.assertEqual(status, 303)
+        target = urlsplit(headers["Location"])
+        self.assertEqual(target.scheme + "://" + target.netloc + target.path, CALLBACK)
+        self.assertIn(target.scheme + "://" + target.netloc, policy.split("form-action ", 1)[1].split(";", 1)[0].split())
+        self.assertEqual(headers["Content-Security-Policy"], policy)
+        self.assertEqual(parse_qs(target.query)["iss"], [ISSUER])
+        self.assertEqual(len(self.flow.codes), 1)
+        status, headers, error = self.request("/connect", "POST", body, form_headers)
+        self.assertEqual(status, 403)
+        self.assertNotIn("Location", headers)
+        self.assertIn(b"already submitted", error)
+        self.assertIn(b"ChatGPT", error)
+        self.assertNotIn(proof.encode(), error)
+        self.assertEqual(len(self.flow.codes), 1)
+
+    def test_callback_policy_cannot_include_configuration_injection(self):
+        for callback in ("https://user:password@chatgpt.com/cb", "https://*.example/cb",
+                         "https://chatgpt.com;form-action*/cb", "https://chatgpt.com/\r\nunsafe",
+                         "https://chatgpt.com:99999/cb", "https://chatgpt.com:/cb",
+                         "https://chatgpt.com/cb#fragment"):
+            with self.subTest(callback=callback):
+                with self.assertRaises(ValueError):
+                    LinkFlow(self.registry, client_id=CLIENT, redirect_uri=callback)
+        flow = LinkFlow(self.registry, client_id=CLIENT,
+                        redirect_uri="https://callback.example:9443/cb?private-configuration-sentinel=1")
+        self.assertEqual(flow.callback_origin, "https://callback.example:9443")
 
     def test_invalid_scope_redirects_to_registered_callback_with_issuer(self):
         status, headers, _ = self.authorize(scope="gway:submit")

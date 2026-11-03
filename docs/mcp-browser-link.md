@@ -62,3 +62,48 @@ on both successful authorization-code callbacks and redirectable OAuth errors.
 Unknown client IDs, wrong redirect URIs and missing/invalid states fail locally
 without redirecting. Do not enable Nginx OAuth/MCP public routes until the
 operator has completed issue #305's real ChatGPT browser acceptance.
+
+
+## Optional OAuth parameters and diagnostics
+
+The HTTP endpoints follow RFC 6749 sections 3.1 and 3.2: ignore unrecognized
+parameters, and treat empty parameters as omitted. Missing/empty authorization
+scope defaults to the pre-registered client's only scope, `gway:read`. Explicit
+scope escalation, duplicate parameters, mismatched client/callback/resource,
+and invalid PKCE remain rejected. An empty `client_secret` compatibility field
+is ignored. This is a public PKCE client (`token_endpoint_auth_methods_supported:
+["none"]`); a nonempty client secret or Authorization header is rejected rather
+than treated as verified client authentication.
+
+The dedicated link service emits fixed-schema `oauth_link` diagnostic records
+for discovery, authorization, browser proof and token exchange. They contain
+only an allowlisted phase/reason, HTTP status and comparison booleans. No raw
+request URL, parameter name/value, header, token, code, cookie, verifier, client
+ID, callback, resource URL or exception text is recorded. Output is capped to
+60 events plus one suppression notice per process per minute. Set
+`GWAY_MCP_OAUTH_DIAGNOSTICS=0` in the protected link environment to disable it.
+
+A reproduced optional-parameter failure is evidence of an interoperability
+defect, not proof of why a particular ChatGPT attempt failed. Use the safe
+phase/reason diagnostics from a new real attempt to establish that boundary.
+
+Reference: https://www.rfc-editor.org/rfc/rfc6749.html#section-3.1
+
+## Browser callback policy and repeated submissions
+
+The authorization page allows form navigation to its own origin and the
+configured HTTPS callback origin. Chromium can enforce `form-action` against
+the redirect after the bearer form POST; `form-action 'self'` alone blocks
+the return to ChatGPT even when the server accepted the bearer and sent 303.
+The permitted external origin comes only from protected registered-client
+configuration. Request parameters cannot add CSP origins, and the application
+still requires the exact registered callback URI.
+
+The form is one-time and expires after five minutes. A successful first click
+consumes the session; submitting it again is `session_unavailable`, not proof
+that its five-minute timer elapsed or the bearer was invalid. An expired or
+unavailable form displays instructions to return to ChatGPT and start Connect
+again. Keep the existing bearer; its validity is independent of the form timer.
+
+Browser behavior reference:
+https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Headers/Content-Security-Policy/form-action
