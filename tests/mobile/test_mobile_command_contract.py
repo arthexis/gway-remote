@@ -31,3 +31,13 @@ class MobileCommandContractTests(unittest.TestCase):
         for name in ("run", "deploy-batch", "logs", "reconcile", "report-bundle"):
             with self.subTest(name=name), self.assertRaises(ValueError):
                 mobile.execute(name, {})
+
+    def test_retired_simulator_commands_are_not_advertised_or_executable(self):
+        removed = ("simulator-discover", "simulator-start", "simulator-stop",
+                   "simulator-status", "simulator-results")
+        offered = {item["name"] for item in mobile.commands()}
+        for name in removed:
+            with self.subTest(command=name):
+                self.assertNotIn(name, offered)
+                with self.assertRaisesRegex(ValueError, "unknown_command"):
+                    mobile.execute(name, {})
