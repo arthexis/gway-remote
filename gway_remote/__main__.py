@@ -306,6 +306,11 @@ def main() -> None:
     status_parser.add_argument("--json", action="store_true")
     hardware_parser = subparsers.add_parser("hardware", help="Read-only optional local RTC and ambient thermometer")
     hardware_parser.add_argument("--json", action="store_true")
+    watchdog_parser = subparsers.add_parser("watchdog", help="Inspect or explicitly configure systemd hardware watchdog")
+    watchdog_parser.add_argument("action", choices=("show", "enable", "disable"))
+    watchdog_parser.add_argument("--timeout-seconds", type=int, default=None)
+    watchdog_parser.add_argument("--apply", action="store_true", help="Confirm privileged systemd watchdog configuration")
+    watchdog_parser.add_argument("--json", action="store_true")
     subparsers.add_parser("probe-csms", help="Read-only CSMS health diagnosis")
     logs_parser = subparsers.add_parser("logs", help="Inspect local installation logs")
     logs_parser.add_argument("component", nargs="?", choices=tuple(name for name, _ in DEPLOYMENT_TARGETS))
@@ -721,6 +726,20 @@ def main() -> None:
         from .hardware_diagnostics import inspect, format_hardware
         result = inspect()
         print(json.dumps(result, indent=2, sort_keys=True) if args.json else format_hardware(result))
+        return
+    if args.command == "watchdog":
+        from .watchdog import inspect, configure, format_watchdog
+        if args.action == "show":
+            if args.apply or args.timeout_seconds is not None:
+                parser.error("watchdog show does not accept --apply or --timeout-seconds")
+            report = inspect()
+        else:
+            try:
+                report = configure(args.action, seconds=args.timeout_seconds, apply=args.apply)
+            except (ValueError, PermissionError, OSError, RuntimeError) as exc:
+                parser.exit(1, f"gway-remote: watchdog: {exc}\n")
+        print(json.dumps(report, indent=2, sort_keys=True) if args.json else
+              format_watchdog(report if args.action == "show" else report["watchdog"]))
         return
     if args.command == "probe-csms":
         from .csms_health import csms_probe
