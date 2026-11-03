@@ -95,10 +95,19 @@ class ModernDiscoveryTests(unittest.TestCase):
         self.assertEqual(status, 403)
 
     def test_modern_metadata_version_mismatch_is_denied(self):
-        status, _, _ = self.rpc("tools/list", params={
-            "_meta": {"io.modelcontextprotocol/protocolVersion": LEGACY}})
-        # request helper normalizes _meta: test independently below
-        self.assertEqual(status, 200)
+        payload = {"jsonrpc": "2.0", "id": 23, "method": "tools/list",
+                   "params": {"_meta": {"io.modelcontextprotocol/protocolVersion": LEGACY}}}
+        connection = HTTPConnection("127.0.0.1", self.gateway.server_port, timeout=3)
+        try:
+            connection.request("POST", "/mcp", json.dumps(payload),
+                               {"Authorization": "Bearer " + self.token,
+                                "Content-Type": "application/json",
+                                "MCP-Protocol-Version": MODERN})
+            response = connection.getresponse()
+            self.assertEqual(response.status, 400)
+            response.read()
+        finally:
+            connection.close()
 
 
 if __name__ == "__main__":
