@@ -26,7 +26,7 @@ class RefreshRegistryTest {
         for (id in listOf("system", "csms", "notifications", "benchmark")) {
             state = state.open(id).state
         }
-        assertEquals(setOf("system", "csms", "simulator"),
+        assertEquals(setOf("system", "csms"),
             RefreshRegistry.targets(state).map { it.panelId }.toSet())
         assertFalse(RefreshRegistry.targets(state).any { it.panelId in setOf("notifications", "benchmark") })
     }
