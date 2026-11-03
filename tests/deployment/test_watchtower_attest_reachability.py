@@ -59,6 +59,26 @@ class AttestAndReachabilityTests(unittest.TestCase):
                       runner=self.runner, host_key_file=self.key)
         self.assertEqual(self.ledger.status()["devices"], 0)
 
+    def test_standard_ssh_host_public_key_comment_is_accepted(self):
+        self.key.write_text(SSH + " root@gway-001\\n")
+        adopt(self.ledger, node="gway-001", public_key=WG, config=self.conf, runner=self.runner)
+        with patch("gway_remote.watchtower_attest.trusted_file"):
+            result = attest(self.ledger, node="gway-001", host_key_file=self.key)
+        self.assertEqual(result["state"], "attested")
+
+    def test_same_host_key_cannot_attest_to_two_nodes(self):
+        adopt(self.ledger, node="gway-001", public_key=WG, config=self.conf, runner=self.runner)
+        with patch("gway_remote.watchtower_attest.trusted_file"):
+            attest(self.ledger, node="gway-001", host_key_file=self.key)
+            with self.ledger._transaction() as db:
+                db.execute(
+                    "INSERT INTO devices(device,public_key,address,state,operation_id) "
+                    "VALUES('gway-002',?,?,'active','manual-fixture')",
+                    ("BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBA=", "10.90.0.3/32"),
+                )
+            with self.assertRaisesRegex(ValueError, "already attested"):
+                attest(self.ledger, node="gway-002", host_key_file=self.key)
+
     def test_attestation_refuses_conflicting_host_key(self):
         with patch("gway_remote.watchtower_attest.trusted_file"):
             adopt(self.ledger, node="gway-001", public_key=WG, config=self.conf,
