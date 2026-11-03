@@ -48,6 +48,50 @@ class HardwareDiagnosticTests(TestCase):
         self.assertIsNone(result["rtc"]["devices"][0]["time_utc"])
         self.assertEqual(result["ambient_temperature"]["status"], "unavailable")
 
+    def test_host_resources_are_reported_without_external_tools(self):
+        with tempfile.TemporaryDirectory() as root:
+            base = Path(root)
+            (base / "meminfo").write_text(
+                "MemTotal:        4000000 kB\\nMemAvailable:    1000000 kB\\n")
+            (base / "uptime").write_text("3600.25 1234.0\\n")
+            zone = base / "thermal/thermal_zone0"
+            zone.mkdir(parents=True)
+            (zone / "temp").write_text("54125")
+            (base / "freq").write_text("1500000")
+            (base / "model").write_text("Raspberry Pi 4 Model B\\x00")
+            with patch("gway_remote.hardware_diagnostics.shutil.disk_usage") as disk:
+                disk.return_value = type("Usage", (), {
+                    "total": 1000, "free": 400})()
+                result = inspect(
+                    rtc_root=base / "rtc", i2c_root=base / "i2c",
+                    meminfo=base / "meminfo", uptime=base / "uptime",
+                    thermal_root=base / "thermal", cpu_freq=base / "freq",
+                    model=base / "model", disk_root=base)
+        host = result["host"]
+        self.assertEqual(host["cpu_temperature_c"], 54.125)
+        self.assertEqual(host["cpu_frequency_mhz"], 1500.0)
+        self.assertEqual(host["memory"]["total_bytes"], 4000000000)
+        self.assertEqual(host["memory"]["used_percent"], 75.0)
+        self.assertEqual(host["uptime_seconds"], 3600.2)
+        self.assertEqual(host["root_filesystem"]["used_percent"], 60.0)
+
+    def test_missing_host_metrics_are_nullable(self):
+        with tempfile.TemporaryDirectory() as root:
+            base = Path(root)
+            with patch("gway_remote.hardware_diagnostics.shutil.disk_usage",
+                       side_effect=OSError("unmounted")):
+                result = inspect(
+                    rtc_root=base / "rtc", i2c_root=base / "i2c",
+                    meminfo=base / "missing", uptime=base / "missing",
+                    thermal_root=base / "missing", cpu_freq=base / "missing",
+                    model=base / "missing", disk_root=base / "missing")
+        host = result["host"]
+        self.assertIsNone(host["memory"]["total_bytes"])
+        self.assertIsNone(host["cpu_temperature_c"])
+        self.assertIsNone(host["uptime_seconds"])
+        self.assertIsNone(host["root_filesystem"]["total_bytes"])
+        self.assertIn("RAM:", format_hardware(result))
+
     def test_never_invokes_hwclock_or_other_subprocess(self):
         with tempfile.TemporaryDirectory() as root, patch("subprocess.run", side_effect=AssertionError("unexpected command")):
             base = Path(root)
