@@ -483,10 +483,11 @@ def main() -> None:
             if args.action == "adopt":
                 if not args.node or not args.public_key or not args.config:
                     parser.error("watchtower adopt requires node, --public-key and --config")
-                if args.attest and args.host_key_file is None:
-                    parser.error("watchtower adopt --attest requires --host-key-file")
                 if not args.attest and args.host_key_file is not None:
                     parser.error("--host-key-file requires --attest for adopt")
+                if args.attest and args.host_key_file is None:
+                    from .watchtower_attest import host_key_path
+                    args.host_key_file = host_key_path(args.node)
                 from .watchtower_adopt import adopt
                 result = adopt(ledger, node=args.node, public_key=args.public_key,
                                config=Path(args.config), dry_run=args.dry_run,
@@ -494,11 +495,13 @@ def main() -> None:
                 print(json.dumps(result, sort_keys=True))
                 return
             if args.action == "attest":
-                if not args.node or args.host_key_file is None:
-                    parser.error("watchtower attest requires node and --host-key-file")
+                if not args.node:
+                    parser.error("watchtower attest requires node")
                 if args.attest or args.public_key:
                     parser.error("watchtower attest takes neither --attest nor --public-key")
-                from .watchtower_attest import attest
+                from .watchtower_attest import attest, host_key_path
+                if args.host_key_file is None:
+                    args.host_key_file = host_key_path(args.node)
                 print(json.dumps(attest(ledger, node=args.node,
                                         host_key_file=args.host_key_file,
                                         dry_run=args.dry_run), sort_keys=True))
