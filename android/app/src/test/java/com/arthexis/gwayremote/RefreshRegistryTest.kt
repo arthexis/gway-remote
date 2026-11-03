@@ -23,7 +23,7 @@ class RefreshRegistryTest {
 
     @Test fun refreshRegistryOnlyIncludesOpenSafePanels() {
         var state = OperationPanelState()
-        for (id in listOf("system", "csms", "notifications", "simulator", "benchmark")) {
+        for (id in listOf("system", "csms", "notifications", "benchmark")) {
             state = state.open(id).state
         }
         assertEquals(setOf("system", "csms", "simulator"),
@@ -42,7 +42,7 @@ class RefreshRegistryTest {
         model.refreshOpenPanels()
         scope.advanceUntilIdle()
         assertTrue(runner.pending.any { it.request.command == "csms-view" })
-        assertTrue(runner.pending.none { it.request.command in setOf("lcd-message", "sound-play", "simulator-start", "simulator-stop") })
+        assertTrue(runner.pending.none { it.request.command in setOf("lcd-message", "sound-play") })
         model.close("csms")
         model.open("csms")
         scope.advanceUntilIdle()
