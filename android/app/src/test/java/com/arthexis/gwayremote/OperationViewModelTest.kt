@@ -29,12 +29,20 @@ class OperationViewModelTest {
         assertTrue(model.panels.panels.isEmpty())
     }
 
-    @Test fun invalidAndUnconfirmedOperationsNeverStart() {
+    @Test fun removedSimulatorOperationsCannotOpenOrExecute() {
         val model = OperationViewModel()
-        model.open("sound")
-        // No credentials or dispatched request are needed to prove invalid
-        // commands fail before the asynchronous boundary.
-        model.execute("unknown-operation", emptyMap())
-        assertFalse(model.panels.panels.any { it.id == "unknown-operation" })
+        val removed = listOf("simulator", "simulator-start", "simulator-stop",
+            "simulator-status", "simulator-results", "simulator-discover")
+        for (id in removed) {
+            assertNull(OperationRegistry.get(id))
+            assertFalse(PanelExecution.canRun(id, explicit = true, confirmed = true, inputsValid = true))
+            try {
+                model.open(id)
+                fail("Removed operation $id must be rejected")
+            } catch (_: IllegalArgumentException) {
+                // No panel is created for a retired operation.
+            }
+        }
+        assertTrue(model.panels.panels.isEmpty())
     }
 }
