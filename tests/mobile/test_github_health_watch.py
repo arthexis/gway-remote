@@ -14,7 +14,7 @@ class FakeAPI:
 
     def get(self, path):
         self.paths.append(path)
-        if self.fail and "ocpp-simulator" in path:
+        if self.fail and "gway-rfid" in path:
             raise OSError("GitHub unavailable")
         if "/pulls?" in path:
             return []
@@ -125,7 +125,7 @@ class WatchTests(unittest.TestCase):
         api = FakeAPI()
         rows = collect(api)
         self.assertEqual([r["name"] for r in rows], list(REPOSITORIES))
-        self.assertEqual(len(api.paths), 15)
+        self.assertEqual(len(api.paths), 12)
         self.assertTrue(all("/pulls?" in p or "/actions/runs?" in p or "/protection/required_status_checks" in p for p in api.paths))
 
     def test_snapshot_and_sqlite(self):
