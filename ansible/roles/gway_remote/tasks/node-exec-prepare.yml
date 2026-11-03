@@ -73,13 +73,30 @@
 # #345: a locked service UID must never gain privileged polkit authority
 # simply because a caller launched it from an active desktop/login session.
 # This is account-specific and does not change policy for ordinary users.
-- name: Ensure root-owned polkit rules directory exists
+- name: Inspect existing polkit rules directory without following symlinks
+  ansible.builtin.stat:
+    path: /etc/polkit-1/rules.d
+    follow: false
+  register: gway_exec_polkit_rules_dir
+
+- name: Reject unsafe existing polkit rules directory
+  ansible.builtin.assert:
+    that:
+      - gway_exec_polkit_rules_dir.stat.isdir | default(false)
+      - not (gway_exec_polkit_rules_dir.stat.islnk | default(false))
+    fail_msg: Existing polkit rules path must be a directory, never a symlink.
+  when: gway_exec_polkit_rules_dir.stat.exists
+
+# Do not converge ownership or mode of an existing system-managed directory.
+# On gway-001 it is polkitd:root 0700; changing it would alter other rules.
+- name: Create polkit rules directory only if missing
   ansible.builtin.file:
     path: /etc/polkit-1/rules.d
     state: directory
     owner: root
     group: root
     mode: "0755"
+  when: not gway_exec_polkit_rules_dir.stat.exists
 
 - name: Deny all privileged polkit actions for dedicated executor identity
   ansible.builtin.copy:

@@ -94,6 +94,36 @@ class ArchiveInstallerTests(unittest.TestCase):
         rule = tasks.split("polkit.addRule(function(action, subject) {", 1)[1]
         self.assertNotIn("polkit.Result.YES", rule)
 
+    def test_polkit_directory_is_not_repermissioned_when_existing(self):
+        """Regression #348: only create missing directory, never converge existing metadata."""
+        tasks = (ROOT / "ansible/roles/gway_remote/tasks/node-exec-prepare.yml").read_text()
+        inspect = tasks.split(
+            "- name: Inspect existing polkit rules directory without following symlinks", 1
+        )[1].split("- name: Reject unsafe existing polkit rules directory", 1)[0]
+        self.assertIn("follow: false", inspect)
+        self.assertIn("register: gway_exec_polkit_rules_dir", inspect)
+
+        guard = tasks.split(
+            "- name: Reject unsafe existing polkit rules directory", 1
+        )[1].split("- name: Create polkit rules directory only if missing", 1)[0]
+        self.assertIn("not (gway_exec_polkit_rules_dir.stat.islnk", guard)
+        self.assertIn("when: gway_exec_polkit_rules_dir.stat.exists", guard)
+
+        create = tasks.split(
+            "- name: Create polkit rules directory only if missing", 1
+        )[1].split("- name: Deny all privileged polkit actions", 1)[0]
+        self.assertIn("path: /etc/polkit-1/rules.d", create)
+        self.assertIn("when: not gway_exec_polkit_rules_dir.stat.exists", create)
+        self.assertIn("owner: root", create)
+        self.assertIn('mode: "0755"', create)
+
+        rule = tasks.split(
+            "- name: Deny all privileged polkit actions", 1
+        )[1]
+        self.assertIn("dest: /etc/polkit-1/rules.d/00-gway-exec-deny.rules", rule)
+        self.assertIn('mode: "0644"', rule)
+        self.assertIn('subject.user === "gway-exec"', rule)
+
     def test_untracked_pycache_does_not_enter_archive_or_change_digest(self):
         initial = self.install()
         cache = self.repo / "gway_remote/__pycache__"
