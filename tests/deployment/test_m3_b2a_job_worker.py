@@ -83,7 +83,8 @@ class JobTests(unittest.TestCase):
 
     def test_reconcile_cancelled_job_is_marked_cancelled(self):
         job_id = self.submit("sleep 20")
-        self.store.cancel(job_id)
+        self.store.cancel(job_id, execute=lambda args, **kwargs:
+                          subprocess.CompletedProcess(args, 0, "", ""))
         def stopped(args, **kwargs):
             return subprocess.CompletedProcess(args, 0, "inactive\n", "")
         self.assertEqual(self.store.reconcile(job_id, execute=stopped), "cancelled")
@@ -111,6 +112,14 @@ class JobTests(unittest.TestCase):
         self.assertEqual(result["exit_code"], 0)
         self.assertIn("ready", result["stdout"])
         self.assertIn("diagnostic", result["stdout"])
+
+    def test_job_history_capacity_fails_closed(self):
+        with self.store.connection() as db:
+            for index in range(worker.MAX_HISTORY):
+                db.execute("INSERT INTO jobs (id,node,command,status,created_at) VALUES (?,?,?,?,?)",
+                           (f"{index:032x}", "gway-001", "true", "succeeded", worker.utcnow()))
+        with self.assertRaisesRegex(RuntimeError, "capacity"):
+            self.submit("uptime")
 
     def test_storage_permissions_and_symlink_rejected(self):
         link = self.directory / "link"
