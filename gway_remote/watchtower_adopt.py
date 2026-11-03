@@ -6,6 +6,7 @@ The operator must independently verify the peer public key before invoking this.
 from __future__ import annotations
 
 import base64
+import hashlib
 import ipaddress
 import re
 import secrets
@@ -116,7 +117,7 @@ def adopt(ledger, *, node: str, public_key: str, config: Path,
                 db.execute(
                     "INSERT INTO operations(id,device,public_key,address,token_hash,state,detail,created_at,updated_at) "
                     "VALUES(?,?,?,?,?,'committed','adopt',?,?)",
-                    (operation_id, node, public_key, str(address), "adopt:" + operation_id, now, now))
+                    (operation_id, node, public_key, str(address), hashlib.sha256(("adopt:" + operation_id).encode("ascii")).hexdigest(), now, now))
                 db.execute(
                     "INSERT INTO devices(device,public_key,address,state,operation_id) "
                     "VALUES(?,?,?,'active',?)",
