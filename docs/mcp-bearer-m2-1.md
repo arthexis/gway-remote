@@ -4,7 +4,7 @@ Status: under review. No service or public route is activated.
 
 Watchtower operator issues the gway:read credential locally:
 
-    gway-remote bearer issue --days 30
+    sudo gway-remote bearer issue --days 30
     gway-remote bearer revoke KEY_ID
 
 Store the plaintext secret securely; it is printed once, never stored in the SQLite registry.

@@ -426,11 +426,14 @@ def main() -> None:
         # CLI-exclusive operator action. Never registered in MCP, mobile API, or
         # Agent Ops adapters. Issue requires an interactive console to avoid
         # leaking the one-time plaintext token to CI, log capture, or agents.
-        from .mcp_bearer import BearerRegistry
-        if os.geteuid() == 0:
-            parser.exit(1, "gway-remote: run bearer operations as dedicated auth service owner, not root\\n")
         if args.bearer_action == "issue" and not (sys.stdin.isatty() and sys.stdout.isatty()):
             parser.exit(1, "gway-remote: issuing a bearer requires an interactive console\\n")
+        from .mcp_bearer_cli import assume_auth_identity, BearerAdminError
+        try:
+            assume_auth_identity()
+        except BearerAdminError as exc:
+            parser.exit(1, "gway-remote: " + str(exc) + "\n")
+        from .mcp_bearer import BearerRegistry
         registry = BearerRegistry("/var/lib/gway-mcp-auth/credentials.sqlite3")
         try:
             if args.bearer_action == "issue":
