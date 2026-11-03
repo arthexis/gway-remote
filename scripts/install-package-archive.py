@@ -89,12 +89,27 @@ def install(source: Path, root: Path, *, before_activate=None, expected_uid=0):
     if releases.stat().st_uid != expected_uid or releases.stat().st_mode & 0o022:
         raise PermissionError("unsafe release directory")
 
+    def ensure_traversable_release(target):
+        # tempfile.TemporaryDirectory creates 0700 by default. All published
+        # code must be traversable by the unprivileged gway-exec account.
+        info = target.lstat()
+        if not stat.S_ISDIR(info.st_mode) or info.st_uid != expected_uid:
+            raise PermissionError("unsafe existing package release")
+        if info.st_mode & 0o022:
+            raise PermissionError("package release must not be group/world writable")
+        if stat.S_IMODE(info.st_mode) != 0o755:
+            target.chmod(0o755)
+            return True
+        return False
+
     relative = f"{RELEASES}/{digest}/{PACKAGE}"
     current = root / PACKAGE
     if current.is_symlink() and os.readlink(current) == relative:
+        target = releases / digest
+        repaired = ensure_traversable_release(target)
         if not (root / relative / "__main__.py").is_file():
             raise ValueError("live release is missing its package")
-        return {"changed": False, "sha256": digest}
+        return {"changed": repaired, "sha256": digest}
 
     if current.is_symlink() and not os.readlink(current).startswith(RELEASES + "/"):
         raise ValueError("unmanaged package symlink")
@@ -109,8 +124,10 @@ def install(source: Path, root: Path, *, before_activate=None, expected_uid=0):
             package_dir = stage / PACKAGE
             package_dir.mkdir(mode=0o755)
             _unpack(archive, package_dir)
-            # Staging completes before the version becomes visible.
+            # Validate while private; publish traversable only once complete.
+            stage.chmod(0o755)
             os.rename(stage, target)
+    ensure_traversable_release(target)
     if not (target / PACKAGE / "__main__.py").is_file():
         raise ValueError("existing release is incomplete")
 
