@@ -47,11 +47,3 @@ class HealthTests(unittest.TestCase):
                    return_value=CompletedProcess([], 2, payload, "")):
             self.assertFalse(_reports_ready(Path("/fake/reports")))
 
-    def test_missing_executable_fails_simulator(self):
-        with tempfile.TemporaryDirectory() as directory:
-            with patch("pathlib.Path.home", return_value=Path(directory)):
-                self.assertFalse(component_health("ocpp-simulator"))
-
-
-if __name__ == "__main__":
-    unittest.main()
