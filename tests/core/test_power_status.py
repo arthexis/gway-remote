@@ -15,14 +15,14 @@ def process(output, returncode=0):
 
 class VoltageStatusTests(unittest.TestCase):
     def test_clean_power(self):
-        result = probe(runner=lambda *a, **k: process("throttled=0x0\\n"))
+        result = probe(runner=lambda *a, **k: process("throttled=0x0\n"))
         self.assertEqual(result["status"], "ok")
         self.assertEqual(result["raw"], "0x0")
         self.assertFalse(result["undervoltage_now"])
         self.assertFalse(result["undervoltage_occurred"])
 
     def test_current_and_historical_power_flags(self):
-        result = probe(runner=lambda *a, **k: process("throttled=0x50005\\n"))
+        result = probe(runner=lambda *a, **k: process("throttled=0x50005\n"))
         self.assertEqual(result["status"], "warning")
         self.assertTrue(result["undervoltage_now"])
         self.assertTrue(result["throttled_now"])
