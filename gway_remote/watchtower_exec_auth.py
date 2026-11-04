@@ -92,6 +92,23 @@ class AuthorizedExecution:
         return {"request_id": request_id, "node": node,
                 "status": self.relay.dispatch(request_id)}
 
+    def deployment(self, *, principal, request_id, node, application, status=False):
+        """Named, fixed service action, bound to the existing audited job ledger.
+
+        MCP callers cannot supply shell, arguments, revision, or service name.
+        Only the Ansible-installed, root-owned unit chooses the deploy recipe.
+        """
+        if type(status) is not bool or node != "gway-001" or application != "gway-remote":
+            raise ValueError("unsupported deployment target")
+        command = (
+            "/usr/bin/systemctl show gway-remote-deploy.service "
+            "--property=ActiveState,SubState,Result,ExecMainStatus --no-pager"
+            if status else
+            "/usr/bin/sudo -n /usr/bin/systemctl start --no-block gway-remote-deploy.service"
+        )
+        return self.exec(principal=principal, request_id=request_id,
+                         node=node, command=command)
+
     def _owned(self, principal, request_id):
         self._allow(principal)
         record = self.ledger.get(request_id)

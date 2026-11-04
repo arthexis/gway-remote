@@ -52,7 +52,7 @@ def validate_command(node, command):
     return command
 
 
-def preview(node, command, inventory):
+def preview(node, command, inventory, *, effective_concurrency=1):
     """Check an already authenticated Watchtower view; never resolve a client IP."""
     validate_command(node, command)
     if type(inventory) is not dict or type(inventory.get("nodes")) is not list:
@@ -65,6 +65,9 @@ def preview(node, command, inventory):
     if (row.get("registered") is not True or row.get("identity_verified") is not True
             or type(row.get("execute_available")) is not bool):
         raise ValueError("node identity or execution gate unavailable")
+    if effective_concurrency is not None and (type(effective_concurrency) is not int
+            or not 1 <= effective_concurrency <= 8):
+        raise ValueError("invalid reported executor concurrency")
     # A preview is information, not a dispatch permit.
     # Its nonce must never be used as an execution request ID.
     now = datetime.now(timezone.utc)
@@ -76,7 +79,7 @@ def preview(node, command, inventory):
         "command_sha256": command_digest(node, command, row["node"]),
         "preview_id": secrets.token_hex(16),
         "expires_at": (now + timedelta(seconds=PREVIEW_TTL_SECONDS)).isoformat(),
-        "limits": dict(DEFAULT_LIMITS),
+        "limits": {**DEFAULT_LIMITS, "concurrent_jobs_per_node": effective_concurrency},
         "authorization": {"required_scope": "gway:execute",
                           "approval_required": False},
         "status": "preview_only",

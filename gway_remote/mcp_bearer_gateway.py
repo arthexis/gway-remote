@@ -4,6 +4,7 @@ Public Nginx activation and authenticated private transport are separate gates.
 """
 import json
 import os
+import subprocess
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, build_opener, HTTPRedirectHandler
@@ -17,13 +18,27 @@ ALLOWED_METHODS = frozenset({"server/discover", "initialize", "notifications/ini
 ALLOWED_TOOLS = frozenset({"agent_list_issues", "agent_status", "agent_preview", "agent_observe",
     "github_workflow_runs", "github_workflow_status", "github_workflow_errors",
     "node_list", "node_capabilities", "node_exec_preview",
-    "node_exec", "node_result", "node_cancel"})
+    "node_exec", "node_result", "node_cancel", "node_deploy", "node_deploy_status"})
 
-EXEC_TOOL_NAMES = frozenset({"node_exec", "node_result", "node_cancel"})
+EXEC_TOOL_NAMES = frozenset({"node_exec", "node_result", "node_cancel", "node_deploy", "node_deploy_status"})
 EXEC_SECURITY = {"securitySchemes": [{"type": "oauth2", "scopes": ["gway:execute"]}]}
 READ_SECURITY = {"securitySchemes": [{"type": "oauth2", "scopes": ["gway:read"]}]}
 
 EXEC_TOOLS = (
+    {"name": "node_deploy", "_meta": EXEC_SECURITY,
+     "description": "Start the fixed, operator-owned gway-remote release service on gway-001; no arbitrary commands or sudo.",
+     "inputSchema": {"type": "object", "properties": {
+         "node": {"type": "string", "enum": ["gway-001"]},
+         "application": {"type": "string", "enum": ["gway-remote"]},
+         "request_id": {"type": "string", "pattern": "^[0-9a-f]{32}$"}},
+         "required": ["node", "application", "request_id"], "additionalProperties": False}},
+    {"name": "node_deploy_status", "_meta": EXEC_SECURITY,
+     "description": "Read the state and result of the fixed gway-remote release service on gway-001.",
+     "inputSchema": {"type": "object", "properties": {
+         "node": {"type": "string", "enum": ["gway-001"]},
+         "application": {"type": "string", "enum": ["gway-remote"]},
+         "request_id": {"type": "string", "pattern": "^[0-9a-f]{32}$"}},
+         "required": ["node", "application", "request_id"], "additionalProperties": False}},
     {"name":"node_exec", "_meta": EXEC_SECURITY, "description":"Run a command on an eligible node with an authorized execute-scoped connection.",
      "inputSchema":{"type":"object","properties":{
          "node":{"type":"string"},"command":{"type":"string","maxLength":4096},
@@ -76,8 +91,23 @@ def local_node_result(method, arguments, *, execution=None):
         return node_registry_inventory.capabilities(arguments["node"], execution_enabled=execution is not None)
     if method == "node_exec_preview" and type(arguments) is dict and set(arguments) == {"node", "command"}:
         from .node_exec_contract import preview
-        return preview(arguments["node"], arguments["command"],
-                       node_registry_inventory.public_nodes(execution_enabled=execution is not None))
+        inventory = node_registry_inventory.public_nodes(execution_enabled=execution is not None)
+        # Only query the already-pinned, operator-enabled node; never accept an
+        # address or host selector from the MCP request.
+        concurrency = None
+        if execution is not None and arguments["node"] == execution.relay.transport.node.node:
+            try:
+                import secrets
+                observed = execution.relay.transport.invoke({
+                    "operation": "limits", "node": arguments["node"],
+                    "request_id": secrets.token_hex(16)})
+                value = observed.get("concurrent_jobs_per_node")
+                if type(value) is int and 1 <= value <= 8:
+                    concurrency = value
+            except (OSError, ValueError, RuntimeError, TimeoutError, subprocess.SubprocessError):
+                pass  # Unavailable is not the same as the legacy static value.
+        return preview(arguments["node"], arguments["command"], inventory,
+                       effective_concurrency=concurrency)
     raise ValueError("invalid node inventory arguments")
 
 
@@ -205,6 +235,9 @@ class Handler(BaseHTTPRequestHandler):
                 principal = self.server.registry.execution_principal(token)
                 if name == "node_exec" and set(args) == {"node","command","request_id"}:
                     selected = self.server.execution.exec(principal=principal, **args)
+                elif name in ("node_deploy", "node_deploy_status") and set(args) == {"node", "application", "request_id"}:
+                    selected = self.server.execution.deployment(
+                        principal=principal, status=name == "node_deploy_status", **args)
                 elif name == "node_result" and set(args).issubset({"request_id","cursor"}) and "request_id" in args:
                     selected = self.server.execution.result(principal=principal, **args)
                 elif name == "node_cancel" and set(args) == {"request_id"}:

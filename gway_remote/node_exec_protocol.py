@@ -9,7 +9,7 @@ import os
 import socket
 import sys
 
-from .node_exec_worker import Jobs, require_account, validate_request_id
+from .node_exec_worker import Jobs, configured_max_active, require_account, validate_request_id
 from .node_exec_contract import validate_command
 
 MAX_REQUEST_BYTES = 8192
@@ -17,6 +17,7 @@ OPERATIONS = {
     "submit": frozenset({"operation", "node", "request_id", "command"}),
     "result": frozenset({"operation", "node", "request_id", "cursor"}),
     "cancel": frozenset({"operation", "node", "request_id"}),
+    "limits": frozenset({"operation", "node", "request_id"}),
 }
 
 
@@ -38,6 +39,9 @@ def serve_one(raw, *, jobs=None, hostname=None):
     if host != "gway-001" or req["node"] != host:
         raise PermissionError("unapproved node")
     rid = validate_request_id(req["request_id"])
+    if op == "limits":
+        return {"node": host, "request_id": rid,
+                "concurrent_jobs_per_node": configured_max_active()}
     if jobs is None:
         jobs = Jobs()
     if op == "submit":

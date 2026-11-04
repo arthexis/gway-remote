@@ -1,0 +1,14 @@
+[Unit]
+Description=Operator-scoped GWay Remote managed release (MCP trigger)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=__RUNNER__
+WorkingDirectory=__HOME__/Repos/gway-remote
+Environment=HOME=__HOME__
+ExecStart=/usr/local/libexec/gway-remote-deploy
+TimeoutStartSec=900
+StandardOutput=journal
+StandardError=journal

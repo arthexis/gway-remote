@@ -1,0 +1,49 @@
+---
+# Dedicated deployment broker: gway-exec may start ONE fixed root-owned
+# systemd unit; it never receives arbitrary sudo or Ansible authority.
+- name: Validate deployment operator identity
+  ansible.builtin.assert:
+    that:
+      - gway_remote_runner_user not in ['root', 'gway-exec']
+      - (getent_passwd[gway_remote_runner_user][4] | length) > 1
+
+- name: Ensure root-owned deploy helper directory exists
+  ansible.builtin.file:
+    path: /usr/local/libexec
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Install fixed, operator-executed GWay Remote deployment script
+  ansible.builtin.copy:
+    src: "{{ playbook_dir }}/../scripts/gway-remote-deploy"
+    dest: /usr/local/libexec/gway-remote-deploy
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Install dedicated GWay Remote deployment unit
+  ansible.builtin.copy:
+    dest: /etc/systemd/system/gway-remote-deploy.service
+    owner: root
+    group: root
+    mode: "0644"
+    content: "{{ lookup('file', playbook_dir ~ '/../deploy/systemd/gway-remote-deploy.service') | replace('__RUNNER__', gway_remote_runner_user) | replace('__HOME__', getent_passwd[gway_remote_runner_user][4]) }}"
+  register: gway_mcp_deploy_unit
+
+- name: Allow executor to start only the dedicated deployment unit
+  ansible.builtin.copy:
+    dest: /etc/sudoers.d/gway-remote-mcp-deploy
+    owner: root
+    group: root
+    mode: "0440"
+    validate: /usr/sbin/visudo -cf %s
+    content: |
+      # One precise action: no shell, editor, systemctl flags or other units.
+      gway-exec ALL=(root) NOPASSWD: /usr/bin/systemctl start --no-block gway-remote-deploy.service
+
+- name: Reload systemd after changing dedicated deploy unit
+  ansible.builtin.systemd:
+    daemon_reload: true
+  when: gway_mcp_deploy_unit.changed

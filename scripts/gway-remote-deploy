@@ -1,0 +1,19 @@
+#!/bin/sh
+# Fixed GWay Remote release recipe; invoked only by the root-owned systemd unit
+# as the existing Ansible deployment operator, never as gway-exec/root.
+set -eu
+checkout="${HOME}/Repos/gway-remote"
+[ -d "$checkout/.git" ] || { echo "Managed checkout missing" >&2; exit 2; }
+[ ! -L "$checkout" ] || { echo "Symlinked checkout denied" >&2; exit 2; }
+branch=$(/usr/bin/git -C "$checkout" symbolic-ref -q --short HEAD)
+[ "$branch" = main ] || { echo "Deployment checkout must be on main" >&2; exit 2; }
+origin=$(/usr/bin/git -C "$checkout" remote get-url origin)
+case "$origin" in
+  https://github.com/arthexis/gway-remote|https://github.com/arthexis/gway-remote.git|git@github.com:arthexis/gway-remote.git) ;;
+  *) echo "Unexpected deployment origin" >&2; exit 2 ;;
+esac
+[ -z "$(/usr/bin/git -C "$checkout" status --porcelain)" ] || {
+    echo "Deployment checkout is dirty" >&2; exit 2;
+}
+/usr/bin/git -C "$checkout" pull --ff-only origin main
+exec "$checkout/deploy.sh"
