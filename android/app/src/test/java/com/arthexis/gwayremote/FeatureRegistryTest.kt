@@ -31,6 +31,34 @@ class FeatureRegistryTest {
         assertEquals(FeatureRegistry.features.size, FeatureRegistry.search(" ").size)
     }
 
+    @Test fun stageAHomeKeepsOperationalFunctionsAndAgentOps() {
+        assertEquals(
+            setOf("system", "agent-ops", "deployments", "github-health"),
+            FeatureRegistry.home.map { it.id }.toSet()
+        )
+        assertEquals(
+            setOf("csms", "benchmark", "notifications", "app-update"),
+            FeatureRegistry.secondary.map { it.id }.toSet()
+        )
+        assertEquals(FeatureGroup.SETTINGS, FeatureRegistry.get("app-update")?.group)
+        assertTrue(FeatureRegistry.get("agent-ops")?.operation?.autoExecuteOnOpen == true)
+    }
+
+    @Test fun secondaryToolsRemainSearchableAndOpenable() {
+        val secondary = FeatureRegistry.secondary.map { it.id }.toSet()
+        assertEquals(secondary, FeatureRegistry.visible("", true).map { it.id }.toSet() -
+            FeatureRegistry.home.map { it.id }.toSet())
+        assertEquals(FeatureRegistry.home.map { it.id }, FeatureRegistry.visible("", false).map { it.id })
+        assertEquals("notifications", FeatureRegistry.visible("audio", false).single().id)
+        assertEquals("app-update", FeatureRegistry.visible("upgrade", false).single().id)
+        for (id in secondary) {
+            assertNotNull("Secondary feature must remain addressable: $id", FeatureRegistry.get(id))
+        }
+        // No pretend credential action before Watchtower's WebAuthn issuer exists.
+        assertNull(FeatureRegistry.get("mcp-access"))
+        assertNull(FeatureRegistry.get("bearer"))
+    }
+
     @Test fun localFeaturesCannotClaimBackendOperations() {
         assertTrue(FeatureRegistry.features.filter { it.kind == FeatureKind.LOCAL_PANEL }
             .all { it.operation == null })
