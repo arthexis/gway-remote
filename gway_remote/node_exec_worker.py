@@ -130,7 +130,7 @@ def unit_name(job_id):
 
 class Jobs:
     def __init__(self, path=None, *, max_active=None):
-        self.path = Path(path if path is not None else state_dir(selected_user()))
+        self.path = Path(path if path is not None else state_dir(selected_user()) / "jobs.sqlite3")
         if max_active is None:
             max_active = configured_max_active()
         if type(max_active) is not int or not 1 <= max_active <= MAX_ACTIVE_CEILING:
