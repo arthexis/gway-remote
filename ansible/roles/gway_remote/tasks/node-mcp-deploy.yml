@@ -92,7 +92,7 @@
     state: directory
     owner: "{{ gway_remote_runner_user }}"
     group: gway-exec
-    mode: "0750"
+    mode: "2750"  # setgid: receipts inherit gway-exec group for read-only status
 
 - name: Ensure root-owned deploy helper directory exists
   ansible.builtin.file:
