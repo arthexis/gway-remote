@@ -70,7 +70,7 @@ class DurableRequestTests(unittest.TestCase):
 
     def test_invalid_request_ids_cannot_launch(self):
         jobs = Jobs(self.database, max_active=1)
-        for rid in ("f" * 31, "f" * 33, "G" * 32, "", 0, None if False else True):
+        for rid in ("f" * 31, "f" * 33, "G" * 32, "", 0, True):
             with self.subTest(rid=rid), self.assertRaises(ValueError):
                 self.submit(jobs, rid)
         self.assertFalse(self.launches)
@@ -88,8 +88,8 @@ class DurableRequestTests(unittest.TestCase):
         # explicitly patch file metadata to simulate root ownership.
         policy = self.root / "executor.json"
         policy.write_text('{"max_active": 5}\n')
+        real_lstat = Path.lstat
         with patch("gway_remote.node_exec_worker.Path.lstat") as mock_lstat:
-            real_lstat = Path.lstat
             def fixture_lstat(path):
                 info = real_lstat(path)
                 if Path(path) == policy:
