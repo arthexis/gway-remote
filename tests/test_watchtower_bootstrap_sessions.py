@@ -191,3 +191,22 @@ def test_http_bootstrap_flow_and_no_store(ledger, tmp_path, monkeypatch):
     finally:
         server.shutdown()
         server.server_close()
+
+
+def test_register_reissues_pending_named_host_without_replace_or_repair(ledger):
+    first = ledger.register("ocpp-abb-1", public_url="https://register.gelectriic.com")
+    first_secret = first["url"].rsplit("/", 1)[-1]
+    second = ledger.register("ocpp-abb-1", public_url="https://register.gelectriic.com")
+    second_secret = second["url"].rsplit("/", 1)[-1]
+    assert first["id"] != second["id"]
+    with pytest.raises(EnrollmentRejected):
+        ledger.bootstrap_session(first_secret)
+    assert ledger.bootstrap_session(second_secret)["device"] == "ocpp-abb-1"
+    with ledger._connect() as conn:
+        old = conn.execute("SELECT revoked_at FROM bootstrap_sessions WHERE id=?", (first["id"],)).fetchone()
+        assert old["revoked_at"] is not None
+        active = conn.execute(
+            "SELECT COUNT(*) FROM invitations WHERE device=? AND revoked_at IS NULL AND consumed_at IS NULL",
+            ("ocpp-abb-1",),
+        ).fetchone()[0]
+        assert active == 1
