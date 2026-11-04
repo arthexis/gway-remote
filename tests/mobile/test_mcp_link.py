@@ -53,6 +53,36 @@ class LinkFlowTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 flow.redeem(**exchange)
 
+    def test_operator_execute_proof_links_without_per_command_approval(self):
+        with tempfile.TemporaryDirectory() as d:
+            registry = BearerRegistry(Path(d) / "tokens.db")
+            read_proof = registry.issue()
+            execute_proof = registry.issue(scope="gway:execute", operator_approved=True)
+            flow = LinkFlow(registry, client_id=CLIENT, redirect_uri=URI)
+            verifier = "x" * 43
+            challenge = base64.urlsafe_b64encode(hashlib.sha256(verifier.encode()).digest()).rstrip(b"=").decode()
+            params = dict(client_id=CLIENT, redirect_uri=URI,
+                          resource="https://remote.arthexis.com/mcp",
+                          response_type="code", code_challenge=challenge,
+                          code_challenge_method="S256", state="execute-state-123",
+                          scope="gway:execute")
+            session, _ = flow.begin(**params)
+            with self.assertRaisesRegex(ValueError, "^invalid_bearer$"):
+                flow.connect(session, flow.pending[session][0], read_proof)
+            session, _ = flow.begin(**params)
+            from urllib.parse import parse_qs, urlsplit
+            dest = flow.connect(session, flow.pending[session][0], execute_proof)
+            code = parse_qs(urlsplit(dest).query)["code"][0]
+            token = flow.redeem(client_id=CLIENT, code=code, redirect_uri=URI,
+                                code_verifier=verifier, grant_type="authorization_code",
+                                resource="https://remote.arthexis.com/mcp")
+            self.assertEqual(token["scope"], "gway:execute")
+            self.assertTrue(BearerVerifier(registry.path).verify(
+                token["access_token"], required_scope="gway:execute"))
+            self.assertFalse(BearerVerifier(registry.path).verify(token["access_token"]))
+            self.assertEqual(BearerVerifier(registry.path).execution_principal(
+                token["access_token"]), execute_proof.split("_", 2)[1])
+
     def test_rejects_unapproved_redirect_and_scope(self):
         with tempfile.TemporaryDirectory() as d:
             flow = LinkFlow(BearerRegistry(Path(d) / "tokens.db"), client_id=CLIENT, redirect_uri=URI)
