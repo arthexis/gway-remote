@@ -83,6 +83,63 @@ class LinkFlowTests(unittest.TestCase):
             self.assertEqual(BearerVerifier(registry.path).execution_principal(
                 token["access_token"]), execute_proof.split("_", 2)[1])
 
+    def test_omitted_scope_requires_explicit_operator_choice_for_execute(self):
+        with tempfile.TemporaryDirectory() as directory:
+            registry = BearerRegistry(Path(directory) / "tokens.db")
+            read_proof = registry.issue()
+            execute_proof = registry.issue(scope="gway:execute", operator_approved=True)
+            flow = LinkFlow(registry, client_id=CLIENT, redirect_uri=URI)
+            verifier = "x" * 43
+            challenge = base64.urlsafe_b64encode(
+                hashlib.sha256(verifier.encode()).digest()).rstrip(b"=").decode()
+            params = dict(client_id=CLIENT, redirect_uri=URI,
+                          resource="https://remote.arthexis.com/mcp",
+                          response_type="code", code_challenge=challenge,
+                          code_challenge_method="S256", state="choice-state-123")
+            session, page = flow.begin(**params)
+            self.assertIn("name='scope'", page)
+            self.assertIn("value='gway:read' checked", page)
+            self.assertIn("value='gway:execute'", page)
+            with self.assertRaisesRegex(ValueError, "^invalid_bearer$"):
+                flow.connect(session, flow.pending[session][0], execute_proof)
+            session, _ = flow.begin(**params)
+            from urllib.parse import parse_qs, urlsplit
+            dest = flow.connect(session, flow.pending[session][0], execute_proof,
+                                selected_scope="gway:execute")
+            code = parse_qs(urlsplit(dest).query)["code"][0]
+            token = flow.redeem(client_id=CLIENT, code=code, redirect_uri=URI,
+                                code_verifier=verifier, grant_type="authorization_code",
+                                resource="https://remote.arthexis.com/mcp")
+            self.assertEqual(token["scope"], "gway:execute")
+            self.assertTrue(BearerVerifier(registry.path).verify(
+                token["access_token"], required_scope="gway:execute"))
+            self.assertFalse(BearerVerifier(registry.path).verify(token["access_token"]))
+            session, _ = flow.begin(**params)
+            with self.assertRaisesRegex(ValueError, "^invalid_bearer$"):
+                flow.connect(session, flow.pending[session][0], read_proof,
+                             selected_scope="gway:execute")
+
+    def test_explicit_read_scope_cannot_be_upgraded_by_form_submission(self):
+        with tempfile.TemporaryDirectory() as directory:
+            registry = BearerRegistry(Path(directory) / "tokens.db")
+            proof = registry.issue(scope="gway:execute", operator_approved=True)
+            flow = LinkFlow(registry, client_id=CLIENT, redirect_uri=URI)
+            verifier = "x" * 43
+            challenge = base64.urlsafe_b64encode(
+                hashlib.sha256(verifier.encode()).digest()).rstrip(b"=").decode()
+            params = dict(client_id=CLIENT, redirect_uri=URI,
+                          resource="https://remote.arthexis.com/mcp",
+                          response_type="code", code_challenge=challenge,
+                          code_challenge_method="S256", state="fixed-state-123",
+                          scope="gway:read")
+            session, page = flow.begin(**params)
+            self.assertIn("Requested permission: <strong>gway:read</strong>", page)
+            self.assertNotIn("name='scope'", page)
+            with self.assertRaisesRegex(ValueError, "^scope_selection_denied$"):
+                flow.connect(session, flow.pending[session][0], proof,
+                             selected_scope="gway:execute")
+            self.assertEqual(flow.codes, {})
+
     def test_rejects_unapproved_redirect_and_scope(self):
         with tempfile.TemporaryDirectory() as d:
             flow = LinkFlow(BearerRegistry(Path(d) / "tokens.db"), client_id=CLIENT, redirect_uri=URI)
