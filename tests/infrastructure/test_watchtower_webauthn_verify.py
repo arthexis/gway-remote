@@ -7,9 +7,14 @@ import tempfile
 import unittest
 from pathlib import Path
 
-import cbor2
-from cryptography.hazmat.primitives import hashes, serialization
-from cryptography.hazmat.primitives.asymmetric import ec
+# Discovery runs across all test groups without the isolated B2 dependency.
+# Tests still FAIL if executed without the actual cryptographic library.
+try:
+    import cbor2
+    from cryptography.hazmat.primitives import hashes
+    from cryptography.hazmat.primitives.asymmetric import ec
+except ImportError:
+    cbor2 = hashes = ec = None
 
 from gway_remote.watchtower_webauthn_ledger import WebAuthnLedger
 from gway_remote.watchtower_webauthn_verify import (
@@ -28,6 +33,8 @@ def client_data(kind, challenge, origin=ORIGIN):
 
 class RealWebAuthnVerificationTests(unittest.TestCase):
     def setUp(self):
+        if cbor2 is None or hashes is None or ec is None:
+            raise RuntimeError("B2 verifier dependencies are required for actual tests")
         self.tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self.tmp.cleanup)
         self.clock = [100000]
