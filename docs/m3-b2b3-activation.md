@@ -115,13 +115,33 @@ advertised and cannot run.
 
 ## One-time operator authorization and browser link
 
-Create a long-lived, revocable **execute-scoped** console bearer using the
-existing bearer-registry owner and the configured registry database. The
-standard console CLI supports:
+On the **Watchtower host**, issue a long-lived, revocable **execute-scoped**
+operator proof with the canonical CLI in an **interactive terminal**:
 
 ```sh
-python3 scripts/mcp-bearer.py issue --scope gway:execute --days 30
+sudo gway-remote bearer issue --scope gway:execute --days 30
 ```
+
+For a read-only integration, the same CLI defaults to `gway:read`:
+
+```sh
+sudo gway-remote bearer issue --days 30
+# Equivalent: sudo gway-remote bearer issue --scope gway:read --days 30
+```
+
+The CLI requires both stdin and stdout to be TTYs, switches from root to the
+dedicated `gway-mcp-auth` account, and operates on the fixed private bearer
+registry. Never pipe issuance to another process or capture it in CI, shell
+logs, GitHub issues, agent transcripts, or ChatGPT. Save the issued bearer in
+a protected secret manager; it is displayed only once. Revoke a bearer by its
+public 24-character key ID, not by pasting its full secret:
+
+```sh
+sudo gway-remote bearer revoke <key-id>
+```
+
+The lower-level `scripts/mcp-bearer.py` remains a maintenance implementation,
+not the recommended operator interface.
 
 This is an intentional operator permission grant, not a per-command token.
 Both the OAuth authorization-server metadata and MCP protected-resource metadata
@@ -139,6 +159,10 @@ a fresh access credential derived from the same operator proof; it does not
 require a Watchtower console action for each command. Expiration/revocation
 of the parent invalidates all descendants. OAuth refresh tokens are not
 implemented yet; reconnecting may still be needed when access expires.
+
+Keep the operator bearer for future reconnections until it expires or
+is revoked. Browser OAuth access credentials derived from it are short-lived;
+a reconnect does not require running `bearer issue` again.
 
 Submit with `node_exec` using `node`, `command` and a fresh random
 32-character lowercase hexadecimal `request_id`. No approval field is

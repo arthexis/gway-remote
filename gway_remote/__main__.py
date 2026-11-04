@@ -252,8 +252,9 @@ def main() -> None:
     execute.add_argument("--sha", default="")
     bearer_parser = subparsers.add_parser("bearer", help="Local Watchtower-only MCP bearer administration")
     bearer_ops = bearer_parser.add_subparsers(dest="bearer_action", required=True)
-    bearer_issue = bearer_ops.add_parser("issue", help="Generate a read-only bearer at the local console")
+    bearer_issue = bearer_ops.add_parser("issue", help="Generate a scoped MCP bearer at the local console")
     bearer_issue.add_argument("--days", type=int, default=30)
+    bearer_issue.add_argument("--scope", choices=("gway:read", "gway:execute"), default="gway:read")
     bearer_revoke = bearer_ops.add_parser("revoke", help="Revoke an issued bearer by public ID")
     bearer_revoke.add_argument("key_id")
     exec_parser = subparsers.add_parser("exec", help="Root-only Watchtower execution eligibility")
@@ -430,7 +431,8 @@ def main() -> None:
             if args.bearer_action == "issue":
                 if not 1 <= args.days <= 90:
                     parser.error("bearer issue --days must be 1..90")
-                print(registry.issue(lifetime=args.days * 86400))
+                print(registry.issue(scope=args.scope, lifetime=args.days * 86400,
+                                     operator_approved=(args.scope == "gway:execute")))
                 print("Save the credential securely; this value will not be shown again.", file=sys.stderr)
             elif not registry.revoke(args.key_id):
                 parser.exit(1, "gway-remote: bearer not found or already revoked\\n")

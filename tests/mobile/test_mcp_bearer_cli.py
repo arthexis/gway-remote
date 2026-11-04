@@ -115,6 +115,35 @@ class BearerIdentityTests(unittest.TestCase):
                     registry.assert_called_once()
                     self.assertIn("unit-test-token" if args[0] == "issue" else "Bearer revoked", output.getvalue())
 
+    def test_scoped_issuance_is_console_only_and_uses_selected_scope(self):
+        for flags, scope in [
+            (("issue",), "gway:read"),
+            (("issue", "--scope", "gway:read", "--days", "7"), "gway:read"),
+            (("issue", "--scope", "gway:execute", "--days", "30"), "gway:execute"),
+        ]:
+            with self.subTest(flags=flags):
+                self.state.update(uid=0, gid=0)
+                issued = Mock(return_value="unit-test-token")
+                with self.cli(*flags) as output, \
+                        patch("gway_remote.mcp_bearer.BearerRegistry") as registry:
+                    registry.return_value.issue = issued
+                    main()
+                self.assertIn("unit-test-token", output.getvalue())
+                days = 7 if "7" in flags else 30
+                issued.assert_called_once_with(
+                    scope=scope, lifetime=days * 86400,
+                    operator_approved=(scope == "gway:execute"))
+                self.assertEqual(self.state, {"uid": 995, "gid": 999})
+
+    def test_invalid_scope_fails_before_identity_switch(self):
+        with self.cli("issue", "--scope", "gway:admin"), \
+                patch("gway_remote.mcp_bearer.BearerRegistry") as registry:
+            with self.assertRaises(SystemExit) as stopped:
+                main()
+        self.assertEqual(stopped.exception.code, 2)
+        registry.assert_not_called()
+        self.assertEqual(self.steps, [])
+
     def test_issuing_to_or_from_a_pipe_never_switches_or_writes(self):
         for input_tty, output_tty in [(False, True), (True, False), (False, False)]:
             with self.subTest(input_tty=input_tty, output_tty=output_tty):
@@ -151,6 +180,8 @@ class BearerPackagingTests(unittest.TestCase):
                                          capture_output=True, text=True, timeout=10)
             self.assertEqual(help_result.returncode, 0, help_result.stderr)
             self.assertIn("--days", help_result.stdout)
+            self.assertIn("--scope", help_result.stdout)
+            self.assertIn("gway:execute", help_result.stdout)
             issue = subprocess.run([sys.executable, str(archive), "bearer", "issue"],
                                    capture_output=True, text=True, timeout=10)
             self.assertEqual(issue.returncode, 1)
