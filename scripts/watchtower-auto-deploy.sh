@@ -57,6 +57,11 @@ git -C "$tmp/source" checkout --quiet --detach "$sha"
 ansible-playbook -i localhost, -c local \
   "$tmp/source/ansible/playbooks/watchtower-mcp.yml"
 
+# Enrollment is a distinct pre-provisioned Watchtower-only service. Refresh it
+# from the same reviewed SHA; never run this play on a satellite or gway-001.
+ansible-playbook -i localhost, -c local \
+  "$tmp/source/ansible/playbooks/watchtower-enrollment-refresh.yml"
+
 actual=$(readlink /opt/gway-mcp/current)
 [ "$actual" = "releases/$sha" ] || {
   echo "Watchtower current release does not match requested SHA" >&2; exit 1;
