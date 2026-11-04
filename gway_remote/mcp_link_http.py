@@ -13,7 +13,7 @@ from http.cookies import SimpleCookie
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlsplit
 from .mcp_bearer import BearerRegistry
-from .mcp_link import LinkFlow, RESOURCE, ISSUER, OAUTH_PAGE_STYLE
+from .mcp_link import LinkFlow, RESOURCE, ISSUER, OAUTH_PAGE_STYLE, _connect_error
 
 
 AUTHORIZE_FIELDS = frozenset({"client_id", "redirect_uri", "resource", "response_type",
@@ -22,7 +22,7 @@ TOKEN_FIELDS = frozenset({"client_id", "code", "redirect_uri", "code_verifier", 
 REASONS = frozenset({"page", "code", "issued", "discovery", "malformed", "missing_parameter",
                      "invalid_client", "invalid_request", "invalid_scope_or_pkce", "invalid_pkce",
                      "invalid_state", "link_capacity_reached", "expired_session", "session_unavailable", "csrf_denied",
-                     "invalid_bearer", "invalid_parent_credential", "invalid_grant", "unsupported_auth"})
+                     "invalid_bearer", "scope_selection_denied", "invalid_parent_credential", "invalid_grant", "unsupported_auth"})
 
 
 class OAuthAudit:
@@ -197,8 +197,8 @@ class Handler(BaseHTTPRequestHandler):
             self.audit("authorize", "malformed", 400)
             return self.respond(400)
         values = oauth_values({k: v[0] for k, v in params.items()}, AUTHORIZE_FIELDS)
-        # This pre-registered client has exactly one permissible default scope.
-        values.setdefault("scope", "gway:read")
+        # Omitted scope: allow explicit choice on the form, defaulting to read.
+        # Client-requested scope remains fixed and cannot be escalated.
         try:
             session, page = self.server.link.begin(**values)
         except (TypeError, ValueError) as exc:
@@ -229,14 +229,17 @@ class Handler(BaseHTTPRequestHandler):
             return self.respond(400)
         if self.path == "/connect":
             try:
-                dest = self.server.link.connect(self.get_cookie(), params.get("csrf"), params.get("bearer"))
+                dest = self.server.link.connect(self.get_cookie(), params.get("csrf"), params.get("bearer"),
+                                                selected_scope=params.get("scope"))
             except (ValueError, TypeError) as exc:
                 reason = failure_reason(exc)
                 self.audit("connect", reason, 403)
                 if reason in ("expired_session", "session_unavailable"):
                     return self.respond(403, "This sign-in form expired or was already submitted. "
                                         "Return to ChatGPT and start Connect again.")
-                return self.respond(403)
+                # Do not reveal bearer validity; show scope guidance only.
+                return self.respond(403, _connect_error("gway:read or gway:execute"),
+                                    "text/html; charset=utf-8")
             # Respond with a document, not a cross-origin 303 chained to
             # the POST. Chromium may suppress the latter under form-action CSP,
             # consuming the one-shot session while leaving the form displayed.
