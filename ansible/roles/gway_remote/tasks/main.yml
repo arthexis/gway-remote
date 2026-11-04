@@ -78,6 +78,10 @@
   register: gway_remote_source
   changed_when: (gway_remote_source.stdout | from_json).changed | bool
 
+- name: Select node-local executor identity
+  ansible.builtin.include_tasks: node-exec-select.yml
+  when: (ansible_hostname | default('')) is match('^gway-[0-9]+$')
+
 - name: Verify installed package imports as unprivileged executor
   ansible.builtin.command:
     argv:

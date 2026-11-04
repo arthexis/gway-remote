@@ -14,20 +14,23 @@ class DeploymentWorkflowTests(unittest.TestCase):
         cls.workflow = DEPLOY.read_text()
         cls.legacy = LEGACY.read_text()
 
-    def test_deploy_only_after_successful_main_ci(self):
+    def test_deploy_runs_on_main_and_never_repeats_pr_suite(self):
         for required in (
-            'workflows: ["Python checks"]',
-            "workflow_run.conclusion == 'success'",
-            "workflow_run.event == 'push'",
-            "workflow_run.head_branch == 'main'",
-            "workflow_run.head_repository.full_name == 'arthexis/gway-remote'",
-            'ref: ${{ github.event.workflow_run.head_sha }}',
+            "  push:",
+            "    branches: [main]",
+            "github.ref == 'refs/heads/main'",
+            'ref: ${{ github.sha }}',
+            "Check deployment prerequisites",
+            "Transactional install, restart and authenticated health",
         ):
             with self.subTest(required=required):
                 self.assertIn(required, self.workflow)
+        for prohibited in ("workflow_run:", "unittest discover", "pytest"):
+            with self.subTest(prohibited=prohibited):
+                self.assertNotIn(prohibited, self.workflow)
 
     def test_stale_revision_skips_install(self):
-        self.assertIn('if [[ "$VERIFIED_SHA" != "$CURRENT_SHA" ]]', self.workflow)
+        self.assertIn('if [[ "$TARGET_SHA" != "$CURRENT_SHA" ]]', self.workflow)
         self.assertIn('echo "skip=true" >> "$GITHUB_ENV"', self.workflow)
         self.assertGreaterEqual(self.workflow.count("if: env.skip != 'true'"), 3)
 
