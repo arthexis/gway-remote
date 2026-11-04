@@ -184,7 +184,7 @@ class Handler(BaseHTTPRequestHandler):
         if path.path == "/.well-known/oauth-protected-resource/mcp":
             self.audit("metadata", "discovery", 200)
             return self.respond(200, json.dumps({"resource": RESOURCE,
-                   "authorization_servers": [ISSUER], "scopes_supported": ["gway:read"]}), "application/json")
+                   "authorization_servers": [ISSUER], "scopes_supported": ["gway:read", "gway:execute"]}), "application/json")
         if path.path != "/oauth/authorize":
             return self.respond(404)
         try:
