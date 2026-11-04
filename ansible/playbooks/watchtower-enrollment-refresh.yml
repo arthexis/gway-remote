@@ -1,0 +1,82 @@
+---
+# Refresh only the pre-provisioned Watchtower enrollment owner.
+# Never installs a new registration service, generates URLs or touches the ledger.
+- name: Refresh existing Watchtower enrollment owner from reviewed main
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  become: true
+  vars:
+    enrollment_source: "{{ playbook_dir }}/../.."
+    enrollment_root: /opt/gway-remote-watchtower
+    enrollment_service: gway-remote-watchtower-enroll.service
+  tasks:
+    - name: Inspect existing enrollment owner prerequisites
+      ansible.builtin.stat:
+        path: "{{ item }}"
+        follow: false
+      loop:
+        - "{{ enrollment_root }}/gway_remote/wireguard_satellite.py"
+        - /etc/systemd/system/gway-remote-watchtower-enroll.service
+        - /var/lib/gway-remote/watchtower/ledger.sqlite3
+        - /etc/gway-remote/watchtower.json
+      register: enrollment_existing
+
+    - name: Refuse to provision a new enrollment owner
+      ansible.builtin.assert:
+        that:
+          - item.stat.isreg | default(false)
+          - not (item.stat.islnk | default(false))
+          - item.stat.pw_name == 'root'
+        fail_msg: "Watchtower enrollment refresh requires an existing root-owned production installation."
+      loop: "{{ enrollment_existing.results }}"
+      loop_control:
+        label: "{{ item.item }}"
+
+    - name: Require already-enabled enrollment service
+      ansible.builtin.command:
+        argv: [systemctl, is-enabled, --quiet, "{{ enrollment_service }}"]
+      changed_when: false
+
+    - name: Verify existing service runs the production Watchtower owner
+      ansible.builtin.command:
+        argv: [systemctl, cat, "{{ enrollment_service }}"]
+      changed_when: false
+      register: enrollment_unit
+
+    - name: Refuse unexpected service wiring
+      ansible.builtin.assert:
+        that:
+          - "'/usr/local/sbin/gway-remote-watchtower watchtower serve' in enrollment_unit.stdout"
+          - "'--host 127.0.0.1' in enrollment_unit.stdout"
+          - "'--port 8788' in enrollment_unit.stdout"
+        fail_msg: "Enrollment service is not the expected loopback-only production owner."
+
+    - name: Copy reviewed application modules without touching enrollment state
+      ansible.builtin.copy:
+        src: "{{ enrollment_source }}/gway_remote/"
+        dest: "{{ enrollment_root }}/gway_remote/"
+        owner: root
+        group: root
+        mode: preserve
+      register: enrollment_code
+
+    - name: Check installed named-host validator
+      ansible.builtin.command:
+        argv:
+          - /usr/bin/python3
+          - -I
+          - -c
+          - "import importlib.util; p='{{ enrollment_root }}/gway_remote/wireguard_satellite.py'; s=importlib.util.spec_from_file_location('satellite',p); m=importlib.util.module_from_spec(s); s.loader.exec_module(m); assert m.DEVICE_RE.fullmatch('ocpp-abb-1')"
+      changed_when: false
+
+    - name: Restart enrollment owner only when its modules changed
+      ansible.builtin.systemd:
+        name: "{{ enrollment_service }}"
+        state: restarted
+      when: enrollment_code.changed
+
+    - name: Verify enrollment owner remains active
+      ansible.builtin.command:
+        argv: [systemctl, is-active, --quiet, "{{ enrollment_service }}"]
+      changed_when: false
