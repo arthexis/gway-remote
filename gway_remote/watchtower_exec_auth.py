@@ -72,10 +72,22 @@ class AuthorizedExecution:
                 raise PermissionError("request ID already bound to another job")
             return {"request_id": request_id, "node": node, "status": prior["state"]}
         expiry = (_now() + timedelta(seconds=120)).isoformat()
-        self.ledger.reserve(request_id=request_id, node=node, command=command,
-                            principal=principal,
-                            host_key_sha256=self.relay.transport.node.host_key_sha256,
-                            expires_at=expiry)
+        try:
+            self.ledger.reserve(request_id=request_id, node=node, command=command,
+                                principal=principal,
+                                host_key_sha256=self.relay.transport.node.host_key_sha256,
+                                expires_at=expiry)
+        except ValueError:
+            # Another request with this ID may have won the atomic reservation.
+            # Re-read and prove exact identity before returning; never redispatch.
+            from .watchtower_exec_transport import _digest
+            existing = self.ledger.get(request_id)
+            if (existing["node"] != node or existing["principal"] != principal
+                    or existing["host_key_sha256"] != self.relay.transport.node.host_key_sha256
+                    or existing["command_sha256"] != _digest(node, command, principal,
+                        self.relay.transport.node.host_key_sha256)):
+                raise PermissionError("request ID already bound to another job")
+            return {"request_id": request_id, "node": node, "status": existing["state"]}
         self._current_eligibility(node)
         return {"request_id": request_id, "node": node,
                 "status": self.relay.dispatch(request_id)}
