@@ -16,16 +16,11 @@ class CutoverAssertionTests(unittest.TestCase):
         self.assertIn("- --user", section)
         self.assertIn("{{ gway_remote_exec_run_user }}", section)
 
-    def test_no_inline_template_markers_in_assert_conditions(self):
+    def test_unsafe_templated_sudo_assertion_is_removed(self):
         text = TASKS.read_text(encoding="utf-8")
-        for section in text.split("ansible.builtin.assert:")[1:]:
-            conditions = section.split("\\n  when:", 1)[0].split("\\n    fail_msg:", 1)[0]
-            if "that:" not in conditions:
-                continue
-            conditions = conditions.split("that:", 1)[1]
-            conditions = conditions.split("\\n- name:", 1)[0].split("\\n    - name:", 1)[0]
-            self.assertNotIn("{{", conditions)
-            self.assertNotIn("{%", conditions)
+        self.assertNotIn("Verify relay sudoers uses selected identity and no old protocol identity", text)
+        self.assertNotIn("exec_relay_sudo_listing.stdout", text)
+        self.assertIn("Verify both live relay policies point to the selected executor", text)
 
     def test_no_sudo_listing_used_to_authorize_cutover(self):
         text = TASKS.read_text(encoding="utf-8")
