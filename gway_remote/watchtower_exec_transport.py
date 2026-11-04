@@ -9,7 +9,9 @@ from __future__ import annotations
 from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import datetime, timezone
+import base64
 import hashlib
+import ipaddress
 import json
 import os
 from pathlib import Path
@@ -183,9 +185,12 @@ class PinnedNode:
         validate_command(self.node, "true")
         if self.node != "gway-001":
             raise ValueError("B2b-2 transport restricted to gway-001")
-        if (type(self.wireguard_address) is not str
-                or not re.fullmatch(r"10\\.[0-9]{1,3}(?:\\.[0-9]{1,3}){2}", self.wireguard_address)):
-            raise ValueError("invalid enrolled WireGuard endpoint")
+        try:
+            address = ipaddress.ip_address(self.wireguard_address)
+            if address.version != 4 or not address.is_private:
+                raise ValueError
+        except (ValueError, TypeError):
+            raise ValueError("invalid enrolled WireGuard endpoint") from None
         if (type(self.ssh_host_alias) is not str
                 or not re.fullmatch(r"[a-z0-9-]{1,64}", self.ssh_host_alias)):
             raise ValueError("invalid host alias")
@@ -197,6 +202,22 @@ class PinnedNode:
             info = Path(path).lstat()
             if not stat.S_ISREG(info.st_mode) or info.st_uid != os.geteuid() or info.st_mode & 0o077:
                 raise PermissionError("unsafe private SSH material")
+        # Verify the pinned public key itself, not just a configurable host alias.
+        lines = Path(self.known_hosts).read_text(encoding="ascii").splitlines()
+        matches = [line.split() for line in lines
+                   if line.strip() and not line.lstrip().startswith("#")
+                   and line.split()[0] == self.ssh_host_alias]
+        if len(matches) != 1 or len(matches[0]) < 3:
+            raise ValueError("missing or ambiguous pinned SSH host key")
+        algorithm, encoded = matches[0][1:3]
+        if algorithm not in {"ssh-ed25519","ecdsa-sha2-nistp256","rsa-sha2-512","ssh-rsa"}:
+            raise ValueError("unsupported SSH host key")
+        try:
+            fingerprint = hashlib.sha256(base64.b64decode(encoded, validate=True)).hexdigest()
+        except (ValueError, TypeError):
+            raise ValueError("invalid known_hosts key") from None
+        if fingerprint != self.host_key_sha256:
+            raise ValueError("host key fingerprint mismatch")
 
 
 class SSHTransport:
@@ -218,14 +239,15 @@ class SSHTransport:
         if len(raw) > 8192:
             raise ValueError("transport request too large")
         # Forced-command key on node must ignore all SSH_ORIGINAL_COMMAND values.
-        argv = ["ssh","-T","-o","BatchMode=yes","-o","StrictHostKeyChecking=yes",
+        argv = ["ssh","-F","/dev/null","-T","-o","BatchMode=yes","-o","StrictHostKeyChecking=yes",
                 "-o","IdentitiesOnly=yes","-o","ProxyCommand=none",
                 "-o","ClearAllForwardings=yes","-o","PermitLocalCommand=no",
                 "-o","ConnectTimeout=5","-o","ConnectionAttempts=1",
                 "-o","UserKnownHostsFile=" + str(self.node.known_hosts),
+                "-o","HostKeyAlias=" + self.node.ssh_host_alias,
                 "-i",str(self.node.identity_file),
                 "-l",self.node.remote_user,
-                self.node.ssh_host_alias, "gway-exec-protocol-v1"]
+                self.node.wireguard_address, "gway-exec-protocol-v1"]
         completed = self._run(argv,input=raw,capture_output=True,timeout=15,check=True)
         if len(completed.stdout) > 32768:
             raise ValueError("node response exceeds limit")
