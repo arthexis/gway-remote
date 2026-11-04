@@ -43,7 +43,7 @@ class GatewayExecuteHTTPTests(unittest.TestCase):
                             code = exc.code
                             exc.close()
                             return code, None
-                    self.assertEqual(call(read_token)[0], 403)
+                    self.assertEqual(call(read_token)[0], 401)
                     mock_execution.exec.assert_not_called()
                     code, result = call(execute_token)
                     self.assertEqual(code, 200)
