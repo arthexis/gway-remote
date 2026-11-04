@@ -29,7 +29,7 @@
           X11Forwarding no
           PermitTunnel no
           AuthorizedKeysFile /var/lib/gway-relay/.ssh/authorized_keys
-          ForceCommand /usr/bin/sudo -n -u gway-exec /usr/bin/env PYTHONPATH=/opt/gway-remote /usr/bin/python3 -m gway_remote.node_exec_protocol
+          ForceCommand /usr/bin/sudo -n -u {{ gway_remote_exec_run_user }} /usr/bin/env PYTHONPATH=/opt/gway-remote /usr/bin/python3 -m gway_remote.node_exec_protocol
     validate: /usr/sbin/sshd -t -f %s
   register: gway_relay_sshd_conf
 
@@ -94,7 +94,7 @@
     mode: "0440"
     validate: /usr/sbin/visudo -cf %s
     content: |
-      gway-relay ALL=(gway-exec) NOPASSWD: /usr/bin/env PYTHONPATH=/opt/gway-remote /usr/bin/python3 -m gway_remote.node_exec_protocol
+      gway-relay ALL=({{ gway_remote_exec_run_user }}) NOPASSWD: /usr/bin/env PYTHONPATH=/opt/gway-remote /usr/bin/python3 -m gway_remote.node_exec_protocol
 
 - name: Verify relay account has no supplementary groups
   ansible.builtin.command:
