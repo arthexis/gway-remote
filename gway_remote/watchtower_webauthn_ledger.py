@@ -14,6 +14,7 @@ import time
 from pathlib import Path
 
 CHALLENGE_TTL = 120
+ENROLLMENT_GRANT_TTL = 600
 ALLOWED_ACTIONS = frozenset({
     "passkey.enroll", "bearer.issue", "secret.reveal", "secret.update",
 })
@@ -64,6 +65,13 @@ class WebAuthnLedger:
                 consumed_at INTEGER
             )""")
             db.execute("CREATE INDEX IF NOT EXISTS challenges_expiry ON challenges(expires_at)")
+            db.execute("""CREATE TABLE IF NOT EXISTS enrollment_grants (
+                grant_hash BLOB PRIMARY KEY, principal TEXT NOT NULL,
+                expires_at INTEGER NOT NULL, used_at INTEGER)""")
+            db.execute("""CREATE TABLE IF NOT EXISTS enrollment_tickets (
+                ticket_hash BLOB PRIMARY KEY, challenge_hash BLOB NOT NULL,
+                principal TEXT NOT NULL, expires_at INTEGER NOT NULL,
+                used_at INTEGER)""")
             db.commit()
         except Exception:
             db.close()
@@ -117,7 +125,63 @@ class WebAuthnLedger:
             return bool(row[0] == principal and row[1] == action and row[2] == target
                         and row[3] > now and row[4] is None)
 
-    def _record_verified_credential(self, *, credential_id, principal, public_key):
+    def create_enrollment_grant(self, *, principal):
+        """Operator-only primitive. NEVER expose this method via HTTP."""
+        principal = _check_identifier(principal)
+        grant = secrets.token_urlsafe(32)
+        with closing(self._connect()) as db, db:
+            db.execute("INSERT INTO enrollment_grants VALUES (?, ?, ?, NULL)",
+                       (hashlib.sha256(grant.encode("ascii")).digest(), principal,
+                        int(self.now()) + ENROLLMENT_GRANT_TTL))
+        return grant
+
+    def start_enrollment(self, *, grant, principal):
+        """Redeem an explicit operator grant once; bind a separate ticket."""
+        principal = _check_identifier(principal)
+        if not isinstance(grant, str) or not 32 <= len(grant) <= 128:
+            raise ValueError("invalid_enrollment_grant")
+        now = int(self.now())
+        with closing(self._connect()) as db, db:
+            db.execute("BEGIN IMMEDIATE")
+            changed = db.execute(
+                "UPDATE enrollment_grants SET used_at=? WHERE grant_hash=? "
+                "AND principal=? AND used_at IS NULL AND expires_at>?",
+                (now, hashlib.sha256(grant.encode("utf-8")).digest(),
+                 principal, now)).rowcount
+            if changed != 1:
+                raise ValueError("invalid_enrollment_grant")
+        intent = self.begin(principal=principal, action="passkey.enroll", target=principal)
+        ticket = secrets.token_urlsafe(32)
+        with closing(self._connect()) as db, db:
+            db.execute("INSERT INTO enrollment_tickets VALUES (?, ?, ?, ?, NULL)",
+                       (hashlib.sha256(ticket.encode("ascii")).digest(),
+                        hashlib.sha256(intent["challenge"].encode("ascii")).digest(),
+                        principal, intent["expires_at"]))
+        return {**intent, "ticket": ticket}
+
+    def consume_enrollment_ticket(self, *, ticket, challenge, principal):
+        """Burn ticket even on mismatch to prevent repeated guessing."""
+        principal = _check_identifier(principal)
+        if not isinstance(ticket, str) or not 32 <= len(ticket) <= 128:
+            return False
+        if not isinstance(challenge, str) or not 32 <= len(challenge) <= 128:
+            return False
+        now = int(self.now())
+        with closing(self._connect()) as db, db:
+            db.execute("BEGIN IMMEDIATE")
+            digest = hashlib.sha256(ticket.encode("utf-8")).digest()
+            row = db.execute(
+                "SELECT challenge_hash,principal,expires_at,used_at FROM "
+                "enrollment_tickets WHERE ticket_hash=?", (digest,)).fetchone()
+            if row is None:
+                return False
+            db.execute("UPDATE enrollment_tickets SET used_at=? "
+                       "WHERE ticket_hash=? AND used_at IS NULL", (now, digest))
+            return bool(row[0] == hashlib.sha256(challenge.encode("utf-8")).digest()
+                        and row[1] == principal and row[2] > now and row[3] is None)
+
+    def _record_verified_credential(self, *, credential_id, principal, public_key,
+                                    sign_count=0):
         """Persistence sink ONLY for a future validated attestation result.
 
         Not exposed as CLI/MCP/API; this is no substitute for verifying
@@ -127,9 +191,11 @@ class WebAuthnLedger:
         principal = _check_identifier(principal)
         if not isinstance(public_key, bytes) or not 32 <= len(public_key) <= 4096:
             raise ValueError("invalid_public_key")
+        if not isinstance(sign_count, int) or not 0 <= sign_count < 2**32:
+            raise ValueError("invalid_sign_counter")
         with closing(self._connect()) as db, db:
-            db.execute("INSERT INTO credentials VALUES (?, ?, ?, 0, ?, NULL)",
-                       (credential_id, principal, public_key, int(self.now())))
+            db.execute("INSERT INTO credentials VALUES (?, ?, ?, ?, ?, NULL)",
+                       (credential_id, principal, public_key, sign_count, int(self.now())))
 
     def _verified_credential(self, *, credential_id, principal):
         """Read a non-revoked credential for the isolated B2 verifier."""
