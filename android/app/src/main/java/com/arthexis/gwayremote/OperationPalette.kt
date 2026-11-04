@@ -61,6 +61,7 @@ fun OperationPalette(
     extraActions: List<PaletteAction> = emptyList()
 ) {
     var filter by remember { mutableStateOf("") }
+    var showSecondary by remember { mutableStateOf(false) }
     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
         OperationPanelHost(
             state = state, onClose = onClose, onMove = onMove,
@@ -95,9 +96,14 @@ fun OperationPalette(
             label = { Text("Filter operations") }, singleLine = true,
             modifier = Modifier.fillMaxWidth()
         )
+        if (filter.isBlank()) {
+            TextButton(onClick = { showSecondary = !showSecondary }) {
+                Text(if (showSecondary) "Hide extra tools" else "More tools and settings")
+            }
+        }
         val unopenedIds = state.unopened("").map { it.id }.toSet()
         val localActions = extraActions.associateBy { it.id }
-        val actions = FeatureRegistry.search(filter).mapNotNull { feature ->
+        val actions = FeatureRegistry.visible(filter, showSecondary).mapNotNull { feature ->
             when (feature.kind) {
                 FeatureKind.OPERATION -> {
                     if (feature.id !in unopenedIds) null

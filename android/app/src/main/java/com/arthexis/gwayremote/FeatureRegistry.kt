@@ -6,13 +6,17 @@ package com.arthexis.gwayremote
  */
 enum class FeatureKind { OPERATION, LOCAL_PANEL }
 
+/** Navigation placement only: no change to command or execution authority. */
+enum class FeatureGroup { HOME, TOOLS, SETTINGS }
+
 data class FeatureSpec(
     val id: String,
     val label: String,
     val icon: String,
     val keywords: Set<String>,
     val kind: FeatureKind,
-    val operation: OperationSpec? = null
+    val operation: OperationSpec? = null,
+    val group: FeatureGroup = FeatureGroup.TOOLS
 ) {
     init {
         require(id.matches(Regex("[a-z][a-z0-9-]*")))
@@ -29,16 +33,20 @@ data class FeatureSpec(
 }
 
 object FeatureRegistry {
+    // Deliberately do not advertise MCP bearer issuance until server-verified
+    // WebAuthn enrollment and issuance exist (issue #378 stages B-D).
+    private val homeOperationIds = setOf("system", "agent-ops")
     private val registered = OperationRegistry.operations.filter { it.visibility == OperationVisibility.PALETTE }.map { operation ->
         FeatureSpec(operation.id, operation.label, operation.icon, operation.keywords,
-            FeatureKind.OPERATION, operation)
+            FeatureKind.OPERATION, operation,
+            if (operation.id in homeOperationIds) FeatureGroup.HOME else FeatureGroup.TOOLS)
     } + listOf(
         FeatureSpec("deployments", "Deployments", "rocket",
-            setOf("deploy", "repositories", "follow", "release"), FeatureKind.LOCAL_PANEL),
+            setOf("deploy", "repositories", "follow", "release"), FeatureKind.LOCAL_PANEL, group = FeatureGroup.HOME),
         FeatureSpec("github-health", "GitHub Health", "github",
-            setOf("github", "ci", "alerts", "watch"), FeatureKind.LOCAL_PANEL),
+            setOf("github", "ci", "alerts", "watch"), FeatureKind.LOCAL_PANEL, group = FeatureGroup.HOME),
         FeatureSpec("app-update", "App update", "update",
-            setOf("apk", "release", "install", "upgrade"), FeatureKind.LOCAL_PANEL)
+            setOf("apk", "release", "install", "upgrade"), FeatureKind.LOCAL_PANEL, group = FeatureGroup.SETTINGS)
     )
 
     init {
@@ -48,6 +56,13 @@ object FeatureRegistry {
     }
 
     val features: List<FeatureSpec> get() = registered
+
+    val home: List<FeatureSpec> get() = registered.filter { it.group == FeatureGroup.HOME }
+    val secondary: List<FeatureSpec> get() = registered.filter { it.group != FeatureGroup.HOME }
+
+    /** Searching always includes tucked-away tools; they are not disabled. */
+    fun visible(query: String, showSecondary: Boolean): List<FeatureSpec> =
+        search(query).filter { query.isNotBlank() || showSecondary || it.group == FeatureGroup.HOME }
 
     fun get(id: String): FeatureSpec? = registered.firstOrNull { it.id == id }
 
