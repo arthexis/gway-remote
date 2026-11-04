@@ -1,5 +1,12 @@
 # gway-remote
 
+## Operator quick reference
+
+For current Watchtower registration, bootstrap, node naming restrictions, and deployment authorization, start with **[Operator commands](docs/operator-commands.md)**.
+
+On Watchtower, the normal bootstrap issuance command is `sudo gway-remote register gway-006` (example identifier only). **The current CLI does not accept `ocpp-abb-1`**; adding that name requires a separate implementation. Keep generated bootstrap URLs private. The `watchtower invite` subcommand is a lower-level invitation action, not the recommended bootstrap URL command.
+
+
 Central job dispatcher and managed runner workloads for `gway-001`.
 
 ## Design
