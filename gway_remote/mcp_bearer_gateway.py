@@ -4,6 +4,7 @@ Public Nginx activation and authenticated private transport are separate gates.
 """
 import json
 import os
+import subprocess
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, build_opener, HTTPRedirectHandler
@@ -89,7 +90,7 @@ def local_node_result(method, arguments, *, execution=None):
                 value = observed.get("concurrent_jobs_per_node")
                 if type(value) is int and 1 <= value <= 8:
                     concurrency = value
-            except (OSError, ValueError, RuntimeError, TimeoutError):
+            except (OSError, ValueError, RuntimeError, TimeoutError, subprocess.SubprocessError):
                 pass  # Unavailable is not the same as the legacy static value.
         return preview(arguments["node"], arguments["command"], inventory,
                        effective_concurrency=concurrency)
