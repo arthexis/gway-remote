@@ -5,6 +5,7 @@ verification, or Android calls. Later increments must verify attestation and
 assertion cryptographically BEFORE using the internal credential store.
 """
 import hashlib
+from contextlib import closing
 import os
 import re
 import secrets
@@ -83,7 +84,7 @@ class WebAuthnLedger:
         raw = secrets.token_urlsafe(32)
         digest = hashlib.sha256(raw.encode("ascii")).digest()
         now = int(self.now())
-        with self._connect() as db:
+        with closing(self._connect()) as db, db:
             db.execute("BEGIN IMMEDIATE")
             db.execute("DELETE FROM challenges WHERE expires_at < ?", (now - 3600,))
             db.execute("INSERT INTO challenges VALUES (?, ?, ?, ?, ?, NULL)",
@@ -104,7 +105,7 @@ class WebAuthnLedger:
             return False
         digest = hashlib.sha256(challenge.encode("utf-8")).digest()
         now = int(self.now())
-        with self._connect() as db:
+        with closing(self._connect()) as db, db:
             db.execute("BEGIN IMMEDIATE")
             row = db.execute(
                 "SELECT principal,action,target,expires_at,consumed_at FROM challenges WHERE challenge_hash=?",
@@ -126,14 +127,14 @@ class WebAuthnLedger:
         principal = _check_identifier(principal)
         if not isinstance(public_key, bytes) or not 32 <= len(public_key) <= 4096:
             raise ValueError("invalid_public_key")
-        with self._connect() as db:
+        with closing(self._connect()) as db, db:
             db.execute("INSERT INTO credentials VALUES (?, ?, ?, 0, ?, NULL)",
                        (credential_id, principal, public_key, int(self.now())))
 
     def revoke(self, *, credential_id):
         """Internal administrative mutation; caller authentication is B2/C."""
         credential_id = _check_identifier(credential_id)
-        with self._connect() as db:
+        with closing(self._connect()) as db, db:
             return db.execute(
                 "UPDATE credentials SET revoked_at=? WHERE credential_id=? AND revoked_at IS NULL",
                 (int(self.now()), credential_id)).rowcount == 1
@@ -141,7 +142,7 @@ class WebAuthnLedger:
     def credential_metadata(self, *, principal):
         """No key bytes or secret material returned."""
         principal = _check_identifier(principal)
-        with self._connect() as db:
+        with closing(self._connect()) as db, db:
             return [
                 {"credential_id": cid, "added_at": added, "revoked": revoked is not None}
                 for cid, added, revoked in db.execute(
