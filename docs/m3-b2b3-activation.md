@@ -154,6 +154,19 @@ credential scope.
 Protect the resulting secret and enter it only in the existing browser-link
 page on `remote.arthexis.com`. The OAuth client must request
 `gway:execute`. A read-only proof cannot authorize that scope.
+OAuth browser-link behavior: when ChatGPT sends an explicit OAuth scope,
+the form displays that exact requested permission and refuses any different
+scope (even if the pasted bearer is valid). When the client omits scope, the
+form defaults to **Read-only** and offers an explicit **Read and execute
+commands** choice. Select the execute option **before submitting** an
+execute-scoped bearer. The server checks the chosen scope against the token
+and issues an access token with that scope only. It never silently upgrades
+read-only authorization or accepts a read proof for execution. A rejected
+`/connect` page now explains the scope requirement without revealing whether
+a presented bearer is valid. On a failed or expired one-time form, initiate
+a **new Connect** flow from ChatGPT; do not reuse the same page or create
+another bearer unless the current proof is expired or revoked.
+
 Current OAuth access tokens last at most one hour, and reconnecting creates
 a fresh access credential derived from the same operator proof; it does not
 require a Watchtower console action for each command. Expiration/revocation
