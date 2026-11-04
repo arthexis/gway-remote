@@ -16,7 +16,7 @@ from .node_exec_contract import validate_command
 from .node_exec_worker import validate_request_id
 from .watchtower_exec_transport import RequestLedger, DormantRelay, HEX_SHA256
 
-_KEY_ID = re.compile(r"[0-9a-f]{24}\Z")
+_KEY_ID = re.compile(r"[0-9a-f]{24}")
 
 
 def _now():
