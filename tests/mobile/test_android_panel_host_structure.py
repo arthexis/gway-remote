@@ -19,6 +19,21 @@ class PanelHostStructureTests(unittest.TestCase):
         self.assertIn("PanelActions(", host)
         self.assertNotIn("simulator", host.lower())
 
+    def test_home_local_panel_actions_are_wired(self):
+        main = (ANDROID / "MainActivity.kt").read_text()
+        registry = (ANDROID / "FeatureRegistry.kt").read_text()
+        for feature in ("deployments", "github-health"):
+            self.assertIn(f'id = "{feature}"', main)
+            self.assertIn(f'FeatureSpec("{feature}"', registry)
+        self.assertIn("deploymentsOpen = !deploymentsOpen", main)
+        self.assertIn("if (deploymentsOpen)", main)
+
+    def test_removed_tasks_are_absent_from_specialized_registry(self):
+        source = (ANDROID / "registry/PanelContentRegistry.kt").read_text()
+        self.assertNotIn('"tasks" to', source)
+        self.assertNotIn('"task-detail" to', source)
+        self.assertIn('"agent-ops" to', source)
+
     def test_search_and_actions_remain_in_palette(self):
         palette = (ANDROID / "OperationPalette.kt").read_text()
         self.assertIn("FeatureRegistry.visible(filter, showSecondary)", palette)
