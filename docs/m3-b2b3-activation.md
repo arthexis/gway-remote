@@ -26,6 +26,40 @@ inventory/preview MCP tools remain available with `gway:read`.
    the operator-pinned SSH key. It refuses unavailable/mismatched identity.
    The relay and node are hard-limited to gway-001 in this phase.
 
+## Central execution eligibility (operator CLI)
+
+Eligibility lives in the existing root-owned Watchtower enrollment SQLite database,
+not in a hardcoded node allowlist or a separate inventory. All nodes start denied.
+A grant is bound to the enrolled SSH host public key; enrollment revocation or
+host-key rotation invalidates it. This command grants eligibility only—it does
+not install a relay, activate the gateway, or create a command approval.
+
+After deploying the corrected Watchtower runtime and verifying the enrolled
+identity, perform the authorized initial grant:
+
+```sh
+sudo /usr/bin/python3 -I /opt/gway-mcp/current/run.py exec_eligibility grant gway-001
+sudo /usr/bin/python3 -I /opt/gway-mcp/current/run.py exec_eligibility status gway-001
+```
+
+For immediate revocation of NEW jobs (running jobs are not silently cancelled):
+
+```sh
+sudo /usr/bin/python3 -I /opt/gway-mcp/current/run.py exec_eligibility revoke gway-001
+```
+
+Future grants use the same command with a different enrolled node; actual
+execution transport is still limited to the currently provisioned pinned relay.
+The command republishes the root-owned MCP inventory immediately. The gateway
+rechecks grant, enrollment identity, address and reachability for each submission.
+No read-only bearer can modify eligibility.
+
+The ordinary Watchtower Ansible deployment provisions
+`/var/lib/gway-mcp-exec` as mode 0700 owned by the gateway service and installs
+a systemd unit with only `ReadWritePaths=/var/lib/gway-mcp-exec`.
+It does not issue execution credentials, create relay keys or set
+`GWAY_MCP_EXEC_ENABLED=1`.
+
 ## Node preparation (separate, explicit operator action)
 
 Provision a **new** ed25519 transport key pair using your approved secret
