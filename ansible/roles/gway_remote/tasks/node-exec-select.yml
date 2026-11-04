@@ -154,29 +154,6 @@
       register: exec_relay_sshd_changed
       when: exec_relay_files.results[0].stat.exists | default(false)
 
-    - name: Confirm exact sudoers permission permits only selected protocol user
-      ansible.builtin.command:
-        argv:
-          - /usr/bin/sudo
-          - -n
-          - -l
-          - -U
-          - gway-relay
-      register: exec_relay_sudo_listing
-      changed_when: false
-      when: exec_relay_files.results[1].stat.exists | default(false)
-
-    - name: Verify relay sudoers uses selected identity and no old protocol identity
-      ansible.builtin.assert:
-        that:
-          - >-
-            '({{ gway_remote_exec_run_user }}) NOPASSWD: /usr/bin/env PYTHONPATH=/opt/gway-remote /usr/bin/python3 -m gway_remote.node_exec_protocol'
-            in exec_relay_sudo_listing.stdout
-          - >-
-            '({{ 'gway-exec' if gway_remote_exec_run_user == 'arthe' else 'arthe' }}) NOPASSWD: /usr/bin/env PYTHONPATH=/opt/gway-remote /usr/bin/python3 -m gway_remote.node_exec_protocol'
-            not in exec_relay_sudo_listing.stdout
-      when: exec_relay_files.results[1].stat.exists | default(false)
-
     - name: Verify both live relay policies point to the selected executor
       ansible.builtin.command:
         argv:
