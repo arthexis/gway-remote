@@ -3,6 +3,10 @@
   ansible.builtin.include_tasks: node-exec-prepare.yml
   when: (ansible_hostname | default('')) is match('^gway-[0-9]+$')
 
+- name: Provision fixed GWay Remote MCP deployment broker on the attested pilot
+  ansible.builtin.include_tasks: node-mcp-deploy.yml
+  when: (ansible_hostname | default('')) == 'gway-001'
+
 - name: Verify runner user exists
   ansible.builtin.getent:
     database: passwd
