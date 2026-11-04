@@ -256,6 +256,11 @@ def main() -> None:
     bearer_issue.add_argument("--days", type=int, default=30)
     bearer_revoke = bearer_ops.add_parser("revoke", help="Revoke an issued bearer by public ID")
     bearer_revoke.add_argument("key_id")
+    exec_parser = subparsers.add_parser("exec", help="Root-only Watchtower execution eligibility")
+    exec_actions = exec_parser.add_subparsers(dest="exec_action", required=True)
+    for action in ("grant", "revoke", "status"):
+        exec_action = exec_actions.add_parser(action, help=f"{action} enrollment execution eligibility")
+        exec_action.add_argument("node", help="enrolled gway node name")
     export_parser = subparsers.add_parser("deploy-targets", help="Export authoritative deployment targets")
     export_parser.add_argument("--json", action="store_true")
     inspection = subparsers.add_parser("reconcile", help="Read-only appliance deployment report")
@@ -365,6 +370,15 @@ def main() -> None:
     api_parser.add_argument("--host", default="127.0.0.1")
     api_parser.add_argument("--port", type=int, default=8765)
     args = parser.parse_args()
+    if args.command == "exec":
+        from .watchtower_exec_eligibility import run_action
+        try:
+            result = run_action(args.exec_action, args.node)
+        except (OSError, ValueError, PermissionError, RuntimeError) as exc:
+            parser.exit(1, "gway-remote: execution eligibility unavailable: " +
+                        type(exc).__name__ + "\\n")
+        print(json.dumps(result, sort_keys=True))
+        return
     if args.command == "register":
         from .watchtower_enrollment import Ledger
         from .wireguard_enrollment_contract import DEVICE
