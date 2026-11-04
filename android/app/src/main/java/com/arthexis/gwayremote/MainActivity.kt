@@ -507,6 +507,12 @@ fun CompanionScreen(store: SecretStore, appearance: AppearanceMode = AppearanceM
             onExecute = operationModel::execute,
             extraActions = listOf(
                 PaletteAction(
+                    id = "deployments",
+                    label = if (deploymentsOpen) "Hide Deployments" else "Deployments",
+                    icon = "rocket",
+                    onClick = { deploymentsOpen = !deploymentsOpen }
+                ),
+                PaletteAction(
                     id = "github-health",
                     label = if (githubHealthOpen) "Hide GitHub Health" else "GitHub Health",
                     icon = "github",
