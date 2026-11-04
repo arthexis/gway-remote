@@ -68,6 +68,12 @@
         checksum_algorithm: sha256
       register: mcp_unit_before
 
+    - name: Read current gateway unit for exact rollback
+      become: true
+      ansible.builtin.slurp:
+        src: /etc/systemd/system/gway-mcp-gateway.service
+      register: mcp_original_gateway_unit
+
     - name: Read current OAuth unit for exact rollback
       become: true
       ansible.builtin.slurp:
@@ -328,12 +334,27 @@
             mode: '0644'
           no_log: true
 
+        - name: Restore original gateway sandbox unit on failed activation
+          become: true
+          ansible.builtin.copy:
+            content: "{{ mcp_original_gateway_unit.content | b64decode }}"
+            dest: /etc/systemd/system/gway-mcp-gateway.service
+            owner: root
+            group: root
+            mode: '0644'
+          no_log: true
+
+        - name: Reload systemd after restoring gateway sandbox
+          become: true
+          ansible.builtin.systemd:
+            daemon_reload: true
+
         - name: Restart previous private gateway after release rollback
           become: true
           ansible.builtin.systemd:
             name: gway-mcp-gateway.service
             state: restarted
-          when: mcp_gateway_activation_needed | bool
+          when: mcp_gateway_activation_needed | bool or mcp_exec_gateway_unit.changed | default(false)
 
         - name: Restart existing OAuth link after rollback
           become: true
