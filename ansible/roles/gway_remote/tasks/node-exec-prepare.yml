@@ -113,3 +113,44 @@
               return polkit.Result.NO;
           }
       });
+
+# #364: operator home stays private; only root-controlled exports enter MCP PATH.
+- name: Create root-owned MCP command export directories
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+    follow: false
+  loop:
+    - /usr/local/libexec
+    - /usr/local/libexec/gway-remote-tools
+
+- name: Install read-only executor command index
+  ansible.builtin.copy:
+    src: "{{ playbook_dir }}/../scripts/gway-exec-guide"
+    dest: /usr/local/libexec/gway-remote-tools/guide
+    owner: root
+    group: root
+    mode: "0755"
+    follow: false
+
+- name: Verify guide is available as restricted executor
+  ansible.builtin.command:
+    argv:
+      - /usr/bin/sudo
+      - -n
+      - -H
+      - -u
+      - "{{ gway_remote_exec_user }}"
+      - /usr/local/libexec/gway-remote-tools/guide
+      - where
+      - guide
+  register: gway_exec_guide_check
+  changed_when: false
+
+- name: Assert executor guide points only at shared export
+  ansible.builtin.assert:
+    that:
+      - gway_exec_guide_check.stdout == '/usr/local/libexec/gway-remote-tools/guide'

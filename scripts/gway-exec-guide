@@ -1,0 +1,84 @@
+#!/usr/bin/env python3
+"""Read-only index of trusted tools exported for the GWay MCP executor.
+
+This is intentionally NOT arthe's interactive command inventory. The two
+contexts have different Linux identities and privileges.
+"""
+from __future__ import annotations
+
+import os
+from pathlib import Path
+import stat
+import sys
+
+EXPORT_DIR = Path("/usr/local/libexec/gway-remote-tools")
+
+
+def trusted_file(path: Path) -> bool:
+    """Reject symlinks and writable/non-root-owned code or parent directories."""
+    if not path.is_absolute():
+        return False
+    for member in (path, *path.parents):
+        try:
+            info = member.lstat()
+        except OSError:
+            return False
+        if stat.S_ISLNK(info.st_mode) or info.st_uid != 0 or info.st_mode & 0o022:
+            return False
+        if member == path:
+            if not stat.S_ISREG(info.st_mode) or not info.st_mode & 0o111:
+                return False
+        elif not stat.S_ISDIR(info.st_mode):
+            return False
+    return True
+
+
+def entries(directory=EXPORT_DIR):
+    if not directory.is_dir() or not trusted_directory(directory):
+        return {}
+    result = {}
+    for path in directory.iterdir():
+        if not path.name.startswith(".") and trusted_file(path):
+            result[path.name] = str(path)
+    return dict(sorted(result.items()))
+
+
+def trusted_directory(directory: Path):
+    for member in (directory, *directory.parents):
+        try:
+            info = member.lstat()
+        except OSError:
+            return False
+        if (not stat.S_ISDIR(info.st_mode) or info.st_uid != 0
+                or info.st_mode & 0o022):
+            return False
+    return True
+
+
+def main(argv=None):
+    args = list(sys.argv[1:] if argv is None else argv)
+    available = entries()
+    if not args or args == ["--all"]:
+        print("guide: GWay MCP executor-local exported command index")
+        print(f"{len(available)} executable exports; private user commands are not included.")
+        print("Use: guide show COMMAND | guide search TEXT | guide where COMMAND")
+        for name in available:
+            print(name)
+        return 0
+    if len(args) != 2 or args[0] not in {"show", "search", "where"}:
+        print("usage: guide [--all] | guide show COMMAND | guide search TEXT | guide where COMMAND", file=sys.stderr)
+        return 2
+    verb, value = args
+    if verb == "search":
+        found = [name for name in available if value.casefold() in name.casefold()]
+        print("\n".join(found))
+        return 0 if found else 1
+    if value not in available:
+        print(f"guide: {value}: not an approved executor export", file=sys.stderr)
+        return 1
+    print(available[value] if verb == "where" else f"{value}: executor-visible executable at {available[value]}")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

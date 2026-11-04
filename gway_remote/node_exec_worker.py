@@ -60,7 +60,7 @@ def user_manager_env():
             or not stat.S_ISSOCK(bus.st_mode) or bus.st_uid != uid):
         raise RuntimeError("executor user manager unavailable")
     return {
-        "PATH": "/usr/local/bin:/usr/bin:/bin",
+        "PATH": "/usr/local/libexec/gway-remote-tools:/usr/local/bin:/usr/bin:/bin",
         "HOME": account.pw_dir,
         "USER": account.pw_name,
         "LOGNAME": account.pw_name,
@@ -322,7 +322,7 @@ def worker(database, job_id):
         process = subprocess.Popen(["/bin/sh", "-c", row["command"]],
                                    stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
                                    stderr=subprocess.STDOUT, start_new_session=True,
-                                   env={"PATH": "/usr/local/bin:/usr/bin:/bin",
+                                   env={"PATH": "/usr/local/libexec/gway-remote-tools:/usr/local/bin:/usr/bin:/bin",
                                         "HOME": str(pwd.getpwuid(os.geteuid()).pw_dir),
                                         "LANG": "C.UTF-8"})
     except OSError:
