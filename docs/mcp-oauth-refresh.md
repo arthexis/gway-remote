@@ -5,7 +5,7 @@ This extends the **existing** Watchtower OAuth authorization server and its exis
 ## Behavior
 
 - The initial PKCE `authorization_code` exchange returns an hour-long access token and an opaque `refresh_token`.
-- A client can send `grant_type=refresh_token`, `client_id`, `resource=https://remote.arthexis.com/mcp`, and `refresh_token` as `application/x-www-form-urlencoded` to the **same** `/oauth/token` endpoint. The registered public client ID and resource must match.
+- A client can send `grant_type=refresh_token`, `client_id`, optionally `resource=https://remote.arthexis.com/mcp`, and `refresh_token` as `application/x-www-form-urlencoded` to the **same** `/oauth/token` endpoint. The registered public client ID and resource must match.
 - The server atomically consumes that refresh token and returns a **new access token and a new refresh token**. It never accepts a refresh credential as an MCP bearer access token.
 - The refresh credential and all derived access tokens inherit the original operator proof's exact `gway:read` or `gway:execute` scope and absolute expiry. Refresh cannot upgrade read credentials or extend a proof's lifetime.
 - The refresh grant's state persists in the owner-controlled Watchtower SQLite registry across service restarts. Only the token-admin OAuth-link service mutates it; the MCP gateway remains a read-only verifier.
