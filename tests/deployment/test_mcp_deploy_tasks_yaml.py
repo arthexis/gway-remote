@@ -11,7 +11,7 @@ class DeploymentTasksYamlTests(unittest.TestCase):
         content = TASKS.read_text(encoding="utf-8")
         tasks = yaml.safe_load(content)
         self.assertIsInstance(tasks, list)
-        self.assertEqual(len(tasks), 11)
+        self.assertEqual(len(tasks), 12)
         names = [task["name"] for task in tasks]
         self.assertEqual(len(names), len(set(names)))
         for task in tasks:
