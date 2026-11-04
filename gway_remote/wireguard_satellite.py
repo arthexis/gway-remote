@@ -18,7 +18,7 @@ from urllib.request import Request, build_opener, HTTPRedirectHandler
 
 DEFAULT_URL = "https://register.gelectriic.com/v1/enroll"
 KEY_RE = re.compile(r"^[A-Za-z0-9+/]{43}=$")
-DEVICE_RE = re.compile(r"^gway-[0-9]{3,}$")
+DEVICE_RE = re.compile(r"^(?:gway-[0-9]{3,}|[a-z][a-z0-9]*(?:-[a-z0-9]+)+)$")
 
 
 class NoRedirect(HTTPRedirectHandler):
