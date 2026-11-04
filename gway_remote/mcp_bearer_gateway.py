@@ -59,7 +59,8 @@ def local_node_result(method, arguments, *, execution=None):
         return node_registry_inventory.capabilities(arguments["node"], execution_enabled=execution is not None)
     if method == "node_exec_preview" and type(arguments) is dict and set(arguments) == {"node", "command"}:
         from .node_exec_contract import preview
-        return preview(arguments["node"], arguments["command"], node_registry_inventory.public_nodes())
+        return preview(arguments["node"], arguments["command"],
+                       node_registry_inventory.public_nodes(execution_enabled=execution is not None))
     raise ValueError("invalid node inventory arguments")
 
 
@@ -154,8 +155,8 @@ class Handler(BaseHTTPRequestHandler):
             if self.server.execution is None or not has_exec or type(args) is not dict:
                 return self.reject(403)
             name = params["name"]
-            principal = self.server.registry.execution_principal(token)
             try:
+                principal = self.server.registry.execution_principal(token)
                 if name == "node_exec" and set(args) == {"node","command","request_id"}:
                     selected = self.server.execution.exec(principal=principal, **args)
                 elif name == "node_result" and set(args).issubset({"request_id","cursor"}) and "request_id" in args:
