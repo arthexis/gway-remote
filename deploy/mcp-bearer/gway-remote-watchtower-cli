@@ -1,0 +1,4 @@
+#!/bin/sh
+# Watchtower CLI uses the same immutable runtime as its MCP gateway.
+# No independent code installation, credential issuance or service activation.
+exec /usr/bin/python3 -I /opt/gway-mcp/current/run.py cli "$@"
