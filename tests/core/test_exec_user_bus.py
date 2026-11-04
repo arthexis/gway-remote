@@ -12,6 +12,7 @@ import subprocess
 from types import SimpleNamespace
 from unittest.mock import patch
 import unittest
+import tempfile
 
 
 from gway_remote import node_exec_worker as worker
@@ -19,6 +20,12 @@ from gway_remote import node_exec_worker as worker
 
 
 class UserBusTests(unittest.TestCase):
+    def setUp(self):
+        directory = tempfile.TemporaryDirectory()
+        self.addCleanup(directory.cleanup)
+        self.tmp_path = Path(directory.name)
+        self.tmp_path.chmod(0o700)
+
     def test_manager_env_ignores_inherited_ssh_values(self):
         uid = 2244
         user = SimpleNamespace(pw_uid=uid, pw_name="gway-exec", pw_dir="/var/lib/gway-exec")
@@ -49,8 +56,8 @@ class UserBusTests(unittest.TestCase):
                 worker.user_manager_env()
 
 
-    def test_launch_pins_bus_and_records_sanitized_error(tmp_path):
-        tmp_path.chmod(0o700)
+    def test_launch_pins_bus_and_records_sanitized_error(self):
+        tmp_path = self.tmp_path
         seen = []
         def fake_run(argv, **kwargs):
             seen.append((argv, kwargs))
@@ -75,8 +82,8 @@ class UserBusTests(unittest.TestCase):
         assert result["exit_code"] is None
 
 
-    def test_launch_diagnostic_schema_migrates(tmp_path):
-        tmp_path.chmod(0o700)
+    def test_launch_diagnostic_schema_migrates(self):
+        tmp_path = self.tmp_path
         path = tmp_path / "jobs.sqlite3"
         with sqlite3.connect(path) as db:
             db.execute("""CREATE TABLE jobs (
