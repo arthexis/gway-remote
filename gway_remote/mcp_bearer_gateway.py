@@ -18,13 +18,27 @@ ALLOWED_METHODS = frozenset({"server/discover", "initialize", "notifications/ini
 ALLOWED_TOOLS = frozenset({"agent_list_issues", "agent_status", "agent_preview", "agent_observe",
     "github_workflow_runs", "github_workflow_status", "github_workflow_errors",
     "node_list", "node_capabilities", "node_exec_preview",
-    "node_exec", "node_result", "node_cancel"})
+    "node_exec", "node_result", "node_cancel", "node_deploy", "node_deploy_status"})
 
-EXEC_TOOL_NAMES = frozenset({"node_exec", "node_result", "node_cancel"})
+EXEC_TOOL_NAMES = frozenset({"node_exec", "node_result", "node_cancel", "node_deploy", "node_deploy_status"})
 EXEC_SECURITY = {"securitySchemes": [{"type": "oauth2", "scopes": ["gway:execute"]}]}
 READ_SECURITY = {"securitySchemes": [{"type": "oauth2", "scopes": ["gway:read"]}]}
 
 EXEC_TOOLS = (
+    {"name": "node_deploy", "_meta": EXEC_SECURITY,
+     "description": "Start the fixed, operator-owned gway-remote release service on gway-001; no arbitrary commands or sudo.",
+     "inputSchema": {"type": "object", "properties": {
+         "node": {"type": "string", "enum": ["gway-001"]},
+         "application": {"type": "string", "enum": ["gway-remote"]},
+         "request_id": {"type": "string", "pattern": "^[0-9a-f]{32}$"}},
+         "required": ["node", "application", "request_id"], "additionalProperties": False}},
+    {"name": "node_deploy_status", "_meta": EXEC_SECURITY,
+     "description": "Read the state and result of the fixed gway-remote release service on gway-001.",
+     "inputSchema": {"type": "object", "properties": {
+         "node": {"type": "string", "enum": ["gway-001"]},
+         "application": {"type": "string", "enum": ["gway-remote"]},
+         "request_id": {"type": "string", "pattern": "^[0-9a-f]{32}$"}},
+         "required": ["node", "application", "request_id"], "additionalProperties": False}},
     {"name":"node_exec", "_meta": EXEC_SECURITY, "description":"Run a command on an eligible node with an authorized execute-scoped connection.",
      "inputSchema":{"type":"object","properties":{
          "node":{"type":"string"},"command":{"type":"string","maxLength":4096},
@@ -221,6 +235,9 @@ class Handler(BaseHTTPRequestHandler):
                 principal = self.server.registry.execution_principal(token)
                 if name == "node_exec" and set(args) == {"node","command","request_id"}:
                     selected = self.server.execution.exec(principal=principal, **args)
+                elif name in ("node_deploy", "node_deploy_status") and set(args) == {"node", "application", "request_id"}:
+                    selected = self.server.execution.deployment(
+                        principal=principal, status=name == "node_deploy_status", **args)
                 elif name == "node_result" and set(args).issubset({"request_id","cursor"}) and "request_id" in args:
                     selected = self.server.execution.result(principal=principal, **args)
                 elif name == "node_cancel" and set(args) == {"request_id"}:
