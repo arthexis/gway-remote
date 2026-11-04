@@ -76,8 +76,23 @@ def local_node_result(method, arguments, *, execution=None):
         return node_registry_inventory.capabilities(arguments["node"], execution_enabled=execution is not None)
     if method == "node_exec_preview" and type(arguments) is dict and set(arguments) == {"node", "command"}:
         from .node_exec_contract import preview
-        return preview(arguments["node"], arguments["command"],
-                       node_registry_inventory.public_nodes(execution_enabled=execution is not None))
+        inventory = node_registry_inventory.public_nodes(execution_enabled=execution is not None)
+        # Only query the already-pinned, operator-enabled node; never accept an
+        # address or host selector from the MCP request.
+        concurrency = None
+        if execution is not None and arguments["node"] == execution.relay.transport.node.node:
+            try:
+                import secrets
+                observed = execution.relay.transport.invoke({
+                    "operation": "limits", "node": arguments["node"],
+                    "request_id": secrets.token_hex(16)})
+                value = observed.get("concurrent_jobs_per_node")
+                if type(value) is int and 1 <= value <= 8:
+                    concurrency = value
+            except (OSError, ValueError, RuntimeError, TimeoutError):
+                pass  # Unavailable is not the same as the legacy static value.
+        return preview(arguments["node"], arguments["command"], inventory,
+                       effective_concurrency=concurrency)
     raise ValueError("invalid node inventory arguments")
 
 
