@@ -20,6 +20,19 @@
       - getent_passwd['arthe'][4] == '/home/arthe'
   when: gway_remote_exec_run_user == 'arthe'
 
+- name: Verify selected executor user manager exists
+  ansible.builtin.stat:
+    path: "/run/user/{{ getent_passwd[gway_remote_exec_run_user][1] }}/bus"
+    follow: false
+  register: exec_selected_bus
+
+- name: Refuse cutover if selected executor cannot launch bounded user jobs
+  ansible.builtin.assert:
+    that:
+      - exec_selected_bus.stat.issock | default(false)
+      - exec_selected_bus.stat.pw_name == gway_remote_exec_run_user
+    fail_msg: Selected executor user bus is unavailable; do not change the live relay identity.
+
 - name: Prepare separate private operator job storage without modifying legacy ledger
   ansible.builtin.file:
     path: /var/lib/gway-remote-exec-arthe
