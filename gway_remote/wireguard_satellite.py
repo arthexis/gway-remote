@@ -100,7 +100,12 @@ def _ssh_host_public_key(path=Path("/etc/ssh/ssh_host_ed25519_key.pub")):
                        capture_output=True, text=True)
     if not path.is_file() or not private.is_file() or private.stat().st_mode & 0o077:
         raise ValueError("unsafe SSH host key permissions")
-    return _validate_ssh_host_public_key(path.read_text().strip())
+    # OpenSSH public-key files normally include a comment; transmit only the
+    # key type and encoded key so the enrollment contract stays canonical.
+    parts = path.read_text().split()
+    if len(parts) < 2:
+        raise ValueError("invalid SSH public key file")
+    return _validate_ssh_host_public_key(" ".join(parts[:2]))
 
 
 def _enroll(url, device, public, token, *, ssh_host_key=None,

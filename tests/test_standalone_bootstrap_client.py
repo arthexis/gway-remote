@@ -41,6 +41,16 @@ def test_standalone_validator_rejects_invalid_keys():
             _validate_ssh_host_public_key(key)
 
 
+def test_bootstrap_client_canonicalizes_openssh_host_key_comment(tmp_path):
+    from gway_remote.wireguard_satellite import _ssh_host_public_key
+    private = tmp_path / "ssh_host_ed25519_key"
+    public = tmp_path / "ssh_host_ed25519_key.pub"
+    private.write_text("placeholder")
+    private.chmod(0o600)
+    public.write_text(KEY + " root@customer host comment\n")
+    assert _ssh_host_public_key(public) == validate_public_key(KEY)
+
+
 def test_standalone_bootstrap_accepts_named_satellite_ids(tmp_path):
     """The downloaded client runs outside the installed package."""
     script = tmp_path / "client.py"
@@ -50,7 +60,7 @@ def test_standalone_bootstrap_accepts_named_satellite_ids(tmp_path):
         "spec=importlib.util.spec_from_file_location('client',sys.argv[1]); "
         "module=importlib.util.module_from_spec(spec); spec.loader.exec_module(module); "
         "names=('ocpp-abb-1', 'gway-001', 'gway-1000'); "
-        "invalid=('ocpp_abb_1', 'OCPP-ABB-1', '../escape', 'gway-01'); "
+        "invalid=('ocpp_abb_1', 'OCPP-ABB-1', '../escape', 'gway--01'); "
         "assert all(module.DEVICE_RE.fullmatch(n) for n in names); "
         "assert all(not module.DEVICE_RE.fullmatch(n) for n in invalid)"
     )
