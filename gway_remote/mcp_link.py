@@ -77,7 +77,8 @@ def _html(form_token, *, requested_scope="gway:read", selectable=False):
     return ("<!doctype html><html lang='en'><head><meta charset='utf-8'>"
             "<meta name='viewport' content='width=device-width,initial-scale=1'>"
             "<title>Connect GWA Remote</title>"
-            + OAUTH_PAGE_STYLE + "</head><body>"
+            + OAUTH_PAGE_STYLE
+            + "<style>input[type=radio]{width:auto;margin:.6rem .4rem;padding:0}fieldset label{display:block}</style></head><body>"
             "<main><h1>Connect GWA Remote</h1><p>Enter a GWay Remote bearer "
             "issued on Watchtower for the permission shown below. The proof is "
             "not stored in the browser session.</p>"
