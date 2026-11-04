@@ -171,7 +171,7 @@ class Ledger:
                 connection.execute("COMMIT")
 
     def invite(self, device: str, *, minutes: int = 15,
-               purpose: str = "enroll", replace: bool = False) -> dict:
+               purpose: str = "enroll", replace: bool = False, supersede_pending: bool = False) -> dict:
         if not isinstance(device, str) or not DEVICE.fullmatch(device):
             raise ValueError("invalid Watchtower device")
         if not 1 <= minutes <= 60:
@@ -182,6 +182,15 @@ class Ledger:
         ident = secrets.token_hex(16)
         expires = (datetime.now(timezone.utc) + timedelta(minutes=minutes)).isoformat()
         with self._transaction() as connection:
+            if supersede_pending:
+                # Reissuing a bootstrap URL invalidates the previous unused URL and
+                # invitation atomically; an enrolled device is never modified.
+                connection.execute(
+                    "UPDATE bootstrap_sessions SET revoked_at=? WHERE device=? "
+                    "AND consumed_at IS NULL AND revoked_at IS NULL", (_now(), device))
+                connection.execute(
+                    "UPDATE invitations SET revoked_at=? WHERE device=? "
+                    "AND consumed_at IS NULL AND revoked_at IS NULL", (_now(), device))
             connection.execute("UPDATE invitations SET revoked_at=? WHERE device=? AND consumed_at IS NULL AND revoked_at IS NULL AND expires_at<=?", (_now(), device, _now()))
             connection.execute(
                 "INSERT INTO invitations(id,device,token_hash,expires_at,purpose,replace_authorized) VALUES(?,?,?,?,?,?)",
@@ -204,6 +213,7 @@ class Ledger:
         invitation = self.invite(
             device, minutes=minutes,
             purpose="host_identity_repair" if repair_host_identity else "enroll", replace=replace,
+            supersede_pending=True,
         )
         secret = secrets.token_urlsafe(32)
         session_id = secrets.token_hex(16)
