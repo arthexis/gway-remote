@@ -15,7 +15,7 @@ from pathlib import Path
 
 from .watchtower_enrollment import _now
 
-_NODE = re.compile(r"gway-[0-9]{3,}$")
+from .wireguard_enrollment_contract import DEVICE as _NODE
 
 
 def _validate_key(value: str) -> str:
