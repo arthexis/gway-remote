@@ -65,8 +65,8 @@ def preview(node, command, inventory):
     if (row.get("registered") is not True or row.get("identity_verified") is not True
             or row.get("execute_available") is not False):
         raise ValueError("node identity or execution gate unavailable")
-    # B1 does not have execution approval, node-side executor or capability.
-    # The nonce is diagnostic only, not a replayable operation/authorization ID.
+    # A preview is information, not a dispatch permit.
+    # Its nonce must never be used as an execution request ID.
     now = datetime.now(timezone.utc)
     return {
         "schema": SCHEMA_VERSION,
@@ -80,7 +80,7 @@ def preview(node, command, inventory):
         "authorization": {"required_scope": "gway:execute",
                           "approval_required": False},
         "status": "preview_only",
-        "execute_available": False,
+        "execute_available": bool(row.get("execute_eligible", False) and row.get("reachable") == "reachable"),
     }
 
 
