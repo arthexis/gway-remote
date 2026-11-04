@@ -77,11 +77,15 @@ class GatewayTests(unittest.TestCase):
             "params": {"name": "node_exec_preview",
                        "arguments": {"node": "gway-001", "command": "uptime"}}
         }).encode()))
-        for forbidden in ("node_exec", "node_cancel", "node_result"):
-            self.assertFalse(gateway.inspect_rpc(json.dumps({
+        # Execution names are now recognized by the parser, but Handler
+        # requires both gway:execute scope and an opt-in execution service.
+        for gated in ("node_exec", "node_cancel", "node_result"):
+            raw = json.dumps({
                 "jsonrpc": "2.0", "id": 1, "method": "tools/call",
-                "params": {"name": forbidden, "arguments": {}}
-            }).encode()))
+                "params": {"name": gated, "arguments": {}}
+            }).encode()
+            self.assertTrue(gateway.inspect_rpc(raw))
+            self.assertTrue(gateway.payload_is_exec(raw))
         with patch.object(gateway, "local_node_result", wraps=gateway.local_node_result):
             with patch("gway_remote.node_registry_inventory.public_nodes", return_value=VERIFIED):
                 record = gateway.local_node_result("node_exec_preview",
