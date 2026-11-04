@@ -66,11 +66,13 @@ def _html(form_token, *, requested_scope="gway:read", selectable=False):
     """Show the requested scope. Only missing client scope permits user selection."""
     scope_text = escape(requested_scope, quote=True)
     scope_choice = (
-        "<fieldset><legend>Connection permissions</legend>"
+        "<p>Client requested: <strong>" + scope_text + "</strong>.</p>"
+        "<fieldset><legend>Authorize this connection</legend>"
         "<label><input type='radio' name='scope' value='gway:read' checked>"
-        " Read-only</label>"
+        " Read-only (read bearer)</label>"
         "<label><input type='radio' name='scope' value='gway:execute'>"
-        " Read and execute commands</label></fieldset>"
+        " Read and execute commands (execute bearer; explicitly grants broader access)"
+        "</label></fieldset>"
         if selectable else
         "<p>Requested permission: <strong>" + scope_text + "</strong></p>"
     )
@@ -153,9 +155,13 @@ class LinkFlow:
             raise ValueError("link_capacity_reached")
         session = secrets.token_urlsafe(32)
         csrf = secrets.token_urlsafe(32)
+        # Explicit operator consent can grant a broader scope than a read-only
+        # client requested (RFC 6749 section 3.3). The token response carries
+        # the actual scope; no implicit escalation is permitted.
+        selectable = scope in (None, "gway:read")
         self.pending[session] = (csrf, code_challenge, state, time.monotonic() + 300,
-                                 scope or "gway:read", scope is None)
-        return session, _html(csrf, requested_scope=scope or "gway:read", selectable=scope is None)
+                                 scope or "gway:read", selectable)
+        return session, _html(csrf, requested_scope=scope or "gway:read", selectable=selectable)
 
     @_serialized
     def connect(self, session, csrf, bearer, *, selected_scope=None):
