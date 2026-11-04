@@ -203,10 +203,17 @@ It must never elevate an explicit `gway:read` OAuth authorization request.
 Direct read-only clients continue using `gway:read` unchanged.
 
 After deploying this change, **disconnect and start a fresh ChatGPT connection**
-rather than reusing an old read-scoped session. Confirm that the browser page
-shows `Requested permission: gway:execute` and enter the existing execute
-bearer. If it still shows `gway:read`, inspect the OAuth request and client
-configuration; never weaken bearer verification or generate more tokens.
+rather than reusing an old read-scoped session. Prefer that the browser page
+shows `Requested permission: gway:execute`; enter the existing execute
+bearer. If ChatGPT still explicitly requests `gway:read`, the page will
+display that fact and offer an **explicit operator choice** to authorize
+`Read and execute commands`. Select execute *before* entering the existing
+execute bearer. Under OAuth RFC 6749 §3.3, the operator can grant broader
+permissions than the client requested; the token endpoint reports the
+actual `gway:execute` grant in its scope response. No read credential can
+satisfy this choice. A read-only operator choice still requires a read-scoped
+proof. Never automatically elevate a read request, bypass proof verification,
+or generate more operator bearer tokens.
 Keep #333 open until a live ChatGPT command succeeds.
 
 Submit with `node_exec` using `node`, `command` and a fresh random
