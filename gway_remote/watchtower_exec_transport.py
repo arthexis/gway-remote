@@ -25,7 +25,7 @@ from .node_exec_worker import validate_request_id
 
 DEFAULT_LEDGER = Path("/var/lib/gway-mcp-exec/requests.sqlite3")
 MAX_RECORDS = 100000
-HEX_SHA256 = re.compile(r"[0-9a-f]{64}\\Z")
+HEX_SHA256 = re.compile(r"[0-9a-f]{64}")
 ACTIVE_STATES = frozenset({"reserved", "dispatching", "dispatched", "uncertain"})
 TERMINAL_STATES = frozenset({"succeeded", "failed", "cancelled", "timed_out", "unknown"})
 ALL_STATES = ACTIVE_STATES | TERMINAL_STATES
