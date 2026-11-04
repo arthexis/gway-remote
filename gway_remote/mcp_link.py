@@ -68,7 +68,7 @@ def _html(form_token, error=""):
             "<meta name='viewport' content='width=device-width,initial-scale=1'>"
             "<title>Connect GWA Remote</title>"
             + OAUTH_PAGE_STYLE + "</head><body>"
-            "<main><h1>Connect GWA Remote</h1><p>Enter the read-only bearer token "
+            "<main><h1>Connect GWA Remote</h1><p>Enter your GWA Remote bearer token "
             "generated on your Watchtower console. It is verified once and "
             "is not stored in the browser session.</p>"
             + warning + "<form method='post' action='/connect'>"
@@ -115,7 +115,7 @@ class LinkFlow:
             raise ValueError("invalid_client")
         if resource != self.resource or response_type != "code" or code_challenge_method != "S256":
             raise ValueError("invalid_request")
-        if scope != "gway:read" or not isinstance(code_challenge, str) or len(code_challenge) != 43:
+        if scope not in ("gway:read", "gway:execute") or not isinstance(code_challenge, str) or len(code_challenge) != 43:
             raise ValueError("invalid_scope_or_pkce")
         if any(c not in "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_" for c in code_challenge):
             raise ValueError("invalid_pkce")
@@ -126,7 +126,7 @@ class LinkFlow:
             raise ValueError("link_capacity_reached")
         session = secrets.token_urlsafe(32)
         csrf = secrets.token_urlsafe(32)
-        self.pending[session] = (csrf, code_challenge, state, time.monotonic() + 300)
+        self.pending[session] = (csrf, code_challenge, state, time.monotonic() + 300, scope)
         return session, _html(csrf)
 
     @_serialized
@@ -138,10 +138,10 @@ class LinkFlow:
             raise ValueError("expired_session")
         if not isinstance(csrf, str) or not hmac.compare_digest(csrf, pending[0]):
             raise ValueError("csrf_denied")
-        if not self.registry.verify(bearer):
+        if not self.registry.verify(bearer, required_scope=pending[4]):
             raise ValueError("invalid_bearer")
         code = secrets.token_urlsafe(40)
-        self.codes[hashlib.sha256(code.encode()).digest()] = (pending[1], time.monotonic() + 60, bearer.split("_", 2)[1])
+        self.codes[hashlib.sha256(code.encode()).digest()] = (pending[1], time.monotonic() + 60, bearer.split("_", 2)[1], pending[4])
         return self.redirect_uri + ("&" if "?" in self.redirect_uri else "?") + urlencode(
             {"code": code, "state": pending[2], "iss": ISSUER})
 
@@ -171,8 +171,8 @@ class LinkFlow:
         stored = self.codes.pop(hashlib.sha256(code.encode()).digest(), None)
         if stored is None or time.monotonic() > stored[1] or not hmac.compare_digest(stored[0], _challenge(code_verifier) or ""):
             raise ValueError("invalid_grant")
-        # A separate read-only credential is minted after console bearer proof.
-        # These credentials carry only gway:read. No submit/admin capability.
-        access = self.registry.issue(scope="gway:read", lifetime=3600, parent_id=stored[2])
+        # The requested scope must match the pre-issued operator credential.
+        # The derived credential cannot outlive or exceed its parent.
+        access = self.registry.issue(scope=stored[3], lifetime=3600, parent_id=stored[2])
         expires = _lookup(self.registry.path, access.split("_", 2)[1])[2]
-        return {"access_token": access, "token_type": "Bearer", "expires_in": max(0, expires - int(time.time())), "scope": "gway:read"}
+        return {"access_token": access, "token_type": "Bearer", "expires_in": max(0, expires - int(time.time())), "scope": stored[3]}
