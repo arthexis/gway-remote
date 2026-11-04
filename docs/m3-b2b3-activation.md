@@ -88,7 +88,15 @@ operator-managed credential registry; do not add scope issuance to the public
 OAuth flows until authorization policy has been reviewed. Identify the
 credential's 24-character key ID from the token's middle segment.
 
-As the private gateway service UID, run the local operator command:
+As the private gateway service UID, issue a short-lived execute bearer via the existing private bearer registry (replace the database path with the gateway's actual configured `--database` path):
+
+```sh
+PYTHONPATH=/opt/gway-mcp/current python3 -m gway_remote.watchtower_exec_service \
+  --issue-execute-token --bearer-database /PATH/TO/EXISTING/BearerRegistry.sqlite3 \
+  --lifetime 3600
+```
+
+Store the returned secret securely. The OAuth web consent flow deliberately cannot issue this token. Then run the local operator approval command:
 
 ```sh
 PYTHONPATH=/opt/gway-mcp/current python3 -m gway_remote.watchtower_exec_service \
