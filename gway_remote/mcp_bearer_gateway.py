@@ -290,7 +290,8 @@ def make_server(address, registry, upstream, backend_token, *, execution=None):
     if not backend_token:
         raise ValueError("backend_secret_required")
     server = ThreadingHTTPServer(address, Handler)
-    server.registry = registry\n    server.execution = execution
+    server.registry = registry
+    server.execution = execution
     server.upstream = upstream
     server.backend_token = backend_token
     server.opener = build_opener(NoRedirect())
