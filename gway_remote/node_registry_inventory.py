@@ -14,6 +14,7 @@ import json
 import os
 from pathlib import Path
 import re
+import sqlite3
 import stat
 import tempfile
 
@@ -60,11 +61,22 @@ def _identity(row):
     return bool(host.get("host_public_key"))
 
 
+def _grants(ledger):
+    """Read eligibility from the SAME authoritative enrollment database, never a second registry."""
+    path = Path(ledger)
+    with sqlite3.connect(path.resolve().as_uri() + "?mode=ro", uri=True) as db:
+        if not db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='execution_eligibility'").fetchone():
+            return {}
+        return {node: (key, enabled == 1) for node, key, enabled in db.execute(
+            "SELECT device,host_public_key,enabled FROM execution_eligibility")}
+
+
 def build(ledger=LEDGER, *, probe=False):
     """Rebuild from read-only enrollment tables; never infer reachability."""
     registry = snapshot_from_path(ledger)
     from .node_reachability import observe
     observations = observe(ledger) if probe else {}
+    grants = _grants(ledger)
     result = []
     for row in registry["nodes"]:
         name = row.get("node")
@@ -78,6 +90,10 @@ def build(ledger=LEDGER, *, probe=False):
                 continue
         except (ValueError, TypeError, KeyError):
             continue
+        identity = row.get("host_identity") or {}
+        bound_key, granted = grants.get(name, ("", False))
+        eligible = bool(granted and _identity(row)
+                        and identity.get("host_public_key") == bound_key)
         result.append({
             "node": name,
             "registered": True,
@@ -87,6 +103,7 @@ def build(ledger=LEDGER, *, probe=False):
             "reachable": observations.get(name, {}).get("reachable", "unknown"),
             "observed_at": observations.get(name, {}).get("observed_at"),
             "capabilities": ["inventory"],
+            "execute_eligible": eligible,
             "execute_available": False,
         })
     return {"schema": 1, "source": "watchtower-enrollment-ledger",
@@ -148,13 +165,14 @@ def load(path=SNAPSHOT, *, require_owner=True):
                 or row.get("reachable") not in ("unknown", "reachable")
                 or (row.get("reachable") == "unknown" and row.get("observed_at") is not None)
                 or (row.get("reachable") == "reachable" and not isinstance(row.get("observed_at"), str))
+                or type(row.get("execute_eligible")) is not bool
                 or row.get("execute_available") is not False):
             raise ValueError("invalid inventory node")
         seen.add(row["node"])
     return data
 
 
-def public_nodes(path=SNAPSHOT):
+def public_nodes(path=SNAPSHOT, *, execution_enabled=False):
     """Remove management addresses and identifying host keys from MCP output."""
     data = load(path)
     return {
@@ -164,7 +182,9 @@ def public_nodes(path=SNAPSHOT):
             {"node": row["node"], "registered": True,
              "identity_verified": row["identity_verified"],
              "reachable": row["reachable"], "observed_at": row["observed_at"],
-             "capabilities": ["inventory"], "execute_available": False}
+             "capabilities": ["inventory"],
+             "execute_available": bool(execution_enabled and row["execute_eligible"]
+                                       and row["identity_verified"] and row["reachable"] == "reachable")}
             for row in data["nodes"]
         ],
     }
@@ -185,15 +205,15 @@ def ansible_inventory(path=SNAPSHOT):
             "gway_enrolled": {"hosts": [row["node"] for row in data["nodes"]]}}
 
 
-def capabilities(node, path=SNAPSHOT):
+def capabilities(node, path=SNAPSHOT, *, execution_enabled=False):
     if not isinstance(node, str) or not NODE.fullmatch(node):
         raise ValueError("invalid node")
-    rows = public_nodes(path)["nodes"]
+    rows = public_nodes(path, execution_enabled=execution_enabled)["nodes"]
     found = next((row for row in rows if row["node"] == node), None)
     if found is None:
         raise ValueError("unregistered node")
     return {"node": node, "capabilities": ["inventory"],
-            "execute_available": False, "limits": None,
+            "execute_available": found["execute_available"], "limits": None,
             "approval_required": True, "reachable": found["reachable"]}
 
 
