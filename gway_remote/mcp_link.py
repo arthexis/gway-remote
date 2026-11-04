@@ -216,8 +216,8 @@ class LinkFlow:
             parent_id=stored[2], scope=stored[3], client_id=client_id)
 
     @_serialized
-    def refresh(self, *, client_id, refresh_token, grant_type, resource):
-        if (client_id != self.client_id or resource != self.resource
+    def refresh(self, *, client_id, refresh_token, grant_type, resource=None):
+        if (client_id != self.client_id or resource not in (None, self.resource)
                 or grant_type != "refresh_token"):
             raise ValueError("invalid_grant")
         return self.registry.rotate_oauth_refresh(
