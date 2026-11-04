@@ -16,7 +16,23 @@ UPSTREAM_TIMEOUT = 30
 ALLOWED_METHODS = frozenset({"server/discover", "initialize", "notifications/initialized", "tools/list", "tools/call"})
 ALLOWED_TOOLS = frozenset({"agent_list_issues", "agent_status", "agent_preview", "agent_observe",
     "github_workflow_runs", "github_workflow_status", "github_workflow_errors",
-    "node_list", "node_capabilities", "node_exec_preview"})
+    "node_list", "node_capabilities", "node_exec_preview",\n    "node_exec", "node_result", "node_cancel"})
+
+EXEC_TOOL_NAMES = frozenset({"node_exec", "node_result", "node_cancel"})
+EXEC_TOOLS = (
+    {"name":"node_exec", "description":"Run a separately operator-approved command on gway-001.",
+     "inputSchema":{"type":"object","properties":{
+         "node":{"type":"string"},"command":{"type":"string","maxLength":4096},
+         "request_id":{"type":"string"},"approval":{"type":"string"}},
+         "required":["node","command","request_id","approval"],"additionalProperties":False}},
+    {"name":"node_result", "description":"Read the requester's bounded remote job result.",
+     "inputSchema":{"type":"object","properties":{
+         "request_id":{"type":"string"},"cursor":{"type":"integer","minimum":0}},
+         "required":["request_id"],"additionalProperties":False}},
+    {"name":"node_cancel", "description":"Cancel the requester's remote job.",
+     "inputSchema":{"type":"object","properties":{"request_id":{"type":"string"}},
+         "required":["request_id"],"additionalProperties":False}},
+)
 
 NODE_TOOLS = (
     {"name": "node_list", "description": "List active enrolled nodes from Watchtower (read-only; reachability unknown).",
@@ -49,6 +65,15 @@ def local_node_result(method, arguments):
 class NoRedirect(HTTPRedirectHandler):
     def redirect_request(self, req, fp, code, msg, headers, newurl):
         return None
+
+def payload_is_exec(raw):
+    try:
+        payload = json.loads(raw)
+    except (ValueError, TypeError):
+        return False
+    return (type(payload) is dict and payload.get("method") == "tools/call"
+            and type(payload.get("params")) is dict
+            and payload["params"].get("name") in EXEC_TOOL_NAMES)
 
 def inspect_rpc(raw):
     try:
@@ -107,6 +132,8 @@ class Handler(BaseHTTPRequestHandler):
         raw = self.rfile.read(length)
         if not inspect_rpc(raw):
             return self.reject(403)
+        if payload_is_exec(raw) and (not has_exec or self.server.execution is None):
+            return self.reject(403)
         # Forward protocol metadata only after parsing the RPC. Never pass
         # arbitrary client-controlled headers to the private backend.
         payload = json.loads(raw)
@@ -117,6 +144,37 @@ class Handler(BaseHTTPRequestHandler):
             meta = payload.get("params", {}).get("_meta") if type(payload.get("params")) is dict else None
             if not isinstance(meta, dict) or meta.get("io.modelcontextprotocol/protocolVersion") != version:
                 return self.reject(400)
+        if payload["method"] == "tools/call" and payload.get("params", {}).get("name") in EXEC_TOOL_NAMES:
+            params = payload.get("params", {})
+            args = params.get("arguments", {})
+            if self.server.execution is None or not has_exec or type(args) is not dict:
+                return self.reject(403)
+            name = params["name"]
+            principal = token.split("_", 2)[1]
+            try:
+                if name == "node_exec" and set(args) == {"node","command","request_id","approval"}:
+                    selected = self.server.execution.exec(principal=principal, **args)
+                elif name == "node_result" and set(args).issubset({"request_id","cursor"}) and "request_id" in args:
+                    selected = self.server.execution.result(principal=principal, **args)
+                elif name == "node_cancel" and set(args) == {"request_id"}:
+                    selected = self.server.execution.cancel(principal=principal, **args)
+                else:
+                    raise ValueError("invalid tool arguments")
+                result = {"content":[{"type":"text","text":json.dumps(selected,separators=(",",":"))}]}
+            except (PermissionError, ValueError, RuntimeError, OSError, TypeError, KeyError):
+                result = {"content":[{"type":"text","text":"Execution request rejected"}],"isError":True}
+            if version == "2026-07-28":
+                result = {"resultType":"complete", **result}
+            body = json.dumps({"jsonrpc":"2.0","id":payload.get("id"),"result":result},
+                              separators=(",",":")).encode()
+            self.send_response(200)
+            self.send_header("Content-Type","application/json")
+            self.send_header("MCP-Protocol-Version",version)
+            self.send_header("Cache-Control","no-store")
+            self.send_header("Content-Length",str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+            return
         if payload["method"] == "tools/call" and payload.get("params", {}).get("name") in {"node_list", "node_capabilities", "node_exec_preview"}:
             # The enrollment ledger lives on Watchtower. Never pass these tools
             # to gway-001, and never grant the gateway access to the root DB.
@@ -193,9 +251,9 @@ class Handler(BaseHTTPRequestHandler):
                 tools = result["tools"]
                 if (type(tools) is not list or
                         any(type(tool) is not dict or tool.get("name") in
-                            {"node_list", "node_capabilities", "node_exec_preview"} for tool in tools)):
+                            ({"node_list", "node_capabilities", "node_exec_preview"} | EXEC_TOOL_NAMES) for tool in tools)):
                     raise ValueError("upstream tool collision")
-                result["tools"] = tools + list(NODE_TOOLS)
+                result["tools"] = tools + list(NODE_TOOLS) + (list(EXEC_TOOLS) if self.server.execution is not None else [])
                 body = json.dumps(upstream_payload, separators=(",", ":")).encode()
             except (ValueError, TypeError, KeyError, UnicodeError):
                 return self.reject(502)
@@ -221,7 +279,7 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
-def make_server(address, registry, upstream, backend_token):
+def make_server(address, registry, upstream, backend_token, *, execution=None):
     from urllib.parse import urlsplit
     parsed = urlsplit(upstream)
     if parsed.scheme != "http" or parsed.hostname != "127.0.0.1" or not parsed.port or parsed.path != "/mcp" or parsed.query or parsed.fragment or parsed.username or parsed.password:
@@ -231,7 +289,7 @@ def make_server(address, registry, upstream, backend_token):
     if not backend_token:
         raise ValueError("backend_secret_required")
     server = ThreadingHTTPServer(address, Handler)
-    server.registry = registry
+    server.registry = registry\n    server.execution = execution
     server.upstream = upstream
     server.backend_token = backend_token
     server.opener = build_opener(NoRedirect())
@@ -245,7 +303,12 @@ def main():
     parser.add_argument("--upstream", default="http://127.0.0.1:19011/mcp")
     args = parser.parse_args()
     token = os.environ.get("GWAY_MCP_BACKEND_BEARER", "")
-    with make_server(("127.0.0.1", args.port), BearerVerifier(args.database), args.upstream, token) as service:
+    execution = None
+    if os.environ.get("GWAY_MCP_EXEC_ENABLED") == "1":
+        from .watchtower_exec_service import load_service
+        execution = load_service()
+    with make_server(("127.0.0.1", args.port), BearerVerifier(args.database), args.upstream,
+                     token, execution=execution) as service:
         service.serve_forever()
 
 if __name__ == "__main__":
