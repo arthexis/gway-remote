@@ -62,11 +62,13 @@ class DurableRequestTests(unittest.TestCase):
             self.submit(jobs, "3" * 32)
         # Retries are safe even if there are no free slots.
         self.assertEqual(self.submit(jobs, "1" * 32), "1" * 32)
-        self.submit(jobs, "4" * 32, node="gway-002")
+        # Caller-supplied node metadata must not bypass this appliance's cap.
+        with self.assertRaisesRegex(RuntimeError, "executor busy"):
+            self.submit(jobs, "4" * 32, node="gway-002")
         with jobs.connection() as db:
             db.execute("UPDATE jobs SET status='succeeded' WHERE id=?", ("1" * 32,))
         self.submit(jobs, "3" * 32)
-        self.assertEqual(len(self.launches), 4)
+        self.assertEqual(len(self.launches), 3)
 
     def test_invalid_request_ids_cannot_launch(self):
         jobs = Jobs(self.database, max_active=1)
