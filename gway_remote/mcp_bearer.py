@@ -142,3 +142,24 @@ class BearerVerifier:
             return False
         return bool(row and row[3] is None and row[2] > int(time.time())
                     and row[1] == required_scope and hmac.compare_digest(row[0], supplied))
+
+    def execution_principal(self, credential):
+        """Stable parent identity across OAuth reconnects; requires valid execute scope."""
+        if not self.verify(credential, required_scope="gway:execute"):
+            raise PermissionError("execute credential required")
+        key_id = credential.split("_", 2)[1]
+        with sqlite3.connect("file:" + str(self.path.resolve()) + "?mode=ro",
+                             uri=True, timeout=3) as db:
+            seen = set()
+            current = key_id
+            for _ in range(32):
+                if current in seen:
+                    raise PermissionError("credential delegation cycle")
+                seen.add(current)
+                if not db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='delegations'").fetchone():
+                    return current
+                row = db.execute("SELECT parent_id FROM delegations WHERE key_id=?", (current,)).fetchone()
+                if row is None:
+                    return current
+                current = row[0]
+            raise PermissionError("credential delegation depth exceeded")
