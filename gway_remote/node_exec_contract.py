@@ -78,7 +78,7 @@ def preview(node, command, inventory):
         "expires_at": (now + timedelta(seconds=PREVIEW_TTL_SECONDS)).isoformat(),
         "limits": dict(DEFAULT_LIMITS),
         "authorization": {"required_scope": "gway:execute",
-                          "approval_required": True, "approval_issued": False},
+                          "approval_required": False},
         "status": "preview_only",
         "execute_available": False,
     }
