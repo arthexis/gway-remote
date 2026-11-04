@@ -62,21 +62,47 @@ OAUTH_PAGE_STYLE = ("<style>body{font:1rem system-ui;background:#111827;color:#f
             "border:0;border-radius:.5rem;cursor:pointer}</style>")
 
 
-def _html(form_token, error=""):
-    warning = "<p role='alert'>Invalid or expired bearer token.</p>" if error else ""
+def _html(form_token, *, requested_scope="gway:read", selectable=False):
+    """Show the requested scope. Only missing client scope permits user selection."""
+    scope_text = escape(requested_scope, quote=True)
+    scope_choice = (
+        "<fieldset><legend>Connection permissions</legend>"
+        "<label><input type='radio' name='scope' value='gway:read' checked>"
+        " Read-only</label>"
+        "<label><input type='radio' name='scope' value='gway:execute'>"
+        " Read and execute commands</label></fieldset>"
+        if selectable else
+        "<p>Requested permission: <strong>" + scope_text + "</strong></p>"
+    )
     return ("<!doctype html><html lang='en'><head><meta charset='utf-8'>"
             "<meta name='viewport' content='width=device-width,initial-scale=1'>"
             "<title>Connect GWA Remote</title>"
             + OAUTH_PAGE_STYLE + "</head><body>"
-            "<main><h1>Connect GWA Remote</h1><p>Enter your GWA Remote bearer token "
-            "generated on your Watchtower console. It is verified once and "
-            "is not stored in the browser session.</p>"
-            + warning + "<form method='post' action='/connect'>"
-            "<input type='hidden' name='csrf' value='" + escape(form_token, quote=True) + "'>"
-            "<label for='bearer'>GWA Remote bearer token</label>"
+            "<main><h1>Connect GWA Remote</h1><p>Enter a GWay Remote bearer "
+            "issued on Watchtower for the permission shown below. The proof is "
+            "not stored in the browser session.</p>"
+            "<form method='post' action='/connect'>"
+            + scope_choice
+            + "<input type='hidden' name='csrf' value='" + escape(form_token, quote=True) + "'>"
+            "<label for='bearer'>GWay Remote bearer token</label>"
             "<input id='bearer' name='bearer' type='password' autocomplete='off' "
             "autocapitalize='off' spellcheck='false' required>"
             "<button type='submit'>Connect</button></form></main></body></html>")
+
+
+def _connect_error(scope):
+    """Helpful but non-oracular error: never disclose whether a proof exists."""
+    requested = escape(scope, quote=True)
+    return ("<!doctype html><html lang='en'><head><meta charset='utf-8'>"
+            "<meta name='viewport' content='width=device-width,initial-scale=1'>"
+            "<title>GWA Remote connection denied</title>" + OAUTH_PAGE_STYLE
+            + "</head><body><main><h1>Connection not authorized</h1>"
+            "<p>The requested permission was <strong>" + requested + "</strong>. "
+            "Use a valid bearer with that scope. For command execution, reconnect "
+            "from ChatGPT requesting <code>gway:execute</code> and enter an "
+            "execute-scoped bearer issued on Watchtower.</p>"
+            "<p>Start a new connection from ChatGPT; this form cannot be reused. "
+            "No token information is displayed.</p></main></body></html>")
 
 
 def _serialized(method):
@@ -110,12 +136,12 @@ class LinkFlow:
 
     @_serialized
     def begin(self, *, client_id, redirect_uri, resource, response_type,
-              code_challenge, code_challenge_method, state, scope):
+              code_challenge, code_challenge_method, state, scope=None):
         if client_id != self.client_id or not _safe_redirect(redirect_uri, self.redirect_uri):
             raise ValueError("invalid_client")
         if resource != self.resource or response_type != "code" or code_challenge_method != "S256":
             raise ValueError("invalid_request")
-        if scope not in ("gway:read", "gway:execute") or not isinstance(code_challenge, str) or len(code_challenge) != 43:
+        if scope not in (None, "gway:read", "gway:execute") or not isinstance(code_challenge, str) or len(code_challenge) != 43:
             raise ValueError("invalid_scope_or_pkce")
         if any(c not in "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_" for c in code_challenge):
             raise ValueError("invalid_pkce")
@@ -126,11 +152,12 @@ class LinkFlow:
             raise ValueError("link_capacity_reached")
         session = secrets.token_urlsafe(32)
         csrf = secrets.token_urlsafe(32)
-        self.pending[session] = (csrf, code_challenge, state, time.monotonic() + 300, scope)
-        return session, _html(csrf)
+        self.pending[session] = (csrf, code_challenge, state, time.monotonic() + 300,
+                                 scope or "gway:read", scope is None)
+        return session, _html(csrf, requested_scope=scope or "gway:read", selectable=scope is None)
 
     @_serialized
-    def connect(self, session, csrf, bearer):
+    def connect(self, session, csrf, bearer, *, selected_scope=None):
         pending = self.pending.pop(session, None)
         if pending is None:
             raise ValueError("session_unavailable")
@@ -138,10 +165,15 @@ class LinkFlow:
             raise ValueError("expired_session")
         if not isinstance(csrf, str) or not hmac.compare_digest(csrf, pending[0]):
             raise ValueError("csrf_denied")
-        if not self.registry.verify(bearer, required_scope=pending[4]):
+        scope = pending[4]
+        if selected_scope is not None:
+            if not pending[5] or selected_scope not in ("gway:read", "gway:execute"):
+                raise ValueError("scope_selection_denied")
+            scope = selected_scope
+        if not self.registry.verify(bearer, required_scope=scope):
             raise ValueError("invalid_bearer")
         code = secrets.token_urlsafe(40)
-        self.codes[hashlib.sha256(code.encode()).digest()] = (pending[1], time.monotonic() + 60, bearer.split("_", 2)[1], pending[4])
+        self.codes[hashlib.sha256(code.encode()).digest()] = (pending[1], time.monotonic() + 60, bearer.split("_", 2)[1], scope)
         return self.redirect_uri + ("&" if "?" in self.redirect_uri else "?") + urlencode(
             {"code": code, "state": pending[2], "iss": ISSUER})
 
