@@ -1,10 +1,10 @@
-# Android v2 / #378 — B1: Watchtower WebAuthn contract
+# Android v2 / #378 — B1 + B2: Watchtower WebAuthn contract and isolated cryptographic verifier
 
 ## Architectural boundary
 
 Watchtower is the **sole administrative identity and authorization authority**. Android requests a privileged intent and presents an authenticator challenge; gway-001 executes an expressly authorized, named operation and retains its local secrets. Neither the Android API nor the MCP bearer verifier may directly access Watchtower's credential registry, perform passkey enrollment or mint bearer credentials.
 
-**This increment is deliberately disconnected.** `watchtower_webauthn_ledger.py` is a private schema/intent ledger. It has no service/CLI/HTTP/MCP entry point, no authenticator verifier, no issuance path and no production database migration. A matching `consume()` only invalidates an intent; it **must never** count as evidence that WebAuthn authentication passed. The private `_record_verified_credential` persistence sink is not a registration API.
+**Both B1 and B2 are deliberately disconnected.** `watchtower_webauthn_ledger.py` is a private schema/intent ledger. It has no service/CLI/HTTP/MCP entry point, no issuance path and no production database migration. The separate `watchtower_webauthn_verify.py` implements B2's cryptographic verifier but cannot issue credentials or independently authorize a privileged operation. A matching `consume()` only invalidates an intent; it **must never** count as evidence that WebAuthn authentication passed. The private `_record_verified_credential` persistence sink is not a registration API.
 
 ## WebAuthn configuration to validate in B2
 
@@ -28,3 +28,14 @@ Unit tests under `tests/infrastructure/test_watchtower_webauthn_ledger.py` cover
 B2 should select an audited WebAuthn verification library compatible with Ubuntu 22.04 / Python 3.10, add verifier-side contract tests including malformed origin/JSON, invalid signature, RP ID, UV, enrollment takeover, cloned credential and sign counter, and agree on a safe, **explicitly invoked** bootstrap procedure. C is the first increment allowed to wire a private authorization service and token issuance, with a staged rollout/rollback and no credential changes on deploy.
 
 The existing automatic Watchtower GitHub/Ansible deployment remains the recovery route independent of WebAuthn. Deploying code must never create an administrator or register a passkey automatically.
+
+## B2 implemented in this PR
+
+- `py_webauthn==3.0.1` from Duo Labs is used in the **isolated test environment**, compatible with Python 3.10 (Watchtower) and Python 3.11 (standard CI). Its standard `verify_registration_response` and `verify_authentication_response` routines validate authenticator data and cryptographic proofs; GWay does not implement FIDO2 signature validation itself.
+- `watchtower_webauthn_verify.py` is **not imported by active services**, has no HTTP/CLI/MCP endpoint and is not installed into an active runtime dependency environment. Missing `webauthn` fails closed. The Python 3.10 dependency is tested in CI, not provisioned in production.
+- Registration verification consumes a matching `passkey.enroll` challenge, requires user verification, and returns a **public-key proof only**. It intentionally does not store an authenticator or grant enrollment, which still requires a trusted operator bootstrap in C.
+- Authentication verification consumes a matching action/target/principal challenge before verification; requires an existing non-revoked credential for the principal, verifies the ES256 signature, RP hash, HTTPS origin, challenge, user presence, and user verification, and advances the signature counter with a conditional SQLite update. Counter = 0 is accepted only with previous counter = 0 to support synchronized passkeys.
+- B2 tests generate *real* ephemeral P-256 key pairs and FIDO2 CBOR authenticator data, sign assertion payloads and cover corrupted signatures, malicious HTTPS origins, alternate RP IDs, missing UV, replay, counter regression, unknown/revoked credential and registration that does not automatically persist. No real secret/token material is used.
+- Returned `VerifiedRegistration` or `VerifiedAssertion` is **not** a bearer, a privileged authorization nor a session. Stage C will first add an independently authenticated administration boundary and narrowly scoped server-side grants, plus deployment rollback and provisioning of vetted Python dependencies.
+
+**B2 review gate:** verify the selected library pin and dependencies against Watchtower Ubuntu 22.04 Python 3.10, check cryptographic CI, and confirm signed Android production package + Digital Asset Links *before* offering Android passkey enrollment in stage D. Keep WebAuthn service isolated from the OAuth refresh flow.
