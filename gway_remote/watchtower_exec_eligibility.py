@@ -56,27 +56,32 @@ def set_eligibility(node, enabled, *, ledger=LEDGER, operator="root"):
     return {"node":node,"eligible":enabled}
 
 
+def run_action(action, node):
+    """Shared CLI entrypoint; never exposed through MCP."""
+    if os.geteuid() != 0:
+        raise PermissionError("root required")
+    if action not in ("grant", "revoke", "status"):
+        raise ValueError("invalid execution eligibility action")
+    from .node_registry_inventory import NODE
+    if not isinstance(node, str) or not NODE.fullmatch(node):
+        raise ValueError("invalid enrolled node name")
+    if action == "status":
+        rows = build()["nodes"]
+        result = next((row for row in rows if row["node"] == node), None)
+        if result is None:
+            raise ValueError("node not actively enrolled")
+        return {"node": node, "eligible": result["execute_eligible"]}
+    result = set_eligibility(node, action == "grant")
+    publish(build(probe=True))
+    return result
+
+
 def main(argv=None):
     p=argparse.ArgumentParser(description="Root-only central execution eligibility")
     p.add_argument("action",choices=("grant","revoke","status"))
     p.add_argument("node")
     args=p.parse_args(argv)
-    if os.geteuid()!=0:
-        p.error("root required")
-    if args.action=="status":
-        from .node_registry_inventory import build
-        rows=build()["nodes"]
-        result=next((r for r in rows if r["node"]==args.node),None)
-        if result is None:
-            p.error("node not actively enrolled")
-        print(json.dumps({"node":args.node,"eligible":result["execute_eligible"]}))
-        return
-    result=set_eligibility(args.node,args.action=="grant")
-    # Re-publish after updating the *same* authoritative ledger.
-    # A revoked grant must fail closed at dispatch even if the snapshot is stale;
-    # the gateway checks the snapshot's 120s freshness and identity each time.
-    publish(build(probe=True))
-    print(json.dumps(result,sort_keys=True))
+    print(json.dumps(run_action(args.action, args.node), sort_keys=True))
 
 
 if __name__=="__main__":
