@@ -10,7 +10,7 @@ import binascii
 import re
 from datetime import datetime, timezone
 
-NODE = re.compile(r"gway-[0-9]{3,}$")
+from .wireguard_enrollment_contract import DEVICE as NODE
 KEY_TYPE = "ssh-ed25519"
 
 
