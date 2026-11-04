@@ -116,7 +116,7 @@ class SSHBoundaryTests(unittest.TestCase):
         key=b"fixed-public-host-key-fixture"
         self.fp=hashlib.sha256(key).hexdigest()
         self.known=self.root/"known_hosts"
-        self.known.write_text("gway-001 ssh-ed25519 "+base64.b64encode(key).decode()+"\\n")
+        self.known.write_text("gway-001 ssh-ed25519 "+base64.b64encode(key).decode()+"\n")
         self.known.chmod(0o600)
 
     def node(self, **changes):
