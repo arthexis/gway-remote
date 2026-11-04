@@ -5,7 +5,7 @@ This is the current operator entry point. Run registration commands **on Watchto
 ## Generate a satellite bootstrap URL
 
 ```sh
-sudo gway-remote register gway-006
+sudo gway-remote register ocpp-abb-1
 sudo gway-remote register status
 sudo gway-remote register revoke <session-id>
 ```
@@ -14,7 +14,7 @@ sudo gway-remote register revoke <session-id>
 
 **Keep the generated URL private.** It is a bearer credential; do not paste it into issues, chats, logs, or screenshots. Run the printed command on the intended new host after verifying its OS, existing WireGuard configuration, and trusted HTTPS origin. See [satellite bootstrap](wireguard-satellite-bootstrap.md).
 
-**Current naming restriction:** the registration and enrollment protocol accept only `gway-NNN` identifiers (three or more digits), enforced by `wireguard_enrollment_contract.DEVICE`. In particular, `ocpp-abb-1` is **not yet valid** as a bootstrap registration name. Do not substitute a fake `gway-NNN` identifier merely to work around this constraint. Supporting `ocpp-abb-1` requires a separate code change and tests across registration, bootstrap, inventory and attestation.
+**Node names:** registration accepts existing `gway-NNN` IDs and lowercase hyphenated host IDs such as `ocpp-abb-1`. The same validator is used by enrollment and attestation. Use the actual intended host identity; do not invent an alias.
 
 ## Low-level Watchtower administration
 
@@ -32,7 +32,7 @@ The low-level `watchtower invite` action issues an invitation record, **not** th
 
 A registered WireGuard node is not automatically an Ansible deployment target or an MCP executor. The canonical deployment inventory is `ansible/inventory/deployment.yml`; its `remote_managed_repositories` list controls repository scope. An empty list denies writes. The current inventory has `customer.gelectriic.com` with an empty list, **not** a ready-to-deploy `ocpp-reports` target. The current `deployment_policy.require_local_deployment` also limits local appliance writes to `gway-001`.
 
-For the intended customer host, the proposed identity is `ocpp-abb-1` and DNS name `customer.gelectriic.com`. Do not enable deployment until naming support, Ansible targeting and an `ocpp-reports`-only authorization path have been implemented and validated. A `deploy --all` must never bypass that restriction.
+For the intended customer host, the proposed identity is `ocpp-abb-1` and DNS name `customer.gelectriic.com`. Naming support is implemented in this PR. Do not enable deployment until Ansible targeting and an `ocpp-reports`-only authorization path have been implemented and validated. A `deploy --all` must never bypass that restriction.
 
 ## Where to look
 
