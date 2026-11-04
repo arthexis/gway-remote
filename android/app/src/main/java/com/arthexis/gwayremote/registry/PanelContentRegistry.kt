@@ -5,15 +5,12 @@ package com.arthexis.gwayremote
  * Input controls and execution policies remain separate from result rendering.
  */
 enum class PanelContentKind {
-    GENERIC, AGENT_OPS, TASK_HISTORY, TASK_DETAIL,
-    CSMS_HEALTH, CSMS_INSPECTION
+    GENERIC, AGENT_OPS, CSMS_HEALTH, CSMS_INSPECTION
 }
 
 object PanelContentRegistry {
     private val specialized = mapOf(
         "agent-ops" to PanelContentKind.AGENT_OPS,
-        "tasks" to PanelContentKind.TASK_HISTORY,
-        "task-detail" to PanelContentKind.TASK_DETAIL,
         "csms" to PanelContentKind.CSMS_HEALTH,
         "csms-view" to PanelContentKind.CSMS_INSPECTION
     )
