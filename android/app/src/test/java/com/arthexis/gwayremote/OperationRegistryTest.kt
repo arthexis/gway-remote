@@ -41,6 +41,17 @@ class OperationRegistryTest {
         assertFalse(OperationRegistry.search("tasks").any { it.id == "tasks" })
     }
 
+    @Test fun specializedPanelsReferenceOnlyRegisteredOperations() {
+        for (spec in OperationRegistry.operations) {
+            // Forces initialization of PanelContentRegistry: the physical device
+            // crashed here when stale Tasks entries were still present.
+            assertNotNull(PanelContentRegistry.kind(spec.id))
+        }
+        assertEquals(PanelContentKind.AGENT_OPS, PanelContentRegistry.kind("agent-ops"))
+        assertEquals(PanelContentKind.GENERIC, PanelContentRegistry.kind("tasks"))
+        assertEquals(PanelContentKind.GENERIC, PanelContentRegistry.kind("task-detail"))
+    }
+
     @Test fun agentOpsIsOneSafePanel() {
         assertEquals(1, OperationRegistry.operations.count { it.id == "agent-ops" })
         assertNull(OperationRegistry.get("agent-issues"))
