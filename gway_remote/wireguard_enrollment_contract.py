@@ -9,7 +9,7 @@ import base64
 import binascii
 import re
 
-DEVICE = re.compile(r"^gway-[0-9]{3,}$")
+DEVICE = re.compile(r"^(?:gway-[0-9]{3,}|[a-z][a-z0-9]*(?:-[a-z0-9]+)+)$")
 TOKEN = re.compile(r"^[A-Za-z0-9_-]{32,128}$")
 MAX_REQUEST_BYTES = 4096
 
