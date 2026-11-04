@@ -6,9 +6,12 @@ Wants=network-online.target
 [Service]
 Type=oneshot
 User=__RUNNER__
-WorkingDirectory=__HOME__/Repos/gway-remote
+WorkingDirectory=/
+Environment=GWAY_DEPLOY_CHECKOUT=__CHECKOUT__
 Environment=HOME=__HOME__
+ExecStartPre=/usr/bin/python3 /usr/local/libexec/gway-remote-deploy-receipt.py begin
 ExecStart=/usr/local/libexec/gway-remote-deploy
+ExecStopPost=/usr/bin/python3 /usr/local/libexec/gway-remote-deploy-receipt.py finish
 TimeoutStartSec=900
 StandardOutput=journal
 StandardError=journal
