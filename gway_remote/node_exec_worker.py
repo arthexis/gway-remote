@@ -50,8 +50,11 @@ def user_manager_env():
     uid = os.geteuid()
     account = pwd.getpwuid(uid)
     runtime = Path("/run/user") / str(uid)
-    info = runtime.lstat()
-    bus = (runtime / "bus").lstat()
+    try:
+        info = runtime.lstat()
+        bus = (runtime / "bus").lstat()
+    except FileNotFoundError:
+        raise RuntimeError("executor user manager unavailable") from None
     if (not stat.S_ISDIR(info.st_mode) or info.st_uid != uid
             or info.st_mode & 0o022
             or not stat.S_ISSOCK(bus.st_mode) or bus.st_uid != uid):
@@ -254,7 +257,7 @@ class Jobs:
             execute(["systemctl", "--user", "kill", "--kill-whom=main",
                      "--signal=SIGUSR1", unit_name(job_id)],
                     check=True, capture_output=True, timeout=5, env=user_manager_env())
-        except (OSError, subprocess.SubprocessError):
+        except (OSError, subprocess.SubprocessError, RuntimeError):
             # Do not claim successful cancellation if service-manager kill fails.
             return "cancel_requested"
         return "cancel_requested"
@@ -270,7 +273,7 @@ class Jobs:
                         capture_output=True, text=True, check=True, timeout=5,
                         env=user_manager_env())
             alive = p.stdout.strip() in ("active", "activating", "deactivating")
-        except (OSError, subprocess.SubprocessError):
+        except (OSError, subprocess.SubprocessError, RuntimeError):
             # Transport/user manager unavailable: preserve current state.
             return row["status"]
         if alive:
