@@ -46,9 +46,12 @@ def fragment() -> str:
                for task in data if task.get("name") == TASK]
     if len(entries) != 1 or not entries[0].startswith("Match User gway-relay\n"):
         raise AssertionError("exactly one expected relay Match block required")
-    if "{{" in entries[0] or "{%" in entries[0]:
+    # Render only the fixed node-owned identity selector for this fixture.
+    # Validate production's default account without permitting arbitrary Jinja.
+    rendered = entries[0].replace("{{ gway_remote_exec_run_user }}", "gway-exec")
+    if "{{" in rendered or "{%" in rendered:
         raise AssertionError("unrendered Ansible template in sshd configuration")
-    return entries[0]
+    return rendered
 
 
 def main() -> None:
