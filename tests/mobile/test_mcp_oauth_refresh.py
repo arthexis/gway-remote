@@ -152,6 +152,13 @@ class RefreshTests(unittest.TestCase):
         self.assertTrue(self.verifier.verify(renewed["access_token"], required_scope="gway:execute"))
         status, denied = request("POST", "/oauth/token", {**form, "client_id": "wrong"})
         self.assertEqual((status, denied), (400, {"error": "invalid_grant"}))
+        # The registered public client may omit the optional resource on refresh.
+        status, next_token = request("POST", "/oauth/token", {
+            "client_id": CLIENT, "grant_type": "refresh_token",
+            "refresh_token": renewed["refresh_token"]})
+        self.assertEqual(status, 200)
+        self.assertTrue(self.verifier.verify(next_token["access_token"],
+                                             required_scope="gway:execute"))
         # A replay through HTTP fails without exposing the parent credential.
         status, denied = request("POST", "/oauth/token", form)
         self.assertEqual((status, denied), (400, {"error": "invalid_grant"}))
