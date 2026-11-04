@@ -122,10 +122,11 @@ operator-managed credential registry; do not add scope issuance to the public
 OAuth flows until authorization policy has been reviewed. Identify the
 credential's 24-character key ID from the token's middle segment.
 
-As the private gateway service UID, issue a short-lived execute bearer via the existing private bearer registry (replace the database path with the gateway's actual configured `--database` path):
+Issue the short-lived execute bearer **as the existing BearerRegistry database owner**, not necessarily the gateway service UID. On the field Watchtower the gateway UID cannot write the owner-controlled bearer database (`PermissionError`). Determine the owner of the actual configured registry database and use that trusted local account, without changing its ownership, chmod, group access or public OAuth scope. Substitute the real database path and owner in the following command:
 
 ```sh
-PYTHONPATH=/opt/gway-mcp/current python3 -m gway_remote.watchtower_exec_service \
+sudo -u <bearer-registry-owner> /usr/bin/env PYTHONPATH=/opt/gway-mcp/current \
+  /usr/bin/python3 -m gway_remote.watchtower_exec_service \
   --issue-execute-token --bearer-database /PATH/TO/EXISTING/BearerRegistry.sqlite3 \
   --lifetime 3600
 ```
@@ -144,6 +145,34 @@ the same approval fails; use `node_result` to inspect the already recorded
 request, never mint an approval to replay an uncertain command. `node_cancel`
 is limited to the original requester. No approval secret is logged or
 included in result output.
+
+## gway-001 user-manager field regression after deployment
+
+The SSH forced command runs through the locked `gway-relay` identity and a narrowly
+allowed sudo transition to `gway-exec`; neither SSH nor sudo necessarily provides
+`XDG_RUNTIME_DIR` or `DBUS_SESSION_BUS_ADDRESS`. The node worker constructs them
+from the effective `gway-exec` UID, checks ownership of the runtime directory
+and user bus socket, and passes a minimal trusted environment to `systemd-run
+--user`, `systemctl --user kill` and reconciliation. It never trusts SSH-supplied
+bus variables. On failure the existing node job SQLite ledger retains a bounded
+fixed-category `launch_diagnostic`, available through `node_result.stderr`;
+raw subprocess stderr and secrets are never stored or returned.
+
+After deploying the updated node package and preparing the restricted relay,
+run the **explicit, opt-in on-node regression** as root on `gway-001`:
+
+```sh
+sudo /usr/bin/python3 scripts/test-node-exec-relay-field.py
+```
+
+This submits a fresh harmless `hostname` request via the *actual*
+`gway-relay -> sudo -n -u gway-exec -> node_exec_protocol` command,
+polls for its terminal result, and proves that user-systemd launches work
+with the sparse forced-command/sudo environment. It does not invoke the
+remote SSH handshake; separately retain the SSH host-key/forced-command
+acceptance already recorded in #333. Test only after confirming no active
+charging impact. Do not replay an uncertain request ID. The script must be
+run from the deployed source checkout on the node.
 
 ## Acceptance
 
