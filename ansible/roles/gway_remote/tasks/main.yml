@@ -78,9 +78,7 @@
   register: gway_remote_source
   changed_when: (gway_remote_source.stdout | from_json).changed | bool
 
-# Keep existing locked account provisioning, but select the runtime identity
-# only after the immutable package has been installed and checked.
-- name: Select node-local MCP execution identity
+- name: Select node-local executor identity
   ansible.builtin.include_tasks: node-exec-select.yml
   when: (ansible_hostname | default('')) is match('^gway-[0-9]+
   ansible.builtin.command:
@@ -88,7 +86,7 @@
       - /usr/bin/sudo
       - -n
       - -u
-      - "{{ gway_remote_exec_run_user }}"
+      - "{{ gway_remote_exec_user }}"
       - /usr/bin/env
       - "PYTHONPATH={{ gway_remote_install_root }}"
       - /usr/bin/python3
