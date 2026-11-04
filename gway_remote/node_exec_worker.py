@@ -44,6 +44,49 @@ def require_account(user=ACCOUNT):
         raise PermissionError("executor must run as dedicated gway-exec user")
 
 
+def user_manager_env():
+    """Build a trusted user-bus environment, never from SSH/sudo input."""
+    require_account()
+    uid = os.geteuid()
+    account = pwd.getpwuid(uid)
+    runtime = Path("/run/user") / str(uid)
+    try:
+        info = runtime.lstat()
+        bus = (runtime / "bus").lstat()
+    except FileNotFoundError:
+        raise RuntimeError("executor user manager unavailable") from None
+    if (not stat.S_ISDIR(info.st_mode) or info.st_uid != uid
+            or info.st_mode & 0o022
+            or not stat.S_ISSOCK(bus.st_mode) or bus.st_uid != uid):
+        raise RuntimeError("executor user manager unavailable")
+    return {
+        "PATH": "/usr/local/bin:/usr/bin:/bin",
+        "HOME": account.pw_dir,
+        "USER": account.pw_name,
+        "LOGNAME": account.pw_name,
+        "LANG": "C.UTF-8",
+        "XDG_RUNTIME_DIR": str(runtime),
+        "DBUS_SESSION_BUS_ADDRESS": "unix:path=" + str(runtime / "bus"),
+    }
+
+
+def launch_failure(exc):
+    """Return fixed, non-sensitive error categories, never subprocess stderr."""
+    stderr = getattr(exc, "stderr", None)
+    if isinstance(stderr, bytes):
+        stderr = stderr.decode("utf-8", errors="replace")
+    if isinstance(stderr, str) and (
+            "Failed to connect to bus" in stderr or "No medium found" in stderr):
+        return "systemd user bus unavailable"
+    if isinstance(stderr, str) and "Failed to start transient service unit" in stderr:
+        return "systemd transient unit rejected"
+    if isinstance(exc, subprocess.TimeoutExpired):
+        return "systemd launch timeout"
+    if isinstance(exc, FileNotFoundError):
+        return "systemd launcher missing"
+    return "systemd launch failed"
+
+
 def configured_max_active(path=EXECUTOR_CONFIG):
     """Use detected core count by default, with a safe root-controlled override."""
     detected = min(MAX_ACTIVE_CEILING, max(1, (os.cpu_count() or 1) - 1))
@@ -117,8 +160,11 @@ class Jobs:
                 status TEXT NOT NULL, created_at TEXT NOT NULL,
                 started_at TEXT, finished_at TEXT, exit_code INTEGER,
                 output BLOB NOT NULL DEFAULT X'', truncated INTEGER NOT NULL DEFAULT 0,
-                cancel_requested INTEGER NOT NULL DEFAULT 0
+                cancel_requested INTEGER NOT NULL DEFAULT 0,
+                launch_diagnostic TEXT NOT NULL DEFAULT \'\'
             )""")
+            if "launch_diagnostic" not in {row[1] for row in db.execute("PRAGMA table_info(jobs)")}: 
+                db.execute("ALTER TABLE jobs ADD COLUMN launch_diagnostic TEXT NOT NULL DEFAULT \'\'")
             with db:
                 yield db
         finally:
@@ -165,12 +211,16 @@ class Jobs:
                 python, "-m", "gway_remote.node_exec_worker", "--database", str(self.path),
                 "--run", job_id]
         try:
-            execute(argv, capture_output=True, text=True, check=True, timeout=10)
-        except (OSError, subprocess.SubprocessError):
+            env = user_manager_env()
+            execute(argv, capture_output=True, text=True, check=True, timeout=10, env=env)
+        except (OSError, subprocess.SubprocessError, RuntimeError) as exc:
+            diagnostic = launch_failure(exc)
+            if isinstance(exc, RuntimeError):
+                diagnostic = "executor user manager unavailable"
             with self.connection() as db:
-                db.execute("UPDATE jobs SET status='failed', finished_at=? WHERE id=? AND status='queued'",
-                           (utcnow(), job_id))
-            raise RuntimeError("systemd user job launch failed") from None
+                db.execute("UPDATE jobs SET status='failed', finished_at=?, launch_diagnostic=? WHERE id=? AND status='queued'",
+                           (utcnow(), diagnostic, job_id))
+            raise RuntimeError(diagnostic) from None
         return job_id
 
     def row(self, job_id):
@@ -190,7 +240,7 @@ class Jobs:
         next_cursor = cursor + len(chunk)
         return {"schema": 1, "request_id": job_id, "node": row["node"],
                 "status": row["status"], "stdout": chunk.decode("utf-8", errors="replace"),
-                "stderr": "", "truncated": bool(row["truncated"]),
+                "stderr": row["launch_diagnostic"], "truncated": bool(row["truncated"]),
                 "cursor": str(next_cursor) if next_cursor < len(output) else None,
                 "exit_code": row["exit_code"], "started_at": row["started_at"],
                 "finished_at": row["finished_at"]}
@@ -206,8 +256,8 @@ class Jobs:
         try:
             execute(["systemctl", "--user", "kill", "--kill-whom=main",
                      "--signal=SIGUSR1", unit_name(job_id)],
-                    check=True, capture_output=True, timeout=5)
-        except (OSError, subprocess.SubprocessError):
+                    check=True, capture_output=True, timeout=5, env=user_manager_env())
+        except (OSError, subprocess.SubprocessError, RuntimeError):
             # Do not claim successful cancellation if service-manager kill fails.
             return "cancel_requested"
         return "cancel_requested"
@@ -220,9 +270,10 @@ class Jobs:
         try:
             p = execute(["systemctl", "--user", "show", unit_name(job_id),
                          "--property=ActiveState", "--value"],
-                        capture_output=True, text=True, check=True, timeout=5)
+                        capture_output=True, text=True, check=True, timeout=5,
+                        env=user_manager_env())
             alive = p.stdout.strip() in ("active", "activating", "deactivating")
-        except (OSError, subprocess.SubprocessError):
+        except (OSError, subprocess.SubprocessError, RuntimeError):
             # Transport/user manager unavailable: preserve current state.
             return row["status"]
         if alive:
