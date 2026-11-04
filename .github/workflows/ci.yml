@@ -38,7 +38,7 @@ jobs:
       - name: Install audited WebAuthn test dependency
         run: python -m pip install 'pytest>=8,<10' 'webauthn==3.0.1'
       - name: Run B1/B2 verifier and SQLite contract tests
-        run: python -m pytest tests/infrastructure/test_watchtower_webauthn_ledger.py tests/infrastructure/test_watchtower_webauthn_verify.py -v
+        run: python -m pytest tests/infrastructure/test_watchtower_webauthn_ledger.py tests/infrastructure/test_watchtower_webauthn_verify.py tests/infrastructure/test_watchtower_webauthn_admin.py -v
 
   validation:
     runs-on: ubuntu-latest
