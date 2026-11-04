@@ -15,7 +15,8 @@ from gway_remote.mcp_bearer_gateway import make_server, EXEC_TOOLS, NODE_TOOLS, 
 class ExecuteScopeChallengeTests(unittest.TestCase):
     def test_tool_schemes_annotate_read_and_execute_separately(self):
         self.assertEqual({item["name"] for item in EXEC_TOOLS},
-                         {"node_exec", "node_result", "node_cancel"})
+                         {"node_exec", "node_result", "node_cancel",
+                          "node_deploy", "node_deploy_status"})
         for tool in EXEC_TOOLS:
             self.assertEqual(scoped_tool(tool, EXEC_SECURITY)["securitySchemes"],
                              [{"type": "oauth2", "scopes": ["gway:execute"]}])
