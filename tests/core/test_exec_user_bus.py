@@ -83,6 +83,7 @@ def test_launch_diagnostic_schema_migrates(tmp_path):
             started_at TEXT, finished_at TEXT, exit_code INTEGER,
             output BLOB NOT NULL DEFAULT X'', truncated INTEGER NOT NULL DEFAULT 0,
             cancel_requested INTEGER NOT NULL DEFAULT 0)""")
+    path.chmod(0o600)
     with patch.object(worker, "require_account"):
         jobs = worker.Jobs(path, max_active=1)
         with jobs.connection() as db:
