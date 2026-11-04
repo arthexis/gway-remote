@@ -15,7 +15,7 @@ import threading
 from functools import wraps
 from urllib.parse import urlencode, urlsplit
 
-from .mcp_bearer import BearerRegistry, _lookup
+from .mcp_bearer import BearerRegistry
 
 MAX_PENDING = 1024
 
@@ -212,6 +212,13 @@ class LinkFlow:
             raise ValueError("invalid_grant")
         # The requested scope must match the pre-issued operator credential.
         # The derived credential cannot outlive or exceed its parent.
-        access = self.registry.issue(scope=stored[3], lifetime=3600, parent_id=stored[2])
-        expires = _lookup(self.registry.path, access.split("_", 2)[1])[2]
-        return {"access_token": access, "token_type": "Bearer", "expires_in": max(0, expires - int(time.time())), "scope": stored[3]}
+        return self.registry.issue_oauth_pair(
+            parent_id=stored[2], scope=stored[3], client_id=client_id)
+
+    @_serialized
+    def refresh(self, *, client_id, refresh_token, grant_type, resource=None):
+        if (client_id != self.client_id or resource not in (None, self.resource)
+                or grant_type != "refresh_token"):
+            raise ValueError("invalid_grant")
+        return self.registry.rotate_oauth_refresh(
+            token=refresh_token, client_id=client_id)

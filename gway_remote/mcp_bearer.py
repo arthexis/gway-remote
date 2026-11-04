@@ -13,6 +13,7 @@ from pathlib import Path
 
 SCOPES = frozenset({"gway:read", "gway:execute"})
 TOKEN_PREFIX = "gwr_"
+REFRESH_PREFIX = "gwf_"
 DEFAULT_LIFETIME = 30 * 86400
 
 
@@ -38,6 +39,11 @@ class BearerRegistry:
                 scope TEXT NOT NULL, expires_at INTEGER NOT NULL,
                 revoked_at INTEGER)""")
             con.execute("CREATE TABLE IF NOT EXISTS delegations (key_id TEXT PRIMARY KEY, parent_id TEXT NOT NULL)")
+            con.execute("""CREATE TABLE IF NOT EXISTS oauth_refresh (
+                key_id TEXT PRIMARY KEY, digest BLOB NOT NULL,
+                family_id TEXT NOT NULL, client_id TEXT NOT NULL,
+                scope TEXT NOT NULL, expires_at INTEGER NOT NULL,
+                consumed_at INTEGER)""")
             con.commit()
         except Exception:
             con.close()
@@ -67,6 +73,72 @@ class BearerRegistry:
                 con.execute("INSERT INTO delegations VALUES (?, ?)", (key_id, parent_id))
         return credential
 
+
+    def issue_oauth_pair(self, *, parent_id, scope, client_id):
+        """Mint access and rotating refresh tokens bound to a hidden revocable family."""
+        if scope not in SCOPES or not isinstance(client_id, str) or not client_id:
+            raise ValueError("invalid_grant")
+        now = int(time.time())
+        parent = _lookup(self.path, parent_id)
+        if not parent or parent[1] != scope or parent[2] <= now or parent[3] is not None:
+            raise ValueError("invalid_grant")
+        with self._db() as con:
+            con.execute("BEGIN IMMEDIATE")
+            parent = _lookup(self.path, parent_id)
+            if not parent or parent[1] != scope or parent[2] <= now or parent[3] is not None:
+                raise ValueError("invalid_grant")
+            family_id, _ = _store_oauth_credential(con, scope, parent[2], parent_id)
+            _, access = _store_oauth_credential(
+                con, scope, min(now + 3600, parent[2]), family_id)
+            refresh = _store_oauth_refresh(con, family_id, client_id, scope, parent[2])
+        return {"access_token": access, "refresh_token": refresh,
+                "token_type": "Bearer", "expires_in": max(0, min(now + 3600, parent[2]) - now),
+                "scope": scope}
+
+    def rotate_oauth_refresh(self, *, token, client_id):
+        """One-use refresh rotation; verified replay revokes all family access tokens."""
+        if not isinstance(token, str) or not isinstance(client_id, str):
+            raise ValueError("invalid_grant")
+        parts = token.split("_", 2)
+        if len(parts) != 3 or parts[0] != "gwf" or len(parts[1]) != 24:
+            raise ValueError("invalid_grant")
+        try:
+            int(parts[1], 16)
+            digest = _digest(parts[2])
+        except (ValueError, UnicodeError):
+            raise ValueError("invalid_grant") from None
+        now = int(time.time())
+        replay = False
+        with self._db() as con:
+            con.execute("BEGIN IMMEDIATE")
+            row = con.execute(
+                "SELECT digest,family_id,client_id,scope,expires_at,consumed_at "
+                "FROM oauth_refresh WHERE key_id=?", (parts[1],)).fetchone()
+            if (not row or not hmac.compare_digest(row[0], digest)
+                    or row[2] != client_id or row[4] <= now):
+                raise ValueError("invalid_grant")
+            if row[5] is not None:
+                con.execute("UPDATE credentials SET revoked_at=? "
+                            "WHERE key_id=? AND revoked_at IS NULL", (now, row[1]))
+                replay = True
+            else:
+                family = _lookup(self.path, row[1])
+                if (not family or family[1] != row[3] or
+                        family[2] <= now or family[3] is not None):
+                    raise ValueError("invalid_grant")
+                changed = con.execute("UPDATE oauth_refresh SET consumed_at=? "
+                    "WHERE key_id=? AND consumed_at IS NULL", (now, parts[1]))
+                if changed.rowcount != 1:
+                    raise ValueError("invalid_grant")
+                _, access = _store_oauth_credential(
+                    con, row[3], min(now + 3600, row[4]), row[1])
+                refresh = _store_oauth_refresh(con, row[1], client_id, row[3], row[4])
+        if replay:
+            raise ValueError("invalid_grant")
+        return {"access_token": access, "refresh_token": refresh,
+                "token_type": "Bearer", "expires_in": max(0, min(now + 3600, row[4]) - now),
+                "scope": row[3]}
+
     def verify(self, credential, *, required_scope="gway:read"):
         if required_scope not in SCOPES or not isinstance(credential, str):
             return False
@@ -92,6 +164,23 @@ class BearerRegistry:
             return con.execute("UPDATE credentials SET revoked_at=? WHERE key_id=? AND revoked_at IS NULL",
                                (int(time.time()), key_id)).rowcount == 1
 
+
+
+def _store_oauth_credential(con, scope, expires_at, parent_id):
+    key_id = secrets.token_hex(12)
+    secret = secrets.token_urlsafe(32)
+    con.execute("INSERT INTO credentials VALUES (?, ?, ?, ?, NULL)",
+                (key_id, _digest(secret), scope, expires_at))
+    con.execute("INSERT INTO delegations VALUES (?, ?)", (key_id, parent_id))
+    return key_id, TOKEN_PREFIX + key_id + "_" + secret
+
+
+def _store_oauth_refresh(con, family_id, client_id, scope, expires_at):
+    key_id = secrets.token_hex(12)
+    secret = secrets.token_urlsafe(32)
+    con.execute("INSERT INTO oauth_refresh VALUES (?, ?, ?, ?, ?, ?, NULL)",
+                (key_id, _digest(secret), family_id, client_id, scope, expires_at))
+    return REFRESH_PREFIX + key_id + "_" + secret
 
 def _lookup(path, key_id):
     """Read-only SQLite lookup; never creates files or mutates the registry."""
