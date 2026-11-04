@@ -177,28 +177,44 @@ Keep the operator bearer for future reconnections until it expires or
 is revoked. Browser OAuth access credentials derived from it are short-lived;
 a reconnect does not require running `bearer issue` again.
 
-## ChatGPT OAuth scope negotiation
+## ChatGPT OAuth scope negotiation — one operator bearer
 
-The MCP gateway advertises `gway:read` for read-only tools and
-`gway:execute` for `node_exec`, `node_result`, and `node_cancel`
-via each tool's `_meta.securitySchemes`. An execution call authenticated with
-a read-only bearer returns HTTP 401 with an explicit
-`WWW-Authenticate` challenge containing `scope="gway:execute"` and
-`error="insufficient_scope"`. This requests a **new scoped OAuth consent
-flow** from clients that support tool-level scope upgrades; it does not accept
-the read-only bearer for execution or grant elevation itself.
+For the normal ChatGPT operator connection, the gateway's **initial HTTP 401
+OAuth challenge explicitly requests `gway:execute`**. Issue and retain only
+one long-lived execute-scoped bearer:
 
-The ChatGPT connection may still request `gway:read` for its initial discovery
-session. That is valid; do not enter your `gway:execute` operator proof into
-a browser form that explicitly requests `gway:read`, because this will fail
-closed. Instead, invoke an execution tool and complete the execute-scoped
-reauthorization prompt when offered. Use the already issued proof; do not
-regenerate it unnecessarily. If ChatGPT does not start a scope-upgrade
-challenge, the plugin's OAuth connection configuration must be updated in
-the ChatGPT app builder; the server cannot change an explicitly requested
-client scope. Check the `oauth_link` audit entries to confirm the scope
-ChatGPT actually requested. Keep #333 open until the live ChatGPT invocation
-passes.
+```sh
+sudo gway-remote bearer issue --scope gway:execute --days 90
+```
+
+The execute-scoped OAuth access token works for **both** read-only discovery
+and remote execution tools. There is no read-to-execute bearer switch in
+normal use. Expiration of short-lived OAuth access may require reauthorization,
+but the same valid operator bearer can be reused until expiry or revocation.
+
+The gateway also advertises per-tool OAuth `securitySchemes`:
+`gway:read` on read-only tools and `gway:execute` on
+`node_exec`, `node_result`, and `node_cancel`. If an **explicitly
+read-only** connection invokes an execution tool, it gets a tool result
+containing `_meta["mcp/www_authenticate"]` with the
+`gway:execute` challenge and no command dispatch. This supports clients
+capable of incremental authorization, while preserving read-only integrations.
+It must never elevate an explicit `gway:read` OAuth authorization request.
+Direct read-only clients continue using `gway:read` unchanged.
+
+After deploying this change, **disconnect and start a fresh ChatGPT connection**
+rather than reusing an old read-scoped session. Prefer that the browser page
+shows `Requested permission: gway:execute`; enter the existing execute
+bearer. If ChatGPT still explicitly requests `gway:read`, the page will
+display that fact and offer an **explicit operator choice** to authorize
+`Read and execute commands`. Select execute *before* entering the existing
+execute bearer. Under OAuth RFC 6749 §3.3, the operator can grant broader
+permissions than the client requested; the token endpoint reports the
+actual `gway:execute` grant in its scope response. No read credential can
+satisfy this choice. A read-only operator choice still requires a read-scoped
+proof. Never automatically elevate a read request, bypass proof verification,
+or generate more operator bearer tokens.
+Keep #333 open until a live ChatGPT command succeeds.
 
 Submit with `node_exec` using `node`, `command` and a fresh random
 32-character lowercase hexadecimal `request_id`. No approval field is

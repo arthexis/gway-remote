@@ -119,10 +119,11 @@ class LinkFlowTests(unittest.TestCase):
                 flow.connect(session, flow.pending[session][0], read_proof,
                              selected_scope="gway:execute")
 
-    def test_explicit_read_scope_cannot_be_upgraded_by_form_submission(self):
+    def test_explicit_read_scope_requires_consent_and_valid_execute_proof(self):
         with tempfile.TemporaryDirectory() as directory:
             registry = BearerRegistry(Path(directory) / "tokens.db")
-            proof = registry.issue(scope="gway:execute", operator_approved=True)
+            read_proof = registry.issue()
+            execute_proof = registry.issue(scope="gway:execute", operator_approved=True)
             flow = LinkFlow(registry, client_id=CLIENT, redirect_uri=URI)
             verifier = "x" * 43
             challenge = base64.urlsafe_b64encode(
@@ -133,12 +134,24 @@ class LinkFlowTests(unittest.TestCase):
                           code_challenge_method="S256", state="fixed-state-123",
                           scope="gway:read")
             session, page = flow.begin(**params)
-            self.assertIn("Requested permission: <strong>gway:read</strong>", page)
-            self.assertNotIn("name='scope'", page)
-            with self.assertRaisesRegex(ValueError, "^scope_selection_denied$"):
-                flow.connect(session, flow.pending[session][0], proof,
+            self.assertIn("Client requested: <strong>gway:read</strong>", page)
+            self.assertIn("name='scope'", page)
+            self.assertIn("explicitly grants broader access", page)
+            with self.assertRaisesRegex(ValueError, "^invalid_bearer$"):
+                flow.connect(session, flow.pending[session][0], read_proof,
                              selected_scope="gway:execute")
             self.assertEqual(flow.codes, {})
+            session, _ = flow.begin(**params)
+            dest = flow.connect(session, flow.pending[session][0], execute_proof,
+                                selected_scope="gway:execute")
+            from urllib.parse import parse_qs, urlsplit
+            code = parse_qs(urlsplit(dest).query)["code"][0]
+            result = flow.redeem(client_id=CLIENT, code=code, redirect_uri=URI,
+                                 code_verifier=verifier, grant_type="authorization_code",
+                                 resource="https://remote.arthexis.com/mcp")
+            self.assertEqual(result["scope"], "gway:execute")
+            self.assertTrue(registry.verify(result["access_token"],
+                                            required_scope="gway:execute"))
 
     def test_rejects_unapproved_redirect_and_scope(self):
         with tempfile.TemporaryDirectory() as d:

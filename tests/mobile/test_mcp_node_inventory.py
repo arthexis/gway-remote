@@ -137,8 +137,11 @@ class GatewayNodeInventoryTests(unittest.TestCase):
 
     def test_unauthorized_and_forbidden_exec_never_reach_runner(self):
         self.assertEqual(self.rpc("tools/list", token=False)[0], 401)
-        self.assertEqual(self.rpc("tools/call", {"name": "node_exec", "arguments": {
-            "node": "gway-001", "command": "id"}})[0], 401)
+        status, denied = self.rpc("tools/call", {"name": "node_exec", "arguments": {
+            "node": "gway-001", "command": "id"}})
+        self.assertEqual(status, 200)
+        self.assertTrue(denied["result"]["isError"])
+        self.assertIn("mcp/www_authenticate", denied["result"]["_meta"])
         self.assertEqual(self.rpc("tools/call", {"name": "agent_submit"})[0], 403)
 
 

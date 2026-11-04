@@ -80,16 +80,17 @@ class OAuthConnectScopeHTTPTests(unittest.TestCase):
         self.assertEqual(len(self.flow.codes), 1)
         self.assertEqual(next(iter(self.flow.codes.values()))[3], "gway:execute")
 
-    def test_explicit_read_scope_rejects_execute_override_with_help(self):
+    def test_explicit_read_scope_can_grant_execute_with_visible_consent(self):
         cookie, csrf, html = self.begin("gway:read")
-        self.assertIn("Requested permission: <strong>gway:read</strong>", html)
-        self.assertNotIn("name='scope'", html)
+        self.assertIn("Client requested: <strong>gway:read</strong>", html)
+        self.assertIn("explicitly grants broader access", html)
+        self.assertIn("name='scope'", html)
         status, _, response = self.submit(cookie, csrf, "gway:execute")
-        self.assertEqual(status, 403)
-        self.assertIn("Connection not authorized", response)
-        self.assertIn("gway:execute", response)
+        self.assertEqual(status, 200)
+        self.assertIn("Returning to ChatGPT", response)
+        self.assertEqual(len(self.flow.codes), 1)
+        self.assertEqual(next(iter(self.flow.codes.values()))[3], "gway:execute")
         self.assertNotIn(self.execute_proof, response)
-        self.assertFalse(self.flow.codes)
 
     def test_mismatched_proof_returns_actionable_html_not_blank_403(self):
         cookie, csrf, _ = self.begin("gway:read")
