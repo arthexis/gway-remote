@@ -101,8 +101,7 @@ class AuthorizedExecution:
         if type(status) is not bool or node != "gway-001" or application != "gway-remote":
             raise ValueError("unsupported deployment target")
         command = (
-            "/usr/bin/systemctl show gway-remote-deploy.service "
-            "--property=ActiveState,SubState,Result,ExecMainStatus --no-pager"
+            "/usr/bin/cat /var/lib/gway-mcp-deploy/status.json"
             if status else
             "/usr/bin/sudo -n /usr/bin/systemctl start --no-block gway-remote-deploy.service"
         )
