@@ -49,13 +49,14 @@ def verify_registration(ledger, *, challenge, principal, credential):
     before invoking the restricted ledger persistence sink.
     """
     from webauthn import verify_registration_response
+    from webauthn.helpers import base64url_to_bytes
     principal = _check_identifier(principal)
     if not ledger.consume(challenge=challenge, principal=principal,
                           action="passkey.enroll", target=principal):
         raise ValueError("invalid_or_expired_intent")
     result = verify_registration_response(
         credential=_validate_credential(credential),
-        expected_challenge=challenge.encode("ascii"),
+        expected_challenge=base64url_to_bytes(challenge),
         expected_rp_id=RP_ID, expected_origin=ORIGIN,
         require_user_verification=True,
     )
@@ -93,7 +94,7 @@ def verify_assertion(ledger, *, challenge, principal, action, target, credential
         raise ValueError("unknown_or_revoked_credential")
     public_key, old_count = row
     result = verify_authentication_response(
-        credential=credential, expected_challenge=challenge.encode("ascii"),
+        credential=credential, expected_challenge=base64url_to_bytes(challenge),
         expected_rp_id=RP_ID, expected_origin=ORIGIN,
         credential_public_key=public_key,
         credential_current_sign_count=old_count,
