@@ -89,6 +89,13 @@
   changed_when: false
   when: (ansible_hostname | default('')) is match('^gway-[0-9]+$')
 
+# Not enabled by default; provision only with explicit, audited key.
+- name: Prepare restricted execution SSH bridge on gway-001 when opted in
+  ansible.builtin.include_tasks: node-exec-relay.yml
+  when:
+    - (ansible_hostname | default('')) == 'gway-001'
+    - gway_exec_transport_prepare | default(false) | bool
+
 - name: Copy CLI installer
   ansible.builtin.copy:
     src: "{{ playbook_dir }}/../scripts/install-cli.sh"
