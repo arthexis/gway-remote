@@ -55,7 +55,11 @@ class ExecutorPreparationTests(unittest.TestCase):
     def test_worker_imports_from_root_owned_install_tree(self):
         worker = WORKER.read_text()
         self.assertIn("--setenv=PYTHONPATH=/opt/gway-remote", worker)
-        self.assertIn("--working-directory=/var/lib/gway-exec", worker)
+        # The default account retains its established directory, while the
+        # explicitly configured operator uses separate private job storage.
+        self.assertIn('"--working-directory=" +', worker)
+        self.assertIn('"/var/lib/gway-exec" if selected_user() == DEFAULT_USER', worker)
+        self.assertIn('str(self.path.parent)', worker)
         self.assertIn('"/bin/sh", "-c", row["command"]', worker)
 
 
