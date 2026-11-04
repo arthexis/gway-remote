@@ -116,9 +116,14 @@ class Handler(BaseHTTPRequestHandler):
     def reject(self, status, *, scope=None):
         self.send_response(status)
         if status == 401:
-            challenge = 'Bearer resource_metadata="https://remote.arthexis.com/.well-known/oauth-protected-resource/mcp"'
+            # Default ChatGPT connection is an operator connection: request
+            # execute from the first OAuth handshake. Execute credentials
+            # already authorize read-only tools; no mid-session switching.
+            # Explicit gway:read OAuth clients still work with read credentials.
+            challenge = ('Bearer resource_metadata="https://remote.arthexis.com/.well-known/oauth-protected-resource/mcp", '
+                         'scope="gway:execute"')
             if scope == "gway:execute":
-                challenge += ', scope="gway:execute", error="insufficient_scope"'
+                challenge += ', error="insufficient_scope"'
             self.send_header("WWW-Authenticate", challenge)
         self.send_header("Cache-Control", "no-store")
         self.send_header("Content-Length", "0")
