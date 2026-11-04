@@ -53,6 +53,20 @@ NODE_TOOLS = (
      "annotations": {"readOnlyHint": True}},
 )
 
+AUTH_CHALLENGE = (
+    'Bearer resource_metadata="https://remote.arthexis.com/.well-known/oauth-protected-resource/mcp", '
+    'scope="gway:execute", error="insufficient_scope", '
+    'error_description="Execution requires gway:execute authorization"'
+)
+
+
+def scoped_tool(tool, scheme):
+    """Mirror the standard securitySchemes top-level and in _meta for compatibility."""
+    security = scheme["securitySchemes"]
+    return {**tool, "securitySchemes": security,
+            "_meta": {**tool.get("_meta", {}), "securitySchemes": security}}
+
+
 def local_node_result(method, arguments, *, execution=None):
     """Only inventory operations, never a shell or user-supplied address."""
     from . import node_registry_inventory
@@ -143,10 +157,10 @@ class Handler(BaseHTTPRequestHandler):
         raw = self.rfile.read(length)
         if not inspect_rpc(raw):
             return self.reject(403)
-        if payload_is_exec(raw) and not has_exec:
-            return self.reject(401, scope="gway:execute")
-        if payload_is_exec(raw) and self.server.execution is None:
-            return self.reject(403)
+        # Only a valid read credential reaches here. Missing execute scope
+        # triggers the MCP tool-level OAuth UI without dispatching anything.
+        # Keep all transport and RPC validation before returning a challenge.
+
         # Forward protocol metadata only after parsing the RPC. Never pass
         # arbitrary client-controlled headers to the private backend.
         payload = json.loads(raw)
@@ -161,7 +175,24 @@ class Handler(BaseHTTPRequestHandler):
             params = payload.get("params", {})
             args = params.get("arguments", {})
             if not has_exec:
-                return self.reject(401, scope="gway:execute")
+                denied = {
+                    "content": [{"type": "text",
+                                 "text": "Execution requires gway:execute authorization."}],
+                    "isError": True,
+                    "_meta": {"mcp/www_authenticate": [AUTH_CHALLENGE]}
+                }
+                if version == "2026-07-28":
+                    denied = {"resultType": "complete", **denied}
+                body = json.dumps({"jsonrpc": "2.0", "id": payload.get("id"),
+                                   "result": denied}, separators=(",", ":")).encode()
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json")
+                self.send_header("MCP-Protocol-Version", version)
+                self.send_header("Cache-Control", "no-store")
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
+                return
             if self.server.execution is None or type(args) is not dict:
                 return self.reject(403)
             name = params["name"]
@@ -268,10 +299,11 @@ class Handler(BaseHTTPRequestHandler):
                         any(type(tool) is not dict or tool.get("name") in
                             ({"node_list", "node_capabilities", "node_exec_preview"} | EXEC_TOOL_NAMES) for tool in tools)):
                     raise ValueError("upstream tool collision")
-                scoped_tools = [{**tool, "_meta": {
-                    **tool.get("_meta", {}), **READ_SECURITY
-                }} for tool in tools]
-                result["tools"] = scoped_tools + list(NODE_TOOLS) + (list(EXEC_TOOLS) if self.server.execution is not None else [])
+                scoped_tools = [scoped_tool(tool, READ_SECURITY) for tool in tools]
+                node_tools = [scoped_tool(tool, READ_SECURITY) for tool in NODE_TOOLS]
+                exec_tools = [scoped_tool(tool, EXEC_SECURITY) for tool in EXEC_TOOLS]
+                result["tools"] = (scoped_tools + node_tools +
+                                   (exec_tools if self.server.execution is not None else []))
                 body = json.dumps(upstream_payload, separators=(",", ":")).encode()
             except (ValueError, TypeError, KeyError, UnicodeError):
                 return self.reject(502)
