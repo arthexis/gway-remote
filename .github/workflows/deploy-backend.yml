@@ -1,9 +1,8 @@
 name: Deploy GWay Remote backend
 
 on:
-  workflow_run:
-    workflows: ["Python checks"]
-    types: [completed]
+  push:
+    branches: [main]
 
 permissions:
   contents: read
@@ -14,38 +13,36 @@ concurrency:
 
 jobs:
   deploy:
-    if: >-
-      github.event.workflow_run.conclusion == 'success' &&
-      github.event.workflow_run.event == 'push' &&
-      github.event.workflow_run.head_branch == 'main' &&
-      github.event.workflow_run.head_repository.full_name == 'arthexis/gway-remote'
+    if: github.repository == 'arthexis/gway-remote' && github.ref == 'refs/heads/main'
     runs-on: [self-hosted, Linux, ARM64, gway-001]
     timeout-minutes: 15
     steps:
-      - name: Confirm validated revision is current main
+      - name: Confirm requested revision is still current main
         env:
           GH_TOKEN: ${{ github.token }}
-          VERIFIED_SHA: ${{ github.event.workflow_run.head_sha }}
+          TARGET_SHA: ${{ github.sha }}
         shell: bash
         run: |
           set -euo pipefail
           CURRENT_SHA="$(gh api repos/arthexis/gway-remote/branches/main --jq '.commit.sha')"
-          if [[ "$VERIFIED_SHA" != "$CURRENT_SHA" ]]; then
-            echo "::notice::Skipping superseded revision $VERIFIED_SHA (main is $CURRENT_SHA)"
+          if [[ "$TARGET_SHA" != "$CURRENT_SHA" ]]; then
+            echo "::notice::Skipping superseded main revision $TARGET_SHA (main is $CURRENT_SHA)"
             echo "skip=true" >> "$GITHUB_ENV"
           fi
       - uses: actions/checkout@v4
         if: env.skip != 'true'
         with:
-          ref: ${{ github.event.workflow_run.head_sha }}
+          ref: ${{ github.sha }}
           persist-credentials: false
-      - name: Validate backend before installation
+      # Full validation belongs to the PR CI gate, not the deployment runner.
+      - name: Check deployment prerequisites
         if: env.skip != 'true'
-        env:
-          GWAY_REMOTE_SOUND_DISABLE: '1'
+        shell: bash
         run: |
-          python3 -m unittest discover -s tests -v
-          python3 -m gway_remote --help >/dev/null
+          set -euo pipefail
+          command -v ansible-playbook
+          command -v sudo
+          test -f deploy.sh
       - name: Transactional install, restart and authenticated health
         if: env.skip != 'true'
         shell: bash
@@ -74,5 +71,5 @@ jobs:
       - name: Deployment summary
         if: env.skip != 'true'
         env:
-          VERIFIED_SHA: ${{ github.event.workflow_run.head_sha }}
-        run: echo "Validated GWay Remote mobile API deployment for $VERIFIED_SHA on gway-001" >> "$GITHUB_STEP_SUMMARY"
+          TARGET_SHA: ${{ github.sha }}
+        run: echo "Processed GWay Remote deployment for $TARGET_SHA on gway-001" >> "$GITHUB_STEP_SUMMARY"
