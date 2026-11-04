@@ -83,6 +83,22 @@ class NodeRegistryInventoryTests(unittest.TestCase):
             set_eligibility("gway-001", False, ledger=self.ledger)
             self.assertFalse(nodes.build(self.ledger)["nodes"][0]["execute_eligible"])
 
+    def test_canonical_cli_exec_subcommands(self):
+        import io
+        from contextlib import redirect_stdout
+        from gway_remote import __main__ as cli
+        from gway_remote import watchtower_exec_eligibility as eligibility
+        for action in ("grant", "revoke", "status"):
+            with self.subTest(action=action):
+                output = io.StringIO()
+                expected = {"node": "gway-001", "eligible": action == "grant"}
+                with patch.object(eligibility, "run_action", return_value=expected) as run:
+                    with patch("sys.argv", ["gway-remote", "exec", action, "gway-001"]):
+                        with redirect_stdout(output):
+                            cli.main()
+                run.assert_called_once_with(action, "gway-001")
+                self.assertEqual(json.loads(output.getvalue()), expected)
+
     def test_non_root_cannot_issue_eligibility_grants(self):
         with patch("gway_remote.watchtower_exec_eligibility.os.geteuid", return_value=1000):
             with self.assertRaises(PermissionError):
