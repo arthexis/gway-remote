@@ -207,7 +207,7 @@ class Jobs:
         # context. Use the Ansible-owned package tree, never a writable job dir.
         argv = ["systemd-run", "--user", "--collect",
                 "--setenv=PYTHONPATH=/opt/gway-remote",
-                "--working-directory=" + str(self.path.parent),
+                "--working-directory=" + ("/var/lib/gway-exec" if selected_user() == DEFAULT_USER else str(self.path.parent)),
                 "--unit=" + unit_name(job_id),
                 "--property=MemoryMax=" + str(DEFAULT_LIMITS["memory_max_bytes"]),
                 "--property=TasksMax=" + str(DEFAULT_LIMITS["tasks_max"]),
