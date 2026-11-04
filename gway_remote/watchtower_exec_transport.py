@@ -160,6 +160,22 @@ class RequestLedger:
             db.execute("UPDATE requests SET state=?, updated_at=? WHERE request_id=?",
                        ("dispatched" if confirmed else "uncertain", _now(), request_id))
 
+    def record_result_state(self, request_id, state):
+        """Persist terminal node result; uncertain jobs may be reconciled."""
+        validate_request_id(request_id)
+        if state not in TERMINAL_STATES:
+            raise ValueError("invalid terminal state")
+        with self.connection() as db:
+            db.execute("BEGIN IMMEDIATE")
+            row = db.execute("SELECT state FROM requests WHERE request_id=?",
+                             (request_id,)).fetchone()
+            if row is None or row["state"] == "reserved":
+                raise ValueError("request never dispatched")
+            if row["state"] in TERMINAL_STATES and row["state"] != state:
+                raise ValueError("conflicting terminal state")
+            db.execute("UPDATE requests SET state=?, updated_at=? WHERE request_id=?",
+                       (state, _now(), request_id))
+
     def get(self, request_id):
         validate_request_id(request_id)
         with self.connection() as db:
@@ -230,7 +246,10 @@ class SSHTransport:
     def invoke(self, payload):
         if type(payload) is not dict or payload.get("operation") not in {"submit","result","cancel"}:
             raise ValueError("invalid node operation")
-        if set(payload) - {"operation","request_id","command","cursor","node"}:
+        fields = {"submit":{"operation","node","request_id","command"},
+                  "result":{"operation","node","request_id","cursor"},
+                  "cancel":{"operation","node","request_id"}}
+        if set(payload) != fields[payload["operation"]]:
             raise ValueError("unexpected transport arguments")
         if payload.get("node") != self.node.node:
             raise ValueError("wrong pinned node")
@@ -249,7 +268,7 @@ class SSHTransport:
                 "-l",self.node.remote_user,
                 self.node.wireguard_address, "gway-exec-protocol-v1"]
         completed = self._run(argv,input=raw,capture_output=True,timeout=15,check=True)
-        if len(completed.stdout) > 32768:
+        if len(completed.stdout) > 131072:
             raise ValueError("node response exceeds limit")
         result = json.loads(completed.stdout)
         if (type(result) is not dict or result.get("request_id") != payload["request_id"]
@@ -266,12 +285,17 @@ class DormantRelay:
         self.transport = transport
         self.enabled = enabled
 
-    def dispatch(self, request_id):
+    def _authorized_row(self, request_id):
         if not self.enabled:
             raise PermissionError("remote execution disabled pending B2b-3 authorization")
         row = self.ledger.get(request_id)
-        if row["node"] != self.transport.node.node or row["host_key_sha256"] != self.transport.node.host_key_sha256:
+        if (row["node"] != self.transport.node.node
+                or row["host_key_sha256"] != self.transport.node.host_key_sha256):
             raise PermissionError("enrolled node identity changed")
+        return row
+
+    def dispatch(self, request_id):
+        row = self._authorized_row(request_id)
         if not self.ledger.claim_dispatch(request_id):
             return self.ledger.get(request_id)["state"]
         try:
@@ -285,3 +309,22 @@ class DormantRelay:
             return "uncertain"
         self.ledger.mark_dispatched(request_id, confirmed=True)
         return "dispatched"
+
+    def result(self, request_id, cursor=0):
+        row = self._authorized_row(request_id)
+        if row["state"] == "reserved":
+            raise ValueError("request not dispatched")
+        if type(cursor) is not int or not 0 <= cursor <= 1048576:
+            raise ValueError("invalid cursor")
+        data = self.transport.invoke({"operation":"result","node":row["node"],
+                                      "request_id":request_id,"cursor":cursor})
+        if data.get("status") in TERMINAL_STATES:
+            self.ledger.record_result_state(request_id, data["status"])
+        return data
+
+    def cancel(self, request_id):
+        row = self._authorized_row(request_id)
+        if row["state"] == "reserved":
+            raise ValueError("request not dispatched")
+        return self.transport.invoke({"operation":"cancel","node":row["node"],
+                                      "request_id":request_id})
