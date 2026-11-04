@@ -83,11 +83,10 @@ class ExecutionApprovals:
 
 
 class AuthorizedExecution:
-    """Policy facade. Caller identity MUST come from a verified execute bearer."""
+    """Execute-scoped authorization with current enrollment checks and durable deduplication."""
 
     def __init__(self, ledger, approvals, relay, *, enabled=False):
         self.ledger = ledger
-        self.approvals = approvals
         self.relay = relay
         self.enabled = enabled
 
@@ -98,7 +97,7 @@ class AuthorizedExecution:
             raise PermissionError("invalid execute principal")
 
     def _current_eligibility(self, node):
-        """Fail closed against the latest published root-owned enrollment projection."""
+        """Fail closed against the root-published current enrollment projection."""
         pinned = self.relay.transport.node
         inventory = node_registry_inventory.load()
         rows = [r for r in inventory["nodes"] if r["node"] == node]
@@ -110,22 +109,38 @@ class AuthorizedExecution:
                 rows[0]["address"] != pinned.wireguard_address):
             raise PermissionError("current enrolled execution eligibility denied")
 
-    def exec(self, *, principal, request_id, node, command, approval):
+    def exec(self, *, principal, request_id, node, command):
         self._allow(principal)
+        validate_request_id(request_id)
+        validate_command(node, command)
         if node != self.relay.transport.node.node:
-            raise PermissionError("node not approved")
+            raise PermissionError("node not eligible for this transport")
         self._current_eligibility(node)
-        expiry = self.approvals.consume(
-            approval=approval,principal=principal,request_id=request_id,
-            node=node,command=command,
-            host_sha256=self.relay.transport.node.host_key_sha256)
-        self.ledger.reserve(request_id=request_id,node=node,command=command,
+        # First insertion wins. Retrying an already known request ID never
+        # redispatches, even when its status is uncertain or the process restarted.
+        from datetime import timedelta
+        try:
+            prior = self.ledger.get(request_id)
+        except ValueError as exc:
+            if str(exc) != "request not found":
+                raise
+            prior = None
+        if prior is not None:
+            from .watchtower_exec_transport import _digest
+            if (prior["node"] != node or prior["principal"] != principal or
+                    prior["host_key_sha256"] != self.relay.transport.node.host_key_sha256 or
+                    prior["command_sha256"] != _digest(node, command, principal,
+                        self.relay.transport.node.host_key_sha256)):
+                raise PermissionError("request ID already bound to another job")
+            return {"request_id": request_id, "node": node, "status": prior["state"]}
+        expiry = (_now() + timedelta(seconds=120)).isoformat()
+        self.ledger.reserve(request_id=request_id, node=node, command=command,
                             principal=principal,
                             host_key_sha256=self.relay.transport.node.host_key_sha256,
                             expires_at=expiry)
         self._current_eligibility(node)
-        return {"request_id":request_id, "node":node,
-                "status":self.relay.dispatch(request_id)}
+        return {"request_id": request_id, "node": node,
+                "status": self.relay.dispatch(request_id)}
 
     def _owned(self, principal, request_id):
         self._allow(principal)
@@ -135,9 +150,9 @@ class AuthorizedExecution:
         return record
 
     def result(self, *, principal, request_id, cursor=0):
-        self._owned(principal,request_id)
-        return self.relay.result(request_id,cursor)
+        self._owned(principal, request_id)
+        return self.relay.result(request_id, cursor)
 
     def cancel(self, *, principal, request_id):
-        self._owned(principal,request_id)
+        self._owned(principal, request_id)
         return self.relay.cancel(request_id)
