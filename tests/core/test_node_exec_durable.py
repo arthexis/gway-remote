@@ -91,7 +91,7 @@ class DurableRequestTests(unittest.TestCase):
         policy = self.root / "executor.json"
         policy.write_text('{"max_active": 5}\n')
         real_lstat = Path.lstat
-        with patch("gway_remote.node_exec_worker.Path.lstat") as mock_lstat:
+        with patch("gway_remote.node_exec_worker.Path.lstat", autospec=True) as mock_lstat:
             def fixture_lstat(path):
                 info = real_lstat(path)
                 if Path(path) == policy:
