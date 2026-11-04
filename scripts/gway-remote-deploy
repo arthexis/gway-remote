@@ -2,7 +2,7 @@
 # Fixed GWay Remote release recipe; invoked only by the root-owned systemd unit
 # as the existing Ansible deployment operator, never as gway-exec/root.
 set -eu
-checkout="${HOME}/Repos/gway-remote"
+checkout="${GWAY_DEPLOY_CHECKOUT:?Deployment checkout is not configured}"
 [ -d "$checkout/.git" ] || { echo "Managed checkout missing" >&2; exit 2; }
 [ ! -L "$checkout" ] || { echo "Symlinked checkout denied" >&2; exit 2; }
 branch=$(/usr/bin/git -C "$checkout" symbolic-ref -q --short HEAD)

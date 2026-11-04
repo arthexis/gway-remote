@@ -24,8 +24,7 @@ class DeployBrokerTests(unittest.TestCase):
     def test_status_is_unprivileged_and_fixed(self):
         self.service.deployment(**self.kwargs, status=True)
         self.assertEqual(self.captured[0]["command"],
-            "/usr/bin/systemctl show gway-remote-deploy.service "
-            "--property=ActiveState,SubState,Result,ExecMainStatus --no-pager")
+            "/usr/bin/cat /var/lib/gway-mcp-deploy/status.json")
 
     def test_other_nodes_and_applications_denied(self):
         for changes in ({"node": "gway-002"}, {"application": "ocpp-csms"},
