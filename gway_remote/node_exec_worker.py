@@ -145,8 +145,9 @@ class Jobs:
             count = db.execute("SELECT count(*) FROM jobs").fetchone()[0]
             if count >= MAX_HISTORY:
                 raise RuntimeError("job history capacity exceeded")
-            active = db.execute("SELECT count(*) FROM jobs WHERE node=? AND status IN ('queued','running')",
-                                (node,)).fetchone()[0]
+            # One local DB belongs to one executor appliance. Count globally
+            # so changing a caller-supplied node string cannot bypass the cap.
+            active = db.execute("SELECT count(*) FROM jobs WHERE status IN ('queued','running')").fetchone()[0]
             if active >= self.max_active:
                 raise RuntimeError("executor busy")
             db.execute("INSERT INTO jobs (id,node,command,status,created_at) VALUES (?,?,?,?,?)",
