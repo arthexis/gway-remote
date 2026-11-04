@@ -32,7 +32,8 @@ def load_service(path=CONFIG):
     inventory = node_registry_inventory.load()
     matches = [n for n in inventory["nodes"]
                if n["node"] == "gway-001" and n["registered"] is True
-               and n["identity_verified"] is True and n["address"] == config["address"]]
+               and n["identity_verified"] is True and n["address"] == config["address"]
+               and n["execute_eligible"] is True and n["reachable"] == "reachable"]
     if len(matches) != 1:
         raise PermissionError("node is not currently attested at pinned address")
     node = PinnedNode(node=config["node"],wireguard_address=config["address"],

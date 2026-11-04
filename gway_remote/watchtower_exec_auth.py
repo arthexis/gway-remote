@@ -15,6 +15,7 @@ import sqlite3
 from .node_exec_contract import validate_command
 from .node_exec_worker import validate_request_id
 from .watchtower_exec_transport import RequestLedger, DormantRelay, HEX_SHA256
+from . import node_registry_inventory
 
 _KEY_ID = re.compile(r"[0-9a-f]{24}")
 
@@ -96,10 +97,24 @@ class AuthorizedExecution:
         if type(principal) is not str or not _KEY_ID.fullmatch(principal):
             raise PermissionError("invalid execute principal")
 
+    def _current_eligibility(self, node):
+        """Fail closed against the latest published root-owned enrollment projection."""
+        pinned = self.relay.transport.node
+        inventory = node_registry_inventory.load()
+        rows = [r for r in inventory["nodes"] if r["node"] == node]
+        if (len(rows) != 1 or node != pinned.node or
+                rows[0]["registered"] is not True or
+                rows[0]["identity_verified"] is not True or
+                rows[0]["execute_eligible"] is not True or
+                rows[0]["reachable"] != "reachable" or
+                rows[0]["address"] != pinned.wireguard_address):
+            raise PermissionError("current enrolled execution eligibility denied")
+
     def exec(self, *, principal, request_id, node, command, approval):
         self._allow(principal)
         if node != self.relay.transport.node.node:
             raise PermissionError("node not approved")
+        self._current_eligibility(node)
         expiry = self.approvals.consume(
             approval=approval,principal=principal,request_id=request_id,
             node=node,command=command,
@@ -108,6 +123,7 @@ class AuthorizedExecution:
                             principal=principal,
                             host_key_sha256=self.relay.transport.node.host_key_sha256,
                             expires_at=expiry)
+        self._current_eligibility(node)
         return {"request_id":request_id, "node":node,
                 "status":self.relay.dispatch(request_id)}
 

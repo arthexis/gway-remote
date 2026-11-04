@@ -8,6 +8,7 @@ import unittest
 from unittest.mock import patch
 
 from gway_remote import node_registry_inventory as nodes
+from gway_remote.watchtower_exec_eligibility import set_eligibility
 
 
 class NodeRegistryInventoryTests(unittest.TestCase):
@@ -69,6 +70,39 @@ class NodeRegistryInventoryTests(unittest.TestCase):
             self.assertFalse(nodes.capabilities("gway-001")["execute_available"])
             with self.assertRaises(ValueError):
                 nodes.capabilities("gway-999")
+
+    def test_central_eligibility_grant_and_revoke_are_projected(self):
+        from unittest.mock import patch
+        with patch("gway_remote.watchtower_exec_eligibility.os.geteuid", return_value=0):
+            set_eligibility("gway-001", True, ledger=self.ledger)
+            active = nodes.build(self.ledger)
+            self.assertTrue(active["nodes"][0]["execute_eligible"])
+            self.assertFalse(active["nodes"][1]["execute_eligible"])
+            with self.assertRaises(PermissionError):
+                set_eligibility("gway-003", True, ledger=self.ledger)
+            set_eligibility("gway-001", False, ledger=self.ledger)
+            self.assertFalse(nodes.build(self.ledger)["nodes"][0]["execute_eligible"])
+
+    def test_canonical_cli_exec_subcommands(self):
+        import io
+        from contextlib import redirect_stdout
+        from gway_remote import __main__ as cli
+        from gway_remote import watchtower_exec_eligibility as eligibility
+        for action in ("grant", "revoke", "status"):
+            with self.subTest(action=action):
+                output = io.StringIO()
+                expected = {"node": "gway-001", "eligible": action == "grant"}
+                with patch.object(eligibility, "run_action", return_value=expected) as run:
+                    with patch("sys.argv", ["gway-remote", "exec", action, "gway-001"]):
+                        with redirect_stdout(output):
+                            cli.main()
+                run.assert_called_once_with(action, "gway-001")
+                self.assertEqual(json.loads(output.getvalue()), expected)
+
+    def test_non_root_cannot_issue_eligibility_grants(self):
+        with patch("gway_remote.watchtower_exec_eligibility.os.geteuid", return_value=1000):
+            with self.assertRaises(PermissionError):
+                set_eligibility("gway-001", True, ledger=self.ledger)
 
     def test_stale_snapshot_fails_closed(self):
         snapshot = nodes.build(self.ledger)

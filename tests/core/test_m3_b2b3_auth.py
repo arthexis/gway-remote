@@ -95,6 +95,31 @@ class ApprovalTests(unittest.TestCase):
         with self.assertRaises(PermissionError):
             self.consume(issued["approval"])
 
+    def test_revoked_enrollment_rejected_before_dispatch(self):
+        class Node:
+            node="gway-001"
+            wireguard_address="10.90.0.2"
+            host_key_sha256="c"*64
+        class Transport:
+            node=Node()
+        class Relay:
+            transport=Transport()
+            enabled=True
+            def dispatch(self, request_id):
+                raise AssertionError("revoked node reached transport")
+        controller=AuthorizedExecution(self.ledger,self.approvals,Relay(),enabled=True)
+        approval=self.issue()["approval"]
+        revoked={"nodes":[{"node":"gway-001","registered":True,
+                 "identity_verified":True,"execute_eligible":False,
+                 "reachable":"reachable","address":"10.90.0.2"}]}
+        with patch("gway_remote.node_registry_inventory.load",return_value=revoked) as check:
+            with self.assertRaises(PermissionError):
+                controller.exec(principal=self.principal,request_id=self.id,
+                                node="gway-001",command="uptime",approval=approval)
+            check.assert_called_once()
+        # Rejection does not consume the one-shot approval.
+        self.assertIsNotNone(self.consume(approval))
+
     def test_authorization_guard_before_transport(self):
         class Node:
             node="gway-001"

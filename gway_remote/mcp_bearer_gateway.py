@@ -50,13 +50,13 @@ NODE_TOOLS = (
      "annotations": {"readOnlyHint": True}},
 )
 
-def local_node_result(method, arguments):
+def local_node_result(method, arguments, *, execution=None):
     """Only inventory operations, never a shell or user-supplied address."""
     from . import node_registry_inventory
     if method == "node_list" and arguments == {}:
-        return node_registry_inventory.public_nodes()
+        return node_registry_inventory.public_nodes(execution_enabled=execution is not None)
     if method == "node_capabilities" and type(arguments) is dict and set(arguments) == {"node"}:
-        return node_registry_inventory.capabilities(arguments["node"])
+        return node_registry_inventory.capabilities(arguments["node"], execution_enabled=execution is not None)
     if method == "node_exec_preview" and type(arguments) is dict and set(arguments) == {"node", "command"}:
         from .node_exec_contract import preview
         return preview(arguments["node"], arguments["command"], node_registry_inventory.public_nodes())
@@ -184,7 +184,7 @@ class Handler(BaseHTTPRequestHandler):
             # to gway-001, and never grant the gateway access to the root DB.
             arguments = payload["params"].get("arguments", {})
             try:
-                selected = local_node_result(payload["params"]["name"], arguments)
+                selected = local_node_result(payload["params"]["name"], arguments, execution=self.server.execution)
                 result = {"content": [{"type": "text", "text": json.dumps(selected, separators=(",", ":"))}]}
             except (OSError, ValueError, KeyError, TypeError, json.JSONDecodeError):
                 result = {"content": [{"type": "text", "text": "Node inventory unavailable"}],
