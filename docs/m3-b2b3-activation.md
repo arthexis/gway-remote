@@ -38,14 +38,14 @@ After deploying the corrected Watchtower runtime and verifying the enrolled
 identity, perform the authorized initial grant:
 
 ```sh
-sudo /usr/bin/python3 -I /opt/gway-mcp/current/run.py exec_eligibility grant gway-001
-sudo /usr/bin/python3 -I /opt/gway-mcp/current/run.py exec_eligibility status gway-001
+sudo gway-remote exec grant gway-001
+sudo gway-remote exec status gway-001
 ```
 
 For immediate revocation of NEW jobs (running jobs are not silently cancelled):
 
 ```sh
-sudo /usr/bin/python3 -I /opt/gway-mcp/current/run.py exec_eligibility revoke gway-001
+sudo gway-remote exec revoke gway-001
 ```
 
 Future grants use the same command with a different enrolled node; actual
@@ -54,7 +54,7 @@ The command republishes the root-owned MCP inventory immediately. The gateway
 rechecks grant, enrollment identity, address and reachability for each submission.
 No read-only bearer can modify eligibility.
 
-The ordinary Watchtower Ansible deployment provisions
+The ordinary Watchtower Ansible deployment installs the canonical `gway-remote` CLI launcher from the same immutable MCP runtime, and provisions
 `/var/lib/gway-mcp-exec` as mode 0700 owned by the gateway service and installs
 a systemd unit with only `ReadWritePaths=/var/lib/gway-mcp-exec`.
 It does not issue execution credentials, create relay keys or set
