@@ -18,7 +18,7 @@ from .mcp_link import LinkFlow, RESOURCE, ISSUER, OAUTH_PAGE_STYLE, _connect_err
 
 AUTHORIZE_FIELDS = frozenset({"client_id", "redirect_uri", "resource", "response_type",
                              "code_challenge", "code_challenge_method", "state", "scope"})
-TOKEN_FIELDS = frozenset({"client_id", "code", "redirect_uri", "code_verifier", "grant_type", "resource"})
+TOKEN_FIELDS = frozenset({"client_id", "code", "redirect_uri", "code_verifier", "grant_type", "resource", "refresh_token"})
 REASONS = frozenset({"page", "code", "issued", "discovery", "malformed", "missing_parameter",
                      "invalid_client", "invalid_request", "invalid_scope_or_pkce", "invalid_pkce",
                      "invalid_state", "link_capacity_reached", "expired_session", "session_unavailable", "csrf_denied",
@@ -174,7 +174,7 @@ class Handler(BaseHTTPRequestHandler):
         if path.path == "/.well-known/oauth-authorization-server":
             data = {"issuer": ISSUER, "authorization_endpoint": ISSUER + "/oauth/authorize",
                     "token_endpoint": ISSUER + "/oauth/token", "response_types_supported": ["code"],
-                    "grant_types_supported": ["authorization_code"],
+                    "grant_types_supported": ["authorization_code", "refresh_token"],
                     "code_challenge_methods_supported": ["S256"],
                     "token_endpoint_auth_methods_supported": ["none"],
                     "scopes_supported": ["gway:read", "gway:execute"],
@@ -261,7 +261,17 @@ class Handler(BaseHTTPRequestHandler):
             return self.respond(400, '{"error":"invalid_client"}', "application/json")
         values = oauth_values(params, TOKEN_FIELDS)
         try:
-            payload = self.server.link.redeem(**values)
+            if values.get("grant_type") == "refresh_token":
+                if set(values) != {"client_id", "grant_type", "resource", "refresh_token"}:
+                    raise ValueError("invalid_grant")
+                payload = self.server.link.refresh(**values)
+            elif values.get("grant_type") == "authorization_code":
+                if set(values) != {"client_id", "code", "redirect_uri",
+                                   "code_verifier", "grant_type", "resource"}:
+                    raise ValueError("invalid_grant")
+                payload = self.server.link.redeem(**values)
+            else:
+                raise ValueError("invalid_grant")
         except (TypeError, ValueError) as exc:
             self.audit("token", failure_reason(exc), 400, values)
             return self.respond(400, '{"error":"invalid_grant"}', "application/json")
