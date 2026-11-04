@@ -131,6 +131,36 @@ class WebAuthnLedger:
             db.execute("INSERT INTO credentials VALUES (?, ?, ?, 0, ?, NULL)",
                        (credential_id, principal, public_key, int(self.now())))
 
+    def _verified_credential(self, *, credential_id, principal):
+        """Read a non-revoked credential for the isolated B2 verifier."""
+        credential_id = _check_identifier(credential_id)
+        principal = _check_identifier(principal)
+        with closing(self._connect()) as db:
+            return db.execute(
+                "SELECT public_key,sign_count FROM credentials "
+                "WHERE credential_id=? AND principal=? AND revoked_at IS NULL",
+                (credential_id, principal)).fetchone()
+
+    def _advance_verified_counter(self, *, credential_id, principal, previous, current):
+        """Reject counter rollback or a race with revocation/another assertion.
+
+        Synced passkeys may report 0 throughout; WebAuthn accepts this only if
+        both counters are 0. The per-ceremony intent has already been burned.
+        """
+        credential_id = _check_identifier(credential_id)
+        principal = _check_identifier(principal)
+        if not isinstance(previous, int) or not isinstance(current, int) or (
+            previous != 0 or current != 0) and current <= previous:
+            raise ValueError("sign_counter_regression")
+        with closing(self._connect()) as db, db:
+            db.execute("BEGIN IMMEDIATE")
+            changed = db.execute(
+                "UPDATE credentials SET sign_count=? WHERE credential_id=? "
+                "AND principal=? AND sign_count=? AND revoked_at IS NULL",
+                (current, credential_id, principal, previous)).rowcount
+            if changed != 1:
+                raise ValueError("credential_revoked_or_raced")
+
     def revoke(self, *, credential_id):
         """Internal administrative mutation; caller authentication is B2/C."""
         credential_id = _check_identifier(credential_id)
