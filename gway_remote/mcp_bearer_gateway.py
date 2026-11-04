@@ -20,30 +20,33 @@ ALLOWED_TOOLS = frozenset({"agent_list_issues", "agent_status", "agent_preview",
     "node_exec", "node_result", "node_cancel"})
 
 EXEC_TOOL_NAMES = frozenset({"node_exec", "node_result", "node_cancel"})
+EXEC_SECURITY = {"securitySchemes": [{"type": "oauth2", "scopes": ["gway:execute"]}]}
+READ_SECURITY = {"securitySchemes": [{"type": "oauth2", "scopes": ["gway:read"]}]}
+
 EXEC_TOOLS = (
-    {"name":"node_exec", "description":"Run a command on an eligible node with an authorized execute-scoped connection.",
+    {"name":"node_exec", "_meta": EXEC_SECURITY, "description":"Run a command on an eligible node with an authorized execute-scoped connection.",
      "inputSchema":{"type":"object","properties":{
          "node":{"type":"string"},"command":{"type":"string","maxLength":4096},
          "request_id":{"type":"string","pattern":"^[0-9a-f]{32}$"}},
          "required":["node","command","request_id"],"additionalProperties":False}},
-    {"name":"node_result", "description":"Read the requester's bounded remote job result.",
+    {"name":"node_result", "_meta": EXEC_SECURITY, "description":"Read the requester's bounded remote job result.",
      "inputSchema":{"type":"object","properties":{
          "request_id":{"type":"string"},"cursor":{"type":"integer","minimum":0}},
          "required":["request_id"],"additionalProperties":False}},
-    {"name":"node_cancel", "description":"Cancel the requester's remote job.",
+    {"name":"node_cancel", "_meta": EXEC_SECURITY, "description":"Cancel the requester's remote job.",
      "inputSchema":{"type":"object","properties":{"request_id":{"type":"string"}},
          "required":["request_id"],"additionalProperties":False}},
 )
 
 NODE_TOOLS = (
-    {"name": "node_list", "description": "List active enrolled nodes from Watchtower (read-only; reachability unknown).",
+    {"name": "node_list", "_meta": READ_SECURITY, "description": "List active enrolled nodes from Watchtower (read-only; reachability unknown).",
      "inputSchema": {"type": "object", "properties": {}, "additionalProperties": False},
      "annotations": {"readOnlyHint": True}},
-    {"name": "node_capabilities", "description": "Inspect registration capability for one enrolled node; no command execution.",
+    {"name": "node_capabilities", "_meta": READ_SECURITY, "description": "Inspect registration capability for one enrolled node; no command execution.",
      "inputSchema": {"type": "object", "properties": {"node": {"type": "string"}},
                      "required": ["node"], "additionalProperties": False},
      "annotations": {"readOnlyHint": True}},
-    {"name": "node_exec_preview", "description": "Preview a shell command for an attested node; never executes.",
+    {"name": "node_exec_preview", "_meta": READ_SECURITY, "description": "Preview a shell command for an attested node; never executes.",
      "inputSchema": {"type": "object",
                      "properties": {"node": {"type": "string"}, "command": {"type": "string", "maxLength": 4096}},
                      "required": ["node", "command"], "additionalProperties": False},
@@ -96,10 +99,13 @@ class Handler(BaseHTTPRequestHandler):
     def log_message(self, fmt, *args):
         pass
 
-    def reject(self, status):
+    def reject(self, status, *, scope=None):
         self.send_response(status)
         if status == 401:
-            self.send_header("WWW-Authenticate", 'Bearer resource_metadata="https://remote.arthexis.com/.well-known/oauth-protected-resource/mcp"')
+            challenge = 'Bearer resource_metadata="https://remote.arthexis.com/.well-known/oauth-protected-resource/mcp"'
+            if scope == "gway:execute":
+                challenge += ', scope="gway:execute", error="insufficient_scope"'
+            self.send_header("WWW-Authenticate", challenge)
         self.send_header("Cache-Control", "no-store")
         self.send_header("Content-Length", "0")
         self.end_headers()
@@ -137,7 +143,9 @@ class Handler(BaseHTTPRequestHandler):
         raw = self.rfile.read(length)
         if not inspect_rpc(raw):
             return self.reject(403)
-        if payload_is_exec(raw) and (not has_exec or self.server.execution is None):
+        if payload_is_exec(raw) and not has_exec:
+            return self.reject(401, scope="gway:execute")
+        if payload_is_exec(raw) and self.server.execution is None:
             return self.reject(403)
         # Forward protocol metadata only after parsing the RPC. Never pass
         # arbitrary client-controlled headers to the private backend.
@@ -152,7 +160,9 @@ class Handler(BaseHTTPRequestHandler):
         if payload["method"] == "tools/call" and payload.get("params", {}).get("name") in EXEC_TOOL_NAMES:
             params = payload.get("params", {})
             args = params.get("arguments", {})
-            if self.server.execution is None or not has_exec or type(args) is not dict:
+            if not has_exec:
+                return self.reject(401, scope="gway:execute")
+            if self.server.execution is None or type(args) is not dict:
                 return self.reject(403)
             name = params["name"]
             try:
@@ -258,7 +268,10 @@ class Handler(BaseHTTPRequestHandler):
                         any(type(tool) is not dict or tool.get("name") in
                             ({"node_list", "node_capabilities", "node_exec_preview"} | EXEC_TOOL_NAMES) for tool in tools)):
                     raise ValueError("upstream tool collision")
-                result["tools"] = tools + list(NODE_TOOLS) + (list(EXEC_TOOLS) if self.server.execution is not None else [])
+                scoped_tools = [{**tool, "_meta": {
+                    **tool.get("_meta", {}), **READ_SECURITY
+                }} for tool in tools]
+                result["tools"] = scoped_tools + list(NODE_TOOLS) + (list(EXEC_TOOLS) if self.server.execution is not None else [])
                 body = json.dumps(upstream_payload, separators=(",", ":")).encode()
             except (ValueError, TypeError, KeyError, UnicodeError):
                 return self.reject(502)
