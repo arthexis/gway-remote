@@ -61,5 +61,32 @@ class ExecutorIdentityTests(unittest.TestCase):
                 self.assertEqual(worker.Jobs().path, identity.state_dir("arthe") / "jobs.sqlite3")
 
 
+    def test_missing_bastion_socket_does_not_inherit_untrusted_agent(self):
+        from types import SimpleNamespace
+        account = SimpleNamespace(pw_uid=1234, pw_dir="/home/arthe")
+        with (patch.object(identity.pwd, "getpwnam", return_value=account),
+              patch.object(identity.os, "geteuid", return_value=1234),
+              patch.object(identity.OPERATOR_AGENT, "lstat", side_effect=FileNotFoundError),
+              patch.dict(os.environ, {"SSH_AUTH_SOCK": "/tmp/untrusted-agent"})):
+            env = identity.command_environment("arthe")
+        self.assertNotIn("SSH_AUTH_SOCK", env)
+        self.assertEqual(env["HOME"], "/home/arthe")
+        self.assertIn("/home/arthe/.local/bin", env["PATH"])
+
+    def test_bastion_socket_requires_correct_owner_and_mode(self):
+        from types import SimpleNamespace
+        account = SimpleNamespace(pw_uid=1234, pw_dir="/home/arthe")
+        with (patch.object(identity.pwd, "getpwnam", return_value=account),
+              patch.object(identity.os, "geteuid", return_value=1234)):
+            for owner, mode, authorized in ((1234, stat.S_IFSOCK | 0o600, True),
+                                            (0, stat.S_IFSOCK | 0o600, False),
+                                            (1234, stat.S_IFSOCK | 0o660, False)):
+                with self.subTest(owner=owner, mode=mode):
+                    meta = SimpleNamespace(st_uid=owner, st_mode=mode)
+                    with patch.object(identity.OPERATOR_AGENT, "lstat", return_value=meta):
+                        env = identity.command_environment("arthe")
+                    self.assertEqual("SSH_AUTH_SOCK" in env, authorized)
+
+
 if __name__ == "__main__":
     unittest.main()
