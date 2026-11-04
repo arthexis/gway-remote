@@ -214,7 +214,7 @@ def capabilities(node, path=SNAPSHOT, *, execution_enabled=False):
         raise ValueError("unregistered node")
     return {"node": node, "capabilities": ["inventory"],
             "execute_available": found["execute_available"], "limits": None,
-            "approval_required": True, "reachable": found["reachable"]}
+            "approval_required": False, "reachable": found["reachable"]}
 
 
 def main(argv=None):

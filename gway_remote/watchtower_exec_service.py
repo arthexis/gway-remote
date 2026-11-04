@@ -1,8 +1,4 @@
-"""Root-pinned configuration for opt-in Watchtower execution; operator CLI.
-
-No MCP tool can mint an approval. The operator runs --approve locally using
-the same private execution ledger owner, after reviewing the command.
-"""
+"""Root-pinned opt-in Watchtower execution and local credential issuance."""
 from __future__ import annotations
 import argparse
 import json
@@ -13,7 +9,7 @@ import stat
 
 from . import node_registry_inventory
 from .watchtower_exec_transport import RequestLedger, PinnedNode, SSHTransport, DormantRelay
-from .watchtower_exec_auth import ExecutionApprovals, AuthorizedExecution
+from .watchtower_exec_auth import AuthorizedExecution
 
 CONFIG = Path("/etc/gway-mcp/execute.json")
 
@@ -46,23 +42,14 @@ def load_service(path=CONFIG):
         raise PermissionError("node identity mismatch")
     ledger = RequestLedger()
     relay = DormantRelay(ledger, SSHTransport(node), enabled=True)
-    approvals = ExecutionApprovals(ledger)
-    return AuthorizedExecution(ledger, approvals, relay, enabled=True)
+    return AuthorizedExecution(ledger, None, relay, enabled=True)
 
 
 def main(argv=None):
     parser = argparse.ArgumentParser(description="Operator-only execute token/approval; not an MCP tool")
-    mode = parser.add_mutually_exclusive_group(required=True)
-    mode.add_argument("--approve", action="store_true")
-    mode.add_argument("--issue-execute-token", action="store_true")
-    parser.add_argument("--bearer-database")
+    parser.add_argument("--issue-execute-token", action="store_true", required=True)
+    parser.add_argument("--bearer-database", required=True)
     parser.add_argument("--lifetime", type=int, default=3600)
-    parser.add_argument("--principal", help="24-character execute credential key ID")
-    parser.add_argument("--node", default="gway-001")
-    parser.add_argument("--request-id")
-    parser.add_argument("--command")
-    parser.add_argument("--operator")
-    parser.add_argument("--ttl", type=int, default=90)
     args = parser.parse_args(argv)
     if args.issue_execute_token:
         if not args.bearer_database:
@@ -75,16 +62,6 @@ def main(argv=None):
         # Intentionally printed only once in trusted local console.
         print(token)
         return 0
-    if not all((args.principal,args.request_id,args.command,args.operator)):
-        parser.error("--principal, --request-id, --command, --operator required")
-    service = load_service()
-    issued = service.approvals.issue(
-        principal=args.principal,node=args.node,command=args.command,
-        request_id=args.request_id,
-        host_sha256=service.relay.transport.node.host_key_sha256,
-        issued_by=args.operator,ttl_seconds=args.ttl)
-    print(json.dumps(issued, separators=(",", ":")))
-    return 0
 
 
 if __name__ == "__main__":

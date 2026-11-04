@@ -21,11 +21,11 @@ ALLOWED_TOOLS = frozenset({"agent_list_issues", "agent_status", "agent_preview",
 
 EXEC_TOOL_NAMES = frozenset({"node_exec", "node_result", "node_cancel"})
 EXEC_TOOLS = (
-    {"name":"node_exec", "description":"Run a separately operator-approved command on gway-001.",
+    {"name":"node_exec", "description":"Run a command on an eligible node with an authorized execute-scoped connection.",
      "inputSchema":{"type":"object","properties":{
          "node":{"type":"string"},"command":{"type":"string","maxLength":4096},
-         "request_id":{"type":"string"},"approval":{"type":"string"}},
-         "required":["node","command","request_id","approval"],"additionalProperties":False}},
+         "request_id":{"type":"string","pattern":"^[0-9a-f]{32}$"}},
+         "required":["node","command","request_id"],"additionalProperties":False}},
     {"name":"node_result", "description":"Read the requester's bounded remote job result.",
      "inputSchema":{"type":"object","properties":{
          "request_id":{"type":"string"},"cursor":{"type":"integer","minimum":0}},
@@ -59,7 +59,8 @@ def local_node_result(method, arguments, *, execution=None):
         return node_registry_inventory.capabilities(arguments["node"], execution_enabled=execution is not None)
     if method == "node_exec_preview" and type(arguments) is dict and set(arguments) == {"node", "command"}:
         from .node_exec_contract import preview
-        return preview(arguments["node"], arguments["command"], node_registry_inventory.public_nodes())
+        return preview(arguments["node"], arguments["command"],
+                       node_registry_inventory.public_nodes(execution_enabled=execution is not None))
     raise ValueError("invalid node inventory arguments")
 
 
@@ -154,9 +155,9 @@ class Handler(BaseHTTPRequestHandler):
             if self.server.execution is None or not has_exec or type(args) is not dict:
                 return self.reject(403)
             name = params["name"]
-            principal = token.split("_", 2)[1]
             try:
-                if name == "node_exec" and set(args) == {"node","command","request_id","approval"}:
+                principal = self.server.registry.execution_principal(token)
+                if name == "node_exec" and set(args) == {"node","command","request_id"}:
                     selected = self.server.execution.exec(principal=principal, **args)
                 elif name == "node_result" and set(args).issubset({"request_id","cursor"}) and "request_id" in args:
                     selected = self.server.execution.result(principal=principal, **args)

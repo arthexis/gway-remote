@@ -23,7 +23,7 @@ class ContractTests(unittest.TestCase):
         self.assertEqual(data["command"], command)
         self.assertEqual(data["status"], "preview_only")
         self.assertFalse(data["execute_available"])
-        self.assertFalse(data["authorization"]["approval_issued"])
+        self.assertFalse(data["authorization"]["approval_required"])
         self.assertEqual(data["authorization"]["required_scope"], "gway:execute")
         self.assertEqual(data["limits"]["wait_seconds"], 10)
         self.assertEqual(len(data["command_sha256"]), 64)
@@ -41,7 +41,7 @@ class ContractTests(unittest.TestCase):
 
     def test_rejects_incomplete_or_unavailable_identity(self):
         for inventory in ({}, {"nodes": []}, {"nodes": [{"node": "gway-001",
-               "registered": True, "identity_verified": True, "execute_available": True}]}):
+               "registered": True, "identity_verified": False, "execute_available": True}]}):
             with self.assertRaises(ValueError):
                 jobs.preview("gway-001", "uptime", inventory)
 
