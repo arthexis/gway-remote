@@ -113,13 +113,12 @@
   register: exec_relay_sudo_original
   when: exec_relay_files.results[1].stat.exists | default(false)
 
-- name: Require existing relay to use the previously reviewed forced protocol
-  ansible.builtin.assert:
-    that:
-      - >-
-        (exec_relay_sshd_original.content | b64decode) is search('ForceCommand /usr/bin/sudo -n -u (gway-exec|arthe) /usr/bin/env PYTHONPATH=/opt/gway-remote /usr/bin/python3 -m gway_remote.node_exec_protocol')
-      - >-
-        (exec_relay_sudo_original.content | b64decode) is search('gway-relay ALL=\\((gway-exec|arthe)\\) NOPASSWD: /usr/bin/env PYTHONPATH=/opt/gway-remote /usr/bin/python3 -m gway_remote.node_exec_protocol')
+- name: Verify existing SSH and sudoers relay identities agree before cutover
+  ansible.builtin.command:
+    argv:
+      - /usr/bin/python3
+      - "{{ playbook_dir }}/../scripts/verify-exec-relay-policy.py"
+  changed_when: false
   when: exec_relay_files.results[0].stat.exists | default(false)
 
 - name: Activate selected execution identity and update only existing relay
@@ -177,6 +176,16 @@
             '({{ 'gway-exec' if gway_remote_exec_run_user == 'arthe' else 'arthe' }}) NOPASSWD: /usr/bin/env PYTHONPATH=/opt/gway-remote /usr/bin/python3 -m gway_remote.node_exec_protocol'
             not in exec_relay_sudo_listing.stdout
       when: exec_relay_files.results[1].stat.exists | default(false)
+
+    - name: Verify both live relay policies point to the selected executor
+      ansible.builtin.command:
+        argv:
+          - /usr/bin/python3
+          - "{{ playbook_dir }}/../scripts/verify-exec-relay-policy.py"
+          - --user
+          - "{{ gway_remote_exec_run_user }}"
+      changed_when: false
+      when: exec_relay_files.results[0].stat.exists | default(false)
 
     - name: Validate full sshd configuration after changing the forced command
       ansible.builtin.command:
@@ -241,6 +250,14 @@
         path: /etc/gway-remote/executor-identity.json
         state: absent
       when: not (exec_identity_old.stat.exists | default(false))
+
+    - name: Recheck restored SSH/sudoers identity agreement after rollback
+      ansible.builtin.command:
+        argv:
+          - /usr/bin/python3
+          - "{{ playbook_dir }}/../scripts/verify-exec-relay-policy.py"
+      changed_when: false
+      when: exec_relay_files.results[0].stat.exists | default(false)
 
     - name: Validate SSH after rollback
       ansible.builtin.command:
