@@ -46,8 +46,7 @@ def load_service(path=CONFIG):
         raise PermissionError("node identity mismatch")
     ledger = RequestLedger()
     relay = DormantRelay(ledger, SSHTransport(node), enabled=True)
-    approvals = ExecutionApprovals(ledger)
-    return AuthorizedExecution(ledger, approvals, relay, enabled=True)
+    return AuthorizedExecution(ledger, None, relay, enabled=True)
 
 
 def main(argv=None):
