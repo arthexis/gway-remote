@@ -62,6 +62,12 @@ ROUTES = {
 }
 
 
+# Disabled unless a *trusted local runtime* explicitly injects an issuer.
+# Never accept an issuer path or authorization from the HTTP request.
+ISSUER_PATH = "/v1/bearer/issue"
+ISSUER_FIELDS = frozenset({"principal", "scope", "lifetime", "challenge", "credential"})
+
+
 class AdminHandler(BaseHTTPRequestHandler):
     """Loopback-only HTTP adapter; no public forwarding in this increment."""
 
@@ -94,7 +100,10 @@ class AdminHandler(BaseHTTPRequestHandler):
                 or self.headers.get("Content-Encoding")):
             self._respond(403, {"error": "request_denied"})
             return
-        route = ROUTES.get(self.path)
+        issuer = getattr(self.server, "issuer", None)
+        is_issuance = self.path == ISSUER_PATH
+        route = (("issue", ISSUER_FIELDS) if is_issuance and issuer is not None
+                 else ROUTES.get(self.path))
         if route is None:
             self._respond(404, {"error": "not_found"})
             return
@@ -109,7 +118,8 @@ class AdminHandler(BaseHTTPRequestHandler):
             self._respond(400, {"error": "invalid_request"})
             return
         try:
-            result = getattr(self.server.ceremonies, route[0])(**payload)
+            provider = issuer if is_issuance else self.server.ceremonies
+            result = getattr(provider, route[0])(**payload)
         except Exception:
             # Generic response prevents leaking enrolled principals and keys.
             self._respond(403, {"error": "not_authorized"})
@@ -117,9 +127,10 @@ class AdminHandler(BaseHTTPRequestHandler):
         self._respond(200, result)
 
 
-def serve(ceremonies):
+def serve(ceremonies, *, issuer=None):
     server = ThreadingHTTPServer((LOOPBACK_HOST, LOOPBACK_PORT), AdminHandler)
     server.ceremonies = ceremonies
+    server.issuer = issuer
     server.serve_forever()
 
 
