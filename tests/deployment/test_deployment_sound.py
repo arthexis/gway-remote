@@ -3,6 +3,7 @@ import os
 from pathlib import Path
 import subprocess
 import tempfile
+from datetime import datetime, timedelta, timezone
 import unittest
 from unittest.mock import Mock, patch
 
@@ -43,6 +44,49 @@ class DeploymentSoundTests(unittest.TestCase):
             self.assertEqual(lines[:2], ["ocpp-csms", "verified aaaaaaa"])
             self.assertEqual(len(lines), 3)
             self.assertTrue(all(len(line) <= 16 for line in lines[:2]))
+
+    def test_priority_prevents_regression_and_allows_new_attempt(self):
+        with tempfile.TemporaryDirectory() as directory:
+            db = Path(directory) / "events.db"
+            calls = []
+            with patch.object(DeploymentSound, "_lcd", lambda self, event: calls.append((self.deployment_id, event))):
+                old = DeploymentSound("gway-remote", deployment_id="old", database=db, run=Mock())
+                old("deploy-started")
+                old("deploy-activated")
+                old("deploy-verified")
+                old("deploy-activated")  # lower stage cannot replace verified
+                fresh = DeploymentSound("gway-remote", deployment_id="fresh", database=db, run=Mock())
+                fresh("deploy-started")  # a new attempt can restart at low priority
+                old("rollback-failed")  # late message from an older run must not replace fresh
+                fresh("deploy-skipped")
+            self.assertEqual(calls, [
+                ("old", "deploy-started"), ("old", "deploy-activated"),
+                ("old", "deploy-verified"), ("fresh", "deploy-started"),
+                ("fresh", "deploy-skipped"),
+            ])
+
+    def test_rollback_outcome_overrides_failure(self):
+        with tempfile.TemporaryDirectory() as directory:
+            calls = []
+            with patch.object(DeploymentSound, "_lcd", lambda self, event: calls.append(event)):
+                notifier = DeploymentSound("gway-remote", database=Path(directory) / "db", run=Mock())
+                for event in ("deploy-started", "deploy-activated", "deploy-failed",
+                              "rollback-started", "rollback-verified", "deploy-started"):
+                    notifier(event)
+            self.assertEqual(calls, ["deploy-started", "deploy-activated", "deploy-failed",
+                                     "rollback-started", "rollback-verified"])
+
+    def test_terminal_event_has_longer_lcd_expiry(self):
+        with tempfile.TemporaryDirectory() as directory, patch(
+                "gway_remote.deployment_sound.Path.home", return_value=Path(directory)):
+            notifier = DeploymentSound("gway-remote", database=Path(directory) / "db", run=Mock())
+            path = Path(directory) / ".local/state/lcd-lockfiles/lcd-event-deployment.lck"
+            notifier._lcd("deploy-started")
+            started = datetime.fromisoformat(path.read_text().splitlines()[2])
+            notifier._lcd("deploy-verified")
+            verified = datetime.fromisoformat(path.read_text().splitlines()[2])
+            self.assertGreater((verified - started).total_seconds(), 25)
+            self.assertLess((verified - started).total_seconds(), 35)
 
     def test_success_requires_matching_revision_and_positive_health(self):
         sha = "a" * 40
