@@ -16,7 +16,8 @@ UPSTREAM_TIMEOUT = 30
 ALLOWED_METHODS = frozenset({"server/discover", "initialize", "notifications/initialized", "tools/list", "tools/call"})
 ALLOWED_TOOLS = frozenset({"agent_list_issues", "agent_status", "agent_preview", "agent_observe",
     "github_workflow_runs", "github_workflow_status", "github_workflow_errors",
-    "node_list", "node_capabilities", "node_exec_preview",\n    "node_exec", "node_result", "node_cancel"})
+    "node_list", "node_capabilities", "node_exec_preview",
+    "node_exec", "node_result", "node_cancel"})
 
 EXEC_TOOL_NAMES = frozenset({"node_exec", "node_result", "node_cancel"})
 EXEC_TOOLS = (
