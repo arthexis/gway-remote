@@ -49,7 +49,7 @@ class BearerRegistry:
             raise ValueError("invalid_scope_or_lifetime")
         # Never let existing OAuth/delegation code mint execute credentials.
         # Only an explicit trusted console path may opt in.
-        if scope == "gway:execute" and (operator_approved is not True or parent_id is not None):
+        if scope == "gway:execute" and operator_approved is not True and parent_id is None:
             raise PermissionError("execution scope requires direct operator issuance")
         expires_at = int(time.time()) + lifetime
         if parent_id is not None:
