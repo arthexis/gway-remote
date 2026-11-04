@@ -13,7 +13,7 @@ class OAuthScopeDiscoveryTests(unittest.TestCase):
     def test_protected_resource_matches_authorization_server_scopes(self):
         with ThreadingHTTPServer(("127.0.0.1", 0), Handler) as server:
             # Metadata endpoints do not require an OAuth session or any secrets.
-            server.link = SimpleNamespace()
+            server.link = SimpleNamespace(callback_origin="https://chatgpt.com")
             thread = threading.Thread(target=server.serve_forever, daemon=True)
             thread.start()
             try:
