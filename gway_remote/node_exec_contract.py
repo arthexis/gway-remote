@@ -63,7 +63,7 @@ def preview(node, command, inventory):
         raise ValueError("node is not enrolled")
     row = matches[0]
     if (row.get("registered") is not True or row.get("identity_verified") is not True
-            or row.get("execute_available") is not False):
+            or type(row.get("execute_available")) is not bool):
         raise ValueError("node identity or execution gate unavailable")
     # A preview is information, not a dispatch permit.
     # Its nonce must never be used as an execution request ID.
