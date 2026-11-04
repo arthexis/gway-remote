@@ -116,7 +116,8 @@ class RequestLedger:
             if existing is not None:
                 if (existing["node"] != node or existing["principal"] != principal
                         or existing["host_key_sha256"] != host_key_sha256
-                        or existing["command_sha256"] != identity_digest):
+                        or existing["command_sha256"] != identity_digest
+                        or existing["expires_at"] != expires_at):
                     raise ValueError("request ID reused for different binding")
                 return dict(existing)
             _parse_expiry(expires_at)
