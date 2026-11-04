@@ -7,6 +7,14 @@
       - gway_remote_runner_user not in ['root', 'gway-exec']
       - (getent_passwd[gway_remote_runner_user][4] | length) > 1
 
+- name: Ensure root-owned deploy helper directory exists
+  ansible.builtin.file:
+    path: /usr/local/libexec
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
 - name: Install fixed, operator-executed GWay Remote deployment script
   ansible.builtin.copy:
     src: "{{ playbook_dir }}/../scripts/gway-remote-deploy"
