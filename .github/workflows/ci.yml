@@ -67,3 +67,21 @@ jobs:
           ansible-playbook --syntax-check -i 'wireguard_hub,' ansible/playbooks/adopt-wireguard-peer.yml
           ansible-playbook --syntax-check -i 'watchtower,' ansible/playbooks/watchtower-enrollment.yml
           ansible-playbook --syntax-check -i 'watchtower,' ansible/playbooks/watchtower-enrollment-production.yml
+
+  ssh-config:
+    name: SSH config (Debian 12 + 13)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate generated relay configuration on real Debian OpenSSH
+        run: |
+          set -euo pipefail
+          for release in bookworm trixie; do
+            echo "::group::Debian ${release} sshd -t and sshd -T"
+            docker run --rm --network=bridge \
+              --mount type=bind,src="$PWD",dst=/repo,readonly \
+              --workdir /repo \
+              "debian:${release}" \
+              sh -ec 'apt-get update -qq && DEBIAN_FRONTEND=noninteractive apt-get install -y -qq --no-install-recommends openssh-server python3 python3-yaml >/dev/null && python3 scripts/validate-ssh-relay.py'
+            echo "::endgroup::"
+          done
