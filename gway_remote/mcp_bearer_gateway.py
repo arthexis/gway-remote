@@ -154,7 +154,7 @@ class Handler(BaseHTTPRequestHandler):
             if self.server.execution is None or not has_exec or type(args) is not dict:
                 return self.reject(403)
             name = params["name"]
-            principal = token.split("_", 2)[1]
+            principal = self.server.registry.execution_principal(token)
             try:
                 if name == "node_exec" and set(args) == {"node","command","request_id"}:
                     selected = self.server.execution.exec(principal=principal, **args)
