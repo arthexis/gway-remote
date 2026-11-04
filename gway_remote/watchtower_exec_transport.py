@@ -203,7 +203,7 @@ class PinnedNode:
             raise ValueError("B2b-2 transport restricted to gway-001")
         try:
             address = ipaddress.ip_address(self.wireguard_address)
-            if address.version != 4 or not address.is_private:
+            if address.version != 4 or address not in ipaddress.ip_network("10.0.0.0/8"):
                 raise ValueError
         except (ValueError, TypeError):
             raise ValueError("invalid enrolled WireGuard endpoint") from None
