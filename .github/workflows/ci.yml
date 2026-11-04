@@ -1,8 +1,7 @@
 name: Python checks
+# Validation runs on PRs only. Merges to main are deployment events.
 on:
   pull_request:
-  push:
-    branches: [main]
 
 permissions:
   contents: read
@@ -85,3 +84,26 @@ jobs:
               sh -ec 'apt-get update -qq && DEBIAN_FRONTEND=noninteractive apt-get install -y -qq --no-install-recommends openssh-server python3 python3-yaml >/dev/null && python3 scripts/validate-ssh-relay.py'
             echo "::endgroup::"
           done
+
+  ci:
+    name: CI
+    if: always()
+    needs: [unit, validation, ansible-core-2-12, ssh-config]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Require all pull request checks
+        env:
+          NEEDS_JSON: ${{ toJSON(needs) }}
+        run: |
+          python3 - <<'PY'
+          import json
+          import os
+          import sys
+          jobs = json.loads(os.environ["NEEDS_JSON"])
+          failures = {name: result["result"] for name, result in jobs.items()
+                      if result["result"] != "success"}
+          if failures:
+              print("PR validation failed or did not run:", failures)
+              sys.exit(1)
+          print("All PR validation jobs passed.")
+          PY
