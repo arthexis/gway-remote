@@ -129,7 +129,7 @@ class BearerVerifier:
         self.path = Path(path)
 
     def verify(self, credential, *, required_scope="gway:read"):
-        if required_scope != "gway:read" or not isinstance(credential, str):
+        if required_scope not in SCOPES or not isinstance(credential, str):
             return False
         parts = credential.split("_", 2)
         if len(parts) != 3 or parts[0] != "gwr" or len(parts[1]) != 24:
