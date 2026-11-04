@@ -79,7 +79,8 @@ class ApprovalTests(unittest.TestCase):
     def test_reject_all_modified_fields_before_consuming(self):
         args=({"principal":"d"*24},{"node":"gway-002"},{"command":"id"},
               {"request_id":"e"*32},{"host_sha256":"f"*64})
-        for change in args:
+        for index, change in enumerate(args):
+            self.id = format(index + 1, '032x')
             with self.subTest(change=change):
                 token=self.issue()["approval"]
                 with self.assertRaises(PermissionError):
