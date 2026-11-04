@@ -66,7 +66,7 @@ class ExecutorIdentityTests(unittest.TestCase):
         account = SimpleNamespace(pw_uid=1234, pw_dir="/home/arthe")
         with (patch.object(identity.pwd, "getpwnam", return_value=account),
               patch.object(identity.os, "geteuid", return_value=1234),
-              patch.object(identity.OPERATOR_AGENT, "lstat", side_effect=FileNotFoundError),
+              patch.object(Path, "lstat", autospec=True, side_effect=FileNotFoundError),
               patch.dict(os.environ, {"SSH_AUTH_SOCK": "/tmp/untrusted-agent"})):
             env = identity.command_environment("arthe")
         self.assertNotIn("SSH_AUTH_SOCK", env)
@@ -83,7 +83,7 @@ class ExecutorIdentityTests(unittest.TestCase):
                                             (1234, stat.S_IFSOCK | 0o660, False)):
                 with self.subTest(owner=owner, mode=mode):
                     meta = SimpleNamespace(st_uid=owner, st_mode=mode)
-                    with patch.object(identity.OPERATOR_AGENT, "lstat", return_value=meta):
+                    with patch.object(Path, "lstat", autospec=True, return_value=meta):
                         env = identity.command_environment("arthe")
                     self.assertEqual("SSH_AUTH_SOCK" in env, authorized)
 
