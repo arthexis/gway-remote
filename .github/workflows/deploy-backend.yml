@@ -73,3 +73,51 @@ jobs:
         env:
           TARGET_SHA: ${{ github.sha }}
         run: echo "Processed GWay Remote deployment for $TARGET_SHA on gway-001" >> "$GITHUB_STEP_SUMMARY"
+
+  watchtower:
+    name: Deploy Watchtower MCP
+    # Keep the one trusted ARM64 runner as the dispatch origin. The existing
+    # pinned operator SSH route is the only remote hop; no new runner or secret.
+    # Attempt Watchtower even if the gway-001 deployment failed.
+    needs: deploy
+    if: ${{ always() && github.repository == 'arthexis/gway-remote' && github.ref == 'refs/heads/main' }}
+    runs-on: [self-hosted, Linux, ARM64, gway-001]
+    timeout-minutes: 20
+    steps:
+      - name: Reject superseded main revision
+        id: revision
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TARGET_SHA: ${{ github.sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          CURRENT_SHA="$(gh api repos/arthexis/gway-remote/branches/main --jq '.commit.sha')"
+          if [[ "$TARGET_SHA" != "$CURRENT_SHA" ]]; then
+            echo "::notice::Skipping superseded Watchtower revision $TARGET_SHA"
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          fi
+      - uses: actions/checkout@v4
+        if: steps.revision.outputs.skip != 'true'
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Converge reviewed Watchtower MCP release over existing operator SSH
+        if: steps.revision.outputs.skip != 'true'
+        env:
+          TARGET_SHA: ${{ github.sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -f scripts/watchtower-auto-deploy.sh
+          # Never forward a GH token, OAuth bearer, arbitrary shell command,
+          # unreviewed path, or user-supplied target to Watchtower.
+          ssh -T -o BatchMode=yes -o StrictHostKeyChecking=yes \
+            -o ConnectTimeout=8 -o ServerAliveInterval=20 \
+            -o ServerAliveCountMax=2 gelectriic.com \
+            "sh -s -- $TARGET_SHA" < scripts/watchtower-auto-deploy.sh
+      - name: Watchtower deployment summary
+        if: steps.revision.outputs.skip != 'true'
+        env:
+          TARGET_SHA: ${{ github.sha }}
+        run: echo "Converged Watchtower MCP release $TARGET_SHA through existing Ansible rollback path" >> "$GITHUB_STEP_SUMMARY"
