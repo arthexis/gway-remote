@@ -11,7 +11,7 @@ import sqlite3
 import time
 from pathlib import Path
 
-SCOPES = frozenset({"gway:read"})
+SCOPES = frozenset({"gway:read", "gway:execute"})
 TOKEN_PREFIX = "gwr_"
 DEFAULT_LIFETIME = 30 * 86400
 
@@ -44,10 +44,10 @@ class BearerRegistry:
             raise
         return con
 
-    def issue(self, *, scope="gway:read", lifetime=DEFAULT_LIFETIME, parent_id=None):
+    def issue(self, *, scope="gway:read", lifetime=DEFAULT_LIFETIME, parent_id=None, operator_approved=False):
         if scope not in SCOPES or not isinstance(lifetime, int) or not 60 <= lifetime <= 90 * 86400:
             raise ValueError("invalid_scope_or_lifetime")
-        expires_at = int(time.time()) + lifetime
+        # Never let existing OAuth/delegation code mint execute credentials.\n        # Only an explicit trusted console path may opt in.\n        if scope == "gway:execute" and (operator_approved is not True or parent_id is not None):\n            raise PermissionError("execution scope requires direct operator issuance")\n        expires_at = int(time.time()) + lifetime
         if parent_id is not None:
             parent = _lookup(self.path, parent_id)
             if not parent or parent[3] is not None or parent[2] <= int(time.time()) or parent[1] != scope:
