@@ -262,7 +262,8 @@ class Handler(BaseHTTPRequestHandler):
         values = oauth_values(params, TOKEN_FIELDS)
         try:
             if values.get("grant_type") == "refresh_token":
-                if set(values) != {"client_id", "grant_type", "resource", "refresh_token"}:
+                if set(values) not in ({"client_id", "grant_type", "refresh_token"},
+                                       {"client_id", "grant_type", "resource", "refresh_token"}):
                     raise ValueError("invalid_grant")
                 payload = self.server.link.refresh(**values)
             elif values.get("grant_type") == "authorization_code":
