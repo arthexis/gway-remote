@@ -34,6 +34,7 @@ class UserBusTests(unittest.TestCase):
         with (patch.object(worker.os, "geteuid", return_value=uid),
               patch.object(worker.pwd, "getpwnam", return_value=user),
               patch.object(worker.pwd, "getpwuid", return_value=user),
+              patch.object(worker, "selected_user", return_value="gway-exec"),
               patch.object(Path, "lstat", side_effect=[directory, bus]),
               patch.dict(os.environ, {"XDG_RUNTIME_DIR": "/tmp/attacker",
                                       "DBUS_SESSION_BUS_ADDRESS": "unix:path=/tmp/attacker/bus"})):
@@ -51,6 +52,7 @@ class UserBusTests(unittest.TestCase):
         with (patch.object(worker.os, "geteuid", return_value=uid),
               patch.object(worker.pwd, "getpwnam", return_value=user),
               patch.object(worker.pwd, "getpwuid", return_value=user),
+              patch.object(worker, "selected_user", return_value="gway-exec"),
               patch.object(Path, "lstat", side_effect=[directory, bus])):
             with self.assertRaisesRegex(RuntimeError, "user manager unavailable"):
                 worker.user_manager_env()
