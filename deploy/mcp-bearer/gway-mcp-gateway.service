@@ -20,5 +20,6 @@ ProtectHome=true
 PrivateTmp=true
 CapabilityBoundingSet=
 ReadOnlyPaths=/var/lib/gway-mcp-auth
+ReadWritePaths=/var/lib/gway-mcp-exec
 [Install]
 WantedBy=multi-user.target
