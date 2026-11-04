@@ -46,7 +46,7 @@ def require_account(user=ACCOUNT):
 
 def configured_max_active(path=EXECUTOR_CONFIG):
     """Use detected core count by default, with a safe root-controlled override."""
-    detected = min(MAX_ACTIVE_CEILING, max(1, os.cpu_count() or 1))
+    detected = min(MAX_ACTIVE_CEILING, max(1, (os.cpu_count() or 1) - 1))
     path = Path(path)
     try:
         info = path.lstat()
