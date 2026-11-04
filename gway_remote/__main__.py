@@ -405,7 +405,7 @@ def main() -> None:
                 print(json.dumps({"revoked": ledger.revoke_bootstrap(args.session_id)}, sort_keys=True))
             else:
                 if args.session_id or not DEVICE.fullmatch(args.target):
-                    parser.error("register requires exactly one valid gway-NNN node")
+                    parser.error("register requires exactly one valid node identifier")
                 url = ledger.register(args.target, minutes=args.minutes,
                                       public_url=settings["public_url"],
                                       repair_host_identity=args.repair_host_identity, replace=args.replace)["url"]
