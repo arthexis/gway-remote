@@ -190,7 +190,7 @@ class NodeProtocolTests(unittest.TestCase):
             self.assertEqual(serve_one(raw,jobs=jobs,hostname="gway-001")["status"],"accepted")
             self.assertEqual(len(jobs.calls),1)
             with self.assertRaises(ValueError):
-                serve_one(raw[:-1]+b'',"",hostname="gway-001")
+                serve_one(raw[:-1],jobs=jobs,hostname="gway-001")
             with self.assertRaises(PermissionError):
                 serve_one(raw,jobs=jobs,hostname="gway-002")
             malicious=json.dumps({"operation":"submit","node":"gway-001",
