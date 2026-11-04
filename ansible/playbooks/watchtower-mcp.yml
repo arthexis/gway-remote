@@ -235,12 +235,37 @@
             daemon_reload: true
           when: mcp_unit_update.changed
 
+        - name: Provision isolated private MCP execution state (no activation)
+          become: true
+          ansible.builtin.file:
+            path: /var/lib/gway-mcp-exec
+            state: directory
+            owner: gway-mcp-gateway
+            group: gway-mcp-read
+            mode: '0700'
+
+        - name: Install narrowly writable MCP gateway systemd unit
+          become: true
+          ansible.builtin.copy:
+            src: "{{ mcp_source }}/deploy/mcp-bearer/gway-mcp-gateway.service"
+            dest: /etc/systemd/system/gway-mcp-gateway.service
+            owner: root
+            group: root
+            mode: '0644'
+          register: mcp_exec_gateway_unit
+
+        - name: Reload systemd when MCP gateway unit changed
+          become: true
+          ansible.builtin.systemd:
+            daemon_reload: true
+          when: mcp_exec_gateway_unit.changed
+
         - name: Restart the dedicated MCP gateway for new protocol code
           become: true
           ansible.builtin.systemd:
             name: gway-mcp-gateway.service
             state: restarted
-          when: mcp_gateway_activation_needed | bool
+          when: mcp_gateway_activation_needed | bool or mcp_exec_gateway_unit.changed
 
         - name: Verify gateway is reachable only on its existing loopback listener
           ansible.builtin.uri:
