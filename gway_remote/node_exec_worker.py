@@ -26,6 +26,9 @@ ACCOUNT = "gway-exec"
 DEFAULT_STATE = Path("/var/lib/gway-exec/jobs.sqlite3")
 MAX_OUTPUT = DEFAULT_LIMITS["max_output_bytes"]
 MAX_ACTIVE = DEFAULT_LIMITS["concurrent_jobs_per_node"]
+# Fixed cap protects memory on large hosts; configurable per-node below.
+MAX_ACTIVE_CEILING = 8
+EXECUTOR_CONFIG = Path("/etc/gway-remote/executor.json")
 MAX_HISTORY = 256
 RETENTION_DAYS = 7
 JOB_TIMEOUT = DEFAULT_LIMITS["job_timeout_seconds"]
@@ -41,6 +44,36 @@ def require_account(user=ACCOUNT):
         raise PermissionError("executor must run as dedicated gway-exec user")
 
 
+def configured_max_active(path=EXECUTOR_CONFIG):
+    """Use detected core count by default, with a safe root-controlled override."""
+    detected = min(MAX_ACTIVE_CEILING, max(1, (os.cpu_count() or 1) - 1))
+    path = Path(path)
+    try:
+        info = path.lstat()
+    except FileNotFoundError:
+        return detected
+    if (not stat.S_ISREG(info.st_mode) or info.st_uid != 0
+            or info.st_mode & 0o022):
+        raise PermissionError("unsafe executor configuration")
+    with path.open(encoding="utf-8") as stream:
+        config = json.load(stream)
+    if type(config) is not dict or set(config) != {"max_active"}:
+        raise ValueError("invalid executor configuration")
+    value = config["max_active"]
+    if value == "auto":
+        return detected
+    if type(value) is not int or not 1 <= value <= MAX_ACTIVE_CEILING:
+        raise ValueError("invalid executor concurrency")
+    return value
+
+
+def validate_request_id(request_id):
+    if (type(request_id) is not str or len(request_id) != 32
+            or any(c not in "0123456789abcdef" for c in request_id)):
+        raise ValueError("invalid request ID")
+    return request_id
+
+
 def unit_name(job_id):
     if len(job_id) != 32 or not all(c in "0123456789abcdef" for c in job_id):
         raise ValueError("invalid job ID")
@@ -48,8 +81,13 @@ def unit_name(job_id):
 
 
 class Jobs:
-    def __init__(self, path=DEFAULT_STATE):
+    def __init__(self, path=DEFAULT_STATE, *, max_active=None):
         self.path = Path(path)
+        if max_active is None:
+            max_active = configured_max_active()
+        if type(max_active) is not int or not 1 <= max_active <= MAX_ACTIVE_CEILING:
+            raise ValueError("invalid executor concurrency")
+        self.max_active = max_active
         self._validate_dir()
 
     def _validate_dir(self):
@@ -86,13 +124,20 @@ class Jobs:
         finally:
             db.close()
 
-    def submit(self, node, command, *, execute=subprocess.run, python=sys.executable):
+    def submit(self, node, command, *, request_id=None, execute=subprocess.run, python=sys.executable):
         validate_command(node, command)
         # Avoid fallback to root, system manager or a shell on the submitting host.
         require_account()
-        job_id = secrets.token_hex(16)
+        # The upstream relay owns a stable request ID across retries. Reusing
+        # it with different command bytes/node is an error, never another job.
+        job_id = validate_request_id(request_id) if request_id is not None else secrets.token_hex(16)
         with self.connection() as db:
             db.execute("BEGIN IMMEDIATE")
+            existing = db.execute("SELECT node, command FROM jobs WHERE id=?", (job_id,)).fetchone()
+            if existing is not None:
+                if existing["node"] != node or existing["command"] != command:
+                    raise ValueError("request ID conflict")
+                return job_id
             # Bound persistent metadata as well as each job's output spool.
             db.execute("DELETE FROM jobs WHERE status NOT IN ('queued','running') "
                        "AND created_at < ?",
@@ -100,8 +145,10 @@ class Jobs:
             count = db.execute("SELECT count(*) FROM jobs").fetchone()[0]
             if count >= MAX_HISTORY:
                 raise RuntimeError("job history capacity exceeded")
+            # One local DB belongs to one executor appliance. Count globally
+            # so changing a caller-supplied node string cannot bypass the cap.
             active = db.execute("SELECT count(*) FROM jobs WHERE status IN ('queued','running')").fetchone()[0]
-            if active >= MAX_ACTIVE:
+            if active >= self.max_active:
                 raise RuntimeError("executor busy")
             db.execute("INSERT INTO jobs (id,node,command,status,created_at) VALUES (?,?,?,?,?)",
                        (job_id, node, command, "queued", utcnow()))

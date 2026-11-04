@@ -32,6 +32,27 @@
     group: root
     mode: "0755"
 
+# B2b-1: CPU-count default (max 8) or root-configured bounded override.
+- name: Validate optional bounded executor concurrency override
+  ansible.builtin.assert:
+    that:
+      - (gway_remote_exec_max_active | type_debug) == 'int'
+      - gway_remote_exec_max_active >= 1
+      - gway_remote_exec_max_active <= 8
+  when:
+    - (ansible_hostname | default('')) is match('^gway-[0-9]+$')
+    - gway_remote_exec_max_active is defined
+
+- name: Install root-controlled executor concurrency policy
+  ansible.builtin.copy:
+    dest: /etc/gway-remote/executor.json
+    owner: root
+    group: root
+    mode: "0644"
+    content: |
+      {"max_active": {{ gway_remote_exec_max_active | default('auto') | to_json }}}
+  when: (ansible_hostname | default('')) is match('^gway-[0-9]+$')
+
 - name: Install canonical deployment policy inventory
   ansible.builtin.copy:
     src: "{{ playbook_dir }}/inventory/deployment.yml"

@@ -57,7 +57,8 @@ class JobTests(unittest.TestCase):
             row = db.execute("SELECT status FROM jobs").fetchone()
         self.assertEqual(row[0], "failed")
 
-    def test_no_second_concurrent_job(self):
+    def test_no_second_concurrent_job_with_one_slot_policy(self):
+        self.store.max_active = 1  # Explicit old-policy regression, auto is CPU-based.
         self.submit("sleep 10")
         with self.assertRaisesRegex(RuntimeError, "busy"):
             self.submit("echo another")
