@@ -71,6 +71,17 @@ class AdminWebAuthnTests(unittest.TestCase):
                 credential=self.fido.registration(pending["challenge"]))
         self.assertEqual(self.ledger.credential_metadata(principal="admin"), [])
 
+    def test_enrollment_ticket_expires_before_completion(self):
+        grant = self.ledger.create_enrollment_grant(principal="admin")
+        pending = self.admin.enrollment_begin(principal="admin", grant=grant)
+        self.now[0] = pending["expires_at"]
+        with self.assertRaises(ValueError):
+            self.admin.enrollment_complete(
+                principal="admin", challenge=pending["challenge"],
+                ticket=pending["ticket"],
+                credential=self.fido.registration(pending["challenge"]))
+        self.assertEqual(self.ledger.credential_metadata(principal="admin"), [])
+
     def test_bad_attestation_burns_enrollment_once(self):
         grant = self.ledger.create_enrollment_grant(principal="admin")
         pending = self.admin.enrollment_begin(principal="admin", grant=grant)
