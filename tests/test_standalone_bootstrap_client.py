@@ -39,3 +39,21 @@ def test_standalone_validator_rejects_invalid_keys():
                 "ssh-ed25519 " + base64.b64encode(b"invalid").decode()):
         with pytest.raises(ValueError):
             _validate_ssh_host_public_key(key)
+
+
+def test_standalone_bootstrap_accepts_named_satellite_ids(tmp_path):
+    """The downloaded client runs outside the installed package."""
+    script = tmp_path / "client.py"
+    script.write_bytes(CLIENT.read_bytes())
+    code = (
+        "import importlib.util, sys; "
+        "spec=importlib.util.spec_from_file_location('client',sys.argv[1]); "
+        "module=importlib.util.module_from_spec(spec); spec.loader.exec_module(module); "
+        "names=('ocpp-abb-1', 'gway-001', 'gway-1000'); "
+        "invalid=('ocpp_abb_1', 'OCPP-ABB-1', '../escape', 'gway-01'); "
+        "assert all(module.DEVICE_RE.fullmatch(n) for n in names); "
+        "assert all(not module.DEVICE_RE.fullmatch(n) for n in invalid)"
+    )
+    result = subprocess.run([sys.executable, "-I", "-c", code, str(script)],
+                            text=True, capture_output=True, cwd=tmp_path)
+    assert result.returncode == 0, result.stderr
