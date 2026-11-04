@@ -124,6 +124,13 @@ python3 scripts/mcp-bearer.py issue --scope gway:execute --days 30
 ```
 
 This is an intentional operator permission grant, not a per-command token.
+Both the OAuth authorization-server metadata and MCP protected-resource metadata
+advertise `gway:read` and `gway:execute`, while the authorization request
+still defaults to `gway:read` if the client omits scope. To execute from ChatGPT,
+the client **must request `gway:execute`** and the operator must link using an
+execute-scoped proof; reconnecting an existing read-only proof does not elevate
+its scope. Merely refreshing the plugin's tool schema does not change the
+credential scope.
 Protect the resulting secret and enter it only in the existing browser-link
 page on `remote.arthexis.com`. The OAuth client must request
 `gway:execute`. A read-only proof cannot authorize that scope.

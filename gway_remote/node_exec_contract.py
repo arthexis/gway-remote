@@ -80,7 +80,7 @@ def preview(node, command, inventory):
         "authorization": {"required_scope": "gway:execute",
                           "approval_required": False},
         "status": "preview_only",
-        "execute_available": bool(row.get("execute_eligible", False) and row.get("reachable") == "reachable"),
+        "execute_available": row["execute_available"],
     }
 
 

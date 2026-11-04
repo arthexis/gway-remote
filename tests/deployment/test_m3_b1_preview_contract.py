@@ -29,6 +29,19 @@ class ContractTests(unittest.TestCase):
         self.assertEqual(len(data["command_sha256"]), 64)
         self.assertNotIn("address", data)
 
+    def test_preview_matches_capabilities_when_execution_enabled(self):
+        enabled = {"nodes": [
+            {"node": "gway-001", "registered": True, "identity_verified": True,
+             "execute_available": True, "reachable": "reachable"},
+        ]}
+        result = jobs.preview("gway-001", "hostname", enabled)
+        self.assertTrue(result["execute_available"])
+        self.assertEqual(result["status"], "preview_only")
+        self.assertFalse(result["authorization"]["approval_required"])
+
+        disabled = {"nodes": [{**enabled["nodes"][0], "execute_available": False}]}
+        self.assertFalse(jobs.preview("gway-001", "hostname", disabled)["execute_available"])
+
     def test_invalid_target_or_shell_rejected(self):
         for node in ("../../tmp", "watchtower", "gway-002", "gway-999"):
             with self.subTest(node=node), self.assertRaises(ValueError):
