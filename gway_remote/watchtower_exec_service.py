@@ -50,15 +50,32 @@ def load_service(path=CONFIG):
 
 
 def main(argv=None):
-    parser = argparse.ArgumentParser(description="Local-only execution approval, not an MCP tool")
-    parser.add_argument("--approve", action="store_true", required=True)
-    parser.add_argument("--principal", required=True, help="24-character execute credential key ID")
+    parser = argparse.ArgumentParser(description="Operator-only execute token/approval; not an MCP tool")
+    mode = parser.add_mutually_exclusive_group(required=True)
+    mode.add_argument("--approve", action="store_true")
+    mode.add_argument("--issue-execute-token", action="store_true")
+    parser.add_argument("--bearer-database")
+    parser.add_argument("--lifetime", type=int, default=3600)
+    parser.add_argument("--principal", help="24-character execute credential key ID")
     parser.add_argument("--node", default="gway-001")
-    parser.add_argument("--request-id", required=True)
-    parser.add_argument("--command", required=True)
-    parser.add_argument("--operator", required=True)
+    parser.add_argument("--request-id")
+    parser.add_argument("--command")
+    parser.add_argument("--operator")
     parser.add_argument("--ttl", type=int, default=90)
     args = parser.parse_args(argv)
+    if args.issue_execute_token:
+        if not args.bearer_database:
+            parser.error("--bearer-database required to issue an execute token")
+        from .mcp_bearer import BearerRegistry
+        if not 60 <= args.lifetime <= 3600:
+            parser.error("execute token lifetime must be 60..3600 seconds")
+        token = BearerRegistry(args.bearer_database).issue(
+            scope="gway:execute",lifetime=args.lifetime,operator_approved=True)
+        # Intentionally printed only once in trusted local console.
+        print(token)
+        return 0
+    if not all((args.principal,args.request_id,args.command,args.operator)):
+        parser.error("--principal, --request-id, --command, --operator required")
     service = load_service()
     issued = service.approvals.issue(
         principal=args.principal,node=args.node,command=args.command,
