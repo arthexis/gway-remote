@@ -241,6 +241,15 @@
             daemon_reload: true
           when: mcp_unit_update.changed
 
+        - name: Install canonical Watchtower gway-remote CLI
+          become: true
+          ansible.builtin.copy:
+            src: "{{ mcp_source }}/deploy/mcp-bearer/gway-remote-watchtower-cli"
+            dest: /usr/local/bin/gway-remote
+            owner: root
+            group: root
+            mode: '0755'
+
         - name: Provision isolated private MCP execution state (no activation)
           become: true
           ansible.builtin.file:
