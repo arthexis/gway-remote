@@ -21,8 +21,10 @@ import sys
 import time
 
 from .node_exec_contract import DEFAULT_LIMITS, validate_command, validate_transition
+from .node_exec_identity import (DEFAULT_USER, COMMON_PATH, OPERATOR_PATH,
+                                 command_environment, selected_user, state_dir)
 
-ACCOUNT = "gway-exec"
+ACCOUNT = DEFAULT_USER
 DEFAULT_STATE = Path("/var/lib/gway-exec/jobs.sqlite3")
 MAX_OUTPUT = DEFAULT_LIMITS["max_output_bytes"]
 MAX_ACTIVE = DEFAULT_LIMITS["concurrent_jobs_per_node"]
@@ -38,10 +40,13 @@ def utcnow():
     return datetime.now(timezone.utc).isoformat()
 
 
-def require_account(user=ACCOUNT):
-    """Do not expose a privileged local command broker."""
-    if os.geteuid() != pwd.getpwnam(user).pw_uid:
-        raise PermissionError("executor must run as dedicated gway-exec user")
+def require_account(user=None):
+    """Only the root-configured per-node account may run the protocol."""
+    chosen = selected_user()
+    if user is not None and user != chosen:
+        raise PermissionError("executor identity mismatch")
+    if os.geteuid() != pwd.getpwnam(chosen).pw_uid:
+        raise PermissionError("executor effective user mismatch")
 
 
 def user_manager_env():
@@ -60,7 +65,7 @@ def user_manager_env():
             or not stat.S_ISSOCK(bus.st_mode) or bus.st_uid != uid):
         raise RuntimeError("executor user manager unavailable")
     return {
-        "PATH": "/usr/local/libexec/gway-remote-tools:/usr/local/bin:/usr/bin:/bin",
+        "PATH": OPERATOR_PATH if account.pw_name == "arthe" else COMMON_PATH,
         "HOME": account.pw_dir,
         "USER": account.pw_name,
         "LOGNAME": account.pw_name,
@@ -124,8 +129,8 @@ def unit_name(job_id):
 
 
 class Jobs:
-    def __init__(self, path=DEFAULT_STATE, *, max_active=None):
-        self.path = Path(path)
+    def __init__(self, path=None, *, max_active=None):
+        self.path = Path(path if path is not None else state_dir(selected_user()))
         if max_active is None:
             max_active = configured_max_active()
         if type(max_active) is not int or not 1 <= max_active <= MAX_ACTIVE_CEILING:
@@ -202,7 +207,7 @@ class Jobs:
         # context. Use the Ansible-owned package tree, never a writable job dir.
         argv = ["systemd-run", "--user", "--collect",
                 "--setenv=PYTHONPATH=/opt/gway-remote",
-                "--working-directory=/var/lib/gway-exec",
+                "--working-directory=" + str(self.path.parent),
                 "--unit=" + unit_name(job_id),
                 "--property=MemoryMax=" + str(DEFAULT_LIMITS["memory_max_bytes"]),
                 "--property=TasksMax=" + str(DEFAULT_LIMITS["tasks_max"]),
@@ -322,9 +327,7 @@ def worker(database, job_id):
         process = subprocess.Popen(["/bin/sh", "-c", row["command"]],
                                    stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
                                    stderr=subprocess.STDOUT, start_new_session=True,
-                                   env={"PATH": "/usr/local/libexec/gway-remote-tools:/usr/local/bin:/usr/bin:/bin",
-                                        "HOME": str(pwd.getpwuid(os.geteuid()).pw_dir),
-                                        "LANG": "C.UTF-8"})
+                                   env=command_environment(pwd.getpwuid(os.geteuid()).pw_name))
     except OSError:
         with jobs.connection() as db:
             db.execute("UPDATE jobs SET status='failed', finished_at=? WHERE id=? AND status='running'",
@@ -384,8 +387,8 @@ def worker(database, job_id):
 
 
 def main():
-    p = argparse.ArgumentParser(description="Local-only gway-exec worker; no MCP endpoint")
-    p.add_argument("--database", default=str(DEFAULT_STATE))
+    p = argparse.ArgumentParser(description="Local-only configured-user worker; no MCP endpoint")
+    p.add_argument("--database", default=None)
     group = p.add_mutually_exclusive_group(required=True)
     group.add_argument("--run")
     group.add_argument("--status")
