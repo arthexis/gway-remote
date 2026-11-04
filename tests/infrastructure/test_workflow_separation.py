@@ -13,7 +13,8 @@ class WorkflowSeparationTests(unittest.TestCase):
         self.assertIn("on:\n  pull_request:\n", text)
         self.assertNotIn("  push:\n    branches: [main]", text)
         self.assertIn("name: CI", text)
-        self.assertIn("needs: [unit, validation, ansible-core-2-12, ssh-config]", text)
+        self.assertIn("needs: [unit, webauthn-python310, validation, ansible-core-2-12, ssh-config]", text)
+        self.assertIn("webauthn-python310:", text)
         self.assertIn('result["result"] != "success"', text)
 
     def test_deployment_runs_on_main_push_not_ci_completion(self):
