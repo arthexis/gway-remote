@@ -7,16 +7,14 @@ inventory/preview MCP tools remain available with `gway:read`.
 ## Security boundaries
 
 1. `gway:execute` bearer credentials are distinct from read-only credentials.
-   The verifier checks scope on every execution call. Existing OAuth/delegation
-   routes cannot mint execute credentials: issue requires the explicit
-   `operator_approved=True` flag in the trusted local registry interface,
-   and execute delegation is disabled.
-2. No API issues approvals. An operator with local access to the private
-   Watchtower ledger issues a short-lived, single-use approval bound to the
-   24-hex verified execute credential ID, gway-001, precise UTF-8 command,
-   32-hex request ID, pinned SSH host public key fingerprint, and expiry.
-   Approvals are consumed atomically. Result and cancellation require the
-   same authenticated credential ID as the original request.
+   An operator creates a scoped console proof once; the browser OAuth link derives
+   access tokens only with the **same** scope and inherited expiry/revocation.
+   The gateway checks `gway:execute` on every execution/result/cancel call.
+2. No per-command Watchtower approval is necessary. Execution requires a valid
+   execute-scoped connection, enabled gateway, current centrally granted
+   eligibility, verified pinned identity and unique 32-hex request ID.
+   Results and cancellation are owned by the stable parent proof identity
+   across OAuth reconnects. Durable request claims prevent duplicate dispatch.
 3. The fixed node protocol executes as `gway-exec`. A separate locked
    `gway-relay` SSH account is configured with ForceCommand, disabled
    password/keyboard login, no PTY or forwarding, and an exact sudoers command
@@ -115,36 +113,36 @@ deploying this PR does *not* set this environment variable or create keys.
 With the flag unset, `node_exec`, `node_result`, `node_cancel` are not
 advertised and cannot run.
 
-## Approval and use
+## One-time operator authorization and browser link
 
-For initial acceptance, issue a bounded execute bearer through the local
-operator-managed credential registry; do not add scope issuance to the public
-OAuth flows until authorization policy has been reviewed. Identify the
-credential's 24-character key ID from the token's middle segment.
-
-Issue the short-lived execute bearer **as the existing BearerRegistry database owner**, not necessarily the gateway service UID. On the field Watchtower the gateway UID cannot write the owner-controlled bearer database (`PermissionError`). Determine the owner of the actual configured registry database and use that trusted local account, without changing its ownership, chmod, group access or public OAuth scope. Substitute the real database path and owner in the following command:
+Create a long-lived, revocable **execute-scoped** console bearer using the
+existing bearer-registry owner and the configured registry database. The
+standard console CLI supports:
 
 ```sh
-sudo -u <bearer-registry-owner> /usr/bin/env PYTHONPATH=/opt/gway-mcp/current \
-  /usr/bin/python3 -m gway_remote.watchtower_exec_service \
-  --issue-execute-token --bearer-database /PATH/TO/EXISTING/BearerRegistry.sqlite3 \
-  --lifetime 3600
+python3 scripts/mcp-bearer.py issue --scope gway:execute --days 30
 ```
 
-Store the returned secret securely. The OAuth web consent flow deliberately cannot issue this token. Then run the local operator approval command:
+This is an intentional operator permission grant, not a per-command token.
+Protect the resulting secret and enter it only in the existing browser-link
+page on `remote.arthexis.com`. The OAuth client must request
+`gway:execute`. A read-only proof cannot authorize that scope.
+Current OAuth access tokens last at most one hour, and reconnecting creates
+a fresh access credential derived from the same operator proof; it does not
+require a Watchtower console action for each command. Expiration/revocation
+of the parent invalidates all descendants. OAuth refresh tokens are not
+implemented yet; reconnecting may still be needed when access expires.
 
-```sh
-PYTHONPATH=/opt/gway-mcp/current python3 -m gway_remote.watchtower_exec_service \
-  --approve --principal <24-hex-key-id> --request-id <32-hex-request-id> \
-  --node gway-001 --command 'uptime' --operator <operator-id> --ttl 90
-```
+Submit with `node_exec` using `node`, `command` and a fresh random
+32-character lowercase hexadecimal `request_id`. No approval field is
+accepted. Duplicate IDs cannot dispatch again, including after uncertain
+delivery; use `node_result` to recover the original job. `node_cancel`
+requires the same authenticated operator-proof identity.
+The per-command operator `--approve` CLI has been removed.
 
-The returned approval secret is valid only for those exact request fields.
-Send it with an execute-scope call to `node_exec`. One-use means a retry of
-the same approval fails; use `node_result` to inspect the already recorded
-request, never mint an approval to replay an uncertain command. `node_cancel`
-is limited to the original requester. No approval secret is logged or
-included in result output.
+Keep separate, root-controlled `sudo gway-remote exec grant <node>` and
+`revoke <node>` commands. A granted node is not sufficient without a
+scoped authenticated connection, pinned identity and gateway activation.
 
 ## gway-001 user-manager field regression after deployment
 
@@ -176,15 +174,14 @@ run from the deployed source checkout on the node.
 
 ## Acceptance
 
-Test in order: read token forbidden from all write tools, execute token
-without approval forbidden, tampered command/host/node denied, approval replay
-denied, revoked execute token denied, wrong requester result/cancel denied,
-identity change blocked, SSH disconnect `uncertain` never redispatched,
-reconnect result retrieval, bounded cancellation, and unchanged OCPP.
-Activate for **gway-001 only** after explicit operator signoff.
+Test read-only OAuth, execute OAuth and cross-scope proof rejection; direct
+execution of consecutive `hostname` and `uptime` without manual approval;
+read-only bearer execution rejection; revoked proof and node eligibility;
+wrong requester result/cancel denial; retry and concurrent duplicate IDs
+(including altered commands), reconnect with the same operator proof,
+identity rotation, uncertain-delivery no-redispatch, and bounded cancellation.
+Verify unchanged OCPP and `gway-001`-only transport activation.
 
-Limitations: the root-owned config is an operator-managed pin. It must be
-reconciled to the live enrollment host identity whenever that changes.
-This increment deliberately leaves public OAuth execute-scope issuance
-disabled; the first field acceptance uses an explicitly operator-issued
-execute bearer. Full OAuth consent UI/scope rollout can follow separately.
+Deployment must not auto-grant nodes, change SSH relay privileges or silently
+enable execution on new nodes. The operator-pinned execution config still
+needs reconciliation after a host identity rotation.
