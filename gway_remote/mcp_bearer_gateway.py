@@ -116,7 +116,10 @@ class Handler(BaseHTTPRequestHandler):
         supplied = self.headers.get("Authorization", "")
         if not supplied.startswith("Bearer "):
             return self.reject(401)
-        if not self.server.registry.verify(supplied[7:]):
+        token = supplied[7:]
+        has_read = self.server.registry.verify(token)
+        has_exec = self.server.registry.verify(token, required_scope="gway:execute")
+        if not (has_read or has_exec):
             return self.reject(401)
         if self.headers.get("Content-Type", "").split(";", 1)[0].strip().lower() != "application/json":
             return self.reject(415)
