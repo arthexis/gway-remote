@@ -26,6 +26,7 @@ ACCOUNT = "gway-exec"
 DEFAULT_STATE = Path("/var/lib/gway-exec/jobs.sqlite3")
 MAX_OUTPUT = DEFAULT_LIMITS["max_output_bytes"]
 MAX_ACTIVE = DEFAULT_LIMITS["concurrent_jobs_per_node"]
+# Fixed cap protects memory on large hosts; configurable per-node below.
 MAX_ACTIVE_CEILING = 8
 EXECUTOR_CONFIG = Path("/etc/gway-remote/executor.json")
 MAX_HISTORY = 256
@@ -44,12 +45,13 @@ def require_account(user=ACCOUNT):
 
 
 def configured_max_active(path=EXECUTOR_CONFIG):
-    """Read a root-controlled local node limit; never trust writable settings."""
+    """Use detected core count by default, with a safe root-controlled override."""
+    detected = min(MAX_ACTIVE_CEILING, max(1, os.cpu_count() or 1))
     path = Path(path)
     try:
         info = path.lstat()
     except FileNotFoundError:
-        return MAX_ACTIVE
+        return detected
     if (not stat.S_ISREG(info.st_mode) or info.st_uid != 0
             or info.st_mode & 0o022):
         raise PermissionError("unsafe executor configuration")
@@ -58,6 +60,8 @@ def configured_max_active(path=EXECUTOR_CONFIG):
     if type(config) is not dict or set(config) != {"max_active"}:
         raise ValueError("invalid executor configuration")
     value = config["max_active"]
+    if value == "auto":
+        return detected
     if type(value) is not int or not 1 <= value <= MAX_ACTIVE_CEILING:
         raise ValueError("invalid executor concurrency")
     return value
