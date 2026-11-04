@@ -124,7 +124,7 @@ class BearerIdentityTests(unittest.TestCase):
             with self.subTest(flags=flags):
                 self.state.update(uid=0, gid=0)
                 issued = Mock(return_value="unit-test-token")
-                with self.cli(*flags) as output, \\
+                with self.cli(*flags) as output, \
                         patch("gway_remote.mcp_bearer.BearerRegistry") as registry:
                     registry.return_value.issue = issued
                     main()
@@ -136,7 +136,7 @@ class BearerIdentityTests(unittest.TestCase):
                 self.assertEqual(self.state, {"uid": 995, "gid": 999})
 
     def test_invalid_scope_fails_before_identity_switch(self):
-        with self.cli("issue", "--scope", "gway:admin"), \\
+        with self.cli("issue", "--scope", "gway:admin"), \
                 patch("gway_remote.mcp_bearer.BearerRegistry") as registry:
             with self.assertRaises(SystemExit) as stopped:
                 main()
