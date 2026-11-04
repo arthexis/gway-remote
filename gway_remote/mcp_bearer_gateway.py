@@ -50,7 +50,7 @@ NODE_TOOLS = (
      "annotations": {"readOnlyHint": True}},
 )
 
-def local_node_result(method, arguments):
+def local_node_result(method, arguments, *, execution=None):
     """Only inventory operations, never a shell or user-supplied address."""
     from . import node_registry_inventory
     if method == "node_list" and arguments == {}:
