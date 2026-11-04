@@ -177,6 +177,29 @@ Keep the operator bearer for future reconnections until it expires or
 is revoked. Browser OAuth access credentials derived from it are short-lived;
 a reconnect does not require running `bearer issue` again.
 
+## ChatGPT OAuth scope negotiation
+
+The MCP gateway advertises `gway:read` for read-only tools and
+`gway:execute` for `node_exec`, `node_result`, and `node_cancel`
+via each tool's `_meta.securitySchemes`. An execution call authenticated with
+a read-only bearer returns HTTP 401 with an explicit
+`WWW-Authenticate` challenge containing `scope="gway:execute"` and
+`error="insufficient_scope"`. This requests a **new scoped OAuth consent
+flow** from clients that support tool-level scope upgrades; it does not accept
+the read-only bearer for execution or grant elevation itself.
+
+The ChatGPT connection may still request `gway:read` for its initial discovery
+session. That is valid; do not enter your `gway:execute` operator proof into
+a browser form that explicitly requests `gway:read`, because this will fail
+closed. Instead, invoke an execution tool and complete the execute-scoped
+reauthorization prompt when offered. Use the already issued proof; do not
+regenerate it unnecessarily. If ChatGPT does not start a scope-upgrade
+challenge, the plugin's OAuth connection configuration must be updated in
+the ChatGPT app builder; the server cannot change an explicitly requested
+client scope. Check the `oauth_link` audit entries to confirm the scope
+ChatGPT actually requested. Keep #333 open until the live ChatGPT invocation
+passes.
+
 Submit with `node_exec` using `node`, `command` and a fresh random
 32-character lowercase hexadecimal `request_id`. No approval field is
 accepted. Duplicate IDs cannot dispatch again, including after uncertain
