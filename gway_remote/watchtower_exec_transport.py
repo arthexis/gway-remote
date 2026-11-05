@@ -298,7 +298,7 @@ class MultiNodeTransport:
 
 def pinned_transport(transport, node):
     """Resolve a node using the router, retaining legacy single-node adapters."""
-    if hasattr(transport, "for_node"):
+    if isinstance(transport, MultiNodeTransport):
         return transport.for_node(node)
     pinned = transport.node
     if pinned.node != node:
