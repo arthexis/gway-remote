@@ -6,6 +6,8 @@ Do not infer identity from a reachable SSH or WireGuard endpoint (no TOFU).
 from __future__ import annotations
 
 import hashlib
+import os
+import stat
 import secrets
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -21,6 +23,12 @@ def host_key_path(node: str) -> Path:
     if not isinstance(node, str) or not DEVICE.fullmatch(node):
         raise ValueError("invalid node")
     return Path("/etc/gway-remote") / ("verified-" + node + "-host.pub")
+
+
+def rotation_token_path(node: str) -> Path:
+    """Canonical protected operator-provisioned invitation token for rotation."""
+    host_key_path(node)  # Validate node against enrollment contract.
+    return Path("/etc/gway-remote") / ("rotation-" + node + ".token")
 
 
 def verified_host_key(path: Path) -> str:
@@ -87,3 +95,98 @@ def attest(ledger, *, node: str, host_key_file: Path, dry_run: bool = False) -> 
     return {"node": node, "state": state,
             "identity_verified": state in ("attested", "already_attested"),
             "execute_available": False}
+
+
+def provision_host_key(node: str, public_key: str, *, dry_run: bool = False) -> Path:
+    """Create a protected verified public-key file, never replace another identity.
+
+    The caller is responsible for independent verification of the supplied key.
+    """
+    from .inspection_ssh_trust import _trusted_parent_directories
+    key = validate_public_key(" ".join(public_key.strip().split()[:2]))
+    if len(public_key.strip().split()) not in (2, 3):
+        raise ValueError("expected one SSH ED25519 public key")
+    path = host_key_path(node)
+    _trusted_parent_directories(path)
+    if path.is_symlink():
+        raise ValueError("unsafe SSH host key path")
+    if path.exists():
+        if verified_host_key(path) != key:
+            raise ValueError("host key mismatch; refusing to overwrite")
+        return path
+    if dry_run:
+        return path
+    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_NOFOLLOW", 0), 0o600)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as out:
+            out.write(key + "\n")
+            out.flush()
+            os.fsync(out.fileno())
+    except BaseException:
+        path.unlink(missing_ok=True)
+        raise
+    return path
+
+
+def rotate_verified_host_key(ledger, node: str, public_key: str, *,
+                             token_file: Path, dry_run: bool = False) -> dict:
+    """Explicit, invitation-authorized rotation using the existing ledger transition.
+
+    The caller must independently verify the new SSH host public key.
+    """
+    import tempfile
+    from .inspection_ssh_trust import trusted_file
+    from .watchtower_enrollment import _digest
+    key = validate_public_key(" ".join(public_key.strip().split()[:2]))
+    if len(public_key.strip().split()) not in (2, 3):
+        raise ValueError("expected one SSH ED25519 public key")
+    path = host_key_path(node)
+    old = verified_host_key(path)
+    if old == key:
+        raise ValueError("host key unchanged")
+    trusted_file(token_file, secret=True)
+    token = Path(token_file).read_text(encoding="utf-8").strip()
+    if not token:
+        raise ValueError("rotation authorization token missing")
+    now = _now()
+    with ledger._connect() as db:
+        invitation = db.execute(
+            "SELECT id FROM invitations WHERE token_hash=? AND device=? "
+            "AND consumed_at IS NULL AND revoked_at IS NULL AND expires_at>?",
+            (_digest(token), node, now),
+        ).fetchone()
+        identity = db.execute(
+            "SELECT * FROM host_identities WHERE device=? AND state='active'", (node,),
+        ).fetchone()
+        peer = db.execute(
+            "SELECT public_key FROM devices WHERE device=? AND state='active'", (node,),
+        ).fetchone()
+        duplicate = db.execute(
+            "SELECT device FROM host_identities WHERE host_public_key=? AND device!=? AND state='active'",
+            (key, node),
+        ).fetchone()
+        if not invitation or not identity or not peer or duplicate:
+            raise ValueError("host rotation preflight rejected")
+        if identity["host_public_key"] != old or identity["wireguard_identity"] != peer["public_key"]:
+            raise ValueError("host rotation identity mismatch")
+    if dry_run:
+        return {"node": node, "state": "would_rotate", "identity_verified": True,
+                "execute_available": False}
+    # Stage the protected replacement first; keep the original until the
+    # existing ledger transition has accepted and recorded the rotation.
+    fd, temp_name = tempfile.mkstemp(prefix=".verified-host-", dir=str(path.parent))
+    staged = Path(temp_name)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as out:
+            out.write(key + "\n")
+            out.flush()
+            os.fsync(out.fileno())
+        transition = ledger.rotate_host_identity(
+            node, previous_key=old, next_key=key,
+            invitation_token=token, authorized=True,
+        )
+        os.replace(staged, path)
+    finally:
+        staged.unlink(missing_ok=True)
+    return {"node": node, "state": "rotated", "transition": transition,
+            "identity_verified": True, "execute_available": False}
