@@ -64,7 +64,7 @@ class OdooMobileBridgeTests(unittest.TestCase):
         self.assertEqual(len(result["quotations"]), 10)
         self.assertEqual(calls[0][-4:], ["--limit", "11", "--offset", "10"])
         self.assertEqual(json.loads(calls[0][3]), [["state", "in", ["draft", "sent"]]])
-        self.assertEqual(calls[0][5], "date_order desc,id desc")
+        self.assertEqual(calls[0][7], "date_order desc,id desc")
 
     def test_last_page_disables_next(self):
         with patch.object(odoo, "_run", return_value=json.dumps([
