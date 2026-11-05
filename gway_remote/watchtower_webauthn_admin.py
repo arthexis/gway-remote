@@ -105,10 +105,9 @@ class AdminHandler(BaseHTTPRequestHandler):
             self._respond(403, {"error": "request_denied"})
             return
         issuer = getattr(self.server, "issuer", None)
-        is_issuance = self.path == ISSUER_PATH
-        if issuer is not None and is_issuance:
-            route = ("issue", ISSUER_FIELDS)
-        elif issuer is not None and self.path == COMBINED_OPTIONS_PATH:
+        # The legacy single-scope issuance path is intentionally never wired
+        # to HTTP: its lifetime was not part of its WebAuthn challenge.
+        if issuer is not None and self.path == COMBINED_OPTIONS_PATH:
             route = ("begin_combined", COMBINED_OPTIONS_FIELDS)
         elif issuer is not None and self.path == COMBINED_FINISH_PATH:
             route = ("issue_combined", COMBINED_FINISH_FIELDS)
@@ -128,7 +127,7 @@ class AdminHandler(BaseHTTPRequestHandler):
             self._respond(400, {"error": "invalid_request"})
             return
         try:
-            provider = (issuer if route[0] in ("issue", "begin_combined", "issue_combined")
+            provider = (issuer if route[0] in ("begin_combined", "issue_combined")
                         else self.server.ceremonies)
             result = getattr(provider, route[0])(**payload)
         except Exception:
