@@ -33,7 +33,8 @@ class JobTests(unittest.TestCase):
             captured.append((args, kwargs))
             return subprocess.CompletedProcess(args, 0, "", "")
         cmd = "df -h && echo 'literal'"
-        job_id = self.submit(cmd, runner=run)
+        with patch.object(worker, "selected_user", return_value="gway-exec"):
+            job_id = self.submit(cmd, runner=run)
         args, kwargs = captured[0]
         self.assertEqual(args[:3], ["systemd-run", "--user", "--collect"])
         self.assertIn("--setenv=PYTHONPATH=/opt/gway-remote", args)
@@ -143,12 +144,28 @@ class JobTests(unittest.TestCase):
         finally:
             runner.join(timeout=2)
 
-    def test_job_history_capacity_fails_closed(self):
+    def test_job_history_capacity_compacts_terminal_results_without_replay(self):
         with self.store.connection() as db:
             for index in range(worker.MAX_HISTORY):
                 db.execute("INSERT INTO jobs (id,node,command,status,created_at) VALUES (?,?,?,?,?)",
                            (f"{index:032x}", "gway-001", "true", "succeeded", worker.utcnow()))
-        with self.assertRaisesRegex(RuntimeError, "capacity"):
+        self.submit("uptime")
+        old = "0" * 32
+        result = self.store.result(old)
+        self.assertFalse(result["result_available"])
+        self.assertEqual(result["reason"], "result_expired")
+        self.assertEqual(result["status"], "succeeded")
+        with patch.object(worker, "user_manager_env", side_effect=AssertionError("replayed")):
+            self.assertEqual(self.store.submit("gway-001", "true", request_id=old), old)
+            with self.assertRaisesRegex(ValueError, "conflict"):
+                self.store.submit("gway-001", "different", request_id=old)
+
+    def test_full_tombstone_ledger_fails_closed(self):
+        with self.store.connection() as db:
+            for index in range(worker.MAX_HISTORY):
+                db.execute("INSERT INTO jobs (id,node,command,status,created_at) VALUES (?,?,?,?,?)",
+                           (f"{index:032x}", "gway-001", "true", "succeeded", worker.utcnow()))
+        with patch.object(worker, "MAX_TOMBSTONES", 0), self.assertRaisesRegex(RuntimeError, "capacity"):
             self.submit("uptime")
 
     def test_storage_permissions_and_symlink_rejected(self):

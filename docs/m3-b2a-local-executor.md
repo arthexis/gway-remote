@@ -60,3 +60,23 @@ Local `Jobs.submit(node, command, request_id=<32 lowercase hex>)` accepts a call
 On each node Ansible maintains `/etc/gway-remote/executor.json`, owned by root, mode 0644, with `{"max_active":"auto"}` by default or a bounded integer `1..8`. Override through the inventory variable `gway_remote_exec_max_active`. The worker rejects unsafe/writable configuration files and invalid values. Default `auto` is `max(1, min(os.cpu_count() - 1, 8))`. No command inference or mutation-aware lock is attempted; higher-level B2b workflows must coordinate conflicting configuration writes.
 
 This adds **no remote execution transport, approval, or MCP tool**. Watchtower must implement its separate durable request ledger and authenticated identity binding before dispatch to this local API. The per-appliance limit is a guardrail, not a promise of CPU isolation or mutual exclusion for shared configuration writes.
+
+### Bounded results and replay protection
+
+The node retains up to 256 full job records, including their bounded output.
+When that space is needed, the oldest terminal record becomes a compact
+request-ID, node, command-digest and terminal-state tombstone. Its result is
+reported as `result_available: false` with `reason: result_expired`; output
+and exit code must not be inferred. Active jobs are never compacted. A retry
+of a tombstoned ID cannot launch it again, and a different binding is rejected.
+The tombstone ledger has a separate 100,000-record ceiling and fails closed
+when full. The Watchtower request ledger remains the authoritative upstream
+replay barrier. Back up both ledgers before any operator maintenance; do not
+remove tombstones as routine cleanup.
+
+After a deployment, an operator with an execute-scoped credential can run
+`scripts/mcp-execution-smoke.py` with `GWAY_MCP_SMOKE_URL` and
+`GWAY_MCP_SMOKE_TOKEN` in a private environment. It verifies the pinned
+relay's limits and submits one new `hostname` job through the gateway, then
+checks its result. A failed or uncertain submit is not retried; inspect the
+printed request ID. Inventory eligibility alone is not a successful smoke test.
