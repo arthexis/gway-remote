@@ -43,7 +43,7 @@ internal fun CompanionPalette(
             onRefreshAgentAssignments = agentModel::refreshAssignments,
             onAgentAssignmentsError = agentModel::reportAssignmentsError,
             agentAssignmentsExpanded = agentAssignmentsExpanded,
-            onAgentAssignmentsExpanded = { agentAssignmentsExpanded = it },
+            onAgentAssignmentsExpanded = onAgentAssignmentsExpanded,
             agentSendLoading = agentModel.sendLoading,
             agentSendResult = agentModel.sendResult,
             agentSendError = agentModel.sendError,
