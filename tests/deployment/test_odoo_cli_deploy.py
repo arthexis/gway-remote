@@ -29,13 +29,11 @@ class OdooCliDeployTests(unittest.TestCase):
         self.assertIn("Refusing to replace unrelated", play)
         for name in ("odoo-gelectriic", "odoo-domain", "odoo-query", "odoo-bom",
                      "odoo-credentials", "odoo-quotation", "odoo-quotation-write",
-                     "odoo-quotation-pdf", "odoo-catalog-v2"):
+                     "odoo-quotation-pdf", "odoo-catalog"):
             self.assertIn("- " + name, play)
-        self.assertIn("gway_odoo_data_root: /opt/odoo-gelectriic/data", play)
-        self.assertIn("subestacion45kva_v2_productos.csv", play)
-        self.assertIn("mode: '0644'", play)
         self.assertIn("- catalog", play)
         self.assertIn("- inspect", play)
+        self.assertNotIn("subestacion45kva", play)
         self.assertNotIn("active.quotation.toml.enc", play)
         self.assertNotIn("passphrase", play)
 
