@@ -62,6 +62,13 @@ internal fun McpAccessPanel(onClose: () -> Unit) {
         enabled = McpPasskeyClient.available()
         loading = false
     }
+    LaunchedEffect(bearer) {
+        if (bearer.isNotEmpty()) {
+            kotlinx.coroutines.delay(60_000)
+            bearer = ""
+            status = "New bearer hidden automatically"
+        }
+    }
     fun runSafely(action: suspend () -> Unit) {
         if (busy || !enabled || !McpPasskeyClient.validPrincipal(principal)) return
         busy = true
