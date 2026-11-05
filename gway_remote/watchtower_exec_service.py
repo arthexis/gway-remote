@@ -8,7 +8,7 @@ import re
 import stat
 
 from . import node_registry_inventory
-from .watchtower_exec_transport import RequestLedger, PinnedNode, SSHTransport, DormantRelay
+from .watchtower_exec_transport import RequestLedger, PinnedNode, SSHTransport, MultiNodeTransport, DormantRelay
 from .watchtower_exec_auth import AuthorizedExecution
 
 CONFIG = Path("/etc/gway-mcp/execute.json")
@@ -20,30 +20,46 @@ def load_service(path=CONFIG):
             or info.st_mode & 0o022 or info.st_size > 4096):
         raise PermissionError("untrusted execution configuration")
     config = json.loads(Path(path).read_text())
-    required = {"enabled","node","address","ssh_host_alias","known_hosts",
-                "identity_file","host_key_sha256","remote_user"}
-    if type(config) is not dict or set(config) != required or config["enabled"] is not True:
+    if type(config) is not dict or config.get("enabled") is not True:
         raise ValueError("execution not enabled by operator configuration")
-    # Fresh independently published enrollment view must corroborate the host.
+    fields = {"node", "address", "ssh_host_alias", "known_hosts",
+              "identity_file", "host_key_sha256", "remote_user"}
+    if set(config) == fields | {"enabled"}:
+        entries = [{key: config[key] for key in fields}]
+    elif set(config) == {"enabled", "nodes"} and type(config["nodes"]) is list:
+        entries = config["nodes"]
+    else:
+        raise ValueError("invalid execution configuration")
+    if not 1 <= len(entries) <= 32:
+        raise ValueError("invalid pinned node count")
     inventory = node_registry_inventory.load()
-    matches = [n for n in inventory["nodes"]
-               if n["node"] == "gway-001" and n["registered"] is True
-               and n["identity_verified"] is True and n["address"] == config["address"]
-               and n["execute_eligible"] is True and n["reachable"] == "reachable"]
-    if len(matches) != 1:
-        raise PermissionError("node is not currently attested at pinned address")
-    node = PinnedNode(node=config["node"],wireguard_address=config["address"],
-                      ssh_host_alias=config["ssh_host_alias"],
-                      known_hosts=Path(config["known_hosts"]),
-                      identity_file=Path(config["identity_file"]),
-                      host_key_sha256=config["host_key_sha256"],
-                      remote_user=config["remote_user"])
-    if node.node != matches[0]["node"]:
-        raise PermissionError("node identity mismatch")
+    transports = {}
+    for entry in entries:
+        if type(entry) is not dict or set(entry) != fields:
+            raise ValueError("invalid pinned node entry")
+        name = entry["node"]
+        if type(name) is not str or name in transports:
+            raise ValueError("duplicate or invalid pinned node")
+        matches = [n for n in inventory["nodes"]
+                   if n["node"] == name and n["registered"] is True
+                   and n["identity_verified"] is True
+                   and n["address"] == entry["address"]
+                   and n["execute_eligible"] is True
+                   and n["reachable"] == "reachable"]
+        if len(matches) != 1:
+            raise PermissionError("node is not currently attested at pinned address")
+        node = PinnedNode(node=name, wireguard_address=entry["address"],
+                          ssh_host_alias=entry["ssh_host_alias"],
+                          known_hosts=Path(entry["known_hosts"]),
+                          identity_file=Path(entry["identity_file"]),
+                          host_key_sha256=entry["host_key_sha256"],
+                          remote_user=entry["remote_user"])
+        if node.ssh_host_alias != name:
+            raise PermissionError("SSH host alias must match enrolled node")
+        transports[name] = SSHTransport(node)
     ledger = RequestLedger()
-    relay = DormantRelay(ledger, SSHTransport(node), enabled=True)
+    relay = DormantRelay(ledger, MultiNodeTransport(transports), enabled=True)
     return AuthorizedExecution(ledger, None, relay, enabled=True)
-
 
 def main(argv=None):
     parser = argparse.ArgumentParser(description="Operator-only execute token/approval; not an MCP tool")
