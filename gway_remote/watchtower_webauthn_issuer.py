@@ -12,6 +12,7 @@ from pathlib import Path
 from .mcp_bearer import SCOPES
 from .watchtower_webauthn_ledger import _check_identifier
 from .watchtower_webauthn_verify import verify_assertion
+from .webauthn_intent_contract import canonical_admin_intent, admin_intent_digest
 
 MAX_LIFETIME = 30 * 86400
 ISSUES_PER_HOUR = 3
@@ -41,6 +42,11 @@ class IssuanceLedger:
                 timestamp INTEGER NOT NULL, bearer_id TEXT)""")
             con.execute("CREATE INDEX IF NOT EXISTS receipts_rate "
                         "ON receipts(principal,timestamp)")
+            columns = {row[1] for row in con.execute("PRAGMA table_info(receipts)")}
+            if "request_id" not in columns:
+                con.execute("ALTER TABLE receipts ADD COLUMN request_id TEXT")
+            con.execute("CREATE UNIQUE INDEX IF NOT EXISTS receipts_request_id "
+                        "ON receipts(request_id) WHERE request_id IS NOT NULL")
             con.commit()
         except Exception:
             con.close()
@@ -64,6 +70,27 @@ class IssuanceLedger:
                 "INSERT INTO receipts (principal,credential_id,scope,timestamp,bearer_id) "
                 "VALUES (?,?,?,?,NULL)",
                 (principal, credential_id, scope, now)).lastrowid
+
+    def reserve_combined(self, *, principal, credential_id, request_id):
+        principal = _check_identifier(principal)
+        credential_id = _check_identifier(credential_id)
+        if type(request_id) is not str or len(request_id) != 32:
+            raise ValueError("invalid_request_id")
+        now = int(self.now())
+        with closing(self._db()) as con, con:
+            con.execute("BEGIN IMMEDIATE")
+            count = con.execute(
+                "SELECT count(*) FROM receipts WHERE principal=? AND timestamp>?",
+                (principal, now - 3600)).fetchone()[0]
+            if count >= ISSUES_PER_HOUR:
+                raise PermissionError("issuance_rate_limit")
+            try:
+                return con.execute(
+                    "INSERT INTO receipts (principal,credential_id,scope,timestamp,bearer_id,request_id) "
+                    "VALUES (?,?,?,?,NULL,?)",
+                    (principal, credential_id, "gway:execute gway:read", now, request_id)).lastrowid
+            except sqlite3.IntegrityError:
+                raise PermissionError("duplicate_request") from None
 
     def record(self, *, receipt_id, bearer_id):
         bearer_id = _check_identifier(bearer_id)
@@ -91,6 +118,76 @@ class WatchtowerBearerIssuer:
         self.registry = registry
         self.receipts = receipts
         self.admins = admins
+
+    def begin_combined(self, *, principal, intent):
+        """Challenge the exact, canonical action parameters; no token yet."""
+        if principal not in self.admins:
+            raise PermissionError("administrator_required")
+        canonical_admin_intent(intent)
+        if intent["action"] != "issue_mcp_bearer":
+            raise ValueError("unsupported_action")
+        target = admin_intent_digest(intent).hex()
+        result = self.credentials.begin(
+            principal=principal, action="bearer.issue", target=target)
+        # Return WebAuthn challenge and opaque target; never identity secrets.
+        return {**result, "action": "issue_mcp_bearer"}
+
+    def issue_combined(self, *, principal, intent, challenge, credential):
+        """Signed UV assertion bound to *all* requested token parameters."""
+        if principal not in self.admins:
+            raise PermissionError("administrator_required")
+        canonical_admin_intent(intent)
+        if intent["action"] != "issue_mcp_bearer":
+            raise ValueError("unsupported_action")
+        target = admin_intent_digest(intent).hex()
+        assertion = verify_assertion(
+            self.credentials, challenge=challenge, principal=principal,
+            action="bearer.issue", target=target, credential=credential)
+        if self.credentials._verified_credential(
+                credential_id=assertion.credential_id, principal=principal) is None:
+            raise PermissionError("credential_revoked")
+        receipt_id = self.receipts.reserve_combined(
+            principal=principal, credential_id=assertion.credential_id,
+            request_id=intent["request_id"])
+        bearer = self.registry.issue_combined(
+            lifetime=intent["lifetime_seconds"], operator_approved=True)
+        key_id = bearer.split("_", 2)[1]
+        try:
+            self.receipts.record(receipt_id=receipt_id, bearer_id=key_id)
+        except Exception:
+            # A failed audit write must never leave an unrecorded live token.
+            self.registry.revoke(key_id)
+            raise
+        return {"bearer": bearer, "bearer_id": key_id,
+                "scopes": ["gway:execute", "gway:read"],
+                "expires_in": intent["lifetime_seconds"]}
+
+    def begin_revoke(self, *, principal, intent):
+        """Explicit bearer-ID revocation has its own WebAuthn intent."""
+        if principal not in self.admins:
+            raise PermissionError("administrator_required")
+        canonical_admin_intent(intent)
+        if intent["action"] != "revoke_mcp_bearer":
+            raise ValueError("unsupported_action")
+        return {**self.credentials.begin(
+            principal=principal, action="bearer.revoke",
+            target=admin_intent_digest(intent).hex()), "action": "revoke_mcp_bearer"}
+
+    def revoke_bearer(self, *, principal, intent, challenge, credential):
+        if principal not in self.admins:
+            raise PermissionError("administrator_required")
+        canonical_admin_intent(intent)
+        if intent["action"] != "revoke_mcp_bearer":
+            raise ValueError("unsupported_action")
+        proof = verify_assertion(
+            self.credentials, challenge=challenge, principal=principal,
+            action="bearer.revoke", target=admin_intent_digest(intent).hex(),
+            credential=credential)
+        if self.credentials._verified_credential(
+                credential_id=proof.credential_id, principal=principal) is None:
+            raise PermissionError("credential_revoked")
+        # No implicit revocation upon issuance. Only the bound bearer ID changes.
+        return {"revoked": self.registry.revoke(intent["key_id"])}
 
     def issue(self, *, principal, scope, lifetime, challenge, credential):
         if principal not in self.admins:

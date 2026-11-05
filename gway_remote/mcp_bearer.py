@@ -12,6 +12,14 @@ import time
 from pathlib import Path
 
 SCOPES = frozenset({"gway:read", "gway:execute"})
+COMBINED_SCOPE = "gway:execute gway:read"
+
+
+def _scope_grants(stored, required):
+    """Legacy single-scope rows stay unchanged; combined grants are explicit."""
+    return (required in SCOPES and (stored == required or stored == COMBINED_SCOPE)
+            or required == COMBINED_SCOPE and stored == COMBINED_SCOPE)
+
 TOKEN_PREFIX = "gwr_"
 REFRESH_PREFIX = "gwf_"
 DEFAULT_LIFETIME = 30 * 86400
@@ -60,7 +68,7 @@ class BearerRegistry:
         expires_at = int(time.time()) + lifetime
         if parent_id is not None:
             parent = _lookup(self.path, parent_id)
-            if not parent or parent[3] is not None or parent[2] <= int(time.time()) or parent[1] != scope:
+            if not parent or parent[3] is not None or parent[2] <= int(time.time()) or not _scope_grants(parent[1], scope):
                 raise ValueError("invalid_parent_credential")
             expires_at = min(expires_at, parent[2])
         key_id = secrets.token_hex(12)
@@ -74,18 +82,35 @@ class BearerRegistry:
         return credential
 
 
+    def issue_combined(self, *, lifetime=86400, operator_approved=False):
+        """Issue one explicitly approved, combined read+execute parent token.
+
+        The plaintext is returned once; only a digest is persisted. This method
+        must only be invoked by Watchtower's verified administrative issuer.
+        """
+        if operator_approved is not True:
+            raise PermissionError("direct_administrator_approval_required")
+        if type(lifetime) is not int or not 60 <= lifetime <= 30 * 86400:
+            raise ValueError("invalid_lifetime")
+        key_id = secrets.token_hex(12)
+        secret = secrets.token_urlsafe(32)
+        with self._db() as con:
+            con.execute("INSERT INTO credentials VALUES (?, ?, ?, ?, NULL)",
+                        (key_id, _digest(secret), COMBINED_SCOPE, int(time.time()) + lifetime))
+        return TOKEN_PREFIX + key_id + "_" + secret
+
     def issue_oauth_pair(self, *, parent_id, scope, client_id):
         """Mint access and rotating refresh tokens bound to a hidden revocable family."""
-        if scope not in SCOPES or not isinstance(client_id, str) or not client_id:
+        if scope not in SCOPES | {COMBINED_SCOPE} or not isinstance(client_id, str) or not client_id:
             raise ValueError("invalid_grant")
         now = int(time.time())
         parent = _lookup(self.path, parent_id)
-        if not parent or parent[1] != scope or parent[2] <= now or parent[3] is not None:
+        if not parent or not _scope_grants(parent[1], scope) or parent[2] <= now or parent[3] is not None:
             raise ValueError("invalid_grant")
         with self._db() as con:
             con.execute("BEGIN IMMEDIATE")
             parent = _lookup(self.path, parent_id)
-            if not parent or parent[1] != scope or parent[2] <= now or parent[3] is not None:
+            if not parent or not _scope_grants(parent[1], scope) or parent[2] <= now or parent[3] is not None:
                 raise ValueError("invalid_grant")
             family_id, _ = _store_oauth_credential(con, scope, parent[2], parent_id)
             _, access = _store_oauth_credential(
@@ -155,7 +180,7 @@ class BearerRegistry:
         except (OSError, sqlite3.Error, ValueError):
             return False
         return bool(row and row[3] is None and row[2] > int(time.time())
-                    and row[1] == required_scope and hmac.compare_digest(row[0], supplied))
+                    and _scope_grants(row[1], required_scope) and hmac.compare_digest(row[0], supplied))
 
     def revoke(self, key_id):
         if not isinstance(key_id, str) or len(key_id) != 24:
@@ -208,7 +233,7 @@ def _lookup(path, key_id):
                 return row
             current = parent[0]
             ancestor = con.execute("SELECT scope,expires_at,revoked_at FROM credentials WHERE key_id=?", (current,)).fetchone()
-            if not ancestor or ancestor[0] != row[1] or ancestor[1] <= int(time.time()) or ancestor[2] is not None:
+            if not ancestor or not _scope_grants(ancestor[0], row[1]) or ancestor[1] <= int(time.time()) or ancestor[2] is not None:
                 return None
 
 
@@ -230,7 +255,7 @@ class BearerVerifier:
         except (UnicodeError, ValueError, OSError, sqlite3.Error):
             return False
         return bool(row and row[3] is None and row[2] > int(time.time())
-                    and row[1] == required_scope and hmac.compare_digest(row[0], supplied))
+                    and _scope_grants(row[1], required_scope) and hmac.compare_digest(row[0], supplied))
 
     def execution_principal(self, credential):
         """Stable parent identity across OAuth reconnects; requires valid execute scope."""

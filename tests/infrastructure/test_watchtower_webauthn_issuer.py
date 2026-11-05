@@ -175,13 +175,11 @@ class IssuerTests(unittest.TestCase):
         self.assertEqual(post(body)[0], 404)
         server.issuer = self.issuer
         self.assertEqual(post(body, origin="https://evil.example")[0], 403)
-        self.assertEqual(post({**body, "unexpected": "value"})[0], 400)
-        code, result = post(body)
-        self.assertEqual(code, 200)
-        self.assertEqual(result["scope"], "gway:execute")
-        self.assertTrue(self.registry.verify(result["bearer"], required_scope="gway:execute"))
-        self.assertEqual(post(body)[0], 403)
-        self.assertEqual(self.credential_count(), 1)
+        # The older single-scope issuer did NOT bind lifetime to the challenge;
+        # never expose that method over HTTP, even with an issuer injected.
+        self.assertEqual(post({**body, "unexpected": "value"})[0], 404)
+        self.assertEqual(post(body)[0], 404)
+        self.assertFalse(self.registry.path.exists())
 
 
 if __name__ == "__main__":

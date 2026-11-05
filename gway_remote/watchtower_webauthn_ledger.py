@@ -16,7 +16,7 @@ from pathlib import Path
 CHALLENGE_TTL = 120
 ENROLLMENT_GRANT_TTL = 600
 ALLOWED_ACTIONS = frozenset({
-    "passkey.enroll", "bearer.issue", "secret.reveal", "secret.update",
+    "passkey.enroll", "bearer.issue", "bearer.revoke", "secret.reveal", "secret.update",
 })
 _ALLOWED_ID = re.compile(r"^[A-Za-z0-9_-]{1,128}$")
 _ALLOWED_ORIGIN = "https://remote.arthexis.com"

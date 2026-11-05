@@ -15,7 +15,7 @@ import threading
 from functools import wraps
 from urllib.parse import urlencode, urlsplit
 
-from .mcp_bearer import BearerRegistry
+from .mcp_bearer import BearerRegistry, COMBINED_SCOPE
 
 MAX_PENDING = 1024
 
@@ -179,6 +179,12 @@ class LinkFlow:
             scope = selected_scope
         if not self.registry.verify(bearer, required_scope=scope):
             raise ValueError("invalid_bearer")
+        # The UI explicitly labels execute as "Read and execute". A combined
+        # parent may grant BOTH on that selection; old execute-only parents
+        # retain their former execute-only semantics. Never exceed the parent.
+        if (scope == "gway:execute" and
+                self.registry.verify(bearer, required_scope="gway:read")):
+            scope = COMBINED_SCOPE
         code = secrets.token_urlsafe(40)
         self.codes[hashlib.sha256(code.encode()).digest()] = (pending[1], time.monotonic() + 60, bearer.split("_", 2)[1], scope)
         return self.redirect_uri + ("&" if "?" in self.redirect_uri else "?") + urlencode(
