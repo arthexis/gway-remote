@@ -70,9 +70,15 @@ internal object McpPasskeyClient {
                 throw IllegalStateException("Watchtower administrative access unavailable")
             }
             val payload = connection.inputStream.use { stream ->
-                val bytes = stream.readNBytes(LIMIT + 1)
-                require(bytes.size <= LIMIT) { "Oversized response" }
-                JSONObject(String(bytes, StandardCharsets.UTF_8))
+                val output = java.io.ByteArrayOutputStream()
+                val buffer = ByteArray(2048)
+                while (true) {
+                    val n = stream.read(buffer)
+                    if (n < 0) break
+                    output.write(buffer, 0, n)
+                    require(output.size() <= LIMIT) { "Oversized response" }
+                }
+                JSONObject(String(output.toByteArray(), StandardCharsets.UTF_8))
             }
             return payload
         } finally {
