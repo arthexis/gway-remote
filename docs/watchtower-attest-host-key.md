@@ -55,3 +55,10 @@ sudo gway-remote watchtower attest gway-002 --host-key 'ssh-ed25519 AAAA...' \
 arguments. The existing `rotate_host_identity` ledger transition records
 the previous and next keys and consumes the invitation. Never silently
 replace a mismatching key or skip independent verification.
+
+When `--rotation-token-file` is omitted, Watchtower automatically reads
+`/etc/gway-remote/rotation-<node>.token` (for example,
+`/etc/gway-remote/rotation-gway-002.token`). The file must already exist,
+be protected, and contain a valid unused invitation token. Explicit
+`--rotation-token-file` overrides this default. No token is created or
+inferred from an untrusted source.
