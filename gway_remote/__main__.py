@@ -307,6 +307,7 @@ def main() -> None:
     batch_parser.add_argument("--all", action="store_true", help="Explicitly reinstall all latest main revisions regardless of prior attempts or CI")
     batch_parser.add_argument("--now", action="store_true", help="Bypass quiet period for operator-requested batch")
     batch_parser.add_argument("--retry-failed", action="store_true", help="Explicitly retry failed revisions, never installed or interrupted ones")
+    subparsers.add_parser("host-key", help="Print local SSH ED25519 host public key for independent verification")
     wg_parser = subparsers.add_parser("wireguard", help="WireGuard registration origin and local public identity")
     wg_parser.add_argument("action", choices=("endpoint", "public-key"))
     wg_parser.add_argument("operation", nargs="?", choices=("show", "set"))
@@ -489,6 +490,12 @@ def main() -> None:
                 from .watchtower_attest import attest, host_key_path
                 if args.host_key_file is None:
                     args.host_key_file = host_key_path(args.node)
+                if not args.host_key_file.is_file():
+                    parser.exit(1, f"gway-remote: verified SSH host key missing: {args.host_key_file}\n"
+                                f"On {args.node}, run: gway-remote host-key\n"
+                                "Verify the output through an independent trusted channel, then provision "
+                                "that public key as a protected file on Watchtower and retry with "
+                                "--host-key-file PATH (or the default path). Never trust network discovery alone.\n")
                 print(json.dumps(attest(ledger, node=args.node,
                                         host_key_file=args.host_key_file,
                                         dry_run=args.dry_run), sort_keys=True))
@@ -598,6 +605,13 @@ def main() -> None:
         except (ValueError, OSError, subprocess.CalledProcessError, subprocess.TimeoutExpired) as exc:
             parser.exit(1, "gway-remote: host pin denied: " + type(exc).__name__ + "\\n")
         print(json.dumps({"node": args.node, "pin_created": changed}, sort_keys=True))
+        return
+    if args.command == "host-key":
+        from .wireguard_satellite import _ssh_host_public_key
+        try:
+            print(_ssh_host_public_key())
+        except (OSError, ValueError) as exc:
+            parser.exit(1, f"gway-remote: SSH host public key unavailable: {exc}\n")
         return
     if args.command == "wireguard":
         if args.action == "public-key":
