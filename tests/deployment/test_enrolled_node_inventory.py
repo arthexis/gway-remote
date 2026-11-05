@@ -29,7 +29,8 @@ class NodeRegistryInventoryTests(unittest.TestCase):
                 ("gway-001", "wg-one", "10.90.0.2/32", "active"),
                 ("gway-002", "wg-two", "10.90.0.3/32", "active"),
                 ("gway-003", "wg-three", "10.90.0.4/32", "revoked"),
-                ("evil-name", "wg-four", "10.90.0.5/32", "active"),
+                ("evil_name", "wg-four", "10.90.0.5/32", "active"),
+                ("ocpp-abb-1", "wg-five", "10.90.0.6/32", "active"),
             ])
             now = datetime.now(timezone.utc)
             db.execute("INSERT INTO host_identities VALUES (?,?,?,?,?,?,?)",
@@ -44,10 +45,10 @@ class NodeRegistryInventoryTests(unittest.TestCase):
     def test_only_enrolled_active_nodes_appear_and_identity_is_verified_separately(self):
         result = nodes.build(self.ledger)
         self.assertEqual(result["source"], "watchtower-enrollment-ledger")
-        self.assertEqual([x["node"] for x in result["nodes"]], ["gway-001", "gway-002"])
+        self.assertEqual([x["node"] for x in result["nodes"]], ["gway-001", "gway-002", "ocpp-abb-1"])
         self.assertTrue(result["nodes"][0]["identity_verified"])
         self.assertFalse(result["nodes"][1]["identity_verified"])
-        self.assertEqual([x["reachable"] for x in result["nodes"]], ["unknown", "unknown"])
+        self.assertEqual([x["reachable"] for x in result["nodes"]], ["unknown", "unknown", "unknown"])
         self.assertFalse(any(x["execute_available"] for x in result["nodes"]))
 
     def test_snapshot_is_projection_for_both_interfaces(self):
@@ -68,6 +69,7 @@ class NodeRegistryInventoryTests(unittest.TestCase):
             self.assertNotIn("address", mcp["nodes"][0])
             self.assertNotIn("host_public_key", json.dumps(mcp))
             self.assertFalse(nodes.capabilities("gway-001")["execute_available"])
+            self.assertEqual(nodes.capabilities("ocpp-abb-1")["node"], "ocpp-abb-1")
             with self.assertRaises(ValueError):
                 nodes.capabilities("gway-999")
 
@@ -82,6 +84,13 @@ class NodeRegistryInventoryTests(unittest.TestCase):
                 set_eligibility("gway-003", True, ledger=self.ledger)
             set_eligibility("gway-001", False, ledger=self.ledger)
             self.assertFalse(nodes.build(self.ledger)["nodes"][0]["execute_eligible"])
+
+    def test_named_node_eligibility_uses_same_enrollment_contract(self):
+        with patch("gway_remote.watchtower_exec_eligibility.os.geteuid", return_value=0):
+            with self.assertRaises(PermissionError):
+                set_eligibility("ocpp-abb-1", True, ledger=self.ledger)
+            with self.assertRaises(ValueError):
+                set_eligibility("evil_name", True, ledger=self.ledger)
 
     def test_canonical_cli_exec_subcommands(self):
         import io
