@@ -15,10 +15,13 @@ Legacy bearer rows persist unchanged as a single scope. New administrator-
 issued combined parent rows use the single canonical scope representation
 `gway:execute gway:read`. The registry accepts **only** this exact combined
 encoding or an existing valid single scope, never unrestricted arbitrary scope
-strings. A combined parent can delegate **one** explicitly authorized OAuth
-scope. Child OAuth credentials stay single-scope and never gain authority
-merely because the parent has another scope. Ancestor revocation and expiry
-continue to invalidate descendants. This is a no-copy, no-schema-migration
+strings. A combined parent can delegate an explicitly authorized OAuth single scope
+or, when the operator chooses **Read and execute** (the `gway:execute` choice
+in the existing linking UI), a combined OAuth child covering both scopes.
+The scope returned in the token response explicitly advertises both grants.
+An old execute-only parent continues to create execute-only OAuth children;
+a read-only parent continues to create read-only children. Ancestor
+revocation and expiry continue to invalidate all descendants. This is a no-copy, no-schema-migration
 change to existing bearer credentials.
 
 ## Operator-controlled bootstrap
