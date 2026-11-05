@@ -14,6 +14,7 @@
       - odoo-quotation
       - odoo-quotation-write
       - odoo-quotation-pdf
+      - odoo-catalog
 
 - name: Inspect pre-provisioned Odoo checkout
   ansible.builtin.stat:
@@ -179,6 +180,20 @@
       - -u
       - "{{ gway_remote_runner_user }}"
       - /usr/local/bin/odoo-quotation-pdf
+      - --help
+  changed_when: false
+
+- name: Verify unified Odoo catalog help works without credentials
+  ansible.builtin.command:
+    argv:
+      - /usr/bin/sudo
+      - -n
+      - -H
+      - -u
+      - "{{ gway_remote_runner_user }}"
+      - /usr/local/bin/odoo-gelectriic
+      - catalog
+      - inspect
       - --help
   changed_when: false
 

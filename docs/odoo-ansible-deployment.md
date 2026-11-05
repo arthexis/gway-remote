@@ -39,3 +39,20 @@ As before, Odoo's own HTTPS credentials and customer records are not
 validated by this role: it verifies only that the command-line tools can
 start without accessing private data. Live Odoo authentication and PDF
 checks should use existing operator-controlled commands.
+
+## Unified catalog CLI
+
+After the companion Odoo CLI change merges, Ansible installs the generic
+`odoo-catalog` helper as a root-owned binary under `/opt/odoo-gelectriic/bin`.
+No customer or estimate CSV is installed by Ansible; business data is passed
+at runtime from separate, operator-controlled files.
+
+```sh
+odoo-gelectriic catalog inspect
+odoo-gelectriic catalog validate --manifest /private/estimate.csv --uom-map /private/units.json --partner-id ID --goods-category-id ID --service-category-id ID --pricelist-id ID --tax-id ID
+odoo-gelectriic catalog apply --manifest /private/estimate.csv --uom-map /private/units.json --partner-id ID --goods-category-id ID --service-category-id ID --pricelist-id ID --tax-id ID --marker UNIQUE-DRAFT-KEY
+```
+
+The existing Odoo authentication and ACLs are unchanged. No Odoo write
+occurs unless `apply` is explicitly selected. The legacy helper entrypoints
+remain installed for the Android adapter until its consumers migrate.

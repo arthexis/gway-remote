@@ -29,8 +29,12 @@ class OdooCliDeployTests(unittest.TestCase):
         self.assertIn("Refusing to replace unrelated", play)
         for name in ("odoo-gelectriic", "odoo-domain", "odoo-query", "odoo-bom",
                      "odoo-credentials", "odoo-quotation", "odoo-quotation-write",
-                     "odoo-quotation-pdf"):
+                     "odoo-quotation-pdf", "odoo-catalog"):
             self.assertIn("- " + name, play)
+        self.assertIn("- catalog", play)
+        self.assertIn("- inspect", play)
+        self.assertNotIn("gway_odoo_data_root", play)
+        self.assertNotIn("data/", play)
         self.assertNotIn("active.quotation.toml.enc", play)
         self.assertNotIn("passphrase", play)
 
