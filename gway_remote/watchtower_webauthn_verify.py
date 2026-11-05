@@ -13,6 +13,22 @@ RP_ID = "remote.arthexis.com"
 ORIGIN = "https://remote.arthexis.com"
 MAX_CREDENTIAL_JSON = 16384
 
+def approved_origins():
+    """Pinned RP website plus one explicitly provisioned release APK identity.
+
+    Android app passkeys use android:apk-key-hash:base64url(SHA256(cert)).
+    Never trust an Origin header or app-provided origin as an allowlist entry.
+    """
+    import os
+    import re
+    android = os.environ.get("GWAY_WEBAUTHN_ANDROID_ORIGIN", "")
+    if not android:
+        return ORIGIN
+    if not re.fullmatch(r"android:apk-key-hash:[A-Za-z0-9_-]{43}", android):
+        raise ValueError("invalid_android_origin")
+    return [ORIGIN, android]
+
+
 
 def _b64url(raw):
     return base64.urlsafe_b64encode(raw).decode("ascii").rstrip("=")
@@ -57,7 +73,7 @@ def verify_registration(ledger, *, challenge, principal, credential):
     result = verify_registration_response(
         credential=_validate_credential(credential),
         expected_challenge=base64url_to_bytes(challenge),
-        expected_rp_id=RP_ID, expected_origin=ORIGIN,
+        expected_rp_id=RP_ID, expected_origin=approved_origins(),
         require_user_verification=True,
     )
     return VerifiedRegistration(
@@ -95,7 +111,7 @@ def verify_assertion(ledger, *, challenge, principal, action, target, credential
     public_key, old_count = row
     result = verify_authentication_response(
         credential=credential, expected_challenge=base64url_to_bytes(challenge),
-        expected_rp_id=RP_ID, expected_origin=ORIGIN,
+        expected_rp_id=RP_ID, expected_origin=approved_origins(),
         credential_public_key=public_key,
         credential_current_sign_count=old_count,
         require_user_verification=True,
