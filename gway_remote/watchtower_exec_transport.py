@@ -199,8 +199,6 @@ class PinnedNode:
 
     def __post_init__(self):
         validate_command(self.node, "true")
-        if self.node != "gway-001":
-            raise ValueError("B2b-2 transport restricted to gway-001")
         try:
             address = ipaddress.ip_address(self.wireguard_address)
             if address.version != 4 or address not in ipaddress.ip_network("10.0.0.0/8"):
@@ -278,6 +276,26 @@ class SSHTransport:
         return result
 
 
+class MultiNodeTransport:
+    """Select only operator-pinned SSH transports, never RPC-supplied endpoints."""
+
+    def __init__(self, transports):
+        if not transports or len(transports) != len(set(transports)):
+            raise ValueError("invalid pinned transport inventory")
+        self.transports = dict(transports)
+
+    def for_node(self, node):
+        try:
+            return self.transports[node]
+        except (KeyError, TypeError):
+            raise PermissionError("node has no pinned execution transport") from None
+
+    def invoke(self, payload):
+        if type(payload) is not dict:
+            raise ValueError("invalid transport payload")
+        return self.for_node(payload.get("node")).invoke(payload)
+
+
 class DormantRelay:
     """Explicitly disabled until B2b-3 approves authenticated operations."""
 
@@ -290,8 +308,7 @@ class DormantRelay:
         if not self.enabled:
             raise PermissionError("remote execution disabled pending B2b-3 authorization")
         row = self.ledger.get(request_id)
-        if (row["node"] != self.transport.node.node
-                or row["host_key_sha256"] != self.transport.node.host_key_sha256):
+        if (row["host_key_sha256"] != self.transport.for_node(row["node"]).node.host_key_sha256):
             raise PermissionError("enrolled node identity changed")
         return row
 
