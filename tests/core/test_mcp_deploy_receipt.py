@@ -62,6 +62,7 @@ class DeploymentReceiptTests(unittest.TestCase):
         assert specific.is_file()
         self.assertEqual(json.loads(specific.read_text())["application"],
                          "odoo-gelectriic")
+        self.module.RECEIPT = self.module.STATE / "status.json"
         self.assertEqual(self.read()["attempt_id"], old["attempt_id"])
         with patch("sys.argv", ["receipt", "finish", "odoo-gelectriic"]), patch.dict(
                 os.environ, {"SERVICE_RESULT": "success", "EXIT_STATUS": "0"}):
