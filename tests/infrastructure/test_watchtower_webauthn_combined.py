@@ -213,6 +213,32 @@ class CombinedIssuerTests(unittest.TestCase):
         self.assertFalse(self.registry.verify(old_tokens["access_token"],
                                               required_scope="gway:read"))
 
+    def test_explicit_signed_revoke_is_single_use_and_bound_to_id(self):
+        issued = self.signed_issue()
+        intent = {"action": "revoke_mcp_bearer", "key_id": issued["bearer_id"],
+                  "request_id": "f" * 32}
+        options = self.issuer.begin_revoke(principal="admin", intent=intent)
+        assertion = self.fido.assertion(options["challenge"], count=2)
+        changed = dict(intent, key_id="a" * 24)
+        with self.assertRaises(ValueError):
+            self.issuer.revoke_bearer(principal="admin", intent=changed,
+                                     challenge=options["challenge"], credential=assertion)
+        self.assertTrue(self.registry.verify(issued["bearer"], required_scope="gway:execute"))
+        with self.assertRaises(ValueError):
+            self.issuer.revoke_bearer(principal="admin", intent=intent,
+                                     challenge=options["challenge"], credential=assertion)
+        fresh = self.issuer.begin_revoke(principal="admin", intent=intent)
+        result = self.issuer.revoke_bearer(
+            principal="admin", intent=intent, challenge=fresh["challenge"],
+            credential=self.fido.assertion(fresh["challenge"], count=2))
+        self.assertEqual(result, {"revoked": True})
+        for scope in BOTH:
+            self.assertFalse(self.registry.verify(issued["bearer"], required_scope=scope))
+        with self.assertRaises(ValueError):
+            self.issuer.revoke_bearer(
+                principal="admin", intent=intent, challenge=fresh["challenge"],
+                credential=self.fido.assertion(fresh["challenge"], count=3))
+
     def test_revoke_parent_invalidates_oauth_delegation(self):
         parent = self.signed_issue()
         pair = self.registry.issue_oauth_pair(
