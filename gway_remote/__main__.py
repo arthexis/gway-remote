@@ -341,6 +341,7 @@ def main() -> None:
     watchtower_parser.add_argument("--attest", action="store_true", help="attest SSH host identity atomically during adopt")
     watchtower_parser.add_argument("--host-key-file", type=Path, help="independently verified ED25519 SSH host public key file")
     watchtower_parser.add_argument("--host-key", help="independently verified ED25519 SSH public key (or - for stdin)")
+    watchtower_parser.add_argument("--rotate", action="store_true", help="explicit host-key rotation; requires unused invitation token file")
     watchtower_parser.add_argument("--network", help="approved IPv4 allocation CIDR")
     watchtower_parser.add_argument("--gateway", help="approved hub IPv4 address")
     watchtower_parser.add_argument("--config", help="root-owned WireGuard configuration")
@@ -489,6 +490,14 @@ def main() -> None:
                 if args.attest or args.public_key:
                     parser.error("watchtower attest takes neither --attest nor --public-key")
                 from .watchtower_attest import attest, host_key_path
+                if args.rotate:
+                    if args.host_key is None or args.host_key_file is not None or args.rotation_token_file is None:
+                        parser.error("--rotate requires --host-key and --rotation-token-file (not --host-key-file)")
+                    from .watchtower_attest import rotate_verified_host_key
+                    key = sys.stdin.readline().strip() if args.host_key == "-" else args.host_key
+                    print(json.dumps(rotate_verified_host_key(ledger, args.node, key,
+                        token_file=args.rotation_token_file, dry_run=args.dry_run), sort_keys=True))
+                    return
                 if args.host_key is not None and args.host_key_file is not None:
                     parser.error("--host-key and --host-key-file are mutually exclusive")
                 if args.host_key is not None:
