@@ -9,6 +9,7 @@ from uuid import uuid4
 
 STATE = Path("/var/lib/gway-mcp-deploy")
 RECEIPT = STATE / "status.json"
+APPLICATIONS = {"gway-remote", "odoo-gelectriic"}
 
 def now():
     return datetime.now(timezone.utc).isoformat()
@@ -33,11 +34,16 @@ def save(record):
             temp.unlink()
 
 def main():
-    if len(sys.argv) != 2 or sys.argv[1] not in ("begin", "finish"):
+    if len(sys.argv) not in (2, 3) or sys.argv[1] not in ("begin", "finish"):
         return 2
     mode = sys.argv[1]
+    application = sys.argv[2] if len(sys.argv) == 3 else "gway-remote"
+    if application not in APPLICATIONS:
+        return 2
+    global RECEIPT
+    RECEIPT = STATE / ("status.json" if application == "gway-remote" else "status-" + application + ".json")
     if mode == "begin":
-        save({"schema": 1, "application": "gway-remote", "node": "gway-001",
+        save({"schema": 1, "application": application, "node": "gway-001",
               "attempt_id": uuid4().hex, "state": "running",
               "started_at": now(), "finished_at": None,
               "service_result": None, "exit_status": None})
@@ -47,7 +53,7 @@ def main():
         if record.get("schema") != 1 or record.get("state") != "running":
             raise ValueError("not a running receipt")
     except (OSError, ValueError, TypeError):
-        record = {"schema": 1, "application": "gway-remote",
+        record = {"schema": 1, "application": application,
                   "node": "gway-001", "attempt_id": uuid4().hex,
                   "started_at": None}
     result = os.environ.get("SERVICE_RESULT", "unknown")

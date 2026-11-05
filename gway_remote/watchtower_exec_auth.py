@@ -92,19 +92,46 @@ class AuthorizedExecution:
         return {"request_id": request_id, "node": node,
                 "status": self.relay.dispatch(request_id)}
 
-    def deployment(self, *, principal, request_id, node, application, status=False):
-        """Named, fixed service action, bound to the existing audited job ledger.
+    def deployment_preview(self, *, node, application, revision="main"):
+        """Read-only preview of a fixed, policy-authorized Ansible recipe."""
+        if type(node) is not str or type(application) is not str or revision != "main":
+            raise ValueError("unsupported deployment revision or target")
+        recipes = {
+            ("gway-001", "gway-remote"): "gway-remote-deploy.service",
+            ("gway-001", "odoo-gelectriic"): "gway-odoo-deploy.service",
+        }
+        unit = recipes.get((node, application))
+        if unit is None:
+            raise PermissionError("deployment target has no installed fixed recipe")
+        self._allow_preview_eligibility(node)
+        return {"node": node, "application": application, "revision": revision,
+                "recipe": unit, "status": "eligible",
+                "execution": "fixed-operator-owned-systemd-ansible",
+                "note": "preview only; no command or configuration changes"}
 
-        MCP callers cannot supply shell, arguments, revision, or service name.
-        Only the Ansible-installed, root-owned unit chooses the deploy recipe.
+    def _allow_preview_eligibility(self, node):
+        if not self.enabled or not self.relay.enabled:
+            raise PermissionError("deployment execution is not enabled")
+        self._current_eligibility(node)
+
+    def deployment(self, *, principal, request_id, node, application,
+                   revision="main", status=False):
+        """Use the existing attested node transport for fixed Ansible services.
+
+        A caller cannot select a shell command, service path or arbitrary
+        Ansible options. Keep the original gway-remote contract intact.
         """
-        if type(status) is not bool or node != "gway-001" or application != "gway-remote":
-            raise ValueError("unsupported deployment target")
-        command = (
-            "/usr/bin/cat /var/lib/gway-mcp-deploy/status.json"
-            if status else
-            "/usr/bin/sudo -n /usr/bin/systemctl start --no-block gway-remote-deploy.service"
-        )
+        if type(status) is not bool:
+            raise ValueError("invalid deployment status")
+        preview = self.deployment_preview(node=node, application=application,
+                                          revision=revision)
+        unit = preview["recipe"]
+        if status:
+            receipt = ("status.json" if application == "gway-remote"
+                       else "status-" + application + ".json")
+            command = "/usr/bin/cat /var/lib/gway-mcp-deploy/" + receipt
+        else:
+            command = "/usr/bin/sudo -n /usr/bin/systemctl start --no-block " + unit
         return self.exec(principal=principal, request_id=request_id,
                          node=node, command=command)
 

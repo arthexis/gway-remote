@@ -1,49 +1,74 @@
-"""Fixed deployment command never accepts an MCP shell, service, or git ref."""
+"""Fixed node_deploy MCP contracts: existing tool name, scoped recipes, safe preview."""
 import unittest
-from unittest.mock import patch
+
 from gway_remote.watchtower_exec_auth import AuthorizedExecution
-from gway_remote.mcp_bearer_gateway import ALLOWED_TOOLS, EXEC_TOOL_NAMES, EXEC_TOOLS
+from gway_remote.mcp_bearer_gateway import (
+    ALLOWED_TOOLS, EXEC_TOOL_NAMES, EXEC_TOOLS, NODE_TOOLS,
+)
+
 
 class DeployBrokerTests(unittest.TestCase):
     def setUp(self):
         self.captured = []
+
         class Stub(AuthorizedExecution):
             def exec(inner, **kwargs):
                 self.captured.append(kwargs)
                 return {"request_id": kwargs["request_id"], "status": "dispatched"}
+
+            def _allow_preview_eligibility(inner, node):
+                self.captured.append({"checked_node": node})
+
         self.service = Stub(None, None, None)
-        self.kwargs = dict(principal="a"*24, request_id="b"*32,
+        self.kwargs = dict(principal="a" * 24, request_id="b" * 32,
                            node="gway-001", application="gway-remote")
 
-    def test_start_is_one_fixed_unit_only(self):
+    def test_existing_deploy_is_backwards_compatible(self):
         result = self.service.deployment(**self.kwargs)
         self.assertEqual(result["status"], "dispatched")
-        self.assertEqual(self.captured[0]["command"],
+        self.assertEqual(self.captured[-1]["command"],
             "/usr/bin/sudo -n /usr/bin/systemctl start --no-block gway-remote-deploy.service")
 
-    def test_status_is_unprivileged_and_fixed(self):
+    def test_odoo_deploy_uses_only_fixed_unit(self):
+        args = {**self.kwargs, "application": "odoo-gelectriic"}
+        preview = self.service.deployment_preview(node="gway-001",
+                                                   application="odoo-gelectriic")
+        self.assertEqual(preview["recipe"], "gway-odoo-deploy.service")
+        self.service.deployment(**args)
+        self.assertEqual(self.captured[-1]["command"],
+            "/usr/bin/sudo -n /usr/bin/systemctl start --no-block gway-odoo-deploy.service")
+        self.service.deployment(**args, status=True)
+        self.assertEqual(self.captured[-1]["command"],
+            "/usr/bin/cat /var/lib/gway-mcp-deploy/status-odoo-gelectriic.json")
+
+    def test_original_status_uses_legacy_receipt(self):
         self.service.deployment(**self.kwargs, status=True)
-        self.assertEqual(self.captured[0]["command"],
+        self.assertEqual(self.captured[-1]["command"],
             "/usr/bin/cat /var/lib/gway-mcp-deploy/status.json")
 
-    def test_other_nodes_and_applications_denied(self):
-        for changes in ({"node": "gway-002"}, {"application": "ocpp-csms"},
-                        {"application": "../../other.service"}):
-            with self.subTest(changes=changes), self.assertRaises(ValueError):
+    def test_unsupported_nodes_applications_and_revisions_denied(self):
+        for changes in ({"node": "gway-002"}, {"node": "gway-004"},
+                        {"application": "ocpp-csms"},
+                        {"application": "../../other.service"},
+                        {"revision": "f" * 40}):
+            with self.subTest(changes=changes), self.assertRaises((ValueError, PermissionError)):
                 self.service.deployment(**{**self.kwargs, **changes})
-        self.assertEqual(self.captured, [])
+        self.assertFalse(any("command" in row for row in self.captured))
 
-    def test_tools_require_execute_scope_and_are_advertised(self):
+    def test_tools_preserve_original_name_and_authentication(self):
         names = {tool["name"] for tool in EXEC_TOOLS}
         self.assertTrue({"node_deploy", "node_deploy_status"} <= names)
         self.assertTrue({"node_deploy", "node_deploy_status"} <= EXEC_TOOL_NAMES)
         self.assertTrue({"node_deploy", "node_deploy_status"} <= ALLOWED_TOOLS)
+        self.assertIn("node_deploy_preview", {tool["name"] for tool in NODE_TOOLS})
+        self.assertNotIn("deploy", ALLOWED_TOOLS)
         for tool in EXEC_TOOLS:
             if tool["name"].startswith("node_deploy"):
                 self.assertEqual(tool["_meta"]["securitySchemes"][0]["scopes"],
                                  ["gway:execute"])
-                self.assertEqual(tool["inputSchema"]["properties"]["application"]["enum"],
-                                 ["gway-remote"])
+                self.assertEqual(tool["inputSchema"]["properties"]["revision"]["enum"],
+                                 ["main"])
+
 
 if __name__ == "__main__":
     unittest.main()
