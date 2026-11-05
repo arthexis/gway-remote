@@ -33,8 +33,8 @@ data class FeatureSpec(
 }
 
 object FeatureRegistry {
-    // Deliberately do not advertise MCP bearer issuance until server-verified
-    // WebAuthn enrollment and issuance exist (issue #378 stages B-D).
+    // MCP Access is a local, inert entry until Watchtower announces gated
+    // WebAuthn issuer availability; this does not grant local token authority.
     private val homeOperationIds = setOf("system", "agent-ops")
     private val registered = OperationRegistry.operations.filter { it.visibility == OperationVisibility.PALETTE }.map { operation ->
         FeatureSpec(operation.id, operation.label, operation.icon, operation.keywords,
@@ -43,6 +43,9 @@ object FeatureRegistry {
     } + listOf(
         FeatureSpec("deployments", "Deployments", "rocket",
             setOf("deploy", "repositories", "follow", "release"), FeatureKind.LOCAL_PANEL, group = FeatureGroup.HOME),
+        FeatureSpec("mcp-access", "MCP Access", "key-round",
+            setOf("passkey", "webauthn", "bearer", "token", "revoke"), FeatureKind.LOCAL_PANEL,
+            group = FeatureGroup.HOME),
         FeatureSpec("github-health", "GitHub Health", "github",
             setOf("github", "ci", "alerts", "watch"), FeatureKind.LOCAL_PANEL, group = FeatureGroup.HOME),
         FeatureSpec("app-update", "App update", "update",
