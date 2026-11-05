@@ -1,0 +1,132 @@
+---
+# Activate ONLY the reviewed Odoo PDF route on an already-provisioned
+# Watchtower HTTPS gateway. Never create a vhost or change credentials.
+- name: Converge bounded Odoo quotation PDF proxy
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  vars:
+    odoo_gateway_snippet: /etc/nginx/snippets/gway-remote-locations.conf
+    odoo_gateway_vhost: /etc/nginx/sites-enabled/remote.arthexis.com
+    odoo_gateway_route: |
+      # Bounded GET-only Odoo PDF download; bearer is validated on gway-001.
+      location ~ "^/api/v1/odoo/quotations/[1-9][0-9]{0,9}/pdf$" {
+          limit_except GET { deny all; }
+          proxy_pass http://10.90.0.2:8765;
+          proxy_set_header Authorization $http_authorization;
+          proxy_set_header Host $host;
+          proxy_set_header X-Forwarded-Proto https;
+          proxy_connect_timeout 3s;
+          proxy_read_timeout 120s;
+          proxy_buffering off;
+      }
+  tasks:
+    - name: Require an existing, non-symlink GWay Remote gateway snippet
+      become: true
+      ansible.builtin.stat:
+        path: "{{ odoo_gateway_snippet }}"
+        follow: false
+      register: odoo_gateway_snippet_stat
+
+    - name: Refuse first-time HTTPS provisioning or unrelated snippet
+      ansible.builtin.assert:
+        that:
+          - odoo_gateway_snippet_stat.stat.isreg | default(false)
+          - not (odoo_gateway_snippet_stat.stat.islnk | default(false))
+          - odoo_gateway_snippet_stat.stat.pw_name == 'root'
+        fail_msg: Existing root-owned GWay Remote HTTPS snippet is required.
+
+    - name: Read existing GWay Remote snippet for exact rollback
+      become: true
+      ansible.builtin.slurp:
+        src: "{{ odoo_gateway_snippet }}"
+      register: odoo_gateway_original
+      no_log: true
+
+    - name: Require expected existing mobile API routes
+      ansible.builtin.assert:
+        that:
+          - "'location = /api/v1/execute {' in (odoo_gateway_original.content | b64decode)"
+          - "'proxy_pass http://10.90.0.2:8765/api/v1/execute;' in (odoo_gateway_original.content | b64decode)"
+          - "'location = /api/v1/health {' in (odoo_gateway_original.content | b64decode)"
+        fail_msg: The HTTPS snippet does not match an already-provisioned GWay Remote gateway.
+
+    - name: Reject an unmanaged duplicate Odoo download route
+      ansible.builtin.assert:
+        that:
+          - >-
+            'location ~ "^/api/v1/odoo/quotations/' not in
+            (odoo_gateway_original.content | b64decode)
+            or '# BEGIN GWAY ODOO QUOTATION PDF' in
+            (odoo_gateway_original.content | b64decode)
+        fail_msg: Odoo PDF route exists without managed markers; review before deployment.
+
+    - name: Verify existing TLS vhost includes the reviewed snippet
+      become: true
+      ansible.builtin.slurp:
+        src: "{{ odoo_gateway_vhost }}"
+      register: odoo_gateway_site
+      no_log: true
+
+    - name: Reject unexpected TLS vhost arrangement
+      ansible.builtin.assert:
+        that:
+          - "'include /etc/nginx/snippets/gway-remote-locations.conf;' in (odoo_gateway_site.content | b64decode)"
+        fail_msg: The existing HTTPS vhost must explicitly include the GWay Remote snippet.
+
+    - name: Verify Nginx is healthy before any edit
+      become: true
+      ansible.builtin.command:
+        argv: [nginx, -t]
+      changed_when: false
+
+    - name: Update only the managed PDF route with rollback on errors
+      block:
+        - name: Add bounded GET-only PDF location to existing proxy snippet
+          become: true
+          ansible.builtin.blockinfile:
+            path: "{{ odoo_gateway_snippet }}"
+            marker: "# {mark} GWAY ODOO QUOTATION PDF"
+            block: "{{ odoo_gateway_route }}"
+            create: false
+          register: odoo_gateway_change
+
+        - name: Verify the new complete Nginx configuration
+          become: true
+          ansible.builtin.command:
+            argv: [nginx, -t]
+          changed_when: false
+
+        - name: Reload HTTPS gateway only if its PDF route changed
+          become: true
+          ansible.builtin.systemd:
+            name: nginx.service
+            state: reloaded
+          when: odoo_gateway_change.changed
+
+      rescue:
+        - name: Restore the exact original proxy snippet
+          become: true
+          ansible.builtin.copy:
+            content: "{{ odoo_gateway_original.content | b64decode }}"
+            dest: "{{ odoo_gateway_snippet }}"
+            owner: root
+            group: root
+            mode: '0644'
+          no_log: true
+
+        - name: Validate restored Nginx configuration
+          become: true
+          ansible.builtin.command:
+            argv: [nginx, -t]
+          changed_when: false
+
+        - name: Reload the restored existing gateway
+          become: true
+          ansible.builtin.systemd:
+            name: nginx.service
+            state: reloaded
+
+        - name: Fail rather than leave a partial proxy rollout
+          ansible.builtin.fail:
+            msg: Odoo PDF proxy activation failed; previous Nginx snippet restored.
