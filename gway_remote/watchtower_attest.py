@@ -25,6 +25,12 @@ def host_key_path(node: str) -> Path:
     return Path("/etc/gway-remote") / ("verified-" + node + "-host.pub")
 
 
+def rotation_token_path(node: str) -> Path:
+    """Canonical protected operator-provisioned invitation token for rotation."""
+    host_key_path(node)  # Validate node against enrollment contract.
+    return Path("/etc/gway-remote") / ("rotation-" + node + ".token")
+
+
 def verified_host_key(path: Path) -> str:
     trusted_file(path)
     lines = Path(path).read_text(encoding="utf-8").strip().splitlines()
