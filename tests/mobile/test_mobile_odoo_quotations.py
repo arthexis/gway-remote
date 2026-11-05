@@ -27,18 +27,54 @@ class OdooMobileBridgeTests(unittest.TestCase):
         self.assertEqual(result["quotations"][0]["name"], "S30958 Subestación 1")
         self.assertEqual(calls[0][0], "odoo-domain")
         self.assertEqual(calls[0][1][0:2], ["--model", "sale.order"])
-        self.assertEqual(calls[0][1][-2:], ["--limit", "10"])
-        self.assertEqual(json.loads(calls[0][1][3])[1][2], "Subestación")
+        self.assertEqual(calls[0][1][-4:], ["--limit", "11", "--offset", "0"])
+        domain = json.loads(calls[0][1][3])
+        self.assertEqual(domain[1], ["state", "in", ["draft", "sent"]])
+        self.assertEqual(domain[3], ["name", "ilike", "Subestación"])
+        self.assertEqual(result["page"], 1)
+        self.assertFalse(result["has_next"])
 
     def test_search_rejects_unbounded_input(self):
         cases = [
             {"query": "x"*81}, {"query": "bad\nnewline"}, {"query":3},
             {"limit":0}, {"limit":100}, {"limit":True},
+            {"page":0}, {"page":1001}, {"page":True}, {"page":"2"},
             {"query":"","extra":1}, ["str"],
         ]
         for arguments in cases:
             with self.subTest(arguments=arguments), self.assertRaises(ValueError):
                 odoo.search(arguments)
+
+    def test_newest_first_pagination_requests_one_extra_row(self):
+        calls = []
+        def runner(executable, args, timeout=30):
+            calls.append(args)
+            return json.dumps([
+                {"id": 100 - i, "name": f"S{100-i}", "state": "draft",
+                 "partner_id": [12, "Customer"], "date_order": "2026-10-01",
+                 "amount_total": 100.0, "currency_id": [33, "MXN"]}
+                for i in range(11)
+            ])
+        with patch.object(odoo, "_run", side_effect=runner):
+            result = odoo.search({"page": 2, "limit": 10})
+        self.assertEqual(result["page"], 2)
+        self.assertEqual(result["limit"], 10)
+        self.assertEqual(result["count"], 10)
+        self.assertTrue(result["has_next"])
+        self.assertEqual(len(result["quotations"]), 10)
+        self.assertEqual(calls[0][-4:], ["--limit", "11", "--offset", "10"])
+        self.assertEqual(json.loads(calls[0][3]), [["state", "in", ["draft", "sent"]]])
+        self.assertEqual(calls[0][5], "date_order desc,id desc")
+
+    def test_last_page_disables_next(self):
+        with patch.object(odoo, "_run", return_value=json.dumps([
+            {"id": 2, "name": "S2", "state": "sent",
+             "partner_id": [12, "Customer"], "date_order": "2026-10-01",
+             "amount_total": 100, "currency_id": [33, "MXN"]},
+        ])):
+            result = odoo.search({"page": 3, "limit": 10})
+        self.assertEqual(result["count"], 1)
+        self.assertFalse(result["has_next"])
 
     def test_download_rejects_bad_ids(self):
         for value in (0,-1,True,"857",10**11):
