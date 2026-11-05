@@ -42,19 +42,17 @@ checks should use existing operator-controlled commands.
 
 ## Unified catalog CLI
 
-After the matching `odoo-gelectriic` change has merged to main, Ansible installs
-`odoo-catalog-v2` as an internal root-owned helper and the audited 35-item CSV
-under `/opt/odoo-gelectriic/data/`. The preferred operator-facing entrypoint is
-`/usr/local/bin/odoo-gelectriic`:
+After the companion Odoo CLI change merges, Ansible installs the generic
+`odoo-catalog` helper as a root-owned binary under `/opt/odoo-gelectriic/bin`.
+No customer or estimate CSV is installed by Ansible; business data is passed
+at runtime from separate, operator-controlled files.
 
 ```sh
-odoo-gelectriic catalog inspect    # read-only; requires valid local Bastion profile
-odoo-gelectriic catalog validate --uom-map /secure/verified-units.json --goods-category-id ID --service-category-id ID
-odoo-gelectriic catalog apply --uom-map /secure/verified-units.json --goods-category-id ID --service-category-id ID
+odoo-gelectriic catalog inspect
+odoo-gelectriic catalog validate --manifest /private/estimate.csv --uom-map /private/units.json --partner-id ID --goods-category-id ID --service-category-id ID --pricelist-id ID --tax-id ID
+odoo-gelectriic catalog apply --manifest /private/estimate.csv --uom-map /private/units.json --partner-id ID --goods-category-id ID --service-category-id ID --pricelist-id ID --tax-id ID --marker UNIQUE-DRAFT-KEY
 ```
 
-Never invent Odoo UoM/category IDs; inspect live records first, then validate.
-Only `apply` is allowed to create a new draft. The legacy CLI entrypoints
-remain installed temporarily because the Android adapter still uses their
-fixed absolute paths. This is **not** a permission escalation or an alternative
-authorization route; Odoo authentication and existing ACLs remain enforced.
+The existing Odoo authentication and ACLs are unchanged. No Odoo write
+occurs unless `apply` is explicitly selected. The legacy helper entrypoints
+remain installed for the Android adapter until its consumers migrate.
