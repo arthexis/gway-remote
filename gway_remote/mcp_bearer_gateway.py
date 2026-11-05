@@ -18,7 +18,8 @@ ALLOWED_METHODS = frozenset({"server/discover", "initialize", "notifications/ini
 ALLOWED_TOOLS = frozenset({"agent_list_issues", "agent_status", "agent_preview", "agent_observe",
     "github_workflow_runs", "github_workflow_status", "github_workflow_errors",
     "node_list", "node_capabilities", "node_exec_preview",
-    "node_exec", "node_result", "node_cancel", "node_deploy", "node_deploy_status"})
+    "node_exec", "node_result", "node_cancel", "node_deploy", "node_deploy_status",
+    "node_deploy_preview"})
 
 EXEC_TOOL_NAMES = frozenset({"node_exec", "node_result", "node_cancel", "node_deploy", "node_deploy_status"})
 EXEC_SECURITY = {"securitySchemes": [{"type": "oauth2", "scopes": ["gway:execute"]}]}
@@ -26,17 +27,19 @@ READ_SECURITY = {"securitySchemes": [{"type": "oauth2", "scopes": ["gway:read"]}
 
 EXEC_TOOLS = (
     {"name": "node_deploy", "_meta": EXEC_SECURITY,
-     "description": "Start the fixed, operator-owned gway-remote release service on gway-001; no arbitrary commands or sudo.",
+     "description": "Start an allowlisted Ansible deployment on an attested node using a fixed root-owned service. No arbitrary shell, path, or options.",
      "inputSchema": {"type": "object", "properties": {
-         "node": {"type": "string", "enum": ["gway-001"]},
-         "application": {"type": "string", "enum": ["gway-remote"]},
+         "node": {"type": "string"},
+         "application": {"type": "string"},
+         "revision": {"type": "string", "enum": ["main"]},
          "request_id": {"type": "string", "pattern": "^[0-9a-f]{32}$"}},
          "required": ["node", "application", "request_id"], "additionalProperties": False}},
     {"name": "node_deploy_status", "_meta": EXEC_SECURITY,
-     "description": "Read the state and result of the fixed gway-remote release service on gway-001.",
+     "description": "Read the installed fixed deployment service receipt on the selected attested node; use node_result for the returned request ID.",
      "inputSchema": {"type": "object", "properties": {
-         "node": {"type": "string", "enum": ["gway-001"]},
-         "application": {"type": "string", "enum": ["gway-remote"]},
+         "node": {"type": "string"},
+         "application": {"type": "string"},
+         "revision": {"type": "string", "enum": ["main"]},
          "request_id": {"type": "string", "pattern": "^[0-9a-f]{32}$"}},
          "required": ["node", "application", "request_id"], "additionalProperties": False}},
     {"name":"node_exec", "_meta": EXEC_SECURITY, "description":"Run a command on an eligible node with an authorized execute-scoped connection.",
@@ -54,6 +57,14 @@ EXEC_TOOLS = (
 )
 
 NODE_TOOLS = (
+    {"name": "node_deploy_preview", "_meta": READ_SECURITY,
+     "description": "Check a fixed Ansible deployment recipe and current node eligibility without executing.",
+     "inputSchema": {"type": "object", "properties": {
+         "node": {"type": "string"},
+         "application": {"type": "string"},
+         "revision": {"type": "string", "enum": ["main"]}},
+         "required": ["node", "application"], "additionalProperties": False},
+     "annotations": {"readOnlyHint": True}},
     {"name": "node_list", "_meta": READ_SECURITY, "description": "List active enrolled nodes from Watchtower (read-only; reachability unknown).",
      "inputSchema": {"type": "object", "properties": {}, "additionalProperties": False},
      "annotations": {"readOnlyHint": True}},
@@ -85,6 +96,12 @@ def scoped_tool(tool, scheme):
 def local_node_result(method, arguments, *, execution=None):
     """Only inventory operations, never a shell or user-supplied address."""
     from . import node_registry_inventory
+    if method == "node_deploy_preview" and type(arguments) is dict and \
+            {"node", "application"} <= set(arguments) and \
+            set(arguments) <= {"node", "application", "revision"}:
+        if execution is None:
+            raise PermissionError("deployment unavailable")
+        return execution.deployment_preview(**arguments)
     if method == "node_list" and arguments == {}:
         return node_registry_inventory.public_nodes(execution_enabled=execution is not None)
     if method == "node_capabilities" and type(arguments) is dict and set(arguments) == {"node"}:
@@ -235,7 +252,7 @@ class Handler(BaseHTTPRequestHandler):
                 principal = self.server.registry.execution_principal(token)
                 if name == "node_exec" and set(args) == {"node","command","request_id"}:
                     selected = self.server.execution.exec(principal=principal, **args)
-                elif name in ("node_deploy", "node_deploy_status") and set(args) == {"node", "application", "request_id"}:
+                elif name in ("node_deploy", "node_deploy_status") and {"node", "application", "request_id"} <= set(args) and set(args) <= {"node", "application", "request_id", "revision"}:
                     selected = self.server.execution.deployment(
                         principal=principal, status=name == "node_deploy_status", **args)
                 elif name == "node_result" and set(args).issubset({"request_id","cursor"}) and "request_id" in args:
@@ -259,7 +276,7 @@ class Handler(BaseHTTPRequestHandler):
             self.end_headers()
             self.wfile.write(body)
             return
-        if payload["method"] == "tools/call" and payload.get("params", {}).get("name") in {"node_list", "node_capabilities", "node_exec_preview"}:
+        if payload["method"] == "tools/call" and payload.get("params", {}).get("name") in {"node_list", "node_capabilities", "node_exec_preview", "node_deploy_preview"}:
             # The enrollment ledger lives on Watchtower. Never pass these tools
             # to gway-001, and never grant the gateway access to the root DB.
             arguments = payload["params"].get("arguments", {})
@@ -335,7 +352,7 @@ class Handler(BaseHTTPRequestHandler):
                 tools = result["tools"]
                 if (type(tools) is not list or
                         any(type(tool) is not dict or tool.get("name") in
-                            ({"node_list", "node_capabilities", "node_exec_preview"} | EXEC_TOOL_NAMES) for tool in tools)):
+                            ({"node_list", "node_capabilities", "node_exec_preview", "node_deploy_preview"} | EXEC_TOOL_NAMES) for tool in tools)):
                     raise ValueError("upstream tool collision")
                 scoped_tools = [scoped_tool(tool, READ_SECURITY) for tool in tools]
                 node_tools = [scoped_tool(tool, READ_SECURITY) for tool in NODE_TOOLS]
