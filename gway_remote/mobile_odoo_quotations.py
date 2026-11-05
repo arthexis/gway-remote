@@ -14,6 +14,7 @@ from pathlib import Path
 ROOT = Path.home() / "Repos" / "odoo-gelectriic" / "bin"
 MAX_PDF = 20 * 1024 * 1024
 MAX_RESULTS = 30
+MAX_PAGE = 1000
 QUERY_LIMIT = 80
 
 
@@ -40,28 +41,33 @@ def _valid_id(order_id):
 
 
 def search(arguments):
-    if type(arguments) is not dict or set(arguments) - {"query", "limit"}:
+    if type(arguments) is not dict or set(arguments) - {"query", "limit", "page"}:
         raise ValueError("invalid_arguments")
     query = arguments.get("query", "")
-    limit = arguments.get("limit", 20)
+    limit = arguments.get("limit", 10)
+    page = arguments.get("page", 1)
     if type(query) is not str or len(query) > QUERY_LIMIT or any(ord(ch) < 32 for ch in query):
         raise ValueError("invalid_quotation_query")
     if type(limit) is not int or not 1 <= limit <= MAX_RESULTS:
         raise ValueError("invalid_quotation_limit")
+    if type(page) is not int or not 1 <= page <= MAX_PAGE:
+        raise ValueError("invalid_quotation_page")
     query = query.strip()
     # Explicit OR between quotation reference and partner display name.
-    domain = ["|", ["name", "ilike", query],
-              ["partner_id", "ilike", query]] if query else []
+    quote_states = ["state", "in", ["draft", "sent"]]
+    domain = ["&", quote_states, "|", ["name", "ilike", query],
+              ["partner_id", "ilike", query]] if query else [quote_states]
     raw = _run("odoo-domain", [
         "--model", "sale.order", "--domain", json.dumps(domain),
         "--fields", "id,name,state,partner_id,date_order,amount_total,currency_id",
-        "--order", "date_order desc,id desc", "--limit", str(limit)])
+        "--order", "date_order desc,id desc", "--limit", str(limit + 1),
+        "--offset", str((page - 1) * limit)])
     try:
         records = json.loads(raw)
-        if type(records) is not list or len(records) > limit:
+        if type(records) is not list or len(records) > limit + 1:
             raise ValueError("unexpected Odoo response")
         result = []
-        for row in records:
+        for row in records[:limit]:
             if type(row) is not dict or type(row.get("id")) is not int:
                 raise ValueError("unexpected Odoo row")
             if row.get("state") not in ("draft", "sent"):
@@ -76,7 +82,8 @@ def search(arguments):
             })
     except (ValueError, KeyError, TypeError, IndexError) as exc:
         raise RuntimeError("odoo_response_invalid") from exc
-    return {"quotations": result, "count": len(result), "limit": limit}
+    return {"quotations": result, "count": len(result), "limit": limit,
+            "page": page, "has_next": len(records) > limit}
 
 
 def _pdf_filename(name):
