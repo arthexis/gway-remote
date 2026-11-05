@@ -1,13 +1,14 @@
 package com.arthexis.gwayremote
 
-import android.content.Context
 import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.*
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.FileDownload
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
@@ -27,6 +28,9 @@ fun OdooQuotationsPanel(endpoint: String, token: String) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     var query by remember { mutableStateOf("") }
+    var submittedQuery by remember { mutableStateOf("") }
+    var page by remember { mutableIntStateOf(1) }
+    var hasNext by remember { mutableStateOf(false) }
     var records by remember { mutableStateOf<List<QuotationSummary>>(emptyList()) }
     var loading by remember { mutableStateOf(false) }
     var downloading by remember { mutableStateOf(false) }
@@ -63,7 +67,7 @@ fun OdooQuotationsPanel(endpoint: String, token: String) {
         }
     }
 
-    LaunchedEffect(endpoint, token, refresh) {
+    LaunchedEffect(endpoint, token, submittedQuery, page, refresh) {
         if (endpoint.isBlank() || token.isBlank()) {
             status = "Configura el endpoint HTTPS y el token de GWay Remote."
             return@LaunchedEffect
@@ -72,10 +76,13 @@ fun OdooQuotationsPanel(endpoint: String, token: String) {
         try {
             val response = withContext(Dispatchers.IO) {
                 ApiClient(endpoint.trim(), token).request("/api/v1/execute",
-                    "odoo-quotations", JSONObject().put("query", query.trim()).put("limit", 30),
+                    "odoo-quotations", JSONObject().put("query", submittedQuery)
+                        .put("limit", 10).put("page", page),
                     timeoutMs = 40000)
             }
-            val rows = response.getJSONObject("result").getJSONArray("quotations")
+            val result = response.getJSONObject("result")
+            val rows = result.getJSONArray("quotations")
+            hasNext = result.getBoolean("has_next")
             records = (0 until rows.length()).mapNotNull { index ->
                 val row = rows.optJSONObject(index) ?: return@mapNotNull null
                 val id = row.optInt("id")
@@ -86,10 +93,10 @@ fun OdooQuotationsPanel(endpoint: String, token: String) {
                     row.optString("state"), "${row.opt("total")} ${row.optString("currency", "MXN")}"
                 )
             }
-            status = if (records.isEmpty()) "No hay cotizaciones para esta búsqueda." else
-                "${records.size} cotizaciones encontradas"
+            status = if (records.isEmpty()) "No hay cotizaciones para esta búsqueda." else ""
         } catch (e: Exception) {
             records = emptyList()
+            hasNext = false
             status = "No se pudieron cargar las cotizaciones: ${e.message ?: "Error de conexión"}"
         } finally { loading = false }
     }
@@ -104,10 +111,19 @@ fun OdooQuotationsPanel(endpoint: String, token: String) {
             modifier = Modifier.fillMaxWidth()
         )
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            Button(onClick = { refresh++ }, enabled = !loading && !downloading) {
+            Button(onClick = {
+                submittedQuery = query.trim()
+                page = 1
+                refresh++
+            }, enabled = !loading && !downloading) {
                 Text(if (loading) "Buscando…" else "Buscar")
             }
-            OutlinedButton(onClick = { query = ""; refresh++ }, enabled = !loading && !downloading) {
+            OutlinedButton(onClick = {
+                query = ""
+                submittedQuery = ""
+                page = 1
+                refresh++
+            }, enabled = !loading && !downloading) {
                 Text("Recientes")
             }
         }
@@ -115,17 +131,65 @@ fun OdooQuotationsPanel(endpoint: String, token: String) {
         if (status.isNotBlank()) Text(status, style = MaterialTheme.typography.bodySmall)
         records.forEach { row ->
             HorizontalDivider()
-            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                Text(row.name, style = MaterialTheme.typography.titleSmall)
-                Text("${row.customer} · ${row.amount}", style = MaterialTheme.typography.bodySmall)
-                Text("${row.state} · ${row.date.take(10)}",
-                    style = MaterialTheme.typography.labelSmall)
-                OutlinedButton(
+            Row(
+                modifier = Modifier.fillMaxWidth().heightIn(min = 56.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Column(
+                    modifier = Modifier.weight(1f),
+                    verticalArrangement = Arrangement.spacedBy(2.dp)
+                ) {
+                    Text(
+                        row.name, style = MaterialTheme.typography.titleSmall,
+                        color = MaterialTheme.colorScheme.onSurface,
+                        maxLines = 1, overflow = TextOverflow.Ellipsis
+                    )
+                    Text(
+                        row.customer, style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurface,
+                        maxLines = 1, overflow = TextOverflow.Ellipsis
+                    )
+                    Text(
+                        "${row.amount} · ${row.date.take(10)}",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1, overflow = TextOverflow.Ellipsis
+                    )
+                }
+                IconButton(
                     onClick = {
                         pending = row
                         picker.launch(row.name + ".pdf")
-                    }, enabled = !downloading && !loading
-                ) { Text("Descargar PDF") }
+                    },
+                    enabled = !downloading && !loading,
+                    modifier = Modifier.size(48.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Outlined.FileDownload,
+                        contentDescription = "Descargar PDF de ${row.name}",
+                        tint = MaterialTheme.colorScheme.primary
+                    )
+                }
+            }
+        }
+        if (!loading && (records.isNotEmpty() || page > 1)) {
+            HorizontalDivider()
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                OutlinedButton(
+                    onClick = { page-- },
+                    enabled = page > 1 && !downloading
+                ) { Text("Anterior") }
+                Text("Página $page", style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSurface)
+                OutlinedButton(
+                    onClick = { page++ },
+                    enabled = hasNext && !downloading
+                ) { Text("Siguiente") }
             }
         }
     }
