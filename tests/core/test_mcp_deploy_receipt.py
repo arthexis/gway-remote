@@ -68,6 +68,7 @@ class DeploymentReceiptTests(unittest.TestCase):
                 os.environ, {"SERVICE_RESULT": "success", "EXIT_STATUS": "0"}):
             self.assertEqual(self.module.main(), 0)
         self.assertEqual(json.loads(specific.read_text())["state"], "succeeded")
+        self.module.RECEIPT = self.module.STATE / "status.json"
         self.assertEqual(self.read()["state"], "running")
 
     def test_unknown_application_refused(self):
