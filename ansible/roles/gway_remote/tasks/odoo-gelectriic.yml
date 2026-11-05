@@ -5,7 +5,6 @@
   ansible.builtin.set_fact:
     gway_odoo_checkout: "{{ getent_passwd[gway_remote_runner_user][4] }}/Repos/odoo-gelectriic"
     gway_odoo_bin_root: /opt/odoo-gelectriic/bin
-    gway_odoo_data_root: /opt/odoo-gelectriic/data
     gway_odoo_commands:
       - odoo-gelectriic
       - odoo-domain
@@ -135,7 +134,6 @@
   loop:
     - /opt/odoo-gelectriic
     - "{{ gway_odoo_bin_root }}"
-    - "{{ gway_odoo_data_root }}"
 
 - name: Install system-wide Odoo CLI binaries from reviewed checkout
   ansible.builtin.copy:
@@ -146,28 +144,6 @@
     group: root
     mode: '0755'
   loop: "{{ gway_odoo_commands }}"
-
-- name: Confirm reviewed catalog manifest exists in Odoo checkout
-  ansible.builtin.stat:
-    path: "{{ gway_odoo_checkout }}/data/subestacion45kva_v2_productos.csv"
-    follow: false
-  register: gway_odoo_manifest
-
-- name: Require regular catalog manifest before installing
-  ansible.builtin.assert:
-    that:
-      - gway_odoo_manifest.stat.isreg | default(false)
-      - not (gway_odoo_manifest.stat.islnk | default(true))
-    fail_msg: Missing reviewed Odoo catalog manifest.
-
-- name: Install catalog manifest alongside root-owned CLI
-  ansible.builtin.copy:
-    src: "{{ gway_odoo_checkout }}/data/subestacion45kva_v2_productos.csv"
-    dest: "{{ gway_odoo_data_root }}/subestacion45kva_v2_productos.csv"
-    remote_src: true
-    owner: root
-    group: root
-    mode: '0644'
 
 - name: Inspect existing system Odoo CLI paths
   ansible.builtin.stat:
