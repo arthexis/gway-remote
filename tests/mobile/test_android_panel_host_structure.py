@@ -25,8 +25,16 @@ class PanelHostStructureTests(unittest.TestCase):
         for feature in ("deployments", "github-health"):
             self.assertIn(f'id = "{feature}"', main)
             self.assertIn(f'FeatureSpec("{feature}"', registry)
-        self.assertIn("deploymentsOpen = !deploymentsOpen", main)
-        self.assertIn("if (deploymentsOpen)", main)
+        self.assertIn('localPanels.toggle("deployments")', main)
+        self.assertIn('localPanels.toggle("github-health")', main)
+        self.assertIn('localPanels.toggle("mcp-access")', main)
+        self.assertIn("LocalPanelHost(", main)
+        self.assertNotIn("if (deploymentsOpen)", main)
+        local_host = (ANDROID / "panels/LocalPanelHost.kt").read_text()
+        self.assertIn("PanelChrome(", local_host)
+        self.assertIn('"deployments" -> DeploymentsPanel(endpoint, token)', local_host)
+        self.assertIn('"github-health" -> GitHubHealthPanel(endpoint, token)', local_host)
+        self.assertIn('"mcp-access" -> McpAccessPanel(', local_host)
 
     def test_removed_tasks_are_absent_from_specialized_registry(self):
         source = (ANDROID / "registry/PanelContentRegistry.kt").read_text()

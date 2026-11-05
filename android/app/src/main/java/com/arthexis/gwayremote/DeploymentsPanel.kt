@@ -6,10 +6,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.delay
-import kotlinx.coroutines.isActive
-import kotlinx.coroutines.withContext
+import androidx.lifecycle.viewmodel.compose.viewModel
 import org.json.JSONObject
 import java.util.UUID
 
@@ -24,59 +21,16 @@ fun DeploymentsPanel(endpoint: String, token: String) {
     var selected by remember { mutableStateOf("all") }
     var expanded by remember { mutableStateOf(false) }
     var confirm by remember { mutableStateOf(false) }
-    var requestId by remember { mutableStateOf(prefs.getString("request_id", "") ?: "") }
-    var overview by remember { mutableStateOf<JSONObject?>(null) }
-    var follow by remember { mutableStateOf<JSONObject?>(null) }
-    var error by remember { mutableStateOf<String?>(null) }
-    var busy by remember { mutableStateOf(false) }
-    var refresh by remember { mutableIntStateOf(0) }
-    var dispatchNonce by remember { mutableStateOf<String?>(null) }
-    LaunchedEffect(endpoint, token, refresh) {
-        if (endpoint.isBlank() || token.isBlank()) return@LaunchedEffect
-        try {
-            val response = withContext(Dispatchers.IO) {
-                ApiClient(endpoint.trim(), token).request("/api/v1/execute", "deployments-overview")
-            }
-            overview = response.optJSONObject("result")
-            error = null
-        } catch (e: Exception) { error = e.message ?: "Overview unavailable" }
+    val model: DeploymentsViewModel = viewModel()
+    val restoredId = prefs.getString("request_id", "") ?: ""
+    LaunchedEffect(endpoint, token, restoredId) {
+        model.connect(endpoint, token, restoredId)
     }
-    LaunchedEffect(endpoint, token, requestId, refresh) {
-        if (requestId.isBlank() || endpoint.isBlank() || token.isBlank()) return@LaunchedEffect
-        while (isActive) {
-            try {
-                val response = withContext(Dispatchers.IO) {
-                    ApiClient(endpoint.trim(), token).request("/api/v1/execute", "deployments-follow",
-                        JSONObject().put("request_id", requestId))
-                }
-                follow = response.optJSONObject("result")
-                error = null
-            } catch (e: Exception) { error = e.message ?: "Follow unavailable" }
-            val state = follow?.optString("state")
-            if (state == "completed") break
-            delay(4000)
-        }
-    }
-    LaunchedEffect(dispatchNonce) {
-        val nonce = dispatchNonce ?: return@LaunchedEffect
-        busy = true
-        try {
-            withContext(Dispatchers.IO) {
-                ApiClient(endpoint.trim(), token).request("/api/v1/execute", "deployments-dispatch",
-                    JSONObject().put("target", selected).put("request_id", nonce).put("confirm", true))
-            }
-            requestId = nonce
-            prefs.edit().putString("request_id", nonce).apply()
-            follow = null
-            confirm = false
-            error = null
-        } catch (e: Exception) {
-            // HTTP failures may be ambiguous: preserve the request ID to observe, never resend.
-            requestId = nonce
-            prefs.edit().putString("request_id", nonce).apply()
-            error = e.message ?: "Submission unconfirmed; check Follow"
-        } finally { busy = false; dispatchNonce = null }
-    }
+    val requestId = model.requestId
+    val overview = model.overview
+    val follow = model.follow
+    val error = model.error
+    val busy = model.busy
     Column(verticalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {
         Text("Deployments · GWAY-001", style = MaterialTheme.typography.titleMedium)
         val controller = overview?.optJSONObject("controller")
@@ -96,11 +50,19 @@ fun DeploymentsPanel(endpoint: String, token: String) {
         }
         Row { Checkbox(checked = confirm, onCheckedChange = { confirm = it });
             Text("Confirm deployment of " + (if (selected == "all") "all repositories" else selected)) }
-        Button(onClick = { dispatchNonce = UUID.randomUUID().toString().replace("-", "") },
+        Button(onClick = {
+            if (confirm) {
+                val id = UUID.randomUUID().toString().replace("-", "")
+                model.dispatch(selected, id) { submitted ->
+                    prefs.edit().putString("request_id", submitted).apply()
+                }
+                confirm = false
+            }
+        },
             enabled = confirm && !busy && requestId.isBlank(), modifier = Modifier.fillMaxWidth()) {
             Text(if (busy) "Requesting…" else "Deploy " + selected)
         }
-        OutlinedButton(onClick = { refresh++ }) { Text("Refresh") }
+        OutlinedButton(onClick = { model.refresh() }) { Text("Refresh") }
         if (requestId.isNotBlank()) {
             Text("Following request " + requestId.take(12), style = MaterialTheme.typography.labelMedium)
             Text("State: " + (follow?.optString("state") ?: "Unconfirmed"))
@@ -114,8 +76,7 @@ fun DeploymentsPanel(endpoint: String, token: String) {
                     Text("  " + events.optString(j), style = MaterialTheme.typography.bodySmall)
             }
             if (follow?.optString("state") == "completed")
-                OutlinedButton(onClick = { requestId = ""; follow = null;
-                    prefs.edit().remove("request_id").apply() }) { Text("Start new deployment") }
+                OutlinedButton(onClick = { model.clear { prefs.edit().remove("request_id").apply() } }) { Text("Start new deployment") }
         }
         if (error != null) Text(error!!, color = MaterialTheme.colorScheme.error)
     }
