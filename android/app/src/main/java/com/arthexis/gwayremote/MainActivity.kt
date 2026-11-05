@@ -85,6 +85,7 @@ fun CompanionScreen(store: SecretStore, appearance: AppearanceMode = AppearanceM
     val agentObserveLoading = agentModel.observeLoading
     val agentObserveResult = agentModel.observeResult
     val agentObserveError = agentModel.observeError
+    var quotationsOpen by remember { mutableStateOf(false) }
     var localPanels by remember { mutableStateOf(LocalPanelState()) }
     var endpoint by remember { mutableStateOf(store.endpoint.ifBlank { "https://remote.arthexis.com" }) }
     var token by remember { mutableStateOf(store.token) }
@@ -506,6 +507,12 @@ fun CompanionScreen(store: SecretStore, appearance: AppearanceMode = AppearanceM
             onExecute = operationModel::execute,
             extraActions = listOf(
                 PaletteAction(
+                    id = "odoo-quotations",
+                    label = if (quotationsOpen) "Ocultar Cotizaciones" else "Cotizaciones",
+                    icon = "file-text",
+                    onClick = { quotationsOpen = !quotationsOpen }
+                ),
+                PaletteAction(
                     id = "deployments",
                     label = "Deployments",
                     icon = "rocket",
@@ -540,6 +547,9 @@ fun CompanionScreen(store: SecretStore, appearance: AppearanceMode = AppearanceM
             onClose = { localPanels = localPanels.close(it) },
             onMove = { id, index -> localPanels = localPanels.move(id, index) }
         )
+        if (quotationsOpen) {
+            OdooQuotationsPanel(endpoint = endpoint, token = token)
+        }
         HorizontalDivider()
         if (refreshStatus.isNotBlank()) Text(refreshStatus, style = MaterialTheme.typography.bodySmall)
         if (updateStatus.isNotBlank() && !updateStatus.startsWith("App is up to date") &&
