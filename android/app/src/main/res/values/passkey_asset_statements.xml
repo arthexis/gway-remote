@@ -1,4 +1,4 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="asset_statements" translatable="false">[{"include":"https://remote.arthexis.com/.well-known/assetlinks.json"}]</string>
+    <string name="asset_statements" translatable="false">[{\"include\":\"https://remote.arthexis.com/.well-known/assetlinks.json\"}]</string>
 </resources>
