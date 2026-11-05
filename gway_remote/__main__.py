@@ -491,9 +491,11 @@ def main() -> None:
                     parser.error("watchtower attest takes neither --attest nor --public-key")
                 from .watchtower_attest import attest, host_key_path
                 if args.rotate:
-                    if args.host_key is None or args.host_key_file is not None or args.rotation_token_file is None:
-                        parser.error("--rotate requires --host-key and --rotation-token-file (not --host-key-file)")
-                    from .watchtower_attest import rotate_verified_host_key
+                    if args.host_key is None or args.host_key_file is not None:
+                        parser.error("--rotate requires --host-key (not --host-key-file)")
+                    from .watchtower_attest import rotate_verified_host_key, rotation_token_path
+                    if args.rotation_token_file is None:
+                        args.rotation_token_file = rotation_token_path(args.node)
                     key = sys.stdin.readline().strip() if args.host_key == "-" else args.host_key
                     print(json.dumps(rotate_verified_host_key(ledger, args.node, key,
                         token_file=args.rotation_token_file, dry_run=args.dry_run), sort_keys=True))
