@@ -152,7 +152,12 @@ class WatchtowerBearerIssuer:
         bearer = self.registry.issue_combined(
             lifetime=intent["lifetime_seconds"], operator_approved=True)
         key_id = bearer.split("_", 2)[1]
-        self.receipts.record(receipt_id=receipt_id, bearer_id=key_id)
+        try:
+            self.receipts.record(receipt_id=receipt_id, bearer_id=key_id)
+        except Exception:
+            # A failed audit write must never leave an unrecorded live token.
+            self.registry.revoke(key_id)
+            raise
         return {"bearer": bearer, "bearer_id": key_id,
                 "scopes": ["gway:execute", "gway:read"],
                 "expires_in": intent["lifetime_seconds"]}
