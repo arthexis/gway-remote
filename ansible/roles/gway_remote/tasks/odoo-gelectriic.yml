@@ -111,6 +111,18 @@
       - not (gway_odoo_opt.stat.islnk | default(false))
       - not (gway_odoo_opt.stat.exists | default(false)) or gway_odoo_opt.stat.isdir | default(false)
 
+- name: Inspect system Odoo binary directory
+  ansible.builtin.stat:
+    path: "{{ gway_odoo_bin_root }}"
+    follow: false
+  register: gway_odoo_bin_stat
+
+- name: Reject unexpected binary directory or symlink
+  ansible.builtin.assert:
+    that:
+      - not (gway_odoo_bin_stat.stat.islnk | default(false))
+      - not (gway_odoo_bin_stat.stat.exists | default(false)) or gway_odoo_bin_stat.stat.isdir | default(false)
+
 - name: Install root-owned Odoo CLI directories
   ansible.builtin.file:
     path: "{{ item }}"
@@ -157,6 +169,18 @@
     dest: "/usr/local/bin/{{ item }}"
     state: link
   loop: "{{ gway_odoo_commands }}"
+
+- name: Confirm Odoo PDF CLI is installed and callable
+  ansible.builtin.command:
+    argv:
+      - /usr/bin/sudo
+      - -n
+      - -H
+      - -u
+      - "{{ gway_remote_runner_user }}"
+      - /usr/local/bin/odoo-quotation-pdf
+      - --help
+  changed_when: false
 
 - name: Verify Odoo CLI is callable as unprivileged operator
   ansible.builtin.command:
