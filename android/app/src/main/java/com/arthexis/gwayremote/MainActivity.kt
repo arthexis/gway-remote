@@ -85,9 +85,8 @@ fun CompanionScreen(store: SecretStore, appearance: AppearanceMode = AppearanceM
     val agentObserveLoading = agentModel.observeLoading
     val agentObserveResult = agentModel.observeResult
     val agentObserveError = agentModel.observeError
-    var deploymentsOpen by remember { mutableStateOf(false) }
     var quotationsOpen by remember { mutableStateOf(false) }
-    var mcpAccessOpen by remember { mutableStateOf(false) }
+    var localPanels by remember { mutableStateOf(LocalPanelState()) }
     var endpoint by remember { mutableStateOf(store.endpoint.ifBlank { "https://remote.arthexis.com" }) }
     var token by remember { mutableStateOf(store.token) }
     var result by remember { mutableStateOf("Configure HTTPS endpoint and token") }
@@ -459,7 +458,6 @@ fun CompanionScreen(store: SecretStore, appearance: AppearanceMode = AppearanceM
                 } catch (e: Exception) { result = e.message ?: "Invalid settings" }
             }) { Text("Save settings") }
         }
-        var githubHealthOpen by remember { mutableStateOf(false) }
         if (update != null) {
             Text("Update available: ${update!!.version}", style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.primary)
@@ -516,21 +514,21 @@ fun CompanionScreen(store: SecretStore, appearance: AppearanceMode = AppearanceM
                 ),
                 PaletteAction(
                     id = "deployments",
-                    label = if (deploymentsOpen) "Hide Deployments" else "Deployments",
+                    label = "Deployments",
                     icon = "rocket",
-                    onClick = { deploymentsOpen = !deploymentsOpen }
+                    onClick = { localPanels = localPanels.toggle("deployments") }
                 ),
                 PaletteAction(
                     id = "mcp-access",
-                    label = if (mcpAccessOpen) "Hide MCP Access" else "MCP Access",
+                    label = "MCP Access",
                     icon = "key-round",
-                    onClick = { mcpAccessOpen = !mcpAccessOpen }
+                    onClick = { localPanels = localPanels.toggle("mcp-access") }
                 ),
                 PaletteAction(
                     id = "github-health",
-                    label = if (githubHealthOpen) "Hide GitHub Health" else "GitHub Health",
+                    label = "GitHub Health",
                     icon = "github",
-                    onClick = { githubHealthOpen = !githubHealthOpen }
+                    onClick = { localPanels = localPanels.toggle("github-health") }
                 ),
                 PaletteAction(
                     id = "app-update",
@@ -544,17 +542,13 @@ fun CompanionScreen(store: SecretStore, appearance: AppearanceMode = AppearanceM
                 PaletteAction("server-" + name, name, "list", { perform("/api/v1/execute", name) }, !busy)
             }
         )
-        if (mcpAccessOpen) {
-            McpAccessPanel(onClose = { mcpAccessOpen = false })
-        }
-        if (deploymentsOpen) {
-            DeploymentsPanel(endpoint = endpoint, token = token)
-        }
+        LocalPanelHost(
+            state = localPanels, endpoint = endpoint, token = token,
+            onClose = { localPanels = localPanels.close(it) },
+            onMove = { id, index -> localPanels = localPanels.move(id, index) }
+        )
         if (quotationsOpen) {
             OdooQuotationsPanel(endpoint = endpoint, token = token)
-        }
-        if (githubHealthOpen) {
-            GitHubHealthPanel(endpoint = endpoint, token = token)
         }
         HorizontalDivider()
         if (refreshStatus.isNotBlank()) Text(refreshStatus, style = MaterialTheme.typography.bodySmall)
