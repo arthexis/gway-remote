@@ -6,6 +6,8 @@ Do not infer identity from a reachable SSH or WireGuard endpoint (no TOFU).
 from __future__ import annotations
 
 import hashlib
+import os
+import stat
 import secrets
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -87,3 +89,34 @@ def attest(ledger, *, node: str, host_key_file: Path, dry_run: bool = False) -> 
     return {"node": node, "state": state,
             "identity_verified": state in ("attested", "already_attested"),
             "execute_available": False}
+
+
+def provision_host_key(node: str, public_key: str, *, dry_run: bool = False) -> Path:
+    """Create a protected verified public-key file, never replace another identity.
+
+    The caller is responsible for independent verification of the supplied key.
+    """
+    from .inspection_ssh_trust import _trusted_parent_directories
+    key = validate_public_key(" ".join(public_key.strip().split()[:2]))
+    if len(public_key.strip().split()) not in (2, 3):
+        raise ValueError("expected one SSH ED25519 public key")
+    path = host_key_path(node)
+    _trusted_parent_directories(path)
+    if path.is_symlink():
+        raise ValueError("unsafe SSH host key path")
+    if path.exists():
+        if verified_host_key(path) != key:
+            raise ValueError("host key mismatch; refusing to overwrite")
+        return path
+    if dry_run:
+        return path
+    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_NOFOLLOW", 0), 0o600)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as out:
+            out.write(key + "\n")
+            out.flush()
+            os.fsync(out.fileno())
+    except BaseException:
+        path.unlink(missing_ok=True)
+        raise
+    return path
