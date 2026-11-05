@@ -73,6 +73,13 @@ cannot mint a second token; the receipt also has a durable unique
 timestamp and issued token ID. Existing OAuth token bodies remain hidden.
 The existing per-admin issue limit is three per hour.
 
+Explicit bearer revocation uses `POST /v1/bearer/revoke/options` and
+`POST /v1/bearer/revoke/finish`, with a separate
+`{"action":"revoke_mcp_bearer","key_id":"<24 hex>","request_id":"<32 hex>"}`
+intent bound to its own WebAuthn challenge. The server returns only a
+boolean `revoked`; a revoked token and all of its OAuth descendants stop
+verifying. Issuing a new bearer NEVER automatically revokes another.
+
 The legacy `POST /v1/bearer/issue` route is **not exposed via HTTP**
 even when the issuer is injected: that older route's WebAuthn challenge
 did not bind the requested lifetime. Its trusted in-process single-scope
