@@ -1,60 +1,58 @@
-"""Authenticated Odoo attachment route must never leak report bytes or secrets."""
+"""Authenticated Odoo attachment route security and binary HTTP behavior."""
 import http.client
 import threading
+import unittest
 from http.server import ThreadingHTTPServer
 from unittest.mock import patch
 
 from gway_remote.api import handler_for
 
 
-def request(server, path, token):
-    conn = http.client.HTTPConnection("127.0.0.1", server.server_port, timeout=5)
-    try:
-        conn.request("GET", path, headers={"Authorization": f"Bearer {token}"})
-        response = conn.getresponse()
-        return response.status, dict(response.getheaders()), response.read()
-    finally:
-        conn.close()
+class OdooHttpApiTests(unittest.TestCase):
+    def setUp(self):
+        self.server=ThreadingHTTPServer(("127.0.0.1",0),handler_for("test-key"))
+        self.thread=threading.Thread(target=self.server.serve_forever,daemon=True)
+        self.thread.start()
+        self.addCleanup(self.thread.join,4)
+        self.addCleanup(self.server.server_close)
+        self.addCleanup(self.server.shutdown)
 
+    def request(self,path,token):
+        conn=http.client.HTTPConnection("127.0.0.1",self.server.server_port,timeout=5)
+        try:
+            conn.request("GET",path,headers={"Authorization":f"Bearer {token}"})
+            response=conn.getresponse()
+            return response.status,dict(response.getheaders()),response.read()
+        finally:
+            conn.close()
 
-def test_quotation_pdf_authenticated_binary_response():
-    server = ThreadingHTTPServer(("127.0.0.1", 0), handler_for("test-key"))
-    t = threading.Thread(target=server.serve_forever, daemon=True)
-    t.start()
-    try:
-        pdf = b"%PDF-1.4\n" + b"0" * 2048 + b"%%EOF"
+    def test_quotation_pdf_authenticated_binary_response(self):
+        pdf=b"%PDF-1.4\n"+b"0"*2048+b"%%EOF"
         with patch("gway_remote.api.mobile_odoo_quotations.download",
-                   return_value=("S30958 Subestación 1.pdf", pdf)) as download:
-            status, headers, body = request(server, "/api/v1/odoo/quotations/857/pdf", "wrong")
-            assert status == 401 and body != pdf
-            download.assert_not_called()
-            status, headers, body = request(server, "/api/v1/odoo/quotations/857/pdf", "test-key")
-            assert status == 200 and body == pdf
-            assert headers["Content-Type"] == "application/pdf"
-            assert headers["Cache-Control"] == "private, no-store"
-            assert "filename*=UTF-8''" in headers["Content-Disposition"]
-            download.assert_called_once_with(857)
-            status, headers, body = request(server, "/api/v1/odoo/quotations/857/pdf?file=/etc/passwd", "test-key")
-            assert status == 404 and body != pdf
-            download.assert_called_once_with(857)
-    finally:
-        server.shutdown()
-        t.join(timeout=4)
-        server.server_close()
+                   return_value=("S30958 Subestación 1.pdf",pdf)) as downloader:
+            status,headers,body=self.request("/api/v1/odoo/quotations/857/pdf","wrong")
+            self.assertEqual(status,401)
+            self.assertNotEqual(body,pdf)
+            downloader.assert_not_called()
 
+            status,headers,body=self.request("/api/v1/odoo/quotations/857/pdf","test-key")
+            self.assertEqual(status,200)
+            self.assertEqual(body,pdf)
+            self.assertEqual(headers["Content-Type"],"application/pdf")
+            self.assertEqual(headers["Cache-Control"],"private, no-store")
+            self.assertIn("filename*=UTF-8''",headers["Content-Disposition"])
+            downloader.assert_called_once_with(857)
 
-def test_download_failure_does_not_expose_odoo_details():
-    server = ThreadingHTTPServer(("127.0.0.1", 0), handler_for("test-key"))
-    t = threading.Thread(target=server.serve_forever, daemon=True)
-    t.start()
-    try:
+            status,headers,body=self.request(
+                "/api/v1/odoo/quotations/857/pdf?file=/etc/passwd","test-key")
+            self.assertEqual(status,404)
+            self.assertNotEqual(body,pdf)
+            downloader.assert_called_once_with(857)
+
+    def test_download_failure_does_not_expose_odoo_details(self):
         with patch("gway_remote.api.mobile_odoo_quotations.download",
                    side_effect=RuntimeError("password=never-return-me")):
-            status, headers, body = request(server, "/api/v1/odoo/quotations/857/pdf", "test-key")
-            assert status == 502
-            assert b"never-return-me" not in body
-            assert b"odoo_pdf_unavailable" in body
-    finally:
-        server.shutdown()
-        t.join(timeout=4)
-        server.server_close()
+            status,headers,body=self.request("/api/v1/odoo/quotations/857/pdf","test-key")
+        self.assertEqual(status,502)
+        self.assertNotIn(b"never-return-me",body)
+        self.assertIn(b"odoo_pdf_unavailable",body)
