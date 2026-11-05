@@ -283,8 +283,8 @@ class Handler(BaseHTTPRequestHandler):
             try:
                 selected = local_node_result(payload["params"]["name"], arguments, execution=self.server.execution)
                 result = {"content": [{"type": "text", "text": json.dumps(selected, separators=(",", ":"))}]}
-            except (OSError, ValueError, KeyError, TypeError, json.JSONDecodeError):
-                result = {"content": [{"type": "text", "text": "Node inventory unavailable"}],
+            except (OSError, ValueError, PermissionError, KeyError, TypeError, json.JSONDecodeError):
+                result = {"content": [{"type": "text", "text": "Node inventory or deployment preview unavailable"}],
                           "isError": True}
             if version == "2026-07-28":
                 result = {"resultType": "complete", **result}
