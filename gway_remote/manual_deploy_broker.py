@@ -16,7 +16,7 @@ from datetime import datetime, timezone
 from .manual_deploy_policy import validate_deployment
 from .node_exec_worker import validate_request_id
 
-SHA = re.compile(r"[0-9a-f]{40}\\Z")
+SHA = re.compile(r"[0-9a-f]{40}\Z")
 STATES = frozenset({"reserved", "running", "succeeded", "failed", "unknown", "already_current"})
 
 
