@@ -13,19 +13,19 @@ import ipaddress
 import json
 import os
 from pathlib import Path
-import re
 import sqlite3
 import stat
 import tempfile
 
 from .node_inspection import snapshot_from_path
+from .wireguard_satellite import DEVICE_RE
 
 LEDGER = Path("/var/lib/gway-remote/watchtower/ledger.sqlite3")
 SNAPSHOT = Path("/var/lib/gway-mcp-auth/node-inventory.json")
 READER_GROUP = "gway-mcp-read"
 MAX_BYTES = 131072
 MAX_AGE_SECONDS = 120
-NODE = re.compile(r"gway-[0-9]{3,}$")
+NODE = DEVICE_RE
 
 
 def _stamp():
