@@ -64,7 +64,7 @@ class OdooProxyRouteTests(unittest.TestCase):
         root = Path(__file__).resolve().parents[2]
         config = (root / "deploy/nginx/gway-remote-locations.conf").read_text()
         self.assertIn('location ~ "^/api/v1/odoo/quotations/[1-9][0-9]{0,9}/pdf$"', config)
-        route = config.split('location ~ "^/api/v1/odoo/quotations/', 1)[1].split("}", 2)[1]
+        route = config.split('location ~ "^/api/v1/odoo/quotations/[1-9][0-9]{0,9}/pdf$" {', 1)[1].split("\\n}", 1)[0]
         self.assertIn("limit_except GET { deny all; }", route)
         self.assertIn("proxy_set_header Authorization $http_authorization;", route)
         self.assertIn("proxy_pass http://10.90.0.2:8765;", route)
