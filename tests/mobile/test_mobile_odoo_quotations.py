@@ -28,7 +28,7 @@ def test_search_is_read_only_and_bounded(monkeypatch):
     assert calls[0][0]=="odoo-domain"
     assert calls[0][1][0:2]==["--model","sale.order"]
     assert calls[0][1][-2:]==["--limit","10"]
-    assert "Subestación" in calls[0][1][3]
+    assert json.loads(calls[0][1][3])[1][2] == "Subestación"
 
 
 @pytest.mark.parametrize("arguments", [
