@@ -9,7 +9,7 @@ import re
 
 from .wireguard_satellite import DEVICE_RE
 
-REPOSITORY_RE = re.compile(r"[a-zA-Z0-9_.-]+/[a-zA-Z0-9_.-]+\Z")
+REPOSITORY_RE = re.compile(r"[a-zA-Z0-9][a-zA-Z0-9_.-]*/[a-zA-Z0-9][a-zA-Z0-9_.-]*\Z")
 REVISION_RE = re.compile(r"(?:[0-9a-f]{40}|main)\Z")
 
 # First pilot only. The broker must enforce this independently of node_exec.
