@@ -73,10 +73,11 @@ cannot mint a second token; the receipt also has a durable unique
 timestamp and issued token ID. Existing OAuth token bodies remain hidden.
 The existing per-admin issue limit is three per hour.
 
-The legacy `POST /v1/bearer/issue` route remains compatible when the
-trusted issuer is explicitly injected. It is **not** exposed by default and
-is not required by Android v2. Its scope remains the legacy single-scope
-form until removed with separate audited compatibility work.
+The legacy `POST /v1/bearer/issue` route is **not exposed via HTTP**
+even when the issuer is injected: that older route's WebAuthn challenge
+did not bind the requested lifetime. Its trusted in-process single-scope
+issuer remains for existing tests/console compatibility, but Android v2
+must only call the combined, transaction-bound endpoints.
 
 ## Revoke and recovery
 
