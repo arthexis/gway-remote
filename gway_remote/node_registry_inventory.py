@@ -183,6 +183,8 @@ def public_nodes(path=SNAPSHOT, *, execution_enabled=False):
              "identity_verified": row["identity_verified"],
              "reachable": row["reachable"], "observed_at": row["observed_at"],
              "capabilities": ["inventory"],
+             # Eligibility is not proof of successful dispatch or result retrieval.
+             "execution_health": "unverified",
              "execute_available": bool(execution_enabled and row["execute_eligible"]
                                        and row["identity_verified"] and row["reachable"] == "reachable")}
             for row in data["nodes"]
@@ -214,6 +216,7 @@ def capabilities(node, path=SNAPSHOT, *, execution_enabled=False):
         raise ValueError("unregistered node")
     return {"node": node, "capabilities": ["inventory"],
             "execute_available": found["execute_available"], "limits": None,
+            "execution_health": "unverified",
             "approval_required": False, "reachable": found["reachable"]}
 
 

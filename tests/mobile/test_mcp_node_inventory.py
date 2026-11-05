@@ -106,6 +106,7 @@ class GatewayNodeInventoryTests(unittest.TestCase):
         self.assertEqual(result["nodes"][0]["node"], "gway-001")
         self.assertNotIn("10.90.0.2", json.dumps(result))
         self.assertEqual(result["nodes"][0]["reachable"], "unknown")
+        self.assertEqual(result["nodes"][0]["execution_health"], "unverified")
         self.assertIs(result["nodes"][0]["execute_available"], False)
 
     def test_capability_and_unknown_node_fail_closed(self):
@@ -116,6 +117,7 @@ class GatewayNodeInventoryTests(unittest.TestCase):
         self.assertEqual(status, 200)
         self.assertEqual(response["result"]["resultType"], "complete")
         self.assertFalse(json.loads(response["result"]["content"][0]["text"])["execute_available"])
+        self.assertEqual(json.loads(response["result"]["content"][0]["text"])["execution_health"], "unverified")
         status, response = self.rpc("tools/call",
                                     {"name": "node_capabilities",
                                      "arguments": {"node": "unknown-host"}})

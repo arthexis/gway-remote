@@ -35,6 +35,7 @@ class EffectiveConcurrencyTests(unittest.TestCase):
         transport = FakeTransport(3)
         result = self.preview(transport)
         self.assertEqual(result["limits"]["concurrent_jobs_per_node"], 3)
+        self.assertEqual(result["execution_health"], "unverified")
         self.assertEqual(transport.calls[0]["operation"], "limits")
         self.assertRegex(transport.calls[0]["request_id"], r"^[0-9a-f]{32}$")
 

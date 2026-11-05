@@ -6,6 +6,7 @@ manager. Future Watchtower B2b transport must authenticate separately.
 from __future__ import annotations
 
 import argparse
+import hashlib
 from contextlib import contextmanager
 from datetime import datetime, timezone, timedelta
 import json
@@ -32,7 +33,7 @@ MAX_ACTIVE = DEFAULT_LIMITS["concurrent_jobs_per_node"]
 MAX_ACTIVE_CEILING = 8
 EXECUTOR_CONFIG = Path("/etc/gway-remote/executor.json")
 MAX_HISTORY = 256
-RETENTION_DAYS = 7
+MAX_TOMBSTONES = 100000
 JOB_TIMEOUT = DEFAULT_LIMITS["job_timeout_seconds"]
 
 
@@ -170,6 +171,10 @@ class Jobs:
             )""")
             if "launch_diagnostic" not in {row[1] for row in db.execute("PRAGMA table_info(jobs)")}: 
                 db.execute("ALTER TABLE jobs ADD COLUMN launch_diagnostic TEXT NOT NULL DEFAULT \'\'")
+            db.execute("""CREATE TABLE IF NOT EXISTS job_tombstones (
+                id TEXT PRIMARY KEY, node TEXT NOT NULL, command_sha256 TEXT NOT NULL,
+                status TEXT NOT NULL
+            )""")
             with db:
                 yield db
         finally:
@@ -189,13 +194,22 @@ class Jobs:
                 if existing["node"] != node or existing["command"] != command:
                     raise ValueError("request ID conflict")
                 return job_id
-            # Bound persistent metadata as well as each job's output spool.
-            db.execute("DELETE FROM jobs WHERE status NOT IN ('queued','running') "
-                       "AND created_at < ?",
-                       ((datetime.now(timezone.utc) - timedelta(days=RETENTION_DAYS)).isoformat(),))
+            tombstone = db.execute("SELECT node, command_sha256 FROM job_tombstones WHERE id=?", (job_id,)).fetchone()
+            digest = hashlib.sha256(command.encode("utf-8")).hexdigest()
+            if tombstone is not None:
+                if tombstone["node"] != node or tombstone["command_sha256"] != digest:
+                    raise ValueError("request ID conflict")
+                return job_id
             count = db.execute("SELECT count(*) FROM jobs").fetchone()[0]
             if count >= MAX_HISTORY:
-                raise RuntimeError("job history capacity exceeded")
+                oldest = db.execute("SELECT id,node,command,status FROM jobs WHERE status IN "
+                                    "('succeeded','failed','cancelled','timed_out','unknown') "
+                                    "ORDER BY created_at,id LIMIT 1").fetchone()
+                if oldest is None or db.execute("SELECT count(*) FROM job_tombstones").fetchone()[0] >= MAX_TOMBSTONES:
+                    raise RuntimeError("job history capacity exceeded")
+                db.execute("INSERT INTO job_tombstones VALUES (?,?,?,?)", (oldest["id"], oldest["node"],
+                    hashlib.sha256(oldest["command"].encode("utf-8")).hexdigest(), oldest["status"]))
+                db.execute("DELETE FROM jobs WHERE id=?", (oldest["id"],))
             # One local DB belongs to one executor appliance. Count globally
             # so changing a caller-supplied node string cannot bypass the cap.
             active = db.execute("SELECT count(*) FROM jobs WHERE status IN ('queued','running')").fetchone()[0]
@@ -239,7 +253,19 @@ class Jobs:
     def result(self, job_id, cursor=0):
         if type(cursor) is not int or not 0 <= cursor <= MAX_OUTPUT:
             raise ValueError("invalid cursor")
-        row = self.row(job_id)
+        try:
+            row = self.row(job_id)
+        except ValueError as exc:
+            if str(exc) != "job not found":
+                raise
+            with self.connection() as db:
+                old = db.execute("SELECT node,status FROM job_tombstones WHERE id=?", (job_id,)).fetchone()
+            if old is None:
+                raise
+            return {"schema": 1, "request_id": job_id, "node": old["node"],
+                    "status": old["status"], "stdout": "", "stderr": "", "truncated": True,
+                    "cursor": None, "exit_code": None, "started_at": None, "finished_at": None,
+                    "result_available": False, "reason": "result_expired"}
         output = row["output"]
         chunk = output[cursor:cursor + DEFAULT_LIMITS["max_output_chunk_bytes"]]
         next_cursor = cursor + len(chunk)
