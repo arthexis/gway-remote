@@ -24,7 +24,7 @@ class AsyncDeployBroker:
         self.resolver = resolver
         self.executor = executor
         self.pool = pool or _WORKERS
-        self._lock = threading.Lock()
+        self._lock = threading.Lock()\n        self._active = set()
 
     def deploy(self, *, principal, request_id, repository, node, revision="main"):
         if type(principal) is not str or not principal:
@@ -64,7 +64,7 @@ class AsyncDeployBroker:
                 state = "unknown"
         except Exception:
             state = "unknown"
-        self.ledger.transition(request_id, "running", state)
+        try:\n            self.ledger.transition(request_id, "running", state)\n        finally:\n            with self._lock:\n                self._active.discard(request_id)
 
     def status(self, *, principal, request_id):
         if type(principal) is not str or not principal:
