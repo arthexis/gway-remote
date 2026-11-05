@@ -22,12 +22,16 @@ class PanelHostStructureTests(unittest.TestCase):
     def test_home_local_panel_actions_are_wired(self):
         main = (ANDROID / "MainActivity.kt").read_text()
         registry = (ANDROID / "FeatureRegistry.kt").read_text()
+        palette_wiring = (ANDROID / "CompanionPalette.kt").read_text()
+        self.assertIn("CompanionPalette(", main)
         for feature in ("deployments", "github-health"):
-            self.assertIn(f'id = "{feature}"', main)
+            self.assertIn(f'id = "{feature}"', palette_wiring)
             self.assertIn(f'FeatureSpec("{feature}"', registry)
-        self.assertIn('localPanels.toggle("deployments")', main)
-        self.assertIn('localPanels.toggle("github-health")', main)
-        self.assertIn('localPanels.toggle("mcp-access")', main)
+        self.assertIn("localPanels.toggle(it)", main)
+        for feature in ("deployments", "github-health", "mcp-access"):
+            self.assertIn(f'onToggleLocalPanel("{feature}")', palette_wiring)
+        self.assertIn("onUpdate = onUpdate", palette_wiring)
+        self.assertIn("onToggleQuotations = onToggleQuotations", palette_wiring)
         self.assertIn("LocalPanelHost(", main)
         self.assertNotIn("if (deploymentsOpen)", main)
         local_host = (ANDROID / "panels/LocalPanelHost.kt").read_text()
