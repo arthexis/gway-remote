@@ -1,0 +1,171 @@
+---
+# Deploy only on gway-001, from the pre-existing operator checkout.
+# Credentials remain on Bastion and are never provisioned by this play.
+- name: Resolve Odoo operator checkout
+  ansible.builtin.set_fact:
+    gway_odoo_checkout: "{{ getent_passwd[gway_remote_runner_user][4] }}/Repos/odoo-gelectriic"
+    gway_odoo_bin_root: /opt/odoo-gelectriic/bin
+    gway_odoo_commands:
+      - odoo-gelectriic
+      - odoo-domain
+      - odoo-query
+      - odoo-bom
+      - odoo-credentials
+      - odoo-quotation
+      - odoo-quotation-write
+      - odoo-quotation-pdf
+
+- name: Inspect pre-provisioned Odoo checkout
+  ansible.builtin.stat:
+    path: "{{ gway_odoo_checkout }}"
+    follow: false
+  register: gway_odoo_checkout_stat
+
+- name: Require existing non-symlink Odoo checkout
+  ansible.builtin.assert:
+    that:
+      - gway_odoo_checkout_stat.stat.isdir | default(false)
+      - not (gway_odoo_checkout_stat.stat.islnk | default(true))
+      - gway_odoo_checkout_stat.stat.pw_name == gway_remote_runner_user
+    fail_msg: "odoo-gelectriic must already exist as an operator-owned checkout."
+
+- name: Check selected Odoo branch
+  become: true
+  become_user: "{{ gway_remote_runner_user }}"
+  ansible.builtin.command:
+    argv: [git, -C, "{{ gway_odoo_checkout }}", branch, --show-current]
+  changed_when: false
+  register: gway_odoo_branch
+
+- name: Reject unexpected Odoo checkout branch
+  ansible.builtin.assert:
+    that: gway_odoo_branch.stdout == 'main'
+    fail_msg: "Odoo checkout must be on main; refusing to replace operator work."
+
+- name: Check uncommitted Odoo changes
+  become: true
+  become_user: "{{ gway_remote_runner_user }}"
+  ansible.builtin.command:
+    argv: [git, -C, "{{ gway_odoo_checkout }}", status, --porcelain]
+  changed_when: false
+  register: gway_odoo_status
+
+- name: Refuse to overwrite a dirty operator checkout
+  ansible.builtin.assert:
+    that: gway_odoo_status.stdout == ''
+    fail_msg: "Odoo checkout is dirty; keep local work before deploying."
+
+- name: Read Odoo revision before update
+  become: true
+  become_user: "{{ gway_remote_runner_user }}"
+  ansible.builtin.command:
+    argv: [git, -C, "{{ gway_odoo_checkout }}", rev-parse, HEAD]
+  changed_when: false
+  register: gway_odoo_before
+
+- name: Fast-forward Odoo checkout only (no merge commits or force)
+  become: true
+  become_user: "{{ gway_remote_runner_user }}"
+  ansible.builtin.command:
+    argv: [git, -C, "{{ gway_odoo_checkout }}", pull, --ff-only, origin, main]
+  changed_when: false
+
+- name: Read checked-out Odoo revision
+  become: true
+  become_user: "{{ gway_remote_runner_user }}"
+  ansible.builtin.command:
+    argv: [git, -C, "{{ gway_odoo_checkout }}", rev-parse, HEAD]
+  changed_when: false
+  register: gway_odoo_after
+
+- name: Record Odoo revision change
+  ansible.builtin.debug:
+    msg: "Odoo source revision {{ gway_odoo_before.stdout[:12] }} -> {{ gway_odoo_after.stdout[:12] }}"
+  changed_when: gway_odoo_before.stdout != gway_odoo_after.stdout
+
+- name: Inspect Odoo executable sources
+  ansible.builtin.stat:
+    path: "{{ gway_odoo_checkout }}/bin/{{ item }}"
+    follow: false
+  loop: "{{ gway_odoo_commands }}"
+  register: gway_odoo_sources
+
+- name: Refuse missing, symlinked or non-executable Odoo sources
+  ansible.builtin.assert:
+    that:
+      - item.stat.isreg | default(false)
+      - not (item.stat.islnk | default(true))
+      - item.stat.executable | default(false)
+    fail_msg: "Invalid Odoo CLI executable: {{ item.item }}"
+  loop: "{{ gway_odoo_sources.results }}"
+
+- name: Inspect system Odoo installation directory
+  ansible.builtin.stat:
+    path: /opt/odoo-gelectriic
+    follow: false
+  register: gway_odoo_opt
+
+- name: Reject symlinked or unexpected Odoo install root
+  ansible.builtin.assert:
+    that:
+      - not (gway_odoo_opt.stat.islnk | default(false))
+      - not (gway_odoo_opt.stat.exists | default(false)) or gway_odoo_opt.stat.isdir | default(false)
+
+- name: Install root-owned Odoo CLI directories
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    owner: root
+    group: root
+    mode: '0755'
+  loop:
+    - /opt/odoo-gelectriic
+    - "{{ gway_odoo_bin_root }}"
+
+- name: Install system-wide Odoo CLI binaries from reviewed checkout
+  ansible.builtin.copy:
+    src: "{{ gway_odoo_checkout }}/bin/{{ item }}"
+    dest: "{{ gway_odoo_bin_root }}/{{ item }}"
+    remote_src: true
+    owner: root
+    group: root
+    mode: '0755'
+  loop: "{{ gway_odoo_commands }}"
+
+- name: Inspect existing system Odoo CLI paths
+  ansible.builtin.stat:
+    path: "/usr/local/bin/{{ item }}"
+    follow: false
+  loop: "{{ gway_odoo_commands }}"
+  register: gway_odoo_installed
+
+- name: Reject collisions with unrelated system binaries
+  ansible.builtin.assert:
+    that:
+      - >-
+        not (item.stat.exists | default(false))
+        or (
+          (item.stat.islnk | default(false))
+          and item.stat.lnk_source == gway_odoo_bin_root ~ '/' ~ item.item
+        )
+    fail_msg: "Refusing to replace unrelated /usr/local/bin/{{ item.item }}"
+  loop: "{{ gway_odoo_installed.results }}"
+
+- name: Publish Odoo CLI commands system-wide
+  ansible.builtin.file:
+    src: "{{ gway_odoo_bin_root }}/{{ item }}"
+    dest: "/usr/local/bin/{{ item }}"
+    state: link
+  loop: "{{ gway_odoo_commands }}"
+
+- name: Verify Odoo CLI is callable as unprivileged operator
+  ansible.builtin.command:
+    argv:
+      - /usr/bin/sudo
+      - -n
+      - -H
+      - -u
+      - "{{ gway_remote_runner_user }}"
+      - /usr/local/bin/odoo-gelectriic
+      - --help
+  changed_when: false
