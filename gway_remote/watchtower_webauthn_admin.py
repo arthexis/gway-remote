@@ -70,6 +70,8 @@ COMBINED_OPTIONS_PATH = "/v1/bearer/combined/options"
 COMBINED_FINISH_PATH = "/v1/bearer/combined/finish"
 COMBINED_OPTIONS_FIELDS = frozenset({"principal", "intent"})
 COMBINED_FINISH_FIELDS = frozenset({"principal", "intent", "challenge", "credential"})
+REVOKE_OPTIONS_PATH = "/v1/bearer/revoke/options"
+REVOKE_FINISH_PATH = "/v1/bearer/revoke/finish"
 
 
 class AdminHandler(BaseHTTPRequestHandler):
@@ -111,6 +113,10 @@ class AdminHandler(BaseHTTPRequestHandler):
             route = ("begin_combined", COMBINED_OPTIONS_FIELDS)
         elif issuer is not None and self.path == COMBINED_FINISH_PATH:
             route = ("issue_combined", COMBINED_FINISH_FIELDS)
+        elif issuer is not None and self.path == REVOKE_OPTIONS_PATH:
+            route = ("begin_revoke", COMBINED_OPTIONS_FIELDS)
+        elif issuer is not None and self.path == REVOKE_FINISH_PATH:
+            route = ("revoke_bearer", COMBINED_FINISH_FIELDS)
         else:
             route = ROUTES.get(self.path)
         if route is None:
@@ -127,7 +133,7 @@ class AdminHandler(BaseHTTPRequestHandler):
             self._respond(400, {"error": "invalid_request"})
             return
         try:
-            provider = (issuer if route[0] in ("begin_combined", "issue_combined")
+            provider = (issuer if route[0] in ("begin_combined", "issue_combined", "begin_revoke", "revoke_bearer")
                         else self.server.ceremonies)
             result = getattr(provider, route[0])(**payload)
         except Exception:
