@@ -12,6 +12,7 @@ class TestProvisionHostKey(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "verified-gway-002-host.pub"
             with patch("gway_remote.watchtower_attest.host_key_path", return_value=path), \
+                 patch("gway_remote.inspection_ssh_trust._trusted_parent_directories"), \
                  patch("gway_remote.watchtower_attest.validate_public_key", side_effect=lambda value: value):
                 key = "ssh-ed25519 AAAATEST"
                 self.assertEqual(provision_host_key("gway-002", key, dry_run=True), path)
