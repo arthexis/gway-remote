@@ -3,13 +3,14 @@ from __future__ import annotations
 
 import ipaddress
 import json
-import re
 import subprocess
 import sqlite3
 from datetime import datetime, timezone
 from pathlib import Path
 
-_NODE = re.compile(r"gway-[0-9]{3,}$")
+from .wireguard_satellite import DEVICE_RE
+
+_NODE = DEVICE_RE
 
 
 def registry_snapshot(ledger):
