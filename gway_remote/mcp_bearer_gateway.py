@@ -113,7 +113,7 @@ def local_node_result(method, arguments, *, execution=None):
         # Only query the already-pinned, operator-enabled node; never accept an
         # address or host selector from the MCP request.
         concurrency = None
-        if execution is not None and arguments["node"] in execution.relay.transport.transports:
+        if execution is not None and (arguments["node"] in execution.relay.transport.transports if hasattr(execution.relay.transport, "transports") else arguments["node"] == execution.relay.transport.node.node):
             try:
                 import secrets
                 observed = execution.relay.transport.invoke({
