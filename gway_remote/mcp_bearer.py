@@ -17,7 +17,8 @@ COMBINED_SCOPE = "gway:execute gway:read"
 
 def _scope_grants(stored, required):
     """Legacy single-scope rows stay unchanged; combined grants are explicit."""
-    return required in SCOPES and (stored == required or stored == COMBINED_SCOPE)
+    return (required in SCOPES and (stored == required or stored == COMBINED_SCOPE)
+            or required == COMBINED_SCOPE and stored == COMBINED_SCOPE)
 
 TOKEN_PREFIX = "gwr_"
 REFRESH_PREFIX = "gwf_"
@@ -100,7 +101,7 @@ class BearerRegistry:
 
     def issue_oauth_pair(self, *, parent_id, scope, client_id):
         """Mint access and rotating refresh tokens bound to a hidden revocable family."""
-        if scope not in SCOPES or not isinstance(client_id, str) or not client_id:
+        if scope not in SCOPES | {COMBINED_SCOPE} or not isinstance(client_id, str) or not client_id:
             raise ValueError("invalid_grant")
         now = int(time.time())
         parent = _lookup(self.path, parent_id)
