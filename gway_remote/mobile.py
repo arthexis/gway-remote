@@ -56,7 +56,8 @@ OPERATIONS = {"probe-csms": csms_probe, "status": status,
 def commands():
     return ([{"name": "odoo-quotations", "read_only": True, "arguments": {
                  "query": {"type": "string", "max_length": 80, "required": False},
-                 "limit": {"type": "integer", "min": 1, "max": 30, "required": False}}},
+                 "limit": {"type": "integer", "min": 1, "max": 30, "required": False},
+                 "page": {"type": "integer", "min": 1, "max": 1000, "required": False}}},
              {"name": "deployments-follow", "read_only": True, "arguments": {
                  "request_id": {"type": "string", "required": True}}},
              {"name": "deployments-observe", "read_only": True, "arguments": {
