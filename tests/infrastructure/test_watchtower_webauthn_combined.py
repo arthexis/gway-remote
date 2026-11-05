@@ -168,6 +168,51 @@ class CombinedIssuerTests(unittest.TestCase):
         self.assertTrue(self.registry.verify(token["bearer"], required_scope="gway:execute"))
         self.assertEqual(post("/v1/bearer/combined/finish", payload)[0], 403)
 
+    def test_oauth_link_preserves_combined_permission_for_chatgpt(self):
+        import base64
+        import hashlib
+        from urllib.parse import parse_qs, urlsplit
+
+        parent = self.signed_issue()["bearer"]
+        verifier = "v" * 43
+        challenge = base64.urlsafe_b64encode(
+            hashlib.sha256(verifier.encode("ascii")).digest()).decode().rstrip("=")
+        flow = LinkFlow(self.registry, client_id="chatgpt",
+                        redirect_uri="https://chatgpt.com/connector_platform_oauth_redirect")
+        session, _ = flow.begin(
+            client_id="chatgpt", redirect_uri=flow.redirect_uri,
+            resource=RESOURCE, response_type="code",
+            code_challenge=challenge, code_challenge_method="S256",
+            state="valid-state-12345", scope="gway:execute")
+        callback = flow.connect(session, flow.pending[session][0], parent)
+        code = parse_qs(urlsplit(callback).query)["code"][0]
+        tokens = flow.redeem(
+            client_id="chatgpt", code=code, redirect_uri=flow.redirect_uri,
+            code_verifier=verifier, grant_type="authorization_code", resource=RESOURCE)
+        self.assertEqual(tokens["scope"], "gway:execute gway:read")
+        for scope in BOTH:
+            self.assertTrue(self.registry.verify(tokens["access_token"], required_scope=scope))
+        rotated = flow.refresh(
+            client_id="chatgpt", refresh_token=tokens["refresh_token"],
+            grant_type="refresh_token", resource=RESOURCE)
+        for scope in BOTH:
+            self.assertTrue(self.registry.verify(rotated["access_token"], required_scope=scope))
+
+        legacy = self.registry.issue(scope="gway:execute", operator_approved=True)
+        session, _ = flow.begin(
+            client_id="chatgpt", redirect_uri=flow.redirect_uri,
+            resource=RESOURCE, response_type="code",
+            code_challenge=challenge, code_challenge_method="S256",
+            state="valid-state-legacy", scope="gway:execute")
+        callback = flow.connect(session, flow.pending[session][0], legacy)
+        code = parse_qs(urlsplit(callback).query)["code"][0]
+        old_tokens = flow.redeem(
+            client_id="chatgpt", code=code, redirect_uri=flow.redirect_uri,
+            code_verifier=verifier, grant_type="authorization_code", resource=RESOURCE)
+        self.assertEqual(old_tokens["scope"], "gway:execute")
+        self.assertFalse(self.registry.verify(old_tokens["access_token"],
+                                              required_scope="gway:read"))
+
     def test_revoke_parent_invalidates_oauth_delegation(self):
         parent = self.signed_issue()
         pair = self.registry.issue_oauth_pair(
