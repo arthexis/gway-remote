@@ -296,6 +296,16 @@ class MultiNodeTransport:
         return self.for_node(payload.get("node")).invoke(payload)
 
 
+def pinned_transport(transport, node):
+    """Resolve a node using the router, retaining legacy single-node adapters."""
+    if hasattr(transport, "for_node"):
+        return transport.for_node(node)
+    pinned = transport.node
+    if pinned.node != node:
+        raise PermissionError("node has no pinned execution transport")
+    return transport
+
+
 class DormantRelay:
     """Explicitly disabled until B2b-3 approves authenticated operations."""
 
@@ -308,7 +318,7 @@ class DormantRelay:
         if not self.enabled:
             raise PermissionError("remote execution disabled pending B2b-3 authorization")
         row = self.ledger.get(request_id)
-        if (row["host_key_sha256"] != self.transport.for_node(row["node"]).node.host_key_sha256):
+        if (row["host_key_sha256"] != pinned_transport(self.transport, row["node"]).node.host_key_sha256):
             raise PermissionError("enrolled node identity changed")
         return row
 
