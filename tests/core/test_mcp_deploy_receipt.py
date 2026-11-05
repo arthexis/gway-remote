@@ -52,6 +52,27 @@ class DeploymentReceiptTests(unittest.TestCase):
             self.module.main()
         self.assertEqual(self.read()["state"], "failed")
 
+    def test_odoo_receipt_is_separate_from_existing_deployment(self):
+        with patch("sys.argv", ["receipt", "begin"]):
+            self.module.main()
+        old = self.read()
+        with patch("sys.argv", ["receipt", "begin", "odoo-gelectriic"]):
+            self.assertEqual(self.module.main(), 0)
+        specific = self.module.STATE / "status-odoo-gelectriic.json"
+        assert specific.is_file()
+        self.assertEqual(json.loads(specific.read_text())["application"],
+                         "odoo-gelectriic")
+        self.assertEqual(self.read()["attempt_id"], old["attempt_id"])
+        with patch("sys.argv", ["receipt", "finish", "odoo-gelectriic"]), patch.dict(
+                os.environ, {"SERVICE_RESULT": "success", "EXIT_STATUS": "0"}):
+            self.assertEqual(self.module.main(), 0)
+        self.assertEqual(json.loads(specific.read_text())["state"], "succeeded")
+        self.assertEqual(self.read()["state"], "running")
+
+    def test_unknown_application_refused(self):
+        with patch("sys.argv", ["receipt", "begin", "../unexpected"]):
+            self.assertEqual(self.module.main(), 2)
+
     def test_symlink_receipt_refused(self):
         target = self.module.STATE / "other"
         target.write_text("test")
