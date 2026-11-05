@@ -103,6 +103,11 @@ class DeploymentReceipts:
         validate_request_id(request_id)
         if state not in STATES or expected not in STATES:
             raise ValueError("invalid deployment state")
+        # Terminal receipts are immutable: no replay or resurrection of a job.
+        if not (expected == "reserved" and state == "running"
+                or expected == "running" and state in
+                {"succeeded", "failed", "unknown", "already_current"}):
+            return False
         with self._connect() as db:
             db.execute("BEGIN IMMEDIATE")
             changed = db.execute(
