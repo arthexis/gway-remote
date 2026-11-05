@@ -47,7 +47,9 @@ class AuthorizedExecution:
                 rows[0]["address"] != pinned.wireguard_address):
             raise PermissionError("current enrolled execution eligibility denied")
 
-    def exec(self, *, principal, request_id, node, command):
+    def exec(self, *, principal, request_id, node, command, wait_seconds=10):
+        if type(wait_seconds) is not int or not 0 <= wait_seconds <= 10:
+            raise ValueError("invalid inline wait")
         self._allow(principal)
         validate_request_id(request_id)
         validate_command(node, command)
@@ -89,8 +91,22 @@ class AuthorizedExecution:
                 raise PermissionError("request ID already bound to another job")
             return {"request_id": request_id, "node": node, "status": existing["state"]}
         self._current_eligibility(node)
-        return {"request_id": request_id, "node": node,
-                "status": self.relay.dispatch(request_id)}
+        dispatched = self.relay.dispatch(request_id)
+        response = {"request_id": request_id, "node": node, "status": dispatched}
+        if dispatched != "dispatched" or wait_seconds == 0:
+            return response
+        import time
+        deadline = time.monotonic() + wait_seconds
+        while True:
+            result = self.relay.result(request_id)
+            if result.get("status") in {"succeeded", "failed", "cancelled", "timed_out"}:
+                return result
+            if result.get("result_available") is False or "status" not in result:
+                return response
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                return response
+            time.sleep(min(0.2, remaining))
 
     def deployment_preview(self, *, node, application, revision="main"):
         """Read-only preview of a fixed, policy-authorized Ansible recipe."""

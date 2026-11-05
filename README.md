@@ -281,3 +281,13 @@ that the Mobile API is serving it.
 Later increments will introduce health-gated `current`/`previous` cutover,
 rollback and finally `--prune`. Do not manually replace the live executable
 with a staged zipapp.
+
+### Inline MCP execution results
+
+`node_exec` waits up to 10 seconds for a short job and returns the bounded
+`node_result` payload inline when the job finishes. Pass `wait_seconds: 0`
+to request the original asynchronous dispatch behavior; `wait_seconds` accepts
+integers from 0 through 10. If still running at the deadline, the call returns
+`request_id` and `dispatched`; use `node_result` later. Result-read failure
+never retries execution. Execute scope, node eligibility, request ownership,
+output bounds and durable request IDs remain unchanged.

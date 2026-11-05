@@ -42,10 +42,11 @@ EXEC_TOOLS = (
          "revision": {"type": "string", "enum": ["main"]},
          "request_id": {"type": "string", "pattern": "^[0-9a-f]{32}$"}},
          "required": ["node", "application", "request_id"], "additionalProperties": False}},
-    {"name":"node_exec", "_meta": EXEC_SECURITY, "description":"Run a command on an eligible node with an authorized execute-scoped connection.",
+    {"name":"node_exec", "_meta": EXEC_SECURITY, "description":"Run a command on an eligible node; return short job results inline, or a request_id for longer jobs.",
      "inputSchema":{"type":"object","properties":{
          "node":{"type":"string"},"command":{"type":"string","maxLength":4096},
-         "request_id":{"type":"string","pattern":"^[0-9a-f]{32}$"}},
+         "request_id":{"type":"string","pattern":"^[0-9a-f]{32}$"},
+         "wait_seconds":{"type":"integer","minimum":0,"maximum":10}},
          "required":["node","command","request_id"],"additionalProperties":False}},
     {"name":"node_result", "_meta": EXEC_SECURITY, "description":"Read the requester's bounded remote job result.",
      "inputSchema":{"type":"object","properties":{
@@ -250,7 +251,7 @@ class Handler(BaseHTTPRequestHandler):
             name = params["name"]
             try:
                 principal = self.server.registry.execution_principal(token)
-                if name == "node_exec" and set(args) == {"node","command","request_id"}:
+                if name == "node_exec" and {"node","command","request_id"}.issubset(args) and set(args).issubset({"node","command","request_id","wait_seconds"}):
                     selected = self.server.execution.exec(principal=principal, **args)
                 elif name in ("node_deploy", "node_deploy_status") and {"node", "application", "request_id"} <= set(args) and set(args) <= {"node", "application", "request_id", "revision"}:
                     selected = self.server.execution.deployment(
