@@ -66,6 +66,10 @@ ROUTES = {
 # Never accept an issuer path or authorization from the HTTP request.
 ISSUER_PATH = "/v1/bearer/issue"
 ISSUER_FIELDS = frozenset({"principal", "scope", "lifetime", "challenge", "credential"})
+COMBINED_OPTIONS_PATH = "/v1/bearer/combined/options"
+COMBINED_FINISH_PATH = "/v1/bearer/combined/finish"
+COMBINED_OPTIONS_FIELDS = frozenset({"principal", "intent"})
+COMBINED_FINISH_FIELDS = frozenset({"principal", "intent", "challenge", "credential"})
 
 
 class AdminHandler(BaseHTTPRequestHandler):
@@ -102,8 +106,14 @@ class AdminHandler(BaseHTTPRequestHandler):
             return
         issuer = getattr(self.server, "issuer", None)
         is_issuance = self.path == ISSUER_PATH
-        route = (("issue", ISSUER_FIELDS) if is_issuance and issuer is not None
-                 else ROUTES.get(self.path))
+        if issuer is not None and is_issuance:
+            route = ("issue", ISSUER_FIELDS)
+        elif issuer is not None and self.path == COMBINED_OPTIONS_PATH:
+            route = ("begin_combined", COMBINED_OPTIONS_FIELDS)
+        elif issuer is not None and self.path == COMBINED_FINISH_PATH:
+            route = ("issue_combined", COMBINED_FINISH_FIELDS)
+        else:
+            route = ROUTES.get(self.path)
         if route is None:
             self._respond(404, {"error": "not_found"})
             return
@@ -118,7 +128,8 @@ class AdminHandler(BaseHTTPRequestHandler):
             self._respond(400, {"error": "invalid_request"})
             return
         try:
-            provider = issuer if is_issuance else self.server.ceremonies
+            provider = (issuer if route[0] in ("issue", "begin_combined", "issue_combined")
+                        else self.server.ceremonies)
             result = getattr(provider, route[0])(**payload)
         except Exception:
             # Generic response prevents leaking enrolled principals and keys.
@@ -145,10 +156,29 @@ def main(argv=None):
     listing = commands.add_parser("list", help="Read credential metadata, never keys")
     listing.add_argument("--principal", required=True)
     commands.add_parser("serve", help="Manually start loopback-only ceremony adapter")
+    launch = commands.add_parser("serve-issuer", help="Explicit OFF-by-default privileged issuer")
+    launch.add_argument("--bearer-database", default="/var/lib/gway-mcp/bearers.sqlite3")
+    launch.add_argument("--receipts-database", default="/var/lib/gway-webauthn/receipts.sqlite3")
     args = parser.parse_args(argv)
     ledger = WebAuthnLedger(args.database)
     if args.command == "serve":
         serve(AdminCeremonies(ledger))
+        return
+    if args.command == "serve-issuer":
+        if (os.geteuid() != 0
+                or os.environ.get("GWAY_WEBAUTHN_ISSUER_ENABLED") != "1"):
+            raise SystemExit("Watchtower admin issuer is disabled")
+        raw = os.environ.get("GWAY_WEBAUTHN_ADMINISTRATORS", "")
+        administrators = {v.strip() for v in raw.split(",") if v.strip()}
+        if not administrators:
+            raise SystemExit("Explicit administrator allowlist required")
+        from .mcp_bearer import BearerRegistry
+        from .watchtower_webauthn_issuer import IssuanceLedger, WatchtowerBearerIssuer
+        issuer = WatchtowerBearerIssuer(
+            credentials=ledger, registry=BearerRegistry(args.bearer_database),
+            receipts=IssuanceLedger(args.receipts_database),
+            administrators=administrators)
+        serve(AdminCeremonies(ledger), issuer=issuer)
         return
     if os.geteuid() != 0:
         raise SystemExit("Only the local Watchtower administrator may manage passkeys")
