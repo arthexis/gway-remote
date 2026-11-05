@@ -56,3 +56,16 @@ class OdooHttpApiTests(unittest.TestCase):
         self.assertEqual(status,502)
         self.assertNotIn(b"never-return-me",body)
         self.assertIn(b"odoo_pdf_unavailable",body)
+
+
+class OdooProxyRouteTests(unittest.TestCase):
+    def test_only_bounded_pdf_path_is_exposed_by_nginx(self):
+        from pathlib import Path
+        root = Path(__file__).resolve().parents[2]
+        config = (root / "deploy/nginx/gway-remote-locations.conf").read_text()
+        self.assertIn('location ~ "^/api/v1/odoo/quotations/[1-9][0-9]{0,9}/pdf$"', config)
+        route = config.split('location ~ "^/api/v1/odoo/quotations/', 1)[1].split("}", 2)[1]
+        self.assertIn("limit_except GET { deny all; }", route)
+        self.assertIn("proxy_set_header Authorization $http_authorization;", route)
+        self.assertIn("proxy_pass http://10.90.0.2:8765;", route)
+        self.assertIn("proxy_read_timeout 120s;", route)
