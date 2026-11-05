@@ -162,6 +162,33 @@ class WatchtowerBearerIssuer:
                 "scopes": ["gway:execute", "gway:read"],
                 "expires_in": intent["lifetime_seconds"]}
 
+    def begin_revoke(self, *, principal, intent):
+        """Explicit bearer-ID revocation has its own WebAuthn intent."""
+        if principal not in self.admins:
+            raise PermissionError("administrator_required")
+        canonical_admin_intent(intent)
+        if intent["action"] != "revoke_mcp_bearer":
+            raise ValueError("unsupported_action")
+        return {**self.credentials.begin(
+            principal=principal, action="bearer.revoke",
+            target=admin_intent_digest(intent).hex()), "action": "revoke_mcp_bearer"}
+
+    def revoke_bearer(self, *, principal, intent, challenge, credential):
+        if principal not in self.admins:
+            raise PermissionError("administrator_required")
+        canonical_admin_intent(intent)
+        if intent["action"] != "revoke_mcp_bearer":
+            raise ValueError("unsupported_action")
+        proof = verify_assertion(
+            self.credentials, challenge=challenge, principal=principal,
+            action="bearer.revoke", target=admin_intent_digest(intent).hex(),
+            credential=credential)
+        if self.credentials._verified_credential(
+                credential_id=proof.credential_id, principal=principal) is None:
+            raise PermissionError("credential_revoked")
+        # No implicit revocation upon issuance. Only the bound bearer ID changes.
+        return {"revoked": self.registry.revoke(intent["key_id"])}
+
     def issue(self, *, principal, scope, lifetime, challenge, credential):
         if principal not in self.admins:
             raise PermissionError("administrator_required")
