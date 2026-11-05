@@ -30,6 +30,24 @@
       - gway_odoo_checkout_stat.stat.pw_name == gway_remote_runner_user
     fail_msg: "odoo-gelectriic must already exist as an operator-owned checkout."
 
+- name: Check immutable approved Odoo origin
+  become: true
+  become_user: "{{ gway_remote_runner_user }}"
+  ansible.builtin.command:
+    argv: [git, -C, "{{ gway_odoo_checkout }}", remote, get-url, origin]
+  changed_when: false
+  register: gway_odoo_origin
+
+- name: Refuse unapproved Odoo Git remote
+  ansible.builtin.assert:
+    that:
+      - gway_odoo_origin.stdout in [
+          'https://github.com/arthexis/odoo-gelectriic',
+          'https://github.com/arthexis/odoo-gelectriic.git',
+          'git@github.com:arthexis/odoo-gelectriic.git'
+        ]
+    fail_msg: Odoo checkout origin is not the approved repository
+
 - name: Check selected Odoo branch
   become: true
   become_user: "{{ gway_remote_runner_user }}"
