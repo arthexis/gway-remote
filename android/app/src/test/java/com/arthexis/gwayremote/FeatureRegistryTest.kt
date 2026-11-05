@@ -33,7 +33,7 @@ class FeatureRegistryTest {
 
     @Test fun stageAHomeKeepsOperationalFunctionsAndAgentOps() {
         assertEquals(
-            setOf("system", "agent-ops", "deployments", "github-health", "mcp-access"),
+            setOf("system", "agent-ops", "deployments", "github-health", "mcp-access", "odoo-quotations"),
             FeatureRegistry.home.map { it.id }.toSet()
         )
         assertEquals(

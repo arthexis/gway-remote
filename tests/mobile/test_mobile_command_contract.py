@@ -8,9 +8,11 @@ EXPECTED_COMMANDS = frozenset({
     "status", "status-quick", "probe-csms", "lcd-message", "sound-play", "sound-motifs",
     "csms-view", "benchmark-echo",
     "codex-tasks", "codex-task", "codex-issues", "agent-issues", "agent-status", "agent-observe", "agent-issue", "agent-preview",
+    "odoo-quotations",
     "deployments-overview", "deployments-progress", "deployments-validate", "deployments-dispatch", "deployments-observe", "deployments-follow",
 })
 READ_ONLY = frozenset({
+    "odoo-quotations",
     "status", "status-quick", "probe-csms", "sound-motifs",
     "csms-view", "benchmark-echo",
     "codex-tasks", "codex-task", "codex-issues", "agent-issues", "agent-status", "agent-observe", "agent-preview",
