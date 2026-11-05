@@ -33,8 +33,11 @@ class ManualDeployPolicyTests(unittest.TestCase):
 
     def test_malformed_inputs_rejected(self):
         for repo, node in (("../repo", "gway-001"), ("arthexis/ocpp-reports", "bad_name")):
-            with self.assertRaises(ValueError):
+            with self.subTest(repo=repo, node=node), self.assertRaises(ValueError):
                 validate_deployment(repo, node)
+        # A syntactically valid but unauthorized repository must fail closed.
+        with self.assertRaises(PermissionError):
+            validate_deployment("arthexis/unknown", "gway-001")
 
 
 if __name__ == "__main__":
