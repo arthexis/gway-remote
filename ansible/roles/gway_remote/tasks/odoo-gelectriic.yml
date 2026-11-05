@@ -14,7 +14,7 @@
       - odoo-quotation
       - odoo-quotation-write
       - odoo-quotation-pdf
-      - odoo-catalog-v2
+      - odoo-catalog
 
 - name: Inspect pre-provisioned Odoo checkout
   ansible.builtin.stat:
