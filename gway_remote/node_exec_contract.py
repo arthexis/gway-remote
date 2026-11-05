@@ -84,6 +84,7 @@ def preview(node, command, inventory, *, effective_concurrency=1):
                           "approval_required": False},
         "status": "preview_only",
         "execute_available": row["execute_available"],
+        "execution_health": "unverified",
     }
 
 
