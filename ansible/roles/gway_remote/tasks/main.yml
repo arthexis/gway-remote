@@ -287,3 +287,9 @@
     enabled: false
     state: stopped
   when: not github_health_token_config.stat.exists
+
+# Operator-owned source and root-owned public Odoo CLIs are converged only on
+# the established controller; never provision Odoo on customer satellites.
+- name: Install Odoo Gelectriic command suite on gway-001
+  ansible.builtin.include_tasks: odoo-gelectriic.yml
+  when: (ansible_hostname | default('')) == 'gway-001'

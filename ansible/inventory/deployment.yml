@@ -13,6 +13,7 @@ all:
             - gway-ap-kiosk
             - gway-rfid
             - gway-bastion
+            - odoo-gelectriic
     quality:
       hosts:
         gway-004:
