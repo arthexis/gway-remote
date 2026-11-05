@@ -149,7 +149,7 @@ class SSHBoundaryTests(unittest.TestCase):
 
     def test_fails_on_host_key_change_and_bad_node(self):
         for kwargs in ({"host_key_sha256":"0"*64},
-                       {"node":"gway-002"},
+                       {"node":"invalid node"},
                        {"wireguard_address":"127.0.0.1"},
                        {"wireguard_address":"host;sh"}):
             with self.subTest(kwargs=kwargs),self.assertRaises((ValueError,PermissionError)):
