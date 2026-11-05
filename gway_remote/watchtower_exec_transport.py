@@ -317,8 +317,15 @@ class DormantRelay:
             raise ValueError("request not dispatched")
         if type(cursor) is not int or not 0 <= cursor <= 1048576:
             raise ValueError("invalid cursor")
-        data = self.transport.invoke({"operation":"result","node":row["node"],
-                                      "request_id":request_id,"cursor":cursor})
+        try:
+            data = self.transport.invoke({"operation":"result","node":row["node"],
+                                          "request_id":request_id,"cursor":cursor})
+        except (OSError, ValueError, subprocess.SubprocessError):
+            # A failed read does not prove the remote command never ran.
+            # Never replay submit, erase the ledger, or expose SSH stderr.
+            return {"node": row["node"], "request_id": request_id,
+                    "status": row["state"], "result_available": False,
+                    "reason": "node_result_unavailable"}
         if data.get("status") in TERMINAL_STATES:
             self.ledger.record_result_state(request_id, data["status"])
         return data
