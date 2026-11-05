@@ -307,6 +307,7 @@ def main() -> None:
     batch_parser.add_argument("--all", action="store_true", help="Explicitly reinstall all latest main revisions regardless of prior attempts or CI")
     batch_parser.add_argument("--now", action="store_true", help="Bypass quiet period for operator-requested batch")
     batch_parser.add_argument("--retry-failed", action="store_true", help="Explicitly retry failed revisions, never installed or interrupted ones")
+    subparsers.add_parser("host-key", help="Print local SSH ED25519 host public key for independent verification")
     wg_parser = subparsers.add_parser("wireguard", help="WireGuard registration origin and local public identity")
     wg_parser.add_argument("action", choices=("endpoint", "public-key"))
     wg_parser.add_argument("operation", nargs="?", choices=("show", "set"))
@@ -339,6 +340,8 @@ def main() -> None:
     watchtower_parser.add_argument("--dry-run", action="store_true", help="inspect without writing ledger")
     watchtower_parser.add_argument("--attest", action="store_true", help="attest SSH host identity atomically during adopt")
     watchtower_parser.add_argument("--host-key-file", type=Path, help="independently verified ED25519 SSH host public key file")
+    watchtower_parser.add_argument("--host-key", help="independently verified ED25519 SSH public key (or - for stdin)")
+    watchtower_parser.add_argument("--rotate", action="store_true", help="explicit host-key rotation; requires unused invitation token file")
     watchtower_parser.add_argument("--network", help="approved IPv4 allocation CIDR")
     watchtower_parser.add_argument("--gateway", help="approved hub IPv4 address")
     watchtower_parser.add_argument("--config", help="root-owned WireGuard configuration")
@@ -487,8 +490,37 @@ def main() -> None:
                 if args.attest or args.public_key:
                     parser.error("watchtower attest takes neither --attest nor --public-key")
                 from .watchtower_attest import attest, host_key_path
+                if args.rotate:
+                    if args.host_key is None or args.host_key_file is not None:
+                        parser.error("--rotate requires --host-key (not --host-key-file)")
+                    from .watchtower_attest import rotate_verified_host_key, rotation_token_path
+                    if args.rotation_token_file is None:
+                        args.rotation_token_file = rotation_token_path(args.node)
+                    key = sys.stdin.readline().strip() if args.host_key == "-" else args.host_key
+                    print(json.dumps(rotate_verified_host_key(ledger, args.node, key,
+                        token_file=args.rotation_token_file, dry_run=args.dry_run), sort_keys=True))
+                    return
+                if args.host_key is not None and args.host_key_file is not None:
+                    parser.error("--host-key and --host-key-file are mutually exclusive")
+                if args.host_key is not None:
+                    from .watchtower_attest import provision_host_key
+                    key = sys.stdin.readline().strip() if args.host_key == "-" else args.host_key
+                    args.host_key_file = provision_host_key(args.node, key, dry_run=args.dry_run)
                 if args.host_key_file is None:
                     args.host_key_file = host_key_path(args.node)
+                if args.dry_run and args.host_key is not None and not args.host_key_file.is_file():
+                    from .watchtower_attest import validate_public_key, attest_in_transaction
+                    from .watchtower_enrollment import Ledger
+                    with ledger._connect() as db:
+                        state = attest_in_transaction(db, args.node, validate_public_key(" ".join(key.split()[:2])), dry_run=True)
+                    print(json.dumps({"node": args.node, "state": state, "identity_verified": False, "execute_available": False}, sort_keys=True))
+                    return
+                if not args.host_key_file.is_file():
+                    parser.exit(1, f"gway-remote: verified SSH host key missing: {args.host_key_file}\n"
+                                f"On {args.node}, run: gway-remote host-key\n"
+                                "Verify the output through an independent trusted channel, then provision "
+                                "that public key as a protected file on Watchtower and retry with "
+                                "--host-key-file PATH (or the default path). Never trust network discovery alone.\n")
                 print(json.dumps(attest(ledger, node=args.node,
                                         host_key_file=args.host_key_file,
                                         dry_run=args.dry_run), sort_keys=True))
@@ -598,6 +630,13 @@ def main() -> None:
         except (ValueError, OSError, subprocess.CalledProcessError, subprocess.TimeoutExpired) as exc:
             parser.exit(1, "gway-remote: host pin denied: " + type(exc).__name__ + "\\n")
         print(json.dumps({"node": args.node, "pin_created": changed}, sort_keys=True))
+        return
+    if args.command == "host-key":
+        from .wireguard_satellite import _ssh_host_public_key
+        try:
+            print(_ssh_host_public_key())
+        except (OSError, ValueError) as exc:
+            parser.exit(1, f"gway-remote: SSH host public key unavailable: {exc}\n")
         return
     if args.command == "wireguard":
         if args.action == "public-key":
