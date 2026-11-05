@@ -86,6 +86,7 @@ fun CompanionScreen(store: SecretStore, appearance: AppearanceMode = AppearanceM
     val agentObserveResult = agentModel.observeResult
     val agentObserveError = agentModel.observeError
     var deploymentsOpen by remember { mutableStateOf(false) }
+    var quotationsOpen by remember { mutableStateOf(false) }
     var mcpAccessOpen by remember { mutableStateOf(false) }
     var endpoint by remember { mutableStateOf(store.endpoint.ifBlank { "https://remote.arthexis.com" }) }
     var token by remember { mutableStateOf(store.token) }
@@ -508,6 +509,12 @@ fun CompanionScreen(store: SecretStore, appearance: AppearanceMode = AppearanceM
             onExecute = operationModel::execute,
             extraActions = listOf(
                 PaletteAction(
+                    id = "odoo-quotations",
+                    label = if (quotationsOpen) "Ocultar Cotizaciones" else "Cotizaciones",
+                    icon = "file-text",
+                    onClick = { quotationsOpen = !quotationsOpen }
+                ),
+                PaletteAction(
                     id = "deployments",
                     label = if (deploymentsOpen) "Hide Deployments" else "Deployments",
                     icon = "rocket",
@@ -542,6 +549,9 @@ fun CompanionScreen(store: SecretStore, appearance: AppearanceMode = AppearanceM
         }
         if (deploymentsOpen) {
             DeploymentsPanel(endpoint = endpoint, token = token)
+        }
+        if (quotationsOpen) {
+            OdooQuotationsPanel(endpoint = endpoint, token = token)
         }
         if (githubHealthOpen) {
             GitHubHealthPanel(endpoint = endpoint, token = token)

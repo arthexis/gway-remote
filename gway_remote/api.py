@@ -2,11 +2,12 @@
 import hmac
 import json
 import os
+import re
 from time import perf_counter_ns
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from ipaddress import ip_address
 
-from . import mobile, github_health
+from . import mobile, github_health, mobile_odoo_quotations
 from .agent_ops_adapter import AgentOpsError
 
 WIREGUARD_BIND_ADDRESS = "10.90.0.2"
@@ -45,10 +46,31 @@ def handler_for(token):
             return True
 
         def do_GET(self):
-            if self.path not in ("/api/v1/health", "/api/v1/commands", "/api/v1/github-health"):
+            match = re.fullmatch(r"/api/v1/odoo/quotations/([1-9][0-9]{0,9})/pdf", self.path)
+            allowed = ("/api/v1/health", "/api/v1/commands", "/api/v1/github-health")
+            if not match and self.path not in allowed:
                 self.respond(404, {"error": "not_found"})
                 return
             if not self.authorized():
+                return
+            if match:
+                try:
+                    filename, data = mobile_odoo_quotations.download(int(match.group(1)))
+                    disposition = mobile_odoo_quotations.filename_headers(filename)
+                except ValueError:
+                    self.respond(400, {"error": "invalid_quotation_id"})
+                    return
+                except Exception:
+                    self.respond(502, {"error": "odoo_pdf_unavailable"})
+                    return
+                self.send_response(200)
+                self.send_header("Content-Type", "application/pdf")
+                self.send_header("Content-Disposition", disposition)
+                self.send_header("Cache-Control", "private, no-store")
+                self.send_header("X-Content-Type-Options", "nosniff")
+                self.send_header("Content-Length", str(len(data)))
+                self.end_headers()
+                self.wfile.write(data)
                 return
             if self.path == "/api/v1/health":
                 self.respond(200, {"status": "ok", "api": "gway-remote/v1"})
