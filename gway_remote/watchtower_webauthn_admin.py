@@ -94,7 +94,22 @@ class AdminHandler(BaseHTTPRequestHandler):
         self.wfile.write(body)
 
     def do_GET(self):
-        self._respond(405, {"error": "method_not_allowed"})
+        if self.path != "/v1/capabilities":
+            self._respond(405, {"error": "method_not_allowed"})
+            return
+        if (self.headers.get("Host") != "%s:%d" % (LOOPBACK_HOST, LOOPBACK_PORT)
+                or self.headers.get("Origin") not in (None, ORIGIN)):
+            self._respond(403, {"error": "request_denied"})
+            return
+        from .watchtower_webauthn_verify import approved_origins
+        try:
+            permitted = approved_origins()
+            enabled = (getattr(self.server, "issuer", None) is not None
+                       and isinstance(permitted, list))
+        except ValueError:
+            enabled = False
+        self._respond(200, {"passkeys_enabled": enabled,
+                            "rp_id": "remote.arthexis.com" if enabled else None})
 
     def do_POST(self):
         # Reject unexpected host and browser cross-origin attempts even on

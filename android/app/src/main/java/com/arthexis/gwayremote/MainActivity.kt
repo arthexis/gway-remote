@@ -86,6 +86,7 @@ fun CompanionScreen(store: SecretStore, appearance: AppearanceMode = AppearanceM
     val agentObserveResult = agentModel.observeResult
     val agentObserveError = agentModel.observeError
     var deploymentsOpen by remember { mutableStateOf(false) }
+    var mcpAccessOpen by remember { mutableStateOf(false) }
     var endpoint by remember { mutableStateOf(store.endpoint.ifBlank { "https://remote.arthexis.com" }) }
     var token by remember { mutableStateOf(store.token) }
     var result by remember { mutableStateOf("Configure HTTPS endpoint and token") }
@@ -513,6 +514,12 @@ fun CompanionScreen(store: SecretStore, appearance: AppearanceMode = AppearanceM
                     onClick = { deploymentsOpen = !deploymentsOpen }
                 ),
                 PaletteAction(
+                    id = "mcp-access",
+                    label = if (mcpAccessOpen) "Hide MCP Access" else "MCP Access",
+                    icon = "key-round",
+                    onClick = { mcpAccessOpen = !mcpAccessOpen }
+                ),
+                PaletteAction(
                     id = "github-health",
                     label = if (githubHealthOpen) "Hide GitHub Health" else "GitHub Health",
                     icon = "github",
@@ -530,6 +537,9 @@ fun CompanionScreen(store: SecretStore, appearance: AppearanceMode = AppearanceM
                 PaletteAction("server-" + name, name, "list", { perform("/api/v1/execute", name) }, !busy)
             }
         )
+        if (mcpAccessOpen) {
+            McpAccessPanel(onClose = { mcpAccessOpen = false })
+        }
         if (deploymentsOpen) {
             DeploymentsPanel(endpoint = endpoint, token = token)
         }

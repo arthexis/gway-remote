@@ -33,7 +33,7 @@ class FeatureRegistryTest {
 
     @Test fun stageAHomeKeepsOperationalFunctionsAndAgentOps() {
         assertEquals(
-            setOf("system", "agent-ops", "deployments", "github-health"),
+            setOf("system", "agent-ops", "deployments", "github-health", "mcp-access"),
             FeatureRegistry.home.map { it.id }.toSet()
         )
         assertEquals(
@@ -54,8 +54,9 @@ class FeatureRegistryTest {
         for (id in secondary) {
             assertNotNull("Secondary feature must remain addressable: $id", FeatureRegistry.get(id))
         }
-        // No pretend credential action before Watchtower's WebAuthn issuer exists.
-        assertNull(FeatureRegistry.get("mcp-access"))
+        // UI entry is inert until Watchtower advertises real passkey capability.
+        assertEquals(FeatureKind.LOCAL_PANEL, FeatureRegistry.get("mcp-access")?.kind)
+        assertNull(FeatureRegistry.get("mcp-access")?.operation)
         assertNull(FeatureRegistry.get("bearer"))
     }
 

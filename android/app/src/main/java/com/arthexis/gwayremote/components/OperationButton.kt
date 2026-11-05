@@ -38,6 +38,7 @@ internal object AppIconRegistry {
         "gauge" -> Icons.Filled.Speed
         "volume-2" -> Icons.Filled.VolumeUp
         "github" -> Icons.Filled.Code
+        "key-round" -> Icons.Filled.Key
         "update" -> Icons.Filled.SystemUpdate
         else -> Icons.Filled.Extension
     }
