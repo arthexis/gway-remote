@@ -36,7 +36,7 @@ class AuthorizedExecution:
 
     def _current_eligibility(self, node):
         """Fail closed against the root-published current enrollment projection."""
-        pinned = self.relay.transport.node
+        pinned = self.relay.transport.for_node(node).node
         inventory = node_registry_inventory.load()
         rows = [r for r in inventory["nodes"] if r["node"] == node]
         if (len(rows) != 1 or node != pinned.node or
@@ -53,8 +53,6 @@ class AuthorizedExecution:
         self._allow(principal)
         validate_request_id(request_id)
         validate_command(node, command)
-        if node != self.relay.transport.node.node:
-            raise PermissionError("node not eligible for this transport")
         self._current_eligibility(node)
         # First insertion wins. Retrying an already known request ID never
         # redispatches, even when its status is uncertain or the process restarted.
@@ -68,16 +66,16 @@ class AuthorizedExecution:
         if prior is not None:
             from .watchtower_exec_transport import _digest
             if (prior["node"] != node or prior["principal"] != principal or
-                    prior["host_key_sha256"] != self.relay.transport.node.host_key_sha256 or
+                    prior["host_key_sha256"] != self.relay.transport.for_node(node).node.host_key_sha256 or
                     prior["command_sha256"] != _digest(node, command, principal,
-                        self.relay.transport.node.host_key_sha256)):
+                        self.relay.transport.for_node(node).node.host_key_sha256)):
                 raise PermissionError("request ID already bound to another job")
             return {"request_id": request_id, "node": node, "status": prior["state"]}
         expiry = (_now() + timedelta(seconds=120)).isoformat()
         try:
             self.ledger.reserve(request_id=request_id, node=node, command=command,
                                 principal=principal,
-                                host_key_sha256=self.relay.transport.node.host_key_sha256,
+                                host_key_sha256=self.relay.transport.for_node(node).node.host_key_sha256,
                                 expires_at=expiry)
         except ValueError:
             # Another request with this ID may have won the atomic reservation.
@@ -85,9 +83,9 @@ class AuthorizedExecution:
             from .watchtower_exec_transport import _digest
             existing = self.ledger.get(request_id)
             if (existing["node"] != node or existing["principal"] != principal
-                    or existing["host_key_sha256"] != self.relay.transport.node.host_key_sha256
+                    or existing["host_key_sha256"] != self.relay.transport.for_node(node).node.host_key_sha256
                     or existing["command_sha256"] != _digest(node, command, principal,
-                        self.relay.transport.node.host_key_sha256)):
+                        self.relay.transport.for_node(node).node.host_key_sha256)):
                 raise PermissionError("request ID already bound to another job")
             return {"request_id": request_id, "node": node, "status": existing["state"]}
         self._current_eligibility(node)
@@ -154,6 +152,7 @@ class AuthorizedExecution:
     def _owned(self, principal, request_id):
         self._allow(principal)
         record = self.ledger.get(request_id)
+        self.relay.transport.for_node(record["node"])
         if record["principal"] != principal:
             raise PermissionError("request belongs to another principal")
         return record
