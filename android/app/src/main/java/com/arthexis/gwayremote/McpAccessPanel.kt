@@ -123,9 +123,17 @@ internal fun McpAccessPanel(onClose: () -> Unit) {
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 OutlinedButton(onClick = {
                     val manager = activity.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-                    manager.setPrimaryClip(ClipData.newPlainText("GWay MCP bearer", bearer))
+                    val transientToken = bearer
+                    manager.setPrimaryClip(ClipData.newPlainText("GWay MCP bearer", transientToken))
+                    // Best-effort automatic clipboard clearing. Never delete newer
+                    // clipboard contents written by another application.
+                    android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
+                        if (manager.primaryClip?.getItemAt(0)?.text?.toString() == transientToken) {
+                            manager.setPrimaryClip(ClipData.newPlainText("", ""))
+                        }
+                    }, 60_000)
                     bearer = ""
-                    status = "Copied to Android clipboard. Paste promptly, then clear clipboard."
+                    status = "Copied once. Clipboard clears after 60 seconds while the app runs."
                 }) { Text("Copy once") }
                 TextButton(onClick = { bearer = ""; status = "Bearer hidden" }) {
                     Text("Hide")
