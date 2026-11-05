@@ -34,3 +34,24 @@ Never replace this requirement with `ssh-keyscan` or trust-on-first-use.
 
 `register --repair` is a separate invitation-based legacy repair flow,
 not necessary merely to attest an already active WireGuard node.
+
+
+## Explicit host-key rotation
+
+A different key is never accepted by ordinary `attest`. After independent
+verification, issue a **new unused, unexpired invitation** for the enrolled
+node using the existing Watchtower invitation administration workflow and
+place its token in a root-only file. Rotation requires this existing
+one-time authorization, not just possession of a new public key.
+
+```sh
+sudo gway-remote watchtower attest gway-002 --host-key 'ssh-ed25519 AAAA...' \
+  --rotate --rotation-token-file /root/gway-002-rotation-token --dry-run
+sudo gway-remote watchtower attest gway-002 --host-key 'ssh-ed25519 AAAA...' \
+  --rotate --rotation-token-file /root/gway-002-rotation-token
+```
+
+`--host-key -` accepts stdin instead of exposing the public key in shell
+arguments. The existing `rotate_host_identity` ledger transition records
+the previous and next keys and consumes the invitation. Never silently
+replace a mismatching key or skip independent verification.
