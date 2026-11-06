@@ -1,4 +1,4 @@
-"""Private MCP tool contract for read-only Agent Ops access.
+"""Private MCP tool contract for Agent Ops access.
 
 This is a transport-independent core. It MUST NOT be exposed over public
 HTTP without an authenticated MCP transport and operator authorization.
@@ -16,6 +16,10 @@ TOOLS = (
      "inputSchema": {"type": "object", "properties": {"ref": {"type": "string"}},
                      "required": ["ref"], "additionalProperties": False},
      "annotations": {"readOnlyHint": True}},
+    {"name": "agent_submit", "description": "Submit one trusted issue with a caller-frozen UTC identity; requires gway:execute at the gateway.",
+     "inputSchema": {"type": "object", "properties": {
+         "ref": {"type": "string"}, "at": {"type": "string"}},
+         "required": ["ref", "at"], "additionalProperties": False}},
     {"name": "agent_observe", "description": "Observe a previously submitted issue by frozen UTC identity.",
      "inputSchema": {"type": "object", "properties": {
          "ref": {"type": "string"}, "at": {"type": "string"}},
@@ -34,6 +38,7 @@ _HANDLERS = {
     "agent_status": agent_ops_adapter.status,
     "agent_preview": agent_ops_adapter.preview_issue,
     "agent_observe": agent_ops_adapter.observe_issue,
+    "agent_submit": agent_ops_adapter.send_issue,
     "github_workflow_runs": github_workflows_mcp.runs,
     "github_workflow_status": github_workflows_mcp.status,
     "github_workflow_errors": github_workflows_mcp.errors,
@@ -41,12 +46,12 @@ _HANDLERS = {
 
 
 def list_tools():
-    """Return an independent tool inventory with no mutating operations."""
+    """Return the fixed, audited tool inventory."""
     return [dict(tool) for tool in TOOLS]
 
 
 def call_tool(name, arguments):
-    """Execute a fixed read-only operation through the existing trusted adapter."""
+    """Execute a fixed operation through the existing trusted adapter."""
     if type(name) is not str or name not in _HANDLERS:
         raise ValueError("mcp_tool_not_allowed")
     if type(arguments) is not dict:
