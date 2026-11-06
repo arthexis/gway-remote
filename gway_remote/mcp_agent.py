@@ -4,6 +4,7 @@ This is a transport-independent core. It MUST NOT be exposed over public
 HTTP without an authenticated MCP transport and operator authorization.
 """
 from . import agent_ops_adapter, github_workflows_mcp
+from .mcp_catalog import compose_catalog
 
 TOOLS = (
     {"name": "agent_list_issues", "description": "List trusted issues and their eligibility; never dispatch.",
@@ -47,7 +48,7 @@ _HANDLERS = {
 
 def list_tools():
     """Return the fixed, audited tool inventory."""
-    return [dict(tool) for tool in TOOLS]
+    return compose_catalog(TOOLS)
 
 
 def call_tool(name, arguments):

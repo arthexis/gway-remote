@@ -1,0 +1,60 @@
+---
+# Opt-in systemd wiring. The bridge key is restricted to the unprivileged gateway identity.
+- name: Inspect installed MCP gateway unit
+  ansible.builtin.stat:
+    path: /etc/systemd/system/gway-mcp-gateway.service
+  register: bridge_gateway_unit
+
+- name: Require installed gateway unit before enabling bridge
+  ansible.builtin.assert:
+    that:
+      - bridge_gateway_unit.stat.exists
+    fail_msg: gway-mcp-gateway.service must be installed before bridge activation
+  when: gway_mcp_bridge_enable | default(false) | bool
+
+- name: Create gateway systemd drop-in directory
+  ansible.builtin.file:
+    path: /etc/systemd/system/gway-mcp-gateway.service.d
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+  when: bridge_gateway_unit.stat.exists
+
+- name: Wire bridge environment and runtime directory to gateway
+  ansible.builtin.copy:
+    dest: /etc/systemd/system/gway-mcp-gateway.service.d/20-private-bridge.conf
+    owner: root
+    group: root
+    mode: "0644"
+    content: |
+      [Service]
+      EnvironmentFile=/etc/gway-mcp/bridge/gateway.env
+      RuntimeDirectory=gway-mcp-bridge
+      RuntimeDirectoryMode=0700
+  register: bridge_gateway_dropin
+  when: bridge_gateway_unit.stat.exists
+
+- name: Reload systemd after bridge drop-in update
+  ansible.builtin.systemd:
+    daemon_reload: true
+  when: bridge_gateway_dropin.changed | default(false)
+
+- name: Inspect gateway effective systemd identity
+  ansible.builtin.command:
+    argv:
+      - systemctl
+      - show
+      - gway-mcp-gateway.service
+      - --property=User
+      - --value
+  changed_when: false
+  register: bridge_gateway_user
+  when: gway_mcp_bridge_enable | default(false) | bool
+
+- name: Require dedicated unprivileged gateway identity
+  ansible.builtin.assert:
+    that:
+      - bridge_gateway_user.stdout | trim == 'gway-mcp-gateway'
+    fail_msg: Bridge activation requires the dedicated gateway service user
+  when: gway_mcp_bridge_enable | default(false) | bool

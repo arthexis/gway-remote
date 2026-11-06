@@ -195,6 +195,36 @@ class Handler(BaseHTTPRequestHandler):
         has_exec = self.server.registry.verify(token, required_scope="gway:execute")
         if not (has_read or has_exec):
             return self.reject(401)
+        if self.server.bridge_sessions is None:
+            return self._process_authenticated(token, has_read, has_exec)
+        from .mcp_bridge_gateway_session import gateway_bridge_session
+        try:
+            with gateway_bridge_session(
+                    self.server.bridge_sessions, bearer=token,
+                    audience="gway-001") as session_id:
+                self.bridge_session_id = session_id
+                return self._process_authenticated(token, has_read, has_exec)
+        except (PermissionError, ValueError, RuntimeError):
+            return self.reject(403)
+
+    def _bridge_node_tool(self, name, arguments, token):
+        from .mcp_bridge_gateway_dispatch import dispatch_node_tool, OPERATIONS
+        if self.server.bridge_sessions is None or not hasattr(self, "bridge_session_id"):
+            raise PermissionError("bridge session missing")
+        operation, scope = OPERATIONS[name]
+        if not self.server.registry.verify(token, required_scope=scope):
+            raise PermissionError("insufficient bridge scope")
+        if scope == "gway:execute":
+            principal = self.server.registry.execution_principal(token)
+        else:
+            principal = self.server.bridge_sessions.read_principal(token)
+        path, key, audience = self.server.bridge_transport
+        return dispatch_node_tool(
+            socket_path=path, key=key, session_id=self.bridge_session_id,
+            audience=audience, principal=principal, name=name,
+            arguments=arguments)
+
+    def _process_authenticated(self, token, has_read, has_exec):
         if self.headers.get("Content-Type", "").split(";", 1)[0].strip().lower() != "application/json":
             return self.reject(415)
         if (self.headers.get("Transfer-Encoding") is not None
@@ -256,7 +286,9 @@ class Handler(BaseHTTPRequestHandler):
             name = params["name"]
             try:
                 principal = self.server.registry.execution_principal(token)
-                if name == "node_exec" and {"node","command","request_id"}.issubset(args) and set(args).issubset({"node","command","request_id","wait_seconds"}):
+                if self.server.bridge_transport is not None:
+                    selected = self._bridge_node_tool(name, args, token)
+                elif name == "node_exec" and {"node","command","request_id"}.issubset(args) and set(args).issubset({"node","command","request_id","wait_seconds"}):
                     selected = self.server.execution.exec(principal=principal, **args)
                 elif name in ("node_deploy", "node_deploy_status") and {"node", "application", "request_id"} <= set(args) and set(args) <= {"node", "application", "request_id", "revision"}:
                     selected = self.server.execution.deployment(
@@ -287,7 +319,11 @@ class Handler(BaseHTTPRequestHandler):
             # to gway-001, and never grant the gateway access to the root DB.
             arguments = payload["params"].get("arguments", {})
             try:
-                selected = local_node_result(payload["params"]["name"], arguments, execution=self.server.execution)
+                if self.server.bridge_transport is not None:
+                    selected = self._bridge_node_tool(
+                        payload["params"]["name"], arguments, token)
+                else:
+                    selected = local_node_result(payload["params"]["name"], arguments, execution=self.server.execution)
                 result = {"content": [{"type": "text", "text": json.dumps(selected, separators=(",", ":"))}]}
             except (OSError, ValueError, PermissionError, KeyError, TypeError, json.JSONDecodeError):
                 result = {"content": [{"type": "text", "text": "Node inventory or deployment preview unavailable"}],
@@ -390,7 +426,7 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
-def make_server(address, registry, upstream, backend_token, *, execution=None):
+def make_server(address, registry, upstream, backend_token, *, execution=None, bridge_sessions=None, bridge_transport=None):
     from urllib.parse import urlsplit
     parsed = urlsplit(upstream)
     if parsed.scheme != "http" or parsed.hostname != "127.0.0.1" or not parsed.port or parsed.path != "/mcp" or parsed.query or parsed.fragment or parsed.username or parsed.password:
@@ -402,6 +438,10 @@ def make_server(address, registry, upstream, backend_token, *, execution=None):
     server = ThreadingHTTPServer(address, Handler)
     server.registry = registry
     server.execution = execution
+    if bridge_transport is not None and bridge_sessions is None:
+        raise ValueError("bridge transport requires session manager")
+    server.bridge_sessions = bridge_sessions
+    server.bridge_transport = bridge_transport
     server.upstream = upstream
     server.backend_token = backend_token
     server.opener = build_opener(NoRedirect())
@@ -419,9 +459,38 @@ def main():
     if os.environ.get("GWAY_MCP_EXEC_ENABLED") == "1":
         from .watchtower_exec_service import load_service
         execution = load_service()
-    with make_server(("127.0.0.1", args.port), BearerVerifier(args.database), args.upstream,
-                     token, execution=execution) as service:
-        service.serve_forever()
+    verifier = BearerVerifier(args.database)
+    from .mcp_bridge_bootstrap import start_bridge
+    import signal
+    previous_term = signal.getsignal(signal.SIGTERM)
+
+    def terminate(signum, frame):
+        raise SystemExit(0)
+
+    signal.signal(signal.SIGTERM, terminate)
+    started = None
+    try:
+        # Keep SIGTERM pending until the newly created bridge has a cleanup owner.
+        # The pending signal is delivered only after 'started' is assigned.
+        previous_mask = signal.pthread_sigmask(signal.SIG_BLOCK, {signal.SIGTERM})
+        try:
+            started = start_bridge(verifier, execution=execution)
+        finally:
+            signal.pthread_sigmask(signal.SIG_SETMASK, previous_mask)
+        options = {}
+        if started is not None:
+            _, _, sessions, transport = started
+            options = {"bridge_sessions": sessions, "bridge_transport": transport}
+        with make_server(("127.0.0.1", args.port), verifier, args.upstream,
+                         token, execution=execution, **options) as service:
+            service.serve_forever()
+    finally:
+        if started is not None:
+            bridge, thread, _, transport = started
+            bridge.shutdown()
+            bridge.server_close()
+            thread.join(timeout=5)
+        signal.signal(signal.SIGTERM, previous_term)
 
 if __name__ == "__main__":
     main()
