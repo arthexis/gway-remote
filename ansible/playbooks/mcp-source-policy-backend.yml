@@ -1,0 +1,156 @@
+---
+- name: Configure existing gway-001 MCP user service
+  hosts: mcp_policy_backend
+  gather_facts: false
+  become: true
+  vars:
+    policy_dest: /etc/gway-mcp-gateway/sources.json
+    unit_dropin: /home/arthe/.config/systemd/user/gway-remote-mcp.service.d/60-mcp-sources.conf
+  tasks:
+    - name: Require explicit operator approval and pinned digest
+      ansible.builtin.assert:
+        that:
+          - inventory_hostname == 'gway-001'
+          - mcp_policy_approved | default(false) | bool
+          - mcp_policy_sha256 is match('^[0-9a-f]{64}$')
+    - name: Inspect approved source on controller
+      ansible.builtin.stat:
+        path: "{{ mcp_policy_source }}"
+        checksum_algorithm: sha256
+        follow: false
+      delegate_to: localhost
+      become: false
+      register: source_policy
+    - name: Verify approved digest
+      ansible.builtin.assert:
+        that:
+          - source_policy.stat.isreg | default(false)
+          - not (source_policy.stat.islnk | default(true))
+          - source_policy.stat.checksum == mcp_policy_sha256
+    - name: Inspect existing backend policy and drop-in
+      ansible.builtin.stat:
+        path: "{{ item }}"
+        follow: false
+      loop:
+        - "{{ policy_dest }}"
+        - "{{ unit_dropin }}"
+      register: prior_files
+    - name: Refuse symlinked or nonregular existing files
+      ansible.builtin.assert:
+        that:
+          - not (item.stat.islnk | default(false))
+          - not (item.stat.exists | default(false)) or (item.stat.isreg | default(false))
+      loop: "{{ prior_files.results }}"
+    - name: Capture previous configuration for rollback
+      ansible.builtin.slurp:
+        src: "{{ item }}"
+      loop:
+        - "{{ policy_dest }}"
+        - "{{ unit_dropin }}"
+      loop_control:
+        extended: true
+      when: prior_files.results[ansible_loop.index0].stat.exists | default(false)
+      register: previous_contents
+      no_log: true
+    - name: Converge user service policy with rollback
+      block:
+        - name: Install approved source policy
+          ansible.builtin.copy:
+            src: "{{ mcp_policy_source }}"
+            dest: "{{ policy_dest }}"
+            owner: root
+            group: root
+            mode: "0644"
+          register: policy_change
+        - name: Verify installed policy digest
+          ansible.builtin.stat:
+            path: "{{ policy_dest }}"
+            checksum_algorithm: sha256
+            follow: false
+          register: installed_policy
+        - name: Refuse changed installed policy
+          ansible.builtin.assert:
+            that:
+              - installed_policy.stat.isreg | default(false)
+              - not (installed_policy.stat.islnk | default(true))
+              - installed_policy.stat.checksum == mcp_policy_sha256
+        - name: Create user systemd drop-in directory
+          ansible.builtin.file:
+            path: /home/arthe/.config/systemd/user/gway-remote-mcp.service.d
+            state: directory
+            owner: arthe
+            group: arthe
+            mode: "0755"
+        - name: Install user service environment drop-in
+          ansible.builtin.copy:
+            dest: "{{ unit_dropin }}"
+            owner: arthe
+            group: arthe
+            mode: "0644"
+            content: |
+              [Service]
+              Environment="GWAY_MCP_SOURCE_POLICY={{ policy_dest }}"
+              Environment="GWAY_MCP_SOURCE_POLICY_SHA256={{ mcp_policy_sha256 }}"
+          register: unit_change
+        - name: Reload existing user systemd manager
+          ansible.builtin.command:
+            argv: [systemctl, --user, daemon-reload]
+          become_user: arthe
+          environment:
+            XDG_RUNTIME_DIR: /run/user/1000
+          when: unit_change.changed
+        - name: Restart user MCP backend on change
+          ansible.builtin.command:
+            argv: [systemctl, --user, restart, gway-remote-mcp.service]
+          become_user: arthe
+          environment:
+            XDG_RUNTIME_DIR: /run/user/1000
+          when: unit_change.changed or policy_change.changed
+        - name: Verify user MCP backend is active
+          ansible.builtin.command:
+            argv: [systemctl, --user, is-active, --quiet, gway-remote-mcp.service]
+          become_user: arthe
+          environment:
+            XDG_RUNTIME_DIR: /run/user/1000
+          changed_when: false
+
+      rescue:
+        - name: Restore previous policy and drop-in
+          ansible.builtin.copy:
+            content: "{{ previous_contents.results[ansible_loop.index0].content | b64decode }}"
+            dest: "{{ item }}"
+            owner: "{{ 'root' if ansible_loop.index0 == 0 else 'arthe' }}"
+            group: "{{ 'root' if ansible_loop.index0 == 0 else 'arthe' }}"
+            mode: "0644"
+          loop:
+            - "{{ policy_dest }}"
+            - "{{ unit_dropin }}"
+          loop_control:
+            extended: true
+          when: prior_files.results[ansible_loop.index0].stat.exists | default(false)
+          no_log: true
+        - name: Remove newly introduced files
+          ansible.builtin.file:
+            path: "{{ item }}"
+            state: absent
+          loop:
+            - "{{ policy_dest }}"
+            - "{{ unit_dropin }}"
+          loop_control:
+            extended: true
+          when: not (prior_files.results[ansible_loop.index0].stat.exists | default(false))
+        - name: Reload restored user unit
+          ansible.builtin.command:
+            argv: [systemctl, --user, daemon-reload]
+          become_user: arthe
+          environment:
+            XDG_RUNTIME_DIR: /run/user/1000
+        - name: Restart restored backend
+          ansible.builtin.command:
+            argv: [systemctl, --user, restart, gway-remote-mcp.service]
+          become_user: arthe
+          environment:
+            XDG_RUNTIME_DIR: /run/user/1000
+        - name: Abort before Watchtower activation
+          ansible.builtin.fail:
+            msg: Backend policy failed; rollback attempted. Watchtower must not be activated.

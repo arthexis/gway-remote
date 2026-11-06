@@ -148,7 +148,7 @@ def payload_is_exec(raw):
             and type(payload.get("params")) is dict
             and payload["params"].get("name") in (EXEC_TOOL_NAMES | {"agent_submit"}))
 
-def inspect_rpc(raw):
+def inspect_rpc(raw, approved_sources=()):
     try:
         data = json.loads(raw)
     except (ValueError, UnicodeError):
@@ -160,7 +160,7 @@ def inspect_rpc(raw):
         return False
     if method == "tools/call":
         params = data.get("params")
-        return type(params) is dict and params.get("name") in ALLOWED_TOOLS
+        return type(params) is dict and params.get("name") in (ALLOWED_TOOLS | frozenset(approved_sources))
     return True
 
 class Handler(BaseHTTPRequestHandler):
@@ -244,7 +244,7 @@ class Handler(BaseHTTPRequestHandler):
         if not 0 < length <= MAX_BODY:
             return self.reject(413)
         raw = self.rfile.read(length)
-        if not inspect_rpc(raw):
+        if not inspect_rpc(raw, self.server.approved_sources):
             return self.reject(403)
         # Only a valid read credential reaches here. Missing execute scope
         # triggers the MCP tool-level OAuth UI without dispatching anything.
@@ -405,6 +405,13 @@ class Handler(BaseHTTPRequestHandler):
                         any(type(tool) is not dict or tool.get("name") in
                             ({"node_list", "node_capabilities", "node_exec_preview", "node_deploy_preview"} | EXEC_TOOL_NAMES) for tool in tools)):
                     raise ValueError("upstream tool collision")
+                # Operator policy is authoritative: upstream advertisement alone never grants access.
+                declared = {tool["name"]: tool for tool in tools if type(tool.get("name")) is str}
+                if any(name not in declared or declared[name] != approved
+                       for name, approved in self.server.approved_sources.items()):
+                    raise ValueError("approved source mismatch")
+                tools = [tool for tool in tools if tool.get("name") in ALLOWED_TOOLS
+                         or tool.get("name") in self.server.approved_sources]
                 scoped_tools = [scoped_tool(tool, EXEC_SECURITY if tool.get("name") == "agent_submit" else READ_SECURITY) for tool in tools]
                 node_tools = [scoped_tool(tool, READ_SECURITY) for tool in NODE_TOOLS]
                 exec_tools = [scoped_tool(tool, EXEC_SECURITY) for tool in EXEC_TOOLS]
@@ -435,7 +442,7 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
-def make_server(address, registry, upstream, backend_token, *, execution=None, bridge_sessions=None, bridge_transport=None):
+def make_server(address, registry, upstream, backend_token, *, execution=None, bridge_sessions=None, bridge_transport=None, approved_sources=None):
     from urllib.parse import urlsplit
     parsed = urlsplit(upstream)
     if parsed.scheme != "http" or parsed.hostname != "127.0.0.1" or not parsed.port or parsed.path != "/mcp" or parsed.query or parsed.fragment or parsed.username or parsed.password:
@@ -445,6 +452,16 @@ def make_server(address, registry, upstream, backend_token, *, execution=None, b
     if not backend_token:
         raise ValueError("backend_secret_required")
     server = ThreadingHTTPServer(address, Handler)
+    # Policy is supplied by trusted provisioning, never learned from the upstream response.
+    approved_sources = {} if approved_sources is None else dict(approved_sources)
+    for name, tool in approved_sources.items():
+        if (type(name) is not str or "__" not in name or name in ALLOWED_TOOLS
+                or type(tool) is not dict or tool.get("name") != name
+                or type(tool.get("annotations")) is not dict
+                or tool["annotations"].get("readOnlyHint") is not True
+                or tool["annotations"].get("destructiveHint") is True):
+            raise ValueError("invalid approved source policy")
+    server.approved_sources = approved_sources
     server.registry = registry
     server.execution = execution
     if bridge_transport is not None and bridge_sessions is None:
@@ -468,6 +485,18 @@ def main():
     if os.environ.get("GWAY_MCP_EXEC_ENABLED") == "1":
         from .watchtower_exec_service import load_service
         execution = load_service()
+    policy_path = os.environ.get("GWAY_MCP_SOURCE_POLICY")
+    policy_sha = os.environ.get("GWAY_MCP_SOURCE_POLICY_SHA256")
+    if bool(policy_path) != bool(policy_sha):
+        raise ValueError("incomplete source policy configuration")
+    approved_sources = None
+    if policy_path:
+        from .mcp_source_policy import load_source_policy
+        from .mcp_source_registry import compose_source_catalog
+        registrations, approved = load_source_policy(
+            policy_path, expected_sha256=policy_sha)
+        catalog = compose_source_catalog([], registrations, approved)
+        approved_sources = {tool["name"]: tool for tool in catalog}
     verifier = BearerVerifier(args.database)
     from .mcp_bridge_bootstrap import start_bridge
     import signal
@@ -491,7 +520,7 @@ def main():
             _, _, sessions, transport = started
             options = {"bridge_sessions": sessions, "bridge_transport": transport}
         with make_server(("127.0.0.1", args.port), verifier, args.upstream,
-                         token, execution=execution, **options) as service:
+                         token, execution=execution, approved_sources=approved_sources, **options) as service:
             service.serve_forever()
     finally:
         if started is not None:
