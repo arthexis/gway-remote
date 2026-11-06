@@ -71,6 +71,19 @@ class SessionDispatchTests(unittest.TestCase):
         with self.assertRaises(PermissionError):
             self.dispatch(self.request)
 
+    def test_cross_node_execution_arguments_denied(self):
+        self.request["arguments"]["node"] = "gway-002"
+        with self.assertRaises(PermissionError):
+            self.dispatch(self.request)
+        self.assertFalse(self.execution.calls)
+
+    def test_cross_node_capabilities_denied(self):
+        self.request.update(principal="reader", scope="gway:read",
+                            operation="inventory.capabilities",
+                            arguments={"node": "gway-002"})
+        with self.assertRaises(PermissionError):
+            self.dispatch(self.request)
+
     def test_result_and_cancel_keep_principal(self):
         self.request.update(operation="execution.result", arguments={"request_id": "b" * 32})
         self.dispatch(self.request)
