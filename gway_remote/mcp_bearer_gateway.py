@@ -459,9 +459,25 @@ def main():
     if os.environ.get("GWAY_MCP_EXEC_ENABLED") == "1":
         from .watchtower_exec_service import load_service
         execution = load_service()
-    with make_server(("127.0.0.1", args.port), BearerVerifier(args.database), args.upstream,
-                     token, execution=execution) as service:
-        service.serve_forever()
+    verifier = BearerVerifier(args.database)
+    from .mcp_bridge_bootstrap import start_bridge
+    started = start_bridge(verifier, execution=execution)
+    try:
+        options = {}
+        if started is not None:
+            _, _, sessions, transport = started
+            options = {"bridge_sessions": sessions, "bridge_transport": transport}
+        with make_server(("127.0.0.1", args.port), verifier, args.upstream,
+                         token, execution=execution, **options) as service:
+            service.serve_forever()
+    finally:
+        if started is not None:
+            bridge, thread, _, transport = started
+            bridge.shutdown()
+            bridge.server_close()
+            thread.join(timeout=5)
+            from pathlib import Path
+            Path(transport[0]).unlink(missing_ok=True)
 
 if __name__ == "__main__":
     main()
