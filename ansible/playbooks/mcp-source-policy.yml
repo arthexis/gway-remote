@@ -76,6 +76,23 @@
           - not (previous_policy.stat.exists | default(false)) or (previous_policy.stat.isreg | default(false))
 
   tasks:
+    - name: Inspect existing service policy drop-in
+      ansible.builtin.stat:
+        path: "/etc/systemd/system/{{ mcp_policy_service }}.d/60-mcp-sources.conf"
+        follow: false
+      register: previous_dropin
+    - name: Refuse symlinked drop-in
+      ansible.builtin.assert:
+        that:
+          - not (previous_dropin.stat.islnk | default(false))
+
+    - name: Capture existing drop-in for rollback
+      ansible.builtin.slurp:
+        src: "/etc/systemd/system/{{ mcp_policy_service }}.d/60-mcp-sources.conf"
+      when: previous_dropin.stat.exists | default(false)
+      register: original_dropin
+      no_log: true
+
     - name: Capture original policy for rollback
       ansible.builtin.slurp:
         src: "{{ mcp_policy_dest }}"
@@ -158,10 +175,20 @@
             path: "{{ mcp_policy_dest }}"
             state: absent
           when: not (previous_policy.stat.exists | default(false))
-        - name: Remove new service policy drop-in to prevent stale authorization
+        - name: Restore original service policy drop-in
+          ansible.builtin.copy:
+            content: "{{ original_dropin.content | b64decode }}"
+            dest: "/etc/systemd/system/{{ mcp_policy_service }}.d/60-mcp-sources.conf"
+            owner: root
+            group: root
+            mode: '0644'
+          when: previous_dropin.stat.exists | default(false)
+          no_log: true
+        - name: Remove newly created service policy drop-in
           ansible.builtin.file:
             path: "/etc/systemd/system/{{ mcp_policy_service }}.d/60-mcp-sources.conf"
             state: absent
+          when: not (previous_dropin.stat.exists | default(false))
         - name: Reload systemd after rollback
           ansible.builtin.systemd:
             daemon_reload: true
