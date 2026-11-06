@@ -31,6 +31,10 @@ class SessionBridgeDispatch:
         scope = envelope["scope"]
         operation = envelope["operation"]
         args = envelope["arguments"]
+        # A session pinned to one node cannot dispatch to another node through
+        # operation arguments, even when the envelope audience is valid.
+        if "node" in args and args["node"] != audience:
+            raise PermissionError("operation node differs from session audience")
         if not self.verifier.verify(token, required_scope=scope):
             raise PermissionError("expired or revoked session")
         if self.allowed_node(token, audience) is not True:
