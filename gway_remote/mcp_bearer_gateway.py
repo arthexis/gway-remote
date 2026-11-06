@@ -443,7 +443,7 @@ class Handler(BaseHTTPRequestHandler):
                 # Source admission is authoritative on the trusted backend.
                 # Watchtower does not maintain a second per-tool allowlist.
                 names = [tool.get("name") for tool in tools]
-                if len(names) != len(set(names)) or any(type(name) is not str for name in names):
+                if any(type(name) is not str for name in names) or len(names) != len(set(names)):
                     raise ValueError("invalid upstream tool names")
                 tools = [tool for tool in tools if tool["name"] in ALLOWED_TOOLS
                          or trusted_source_tool(tool)]
