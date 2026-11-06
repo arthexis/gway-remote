@@ -26,7 +26,6 @@
         that:
           - source_policy.stat.isreg | default(false)
           - not (source_policy.stat.islnk | default(true))
-          - not (source_policy.stat.islnk | default(true))
           - source_policy.stat.checksum == mcp_policy_sha256
     - name: Inspect existing backend policy and drop-in
       ansible.builtin.stat:
