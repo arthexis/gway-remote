@@ -6,12 +6,15 @@ exposing this Unix socket over an unauthenticated TCP listener.
 """
 from __future__ import annotations
 
+import errno
+import fcntl
 import hashlib
 import hmac
 import json
 import os
 import socket
 import socketserver
+import stat
 import threading
 import time
 from pathlib import Path
@@ -95,16 +98,83 @@ class _Handler(socketserver.StreamRequestHandler):
 
 
 class BridgeUnixServer(socketserver.ThreadingMixIn, socketserver.UnixStreamServer):
+    """One owner per private socket directory; recover only proven stale sockets."""
+
     daemon_threads = True
     allow_reuse_address = False
 
     def __init__(self, path, bridge):
         path = Path(path)
-        if path.exists() or path.is_symlink():
-            raise FileExistsError("bridge socket path already exists")
-        super().__init__(str(path), _Handler)
-        self.bridge = bridge
-        os.chmod(path, 0o600)
+        parent = path.parent
+        parent_info = parent.lstat()
+        if not stat.S_ISDIR(parent_info.st_mode) or parent_info.st_uid != os.geteuid():
+            raise PermissionError("bridge directory must belong to service user")
+        if parent_info.st_mode & 0o077:
+            raise PermissionError("bridge directory must be private")
+        self._path = path
+        self._socket_identity = None
+        self._lock_fd = None
+        lock_path = parent / ".bridge.lock"
+        flags = os.O_CREAT | os.O_RDWR | getattr(os, "O_NOFOLLOW", 0)
+        lock_fd = os.open(lock_path, flags, 0o600)
+        try:
+            lock_info = os.fstat(lock_fd)
+            if (not stat.S_ISREG(lock_info.st_mode) or
+                    lock_info.st_uid != os.geteuid() or
+                    lock_info.st_mode & 0o077):
+                raise PermissionError("unsafe bridge lock")
+            try:
+                fcntl.flock(lock_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            except BlockingIOError as exc:
+                raise FileExistsError("another bridge owns the directory") from exc
+            try:
+                info = path.lstat()
+            except FileNotFoundError:
+                info = None
+            if info is not None:
+                if not stat.S_ISSOCK(info.st_mode) or info.st_uid != os.geteuid():
+                    raise PermissionError("unsafe existing bridge path")
+                with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as probe:
+                    probe.settimeout(1)
+                    try:
+                        probe.connect(str(path))
+                    except OSError as exc:
+                        if exc.errno != errno.ECONNREFUSED:
+                            raise
+                    else:
+                        raise FileExistsError("bridge socket already active")
+                # The exclusive lock prevents a second managed bridge from
+                # racing us. Verify inode before removing the stale socket.
+                current = path.lstat()
+                if (current.st_dev, current.st_ino) != (info.st_dev, info.st_ino):
+                    raise FileExistsError("bridge path changed during recovery")
+                path.unlink()
+            super().__init__(str(path), _Handler)
+            self.bridge = bridge
+            os.chmod(path, 0o600)
+            created = path.lstat()
+            self._socket_identity = (created.st_dev, created.st_ino)
+            self._lock_fd = lock_fd
+        except BaseException:
+            os.close(lock_fd)
+            raise
+
+    def server_close(self):
+        try:
+            super().server_close()
+            if self._socket_identity is not None:
+                try:
+                    current = self._path.lstat()
+                except FileNotFoundError:
+                    pass
+                else:
+                    if (current.st_dev, current.st_ino) == self._socket_identity:
+                        self._path.unlink()
+                self._socket_identity = None
+        finally:
+            if self._lock_fd is not None:
+                os.close(self._lock_fd)
+                self._lock_fd = None
 
 
 def call_unix(path, key, envelope, *, timeout=5, session_id=None):
