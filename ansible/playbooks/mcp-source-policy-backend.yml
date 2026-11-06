@@ -27,6 +27,33 @@
           - source_policy.stat.isreg | default(false)
           - not (source_policy.stat.islnk | default(true))
           - source_policy.stat.checksum == mcp_policy_sha256
+    - name: Require existing protected root-owned policy directory
+      ansible.builtin.stat:
+        path: /etc/gway-mcp-gateway
+        follow: false
+      register: backend_policy_directory
+    - name: Reject unsafe backend policy directory
+      ansible.builtin.assert:
+        that:
+          - backend_policy_directory.stat.isdir | default(false)
+          - not (backend_policy_directory.stat.islnk | default(true))
+          - backend_policy_directory.stat.pw_name == 'root'
+          - (backend_policy_directory.stat.mode | int(base=8)) % 8 == 5
+    - name: Resolve backend service identity
+      ansible.builtin.command:
+        argv: [id, -u, arthe]
+      register: backend_uid
+      changed_when: false
+    - name: Require installed user MCP service
+      ansible.builtin.stat:
+        path: /home/arthe/.config/systemd/user/gway-remote-mcp.service
+        follow: false
+      register: backend_service_unit
+    - name: Reject missing or symlinked backend service
+      ansible.builtin.assert:
+        that:
+          - backend_service_unit.stat.isreg | default(false)
+          - not (backend_service_unit.stat.islnk | default(true))
     - name: Inspect existing backend policy and drop-in
       ansible.builtin.stat:
         path: "{{ item }}"
@@ -97,21 +124,21 @@
             argv: [systemctl, --user, daemon-reload]
           become_user: arthe
           environment:
-            XDG_RUNTIME_DIR: /run/user/1000
+            XDG_RUNTIME_DIR: "/run/user/{{ backend_uid.stdout }}"
           when: unit_change.changed
         - name: Restart user MCP backend on change
           ansible.builtin.command:
             argv: [systemctl, --user, restart, gway-remote-mcp.service]
           become_user: arthe
           environment:
-            XDG_RUNTIME_DIR: /run/user/1000
+            XDG_RUNTIME_DIR: "/run/user/{{ backend_uid.stdout }}"
           when: unit_change.changed or policy_change.changed
         - name: Verify user MCP backend is active
           ansible.builtin.command:
             argv: [systemctl, --user, is-active, --quiet, gway-remote-mcp.service]
           become_user: arthe
           environment:
-            XDG_RUNTIME_DIR: /run/user/1000
+            XDG_RUNTIME_DIR: "/run/user/{{ backend_uid.stdout }}"
           changed_when: false
 
       rescue:
@@ -144,13 +171,13 @@
             argv: [systemctl, --user, daemon-reload]
           become_user: arthe
           environment:
-            XDG_RUNTIME_DIR: /run/user/1000
+            XDG_RUNTIME_DIR: "/run/user/{{ backend_uid.stdout }}"
         - name: Restart restored backend
           ansible.builtin.command:
             argv: [systemctl, --user, restart, gway-remote-mcp.service]
           become_user: arthe
           environment:
-            XDG_RUNTIME_DIR: /run/user/1000
+            XDG_RUNTIME_DIR: "/run/user/{{ backend_uid.stdout }}"
         - name: Abort before Watchtower activation
           ansible.builtin.fail:
             msg: Backend policy failed; rollback attempted. Watchtower must not be activated.

@@ -1,0 +1,42 @@
+---
+# Operator-only staged rollout. Inventory must explicitly place Watchtower in
+# mcp_policy_endpoints and gway-001 in mcp_policy_backend.
+# Usage:
+# ansible-playbook -i <trusted-inventory> ansible/playbooks/mcp-source-policy-rollout.yml \
+#   -e mcp_policy_approved=true \
+#   -e mcp_policy_source=/absolute/reviewed/sources.json \
+#   -e mcp_policy_sha256=<reviewed-64-hex-digest>
+# The backend is converged first. An error prevents gateway activation.
+- name: Preflight cross-host source policy rollout
+  hosts: localhost
+  gather_facts: false
+  tasks:
+    - name: Require explicit approval, reviewed policy and both endpoint groups
+      ansible.builtin.assert:
+        that:
+          - mcp_policy_approved | default(false) | bool
+          - mcp_policy_source is defined
+          - mcp_policy_source is match('^/')
+          - mcp_policy_sha256 is defined
+          - mcp_policy_sha256 is match('^[0-9a-f]{64}$')
+          - groups.get('mcp_policy_backend', []) | length == 1
+          - groups.get('mcp_policy_endpoints', []) | length == 1
+          - groups['mcp_policy_backend'][0] == 'gway-001'
+          - groups['mcp_policy_backend'][0] != groups['mcp_policy_endpoints'][0]
+        fail_msg: Explicit reviewed policy and exactly one distinct backend and gateway are required.
+    - name: Verify reviewed policy checksum on controller
+      ansible.builtin.stat:
+        path: "{{ mcp_policy_source }}"
+        checksum_algorithm: sha256
+        follow: false
+      register: rollout_source
+    - name: Reject missing, symlinked or modified source policy
+      ansible.builtin.assert:
+        that:
+          - rollout_source.stat.isreg | default(false)
+          - not (rollout_source.stat.islnk | default(true))
+          - rollout_source.stat.checksum == mcp_policy_sha256
+
+- import_playbook: mcp-source-policy-backend.yml
+
+- import_playbook: mcp-source-policy.yml
