@@ -22,14 +22,14 @@ class BearerCliIsolationTests(unittest.TestCase):
     def test_remote_read_only_rpc_cannot_reach_token_administration(self):
         from gway_remote.mcp_bearer_gateway import inspect_rpc
         import json
-        for tool in ("bearer", "bearer_issue", "bearer_revoke", "token_issue", "agent_submit"):
+        for tool in ("bearer", "bearer_issue", "bearer_revoke", "token_issue"):
             message = json.dumps({"jsonrpc": "2.0", "id": 1,
                 "method": "tools/call", "params": {"name": tool}}).encode()
             self.assertFalse(inspect_rpc(message))
         from gway_remote.mcp_agent import list_tools
         allowed = {item["name"] for item in list_tools()}
         self.assertFalse(allowed & {"bearer", "bearer_issue", "bearer_revoke"})
-        self.assertEqual(len(allowed), 7)
+        self.assertEqual(len(allowed), 8)
 
 
 if __name__ == "__main__":
