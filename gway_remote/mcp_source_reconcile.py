@@ -45,3 +45,39 @@ def policy_payload(entries):
     if len(payload) > 65536:
         raise ValueError("policy too large")
     return payload, hashlib.sha256(payload).hexdigest()
+
+
+def reconcile_sources(registrations, *, discover=list_source_tools):
+    """Discover every registered source independently, never widening permissions.
+
+    A failed source is withheld from the candidate catalog and reported.
+    The returned payload is only a staging candidate: operator approval,
+    digest pinning and gateway activation are separate required steps.
+    """
+    if type(registrations) not in (tuple, list) or len(registrations) > 16:
+        raise ValueError("invalid registrations")
+    ids = set()
+    entries, failures, execution_required = [], {}, {}
+    for registration in registrations:
+        if not isinstance(registration, SourceRegistration):
+            raise ValueError("invalid registration")
+        if registration.source_id in ids:
+            raise ValueError("duplicate source")
+        ids.add(registration.source_id)
+        if not registration.enabled:
+            continue
+        try:
+            entry, pending = build_readonly_source_entry(
+                registration, discover=discover)
+        except (OSError, ValueError, RuntimeError, TimeoutError) as exc:
+            failures[registration.source_id] = type(exc).__name__
+            continue
+        entries.append(entry)
+        execution_required[registration.source_id] = pending
+    payload, digest = policy_payload(entries)
+    return {
+        "policy": payload,
+        "sha256": digest,
+        "failures": failures,
+        "execute_required": execution_required,
+    }
