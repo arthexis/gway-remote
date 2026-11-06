@@ -228,7 +228,7 @@ class Handler(BaseHTTPRequestHandler):
         # but only an execute-scoped operator may invoke it.
         if (payload["method"] == "tools/call" and
                 payload.get("params", {}).get("name") == "agent_submit" and not has_exec):
-            return self.reject(403, scope="gway:execute")
+            return self.reject(401, scope="gway:execute")
         if payload["method"] == "tools/call" and payload.get("params", {}).get("name") in EXEC_TOOL_NAMES:
             params = payload.get("params", {})
             args = params.get("arguments", {})
