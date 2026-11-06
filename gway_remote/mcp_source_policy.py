@@ -57,3 +57,34 @@ def load_source_policy(path, *, expected_sha256, builtins=()):
 
 def policy_digest(path):
     return hashlib.sha256(Path(path).read_bytes()).hexdigest()
+
+
+def propose_readonly_catalog(registration, discovered, approved_names):
+    """Prepare an operator-reviewable catalog; never install or authorize it.
+
+    Names must be independently approved. Discovery annotations alone cannot
+    add privileges or silently expand the current policy.
+    """
+    if not isinstance(registration, SourceRegistration) or not registration.enabled or registration.permission != "read":
+        raise ValueError("read-only registered source required")
+    if type(discovered) is not list or len(discovered) > 64:
+        raise ValueError("invalid discovered catalog")
+    if type(approved_names) not in (tuple, list) or not approved_names or len(set(approved_names)) != len(approved_names):
+        raise ValueError("explicit unique approved names required")
+    names = set(approved_names)
+    if any(type(name) is not str for name in approved_names):
+        raise ValueError("invalid approved name")
+    selected = []
+    for tool in discovered:
+        if type(tool) is not dict or type(tool.get("name")) is not str:
+            raise ValueError("invalid discovered tool")
+        if tool["name"] not in names:
+            continue
+        annotations = tool.get("annotations")
+        if type(annotations) is not dict or annotations.get("readOnlyHint") is not True or annotations.get("destructiveHint") is True:
+            raise ValueError("approved name is not a read-only tool")
+        selected.append(tool)
+    if len(selected) != len(names):
+        raise ValueError("approved tool missing or duplicated")
+    compose_source_catalog((), (registration,), {registration.source_id: selected})
+    return sorted(selected, key=lambda tool: tool["name"])
