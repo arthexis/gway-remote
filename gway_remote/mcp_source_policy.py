@@ -59,25 +59,37 @@ def policy_digest(path):
     return hashlib.sha256(Path(path).read_bytes()).hexdigest()
 
 
-def propose_readonly_catalog(registration, discovered):
-    """Discover every read-only tool of a trusted, pinned source.
+def classify_source_catalog(registration, discovered):
+    """Classify all tools; never grant execution based on source metadata.
 
-    The operator approves the source and its read permission ceiling, not
-    individual names. This proposal is not authority to execute: runtime
-    dispatch must revalidate the source, version, and read-only contract.
+    Untrusted/missing annotations default to execute-required. The read-only
+    catalog remains bounded by the independently approved source permission.
     """
-    if not isinstance(registration, SourceRegistration) or not registration.enabled or registration.permission != "read":
-        raise ValueError("read-only registered source required")
+    if not isinstance(registration, SourceRegistration) or not registration.enabled:
+        raise ValueError("registered enabled source required")
     if type(discovered) is not list or len(discovered) > 64:
         raise ValueError("invalid discovered catalog")
-    selected = []
+    names = set()
+    readonly, execute = [], []
     for tool in discovered:
         if type(tool) is not dict or type(tool.get("name")) is not str:
             raise ValueError("invalid discovered tool")
+        name = tool["name"]
+        if name in names:
+            raise ValueError("duplicate discovered tool")
+        names.add(name)
         annotations = tool.get("annotations")
-        if type(annotations) is not dict:
-            raise ValueError("missing tool annotations")
-        if annotations.get("readOnlyHint") is True and annotations.get("destructiveHint") is not True:
-            selected.append(tool)
-    compose_source_catalog((), (registration,), {registration.source_id: selected})
-    return sorted(selected, key=lambda tool: tool["name"])
+        if type(annotations) is dict and annotations.get("readOnlyHint") is True and annotations.get("destructiveHint") is not True:
+            readonly.append(tool)
+        else:
+            execute.append(tool)
+    compose_source_catalog((), (registration,), {registration.source_id: readonly})
+    return {
+        "read": sorted(readonly, key=lambda tool: tool["name"]),
+        "execute_required": sorted(execute, key=lambda tool: tool["name"]),
+    }
+
+
+def propose_readonly_catalog(registration, discovered):
+    """Select all read tools; execute-required tools are classified but withheld."""
+    return classify_source_catalog(registration, discovered)["read"]
