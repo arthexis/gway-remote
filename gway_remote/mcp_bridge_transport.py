@@ -33,12 +33,13 @@ def sign(key, envelope):
 
 
 class AuthenticatedBridge:
-    def __init__(self, key, *, audience, dispatch):
+    def __init__(self, key, *, audience, dispatch, sessions=None):
         if not isinstance(key, bytes) or len(key) < 32:
             raise ValueError("weak bridge key")
         self.key = key
         self.audience = audience
         self.dispatch = dispatch
+        self.sessions = sessions
         self.seen = {}
         self.lock = threading.Lock()
 
@@ -49,12 +50,13 @@ class AuthenticatedBridge:
             request = json.loads(raw)
         except (ValueError, UnicodeError) as exc:
             raise InvalidBridgeRequest("invalid JSON") from exc
-        if type(request) is not dict or set(request) != {"envelope", "signature"}:
+        if type(request) is not dict or set(request) != ({"envelope", "signature", "session_id"} if self.sessions is not None else {"envelope", "signature"}):
             raise InvalidBridgeRequest("invalid signed request")
         envelope, signature = request["envelope"], request["signature"]
         if type(signature) is not str or len(signature) != 64:
             raise InvalidBridgeRequest("invalid signature")
-        if not hmac.compare_digest(sign(self.key, envelope), signature):
+        signed = {"envelope": envelope, "session_id": request["session_id"]} if self.sessions is not None else envelope
+        if not hmac.compare_digest(sign(self.key, signed), signature):
             raise InvalidBridgeRequest("invalid signature")
         validated = validate_envelope(envelope, audience=self.audience, now=now)
         current = int(time.time()) if now is None else now
@@ -66,6 +68,11 @@ class AuthenticatedBridge:
             if len(self.seen) >= 4096:
                 raise InvalidBridgeRequest("replay cache full")
             self.seen[nonce] = validated["expires_at"]
+        if self.sessions is not None:
+            session_id = request["session_id"]
+            if type(session_id) is not str or len(session_id) != 48:
+                raise InvalidBridgeRequest("invalid session ID")
+            return self.sessions.dispatch(session_id, validated)
         return self.dispatch(validated)
 
 
@@ -100,8 +107,12 @@ class BridgeUnixServer(socketserver.ThreadingMixIn, socketserver.UnixStreamServe
         os.chmod(path, 0o600)
 
 
-def call_unix(path, key, envelope, *, timeout=5):
-    payload = canonical({"envelope": envelope, "signature": sign(key, envelope)})
+def call_unix(path, key, envelope, *, timeout=5, session_id=None):
+    if session_id is None:
+        payload = canonical({"envelope": envelope, "signature": sign(key, envelope)})
+    else:
+        signed = {"envelope": envelope, "session_id": session_id}
+        payload = canonical({**signed, "signature": sign(key, signed)})
     if len(payload) > MAX_WIRE:
         raise ValueError("request too large")
     with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as sock:
