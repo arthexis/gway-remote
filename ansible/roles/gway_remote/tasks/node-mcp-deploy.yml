@@ -90,42 +90,26 @@
       # One exact action, never an arbitrary shell, unit or systemctl flag.
       gway-exec ALL=(root) NOPASSWD: /usr/bin/systemctl start --no-block gway-remote-deploy.service
 
-- name: Install root-owned Odoo deployment entrypoint
-  ansible.builtin.copy:
-    src: "{{ playbook_dir }}/../scripts/gway-odoo-deploy"
-    dest: /usr/local/libexec/gway-odoo-deploy
-    owner: root
-    group: root
-    mode: "0755"
+- name: Stop and disable retired Odoo deployment unit
+  ansible.builtin.systemd:
+    name: gway-odoo-deploy.service
+    state: stopped
+    enabled: false
+  when: ansible_hostname == 'gway-001'
+  failed_when: false
 
-- name: Install fixed local-only Odoo Ansible recipe
-  ansible.builtin.copy:
-    dest: /usr/local/libexec/gway-odoo-deploy.yml
-    owner: root
-    group: root
-    mode: "0644"
-    content: "{{ lookup('file', playbook_dir ~ '/playbooks/node-odoo-deploy.yml') | replace('__RUNNER__', gway_remote_runner_user) | replace('__GWAY_CHECKOUT__', gway_remote_deploy_checkout) }}"
-
-- name: Install dedicated Odoo deployment unit
-  ansible.builtin.copy:
-    dest: /etc/systemd/system/gway-odoo-deploy.service
-    owner: root
-    group: root
-    mode: "0644"
-    content: "{{ lookup('file', playbook_dir ~ '/../deploy/systemd/gway-odoo-deploy.service') | replace('__RUNNER__', gway_remote_runner_user) | replace('__HOME__', getent_passwd[gway_remote_runner_user][4]) | replace('__CHECKOUT__', gway_remote_deploy_checkout) }}"
-  register: gway_mcp_odoo_unit
-
-- name: Allow executor to start only the fixed Odoo unit
-  ansible.builtin.copy:
-    dest: /etc/sudoers.d/gway-remote-mcp-odoo-deploy
-    owner: root
-    group: root
-    mode: "0440"
-    validate: /usr/sbin/visudo -cf %s
-    content: |
-      gway-exec ALL=(root) NOPASSWD: /usr/bin/systemctl start --no-block gway-odoo-deploy.service
+- name: Remove retired Odoo deployment broker artifacts
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: absent
+  loop:
+    - /usr/local/libexec/gway-odoo-deploy
+    - /usr/local/libexec/gway-odoo-deploy.yml
+    - /etc/systemd/system/gway-odoo-deploy.service
+    - /etc/sudoers.d/gway-remote-mcp-odoo-deploy
+  register: gway_mcp_odoo_cleanup
 
 - name: Reload systemd after changing deployment unit
   ansible.builtin.systemd:
     daemon_reload: true
-  when: gway_mcp_deploy_unit.changed or gway_mcp_odoo_unit.changed
+  when: gway_mcp_deploy_unit.changed or gway_mcp_odoo_cleanup.changed
