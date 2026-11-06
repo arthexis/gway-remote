@@ -8,6 +8,7 @@ from .mcp_bridge_transport import call_unix
 
 OPERATIONS = {
     "node_list": ("inventory.list", "gway:read"),
+    "workspace_inspect": ("workspace.inspect", "gway:read"),
     "node_capabilities": ("inventory.capabilities", "gway:read"),
     "node_exec_preview": ("execution.preview", "gway:read"),
     "node_deploy_preview": ("deployment.preview", "gway:read"),
