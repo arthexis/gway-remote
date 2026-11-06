@@ -1,5 +1,5 @@
 ---
-# Opt-in systemd wiring. The bridge key remains root-only.
+# Opt-in systemd wiring. The bridge key is restricted to the unprivileged gateway identity.
 - name: Inspect installed MCP gateway unit
   ansible.builtin.stat:
     path: /etc/systemd/system/gway-mcp-gateway.service
@@ -52,9 +52,9 @@
   register: bridge_gateway_user
   when: gway_mcp_bridge_enable | default(false) | bool
 
-- name: Require root service identity for private key access
+- name: Require dedicated unprivileged gateway identity
   ansible.builtin.assert:
     that:
-      - bridge_gateway_user.stdout | trim in ['', 'root']
-    fail_msg: Bridge activation requires root-owned gateway or a dedicated key access policy
+      - bridge_gateway_user.stdout | trim == 'gway-mcp-gateway'
+    fail_msg: Bridge activation requires the dedicated gateway service user
   when: gway_mcp_bridge_enable | default(false) | bool
