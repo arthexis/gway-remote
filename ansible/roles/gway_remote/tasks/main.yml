@@ -1,20 +1,5 @@
 ---
-# Private MCP bridge staging: no socket listener or credential is enabled here.
-- name: Prepare private Watchtower bridge runtime directory when opted in
-  ansible.builtin.file:
-    path: /run/gway-mcp-bridge
-    state: directory
-    owner: root
-    group: root
-    mode: "0700"
-  when:
-    - (ansible_hostname | default('')) == 'watchtower'
-    - gway_mcp_bridge_prepare | default(false) | bool
-
-- name: Configure Watchtower private MCP bridge
-  ansible.builtin.include_tasks: watchtower-mcp-bridge.yml
-  when: (ansible_hostname | default('')) == 'watchtower'
-
+# Watchtower MCP bridge provisioning is included by its dedicated Watchtower playbook.
 - name: Converge dormant executor prerequisites on managed nodes only
   ansible.builtin.include_tasks: node-exec-prepare.yml
   when: (ansible_hostname | default('')) is match('^gway-[0-9]+$')
