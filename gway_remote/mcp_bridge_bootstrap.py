@@ -41,5 +41,9 @@ def start_bridge(verifier, execution=None):
     service = serve_managed_sessions(
         socket_path, key=key, audience="gway-001", sessions=sessions)
     thread = threading.Thread(target=service.serve_forever, daemon=True)
-    thread.start()
+    try:
+        thread.start()
+    except BaseException:
+        service.server_close()
+        raise
     return service, thread, sessions, (str(socket_path), key, "gway-001")
