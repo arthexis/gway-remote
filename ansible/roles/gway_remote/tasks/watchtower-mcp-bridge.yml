@@ -59,6 +59,7 @@
       GWAY_MCP_BRIDGE_ENABLED={{ '1' if gway_mcp_bridge_enable | default(false) | bool else '0' }}
       GWAY_MCP_BRIDGE_KEY_FILE=/etc/gway-mcp/bridge/key
       GWAY_MCP_BRIDGE_SOCKET=/run/gway-mcp-bridge/bridge.sock
+  register: bridge_gateway_env
 
 - name: Prepare bridge socket directory
   ansible.builtin.file:
