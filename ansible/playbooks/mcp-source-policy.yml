@@ -2,6 +2,8 @@
 # Explicit operator-only cross-host policy convergence.
 # Run with -e mcp_policy_approved=true and an explicit trusted inventory.
 # Never invoked by the ordinary deploy workflow.
+# gway-001 uses a USER systemd service (gway-remote-mcp.service), not a
+# system service. Fail closed until a separate user-unit rollout is implemented.
 - name: Provision approved MCP policy on both endpoints
   hosts: mcp_policy_endpoints
   gather_facts: false
@@ -22,8 +24,8 @@
           - mcp_policy_sha256 is defined
           - mcp_policy_sha256 is match('^[0-9a-f]{64}$')
           - mcp_policy_service is defined
-          - mcp_policy_service in ['gway-mcp-agent.service', 'gway-mcp-gateway.service']
-          - (mcp_policy_role == 'backend') == (mcp_policy_service == 'gway-mcp-agent.service')
+          - mcp_policy_service == 'gway-mcp-gateway.service'
+          - mcp_policy_role == 'gateway'
         fail_msg: Explicit approved source, digest, service and endpoint role are required.
 
     - name: Check reviewed policy bytes on controller
