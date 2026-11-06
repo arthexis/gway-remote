@@ -57,3 +57,39 @@ def load_source_policy(path, *, expected_sha256, builtins=()):
 
 def policy_digest(path):
     return hashlib.sha256(Path(path).read_bytes()).hexdigest()
+
+
+def classify_source_catalog(registration, discovered):
+    """Classify all tools; never grant execution based on source metadata.
+
+    Untrusted/missing annotations default to execute-required. The read-only
+    catalog remains bounded by the independently approved source permission.
+    """
+    if not isinstance(registration, SourceRegistration) or not registration.enabled:
+        raise ValueError("registered enabled source required")
+    if type(discovered) is not list or len(discovered) > 64:
+        raise ValueError("invalid discovered catalog")
+    names = set()
+    readonly, execute = [], []
+    for tool in discovered:
+        if type(tool) is not dict or type(tool.get("name")) is not str:
+            raise ValueError("invalid discovered tool")
+        name = tool["name"]
+        if name in names:
+            raise ValueError("duplicate discovered tool")
+        names.add(name)
+        annotations = tool.get("annotations")
+        if type(annotations) is dict and annotations.get("readOnlyHint") is True and annotations.get("destructiveHint") is not True:
+            readonly.append(tool)
+        else:
+            execute.append(tool)
+    compose_source_catalog((), (registration,), {registration.source_id: readonly})
+    return {
+        "read": sorted(readonly, key=lambda tool: tool["name"]),
+        "execute_required": sorted(execute, key=lambda tool: tool["name"]),
+    }
+
+
+def propose_readonly_catalog(registration, discovered):
+    """Select all read tools; execute-required tools are classified but withheld."""
+    return classify_source_catalog(registration, discovered)["read"]
