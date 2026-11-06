@@ -1,7 +1,7 @@
 import json
 import unittest
 
-from gway_remote.mcp_source_reconcile import build_readonly_source_entry, policy_payload, reconcile_sources
+from gway_remote.mcp_source_reconcile import build_readonly_source_entry, policy_payload, reconcile_sources, stage_policy
 from gway_remote.mcp_source_registry import SourceRegistration
 
 
@@ -62,6 +62,20 @@ class SourceReconcileTests(unittest.TestCase):
         disabled = replace(self.registration, enabled=False)
         result = reconcile_sources([disabled], discover=lambda _: self.fail("unexpected discovery"))
         self.assertEqual([], json.loads(result["policy"])["sources"])
+
+    def test_staging_requires_root(self):
+        from unittest.mock import patch
+        with patch("gway_remote.mcp_source_reconcile.os.geteuid", return_value=1000):
+            with self.assertRaises(PermissionError):
+                stage_policy("/etc/gway-mcp-gateway/sources.json", b"{}", "0" * 64)
+
+    def test_staging_rejects_bad_digest_and_path(self):
+        from unittest.mock import patch
+        with patch("gway_remote.mcp_source_reconcile.os.geteuid", return_value=0):
+            with self.assertRaises(ValueError):
+                stage_policy("/tmp/sources.json", b"{}", "0" * 64)
+            with self.assertRaises(ValueError):
+                stage_policy("/etc/gway-mcp-gateway/sources.json", b"{}", "0" * 64)
 
 
 if __name__ == "__main__":
