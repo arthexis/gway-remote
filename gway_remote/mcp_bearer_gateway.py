@@ -462,6 +462,13 @@ def main():
     verifier = BearerVerifier(args.database)
     from .mcp_bridge_bootstrap import start_bridge
     started = start_bridge(verifier, execution=execution)
+    # SIGTERM does not normally unwind Python's finally blocks. Translate
+    # service termination into an orderly exit on the main thread.
+    import signal
+    previous_term = signal.getsignal(signal.SIGTERM)
+    def terminate(signum, frame):
+        raise SystemExit(0)
+    signal.signal(signal.SIGTERM, terminate)
     try:
         options = {}
         if started is not None:
@@ -478,6 +485,7 @@ def main():
             thread.join(timeout=5)
             from pathlib import Path
             Path(transport[0]).unlink(missing_ok=True)
+        signal.signal(signal.SIGTERM, previous_term)
 
 if __name__ == "__main__":
     main()
