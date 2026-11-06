@@ -12,15 +12,16 @@ from . import node_registry_inventory
 
 
 class SessionBridgeDispatch:
-    def __init__(self, *, verifier, session_token, allowed_node, execution=None,
+    def __init__(self, *, verifier, session_token, allowed_node, read_principal, execution=None,
                  inventory=None):
         if not isinstance(session_token, str) or not session_token:
             raise ValueError("trusted session token required")
-        if not callable(allowed_node):
+        if not callable(allowed_node) or not callable(read_principal):
             raise TypeError("node authorization callback required")
         self.verifier = verifier
         self.session_token = session_token
         self.allowed_node = allowed_node
+        self.read_principal = read_principal
         self.execution = execution
         self.inventory = inventory or node_registry_inventory
 
@@ -42,7 +43,7 @@ class SessionBridgeDispatch:
         else:
             # Read sessions are explicitly bound by the trusted gateway
             # callback, not by any claim in the request body.
-            if envelope["principal"] != self.verifier_principal(token):
+            if envelope["principal"] != self.read_principal(token):
                 raise PermissionError("principal mismatch")
         if operation == "inventory.list" and args == {}:
             return self.inventory.public_nodes(execution_enabled=self.execution is not None)
@@ -75,7 +76,3 @@ class SessionBridgeDispatch:
                 principal=principal, status=operation == "deployment.status", **args)
         raise InvalidBridgeRequest("unsupported operation or arguments")
 
-    def verifier_principal(self, token):
-        # Read-only bearer identity is not exposed by BearerVerifier.
-        # A read session must therefore be explicitly bound by the gateway.
-        raise PermissionError("read principal binding not configured")
