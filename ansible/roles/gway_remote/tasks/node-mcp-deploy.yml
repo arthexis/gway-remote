@@ -90,26 +90,7 @@
       # One exact action, never an arbitrary shell, unit or systemctl flag.
       gway-exec ALL=(root) NOPASSWD: /usr/bin/systemctl start --no-block gway-remote-deploy.service
 
-- name: Stop and disable retired Odoo deployment unit
-  ansible.builtin.systemd:
-    name: gway-odoo-deploy.service
-    state: stopped
-    enabled: false
-  when: ansible_hostname == 'gway-001'
-  failed_when: false
-
-- name: Remove retired Odoo deployment broker artifacts
-  ansible.builtin.file:
-    path: "{{ item }}"
-    state: absent
-  loop:
-    - /usr/local/libexec/gway-odoo-deploy
-    - /usr/local/libexec/gway-odoo-deploy.yml
-    - /etc/systemd/system/gway-odoo-deploy.service
-    - /etc/sudoers.d/gway-remote-mcp-odoo-deploy
-  register: gway_mcp_odoo_cleanup
-
 - name: Reload systemd after changing deployment unit
   ansible.builtin.systemd:
     daemon_reload: true
-  when: gway_mcp_deploy_unit.changed or gway_mcp_odoo_cleanup.changed
+  when: gway_mcp_deploy_unit.changed
