@@ -144,7 +144,7 @@ class GatewayNodeInventoryTests(unittest.TestCase):
         self.assertEqual(status, 200)
         self.assertTrue(denied["result"]["isError"])
         self.assertIn("mcp/www_authenticate", denied["result"]["_meta"])
-        self.assertEqual(self.rpc("tools/call", {"name": "agent_submit"})[0], 403)
+        self.assertEqual(self.rpc("tools/call", {"name": "agent_submit"})[0], 401)
 
 
 if __name__ == "__main__":
