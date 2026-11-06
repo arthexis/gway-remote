@@ -295,6 +295,22 @@
             bridge_gateway_env.changed or
             bridge_gateway_dropin.changed | default(false)
 
+        - name: Verify enabled bridge socket exists after gateway restart
+          become: true
+          ansible.builtin.stat:
+            path: /run/gway-mcp-bridge/bridge.sock
+            follow: false
+          register: mcp_bridge_socket
+          when: gway_mcp_bridge_enable | bool
+
+        - name: Require a private gateway-owned Unix bridge socket
+          ansible.builtin.assert:
+            that:
+              - mcp_bridge_socket.stat.issock | default(false)
+              - mcp_bridge_socket.stat.pw_name == 'gway-mcp-gateway'
+              - mcp_bridge_socket.stat.mode == '0600'
+          when: gway_mcp_bridge_enable | bool
+
         - name: Verify gateway is reachable only on its existing loopback listener
           ansible.builtin.uri:
             url: http://127.0.0.1:19010/mcp
