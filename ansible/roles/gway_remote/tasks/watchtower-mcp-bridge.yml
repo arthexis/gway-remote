@@ -59,3 +59,6 @@
     owner: root
     group: root
     mode: "0700"
+
+- name: Attach private bridge configuration to gateway systemd service
+  ansible.builtin.include_tasks: watchtower-mcp-bridge-systemd.yml
