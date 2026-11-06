@@ -72,7 +72,7 @@ class AuthenticatedBridge:
 class _Handler(socketserver.StreamRequestHandler):
     def handle(self):
         raw = self.rfile.readline(MAX_WIRE + 2)
-        if not raw.endswith(b"\\n") or len(raw) > MAX_WIRE + 1:
+        if not raw.endswith(b"\n") or len(raw) > MAX_WIRE + 1:
             return
         try:
             result = self.server.bridge.process(raw.strip())
@@ -84,7 +84,7 @@ class _Handler(socketserver.StreamRequestHandler):
             encoded = b'{"ok":false,"error":"request_rejected"}'
         except Exception:
             encoded = b'{"ok":false,"error":"bridge_unavailable"}'
-        self.wfile.write(encoded + b"\\n")
+        self.wfile.write(encoded + b"\n")
 
 
 class BridgeUnixServer(socketserver.ThreadingMixIn, socketserver.UnixStreamServer):
@@ -107,10 +107,10 @@ def call_unix(path, key, envelope, *, timeout=5):
     with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as sock:
         sock.settimeout(timeout)
         sock.connect(str(path))
-        sock.sendall(payload + b"\\n")
+        sock.sendall(payload + b"\n")
         with sock.makefile("rb") as stream:
             reply = stream.readline(MAX_REPLY + 2)
-    if not reply.endswith(b"\\n") or len(reply) > MAX_REPLY + 1:
+    if not reply.endswith(b"\n") or len(reply) > MAX_REPLY + 1:
         raise ValueError("invalid bridge response")
     response = json.loads(reply)
     if type(response) is not dict or response.get("ok") is not True:
