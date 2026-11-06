@@ -14,7 +14,8 @@ def start_bridge(verifier, execution=None):
     socket_path = Path(os.environ["GWAY_MCP_BRIDGE_SOCKET"])
     if not key_file.is_absolute() or not socket_path.is_absolute():
         raise ValueError("absolute bridge paths required")
-    if key_file.is_symlink() or key_file.stat().st_mode & 0o077:
+    if (key_file.is_symlink() or not key_file.is_file()
+            or key_file.stat().st_mode & 0o077):
         raise PermissionError("unsafe key permissions")
     key = key_file.read_bytes()
     if len(key) < 32:
@@ -24,7 +25,14 @@ def start_bridge(verifier, execution=None):
         if not (verifier.verify(token, required_scope="gway:read")
                 or verifier.verify(token, required_scope="gway:execute")):
             raise PermissionError("invalid bearer")
-        return token.split("_", 2)[1]
+        parts = token.split("_", 2)
+        if len(parts) != 3 or parts[0] != "gwr" or len(parts[1]) != 24:
+            raise PermissionError("invalid principal format")
+        try:
+            int(parts[1], 16)
+        except ValueError as exc:
+            raise PermissionError("invalid principal format") from exc
+        return parts[1]
 
     sessions = BridgeSessions(
         verifier=verifier, execution=execution,
