@@ -1,5 +1,5 @@
 import unittest
-from gway_remote.mcp_source_policy import propose_readonly_catalog
+from gway_remote.mcp_source_policy import propose_readonly_catalog, classify_source_catalog
 from gway_remote.mcp_source_registry import SourceRegistration
 
 
@@ -39,6 +39,17 @@ class DiscoveryReconcileTests(unittest.TestCase):
             run_as="arthe", enabled=False, permission="read")
         with self.assertRaises(ValueError):
             propose_readonly_catalog(disabled, [self.read])
+
+    def test_execute_tools_are_discovered_but_not_activated(self):
+        result = classify_source_catalog(self.registration, [self.read, self.write])
+        self.assertEqual(["customer_get"], [t["name"] for t in result["read"]])
+        self.assertEqual(["customer_create"], [t["name"] for t in result["execute_required"]])
+
+    def test_missing_annotation_defaults_to_execute_required(self):
+        unknown = {"name": "unknown", "inputSchema": {"type": "object"}}
+        result = classify_source_catalog(self.registration, [unknown])
+        self.assertEqual([], result["read"])
+        self.assertEqual([unknown], result["execute_required"])
 
 
 if __name__ == "__main__":
