@@ -9,8 +9,8 @@
   ansible.builtin.file:
     path: /etc/gway-mcp/bridge
     state: directory
-    owner: root
-    group: root
+    owner: gway-mcp-gateway
+    group: gway-mcp-read
     mode: "0700"
 
 - name: Check existing bridge key
@@ -23,9 +23,9 @@
   ansible.builtin.assert:
     that:
       - bridge_key.stat.isreg | default(false)
-      - bridge_key.stat.pw_name == 'root'
+      - bridge_key.stat.pw_name == 'gway-mcp-gateway'
       - bridge_key.stat.mode == '0600'
-    fail_msg: Existing bridge key must be a root-owned regular 0600 file
+    fail_msg: Existing bridge key must be a gateway-owned regular 0600 file
   when: bridge_key.stat.exists
 
 - name: Generate private bridge key once
@@ -41,12 +41,20 @@
   when: not bridge_key.stat.exists
   no_log: true
 
+- name: Restrict newly generated bridge key to gateway identity
+  ansible.builtin.file:
+    path: /etc/gway-mcp/bridge/key
+    owner: gway-mcp-gateway
+    group: gway-mcp-read
+    mode: "0600"
+  when: not bridge_key.stat.exists
+
 - name: Install root-only bridge environment
   ansible.builtin.copy:
     dest: /etc/gway-mcp/bridge/gateway.env
     owner: root
-    group: root
-    mode: "0600"
+    group: gway-mcp-read
+    mode: "0640"
     content: |
       GWAY_MCP_BRIDGE_ENABLED={{ '1' if gway_mcp_bridge_enable | default(false) | bool else '0' }}
       GWAY_MCP_BRIDGE_KEY_FILE=/etc/gway-mcp/bridge/key
@@ -56,8 +64,8 @@
   ansible.builtin.file:
     path: /run/gway-mcp-bridge
     state: directory
-    owner: root
-    group: root
+    owner: gway-mcp-gateway
+    group: gway-mcp-read
     mode: "0700"
 
 - name: Attach private bridge configuration to gateway systemd service
