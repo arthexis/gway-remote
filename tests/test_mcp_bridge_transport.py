@@ -145,5 +145,61 @@ class BridgeTransportTests(unittest.TestCase):
                     BridgeUnixServer(path, self.bridge)
             self.assertTrue(path.exists())
 
+
+    def test_real_unix_transport_rejects_wrong_key_and_scope(self):
+        import time
+        import uuid
+        self.envelope["issued_at"] = int(time.time())
+        self.envelope["expires_at"] = self.envelope["issued_at"] + 30
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "bridge.sock"
+            with BridgeUnixServer(path, self.bridge) as server:
+                thread = threading.Thread(target=server.serve_forever, daemon=True)
+                thread.start()
+                try:
+                    with self.assertRaises(PermissionError):
+                        call_unix(path, b"z" * 32, self.envelope)
+                    self.envelope["request_id"] = uuid.uuid4().hex
+                    self.envelope["operation"] = "execution.start"
+                    self.envelope["scope"] = "gway:read"
+                    with self.assertRaises(PermissionError):
+                        call_unix(path, self.key, self.envelope)
+                    self.envelope["request_id"] = uuid.uuid4().hex
+                    self.envelope["operation"] = "inventory.list"
+                    self.assertEqual(
+                        call_unix(path, self.key, self.envelope),
+                        {"operation": "inventory.list"},
+                    )
+                finally:
+                    server.shutdown()
+                    thread.join(timeout=3)
+
+    def test_restart_rebinds_socket_and_accepts_fresh_authenticated_request(self):
+        import time
+        import uuid
+        self.envelope["issued_at"] = int(time.time())
+        self.envelope["expires_at"] = self.envelope["issued_at"] + 30
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "bridge.sock"
+            for _ in range(2):
+                self.envelope["request_id"] = uuid.uuid4().hex
+                bridge = AuthenticatedBridge(
+                    self.key, audience="gway-001",
+                    dispatch=lambda e: {"operation": e["operation"]},
+                )
+                with BridgeUnixServer(path, bridge) as server:
+                    thread = threading.Thread(target=server.serve_forever, daemon=True)
+                    thread.start()
+                    try:
+                        self.assertEqual(
+                            call_unix(path, self.key, self.envelope),
+                            {"operation": "inventory.list"},
+                        )
+                        self.assertEqual(path.stat().st_mode & 0o777, 0o600)
+                    finally:
+                        server.shutdown()
+                        thread.join(timeout=3)
+                self.assertFalse(path.exists())
+
 if __name__ == "__main__":
     unittest.main()
