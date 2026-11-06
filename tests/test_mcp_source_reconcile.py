@@ -1,7 +1,7 @@
 import json
 import unittest
 
-from gway_remote.mcp_source_reconcile import build_readonly_source_entry, policy_payload
+from gway_remote.mcp_source_reconcile import build_readonly_source_entry, policy_payload, reconcile_sources
 from gway_remote.mcp_source_registry import SourceRegistration
 
 
@@ -38,6 +38,30 @@ class SourceReconcileTests(unittest.TestCase):
             raise RuntimeError("provider offline")
         with self.assertRaises(RuntimeError):
             build_readonly_source_entry(self.registration, discover=fail)
+
+    def test_failed_source_is_isolated(self):
+        other = SourceRegistration("other", "b" * 40,
+            "/opt/other/releases/" + "b" * 40 + "/bin/mcp",
+            ("/opt/other/releases/" + "b" * 40 + "/bin/mcp",),
+            "other", True, "read")
+
+        def discover(registration):
+            if registration.source_id == "other":
+                raise RuntimeError("offline")
+            return [self.read, self.write]
+
+        result = reconcile_sources([other, self.registration], discover=discover)
+        sources = json.loads(result["policy"])["sources"]
+        self.assertEqual(["odoo"], [x["registration"]["source_id"] for x in sources])
+        self.assertEqual({"other": "RuntimeError"}, result["failures"])
+        self.assertEqual(("customer_create",), result["execute_required"]["odoo"])
+        self.assertEqual(result["sha256"], policy_payload(sources)[1])
+
+    def test_disabled_source_not_discovered(self):
+        from dataclasses import replace
+        disabled = replace(self.registration, enabled=False)
+        result = reconcile_sources([disabled], discover=lambda _: self.fail("unexpected discovery"))
+        self.assertEqual([], json.loads(result["policy"])["sources"])
 
 
 if __name__ == "__main__":
