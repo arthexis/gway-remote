@@ -470,7 +470,13 @@ def main():
     signal.signal(signal.SIGTERM, terminate)
     started = None
     try:
-        started = start_bridge(verifier, execution=execution)
+        # Keep SIGTERM pending until the newly created bridge has a cleanup owner.
+        # The pending signal is delivered only after 'started' is assigned.
+        previous_mask = signal.pthread_sigmask(signal.SIG_BLOCK, {signal.SIGTERM})
+        try:
+            started = start_bridge(verifier, execution=execution)
+        finally:
+            signal.pthread_sigmask(signal.SIG_SETMASK, previous_mask)
         options = {}
         if started is not None:
             _, _, sessions, transport = started
