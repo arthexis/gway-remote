@@ -195,6 +195,19 @@ class Handler(BaseHTTPRequestHandler):
         has_exec = self.server.registry.verify(token, required_scope="gway:execute")
         if not (has_read or has_exec):
             return self.reject(401)
+        # Registration is opt-in until the private bridge is fully deployed.
+        # Only the verified HTTP Authorization header supplies the bearer.
+        bridge_session = None
+        if self.server.bridge_sessions is not None:
+            try:
+                bridge_session = self.server.bridge_sessions.register(
+                    token=token, audience="gway-001")
+            except (PermissionError, ValueError, RuntimeError):
+                return self.reject(403)
+            finally:
+                if bridge_session is not None:
+                    self.server.bridge_sessions.revoke(bridge_session)
+
         if self.headers.get("Content-Type", "").split(";", 1)[0].strip().lower() != "application/json":
             return self.reject(415)
         if (self.headers.get("Transfer-Encoding") is not None
@@ -390,7 +403,7 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
-def make_server(address, registry, upstream, backend_token, *, execution=None):
+def make_server(address, registry, upstream, backend_token, *, execution=None, bridge_sessions=None):
     from urllib.parse import urlsplit
     parsed = urlsplit(upstream)
     if parsed.scheme != "http" or parsed.hostname != "127.0.0.1" or not parsed.port or parsed.path != "/mcp" or parsed.query or parsed.fragment or parsed.username or parsed.password:
@@ -402,6 +415,7 @@ def make_server(address, registry, upstream, backend_token, *, execution=None):
     server = ThreadingHTTPServer(address, Handler)
     server.registry = registry
     server.execution = execution
+    server.bridge_sessions = bridge_sessions
     server.upstream = upstream
     server.backend_token = backend_token
     server.opener = build_opener(NoRedirect())
