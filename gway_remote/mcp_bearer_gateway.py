@@ -4,6 +4,7 @@ Public Nginx activation and authenticated private transport are separate gates.
 """
 import json
 import os
+import re
 import subprocess
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.error import HTTPError, URLError
@@ -148,6 +149,18 @@ def payload_is_exec(raw):
             and type(payload.get("params")) is dict
             and payload["params"].get("name") in (EXEC_TOOL_NAMES | {"agent_submit"}))
 
+SOURCE_TOOL_NAME = re.compile(r"^[a-z][a-z0-9_]{1,39}__[a-z][a-z0-9_]{0,63}$")
+
+
+def trusted_source_tool(tool):
+    """Backend has already admitted the source; expose only read-only namespaced tools."""
+    return (type(tool) is dict and type(tool.get('name')) is str
+            and SOURCE_TOOL_NAME.fullmatch(tool['name']) is not None
+            and type(tool.get('annotations')) is dict
+            and tool['annotations'].get('readOnlyHint') is True
+            and tool['annotations'].get('destructiveHint') is not True)
+
+
 def inspect_rpc(raw, approved_sources=()):
     try:
         data = json.loads(raw)
@@ -160,7 +173,8 @@ def inspect_rpc(raw, approved_sources=()):
         return False
     if method == "tools/call":
         params = data.get("params")
-        return type(params) is dict and params.get("name") in (ALLOWED_TOOLS | frozenset(approved_sources))
+        return type(params) is dict and (params.get("name") in ALLOWED_TOOLS or
+                (type(params.get("name")) is str and SOURCE_TOOL_NAME.fullmatch(params["name"]) is not None))
     return True
 
 class Handler(BaseHTTPRequestHandler):
@@ -374,6 +388,27 @@ class Handler(BaseHTTPRequestHandler):
                 legacy_params = {k: v for k, v in legacy_params.items() if k != "_meta"}
             legacy_payload = {**payload, "params": legacy_params}
             raw = json.dumps(legacy_payload, separators=(",", ":")).encode("utf-8")
+        # Validate source calls against the live trusted backend catalog. A
+        # namespaced name alone is not authorization: unregistered tools fail closed.
+        if payload["method"] == "tools/call" and SOURCE_TOOL_NAME.fullmatch(payload["params"]["name"]):
+            probe = json.dumps({"jsonrpc": "2.0", "id": 0, "method": "tools/list",
+                                "params": {}}, separators=(",", ":")).encode()
+            probe_headers = {"Authorization": "Bearer " + self.server.backend_token,
+                             "Content-Type": "application/json",
+                             "Accept": "application/json, text/event-stream",
+                             "MCP-Protocol-Version": "2025-03-26"}
+            try:
+                with self.server.opener.open(Request(self.server.upstream, probe,
+                        probe_headers, method="POST"), timeout=UPSTREAM_TIMEOUT) as response:
+                    if response.status != 200:
+                        return self.reject(502)
+                    listed = json.loads(response.read(MAX_RESPONSE + 1))["result"]["tools"]
+                if type(listed) is not list or not any(
+                        trusted_source_tool(tool) and tool["name"] == payload["params"]["name"]
+                        for tool in listed):
+                    return self.reject(403)
+            except (OSError, URLError, HTTPError, ValueError, TypeError, KeyError):
+                return self.reject(502)
         # Forward only to a fixed private endpoint; never forward client headers.
         headers = {"Authorization": "Bearer " + self.server.backend_token,
                    "Content-Type": "application/json",
@@ -405,13 +440,13 @@ class Handler(BaseHTTPRequestHandler):
                         any(type(tool) is not dict or tool.get("name") in
                             ({"node_list", "node_capabilities", "node_exec_preview", "node_deploy_preview"} | EXEC_TOOL_NAMES) for tool in tools)):
                     raise ValueError("upstream tool collision")
-                # Operator policy is authoritative: upstream advertisement alone never grants access.
-                declared = {tool["name"]: tool for tool in tools if type(tool.get("name")) is str}
-                if any(name not in declared or declared[name] != approved
-                       for name, approved in self.server.approved_sources.items()):
-                    raise ValueError("approved source mismatch")
-                tools = [tool for tool in tools if tool.get("name") in ALLOWED_TOOLS
-                         or tool.get("name") in self.server.approved_sources]
+                # Source admission is authoritative on the trusted backend.
+                # Watchtower does not maintain a second per-tool allowlist.
+                names = [tool.get("name") for tool in tools]
+                if len(names) != len(set(names)) or any(type(name) is not str for name in names):
+                    raise ValueError("invalid upstream tool names")
+                tools = [tool for tool in tools if tool["name"] in ALLOWED_TOOLS
+                         or trusted_source_tool(tool)]
                 scoped_tools = [scoped_tool(tool, EXEC_SECURITY if tool.get("name") == "agent_submit" else READ_SECURITY) for tool in tools]
                 node_tools = [scoped_tool(tool, READ_SECURITY) for tool in NODE_TOOLS]
                 exec_tools = [scoped_tool(tool, EXEC_SECURITY) for tool in EXEC_TOOLS]
