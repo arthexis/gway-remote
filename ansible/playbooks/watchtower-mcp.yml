@@ -9,6 +9,8 @@
     mcp_source: "{{ playbook_dir }}/../.."
     mcp_root: /opt/gway-mcp
     mcp_unit: gway-mcp-link.service
+    # Explicit Watchtower-only opt-in; not inferred from the OS hostname.
+    gway_mcp_bridge_enable: true
   tasks:
     - name: Resolve reviewed repository commit
       ansible.builtin.command:
@@ -282,12 +284,16 @@
               become: true
           # Bridge activation is opt-in; no hostname string is used for selection.
 
-        - name: Restart the dedicated MCP gateway for new protocol code
+        - name: Restart the dedicated MCP gateway for new protocol code or bridge configuration
           become: true
           ansible.builtin.systemd:
             name: gway-mcp-gateway.service
             state: restarted
-          when: mcp_gateway_activation_needed | bool or mcp_exec_gateway_unit.changed
+          when: >-
+            mcp_gateway_activation_needed | bool or
+            mcp_exec_gateway_unit.changed or
+            bridge_gateway_env.changed or
+            bridge_gateway_dropin.changed | default(false)
 
         - name: Verify gateway is reachable only on its existing loopback listener
           ansible.builtin.uri:
