@@ -17,26 +17,28 @@ class DiscoveryReconcileTests(unittest.TestCase):
                       "inputSchema": {"type": "object"},
                       "annotations": {"readOnlyHint": False, "destructiveHint": False}}
 
-    def test_only_explicit_read_catalog_is_proposed(self):
+    def test_all_read_tools_discovered_without_name_allowlist(self):
         self.assertEqual([self.read], propose_readonly_catalog(
-            self.registration, [self.read, self.write], ["customer_get"]))
-
-    def test_write_is_rejected_even_if_named(self):
-        with self.assertRaises(ValueError):
-            propose_readonly_catalog(self.registration, [self.read, self.write], ["customer_create"])
-
-    def test_missing_or_duplicate_approval_fails_closed(self):
-        for names in (["unknown"], ["customer_get", "customer_get"], []):
-            with self.subTest(names=names), self.assertRaises(ValueError):
-                propose_readonly_catalog(self.registration, [self.read], names)
+            self.registration, [self.read, self.write]))
 
     def test_duplicate_discovered_name_rejected(self):
         with self.assertRaises(ValueError):
-            propose_readonly_catalog(self.registration, [self.read, self.read], ["customer_get"])
+            propose_readonly_catalog(self.registration, [self.read, self.read])
 
-    def test_annotation_is_not_authority(self):
+    def test_malformed_catalog_rejected(self):
         with self.assertRaises(ValueError):
-            propose_readonly_catalog(self.registration, [self.read], ["customer_get", "customer_create"])
+            propose_readonly_catalog(self.registration, [{"name": "invalid"}])
+
+    def test_read_only_ceiling_excludes_write(self):
+        self.assertEqual([], propose_readonly_catalog(self.registration, [self.write]))
+
+    def test_unregistered_source_rejected(self):
+        disabled = SourceRegistration(
+            source_id="odoo", revision="a" * 40,
+            executable=self.registration.executable, argv=self.registration.argv,
+            run_as="arthe", enabled=False, permission="read")
+        with self.assertRaises(ValueError):
+            propose_readonly_catalog(disabled, [self.read])
 
 
 if __name__ == "__main__":
