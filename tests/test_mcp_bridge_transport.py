@@ -59,5 +59,65 @@ class BridgeTransportTests(unittest.TestCase):
                     thread.join(timeout=3)
 
 
+    def test_stale_socket_recovers_after_abrupt_process_exit(self):
+        import multiprocessing
+        import os
+        import socket
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "bridge.sock"
+            # A dead process left a real socket inode behind.
+            sock = socket.socket(socket.AF_UNIX)
+            sock.bind(str(path))
+            sock.close()
+            with BridgeUnixServer(path, self.bridge) as server:
+                self.assertTrue(path.exists())
+            self.assertFalse(path.exists())
+
+    def test_active_socket_is_never_replaced(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "bridge.sock"
+            with BridgeUnixServer(path, self.bridge) as server:
+                before = path.lstat().st_ino
+                with self.assertRaises(FileExistsError):
+                    BridgeUnixServer(path, self.bridge)
+                self.assertEqual(path.lstat().st_ino, before)
+
+    def test_unsafe_existing_paths_are_rejected(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "bridge.sock"
+            path.write_text("not a socket")
+            with self.assertRaises(PermissionError):
+                BridgeUnixServer(path, self.bridge)
+            path.unlink()
+            path.symlink_to("missing")
+            with self.assertRaises(PermissionError):
+                BridgeUnixServer(path, self.bridge)
+
+    def test_server_close_does_not_unlink_replacement(self):
+        import socket
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "bridge.sock"
+            server = BridgeUnixServer(path, self.bridge)
+            path.unlink()
+            replacement = socket.socket(socket.AF_UNIX)
+            replacement.bind(str(path))
+            try:
+                inode = path.lstat().st_ino
+                server.server_close()
+                self.assertEqual(path.lstat().st_ino, inode)
+            finally:
+                replacement.close()
+
+    def test_private_directory_required(self):
+        import os
+        with tempfile.TemporaryDirectory() as directory:
+            os.chmod(directory, 0o755)
+            try:
+                with self.assertRaises(PermissionError):
+                    BridgeUnixServer(Path(directory) / "bridge.sock", self.bridge)
+            finally:
+                os.chmod(directory, 0o700)
+
+
 if __name__ == "__main__":
     unittest.main()
