@@ -119,5 +119,31 @@ class BridgeTransportTests(unittest.TestCase):
                 os.chmod(directory, 0o700)
 
 
+    def test_recovery_rejects_changed_socket_identity(self):
+        import socket
+        from unittest.mock import patch
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "bridge.sock"
+            first = socket.socket(socket.AF_UNIX)
+            first.bind(str(path))
+            first.close()
+            original = Path.lstat
+            count = [0]
+
+            def changed_identity(target, *args, **kwargs):
+                info = original(target, *args, **kwargs)
+                if target == path:
+                    count[0] += 1
+                    if count[0] == 2:
+                        return type("ChangedStat", (), {
+                            "st_dev": info.st_dev, "st_ino": info.st_ino + 1
+                        })()
+                return info
+
+            with patch.object(Path, "lstat", changed_identity):
+                with self.assertRaises(FileExistsError):
+                    BridgeUnixServer(path, self.bridge)
+            self.assertTrue(path.exists())
+
 if __name__ == "__main__":
     unittest.main()
