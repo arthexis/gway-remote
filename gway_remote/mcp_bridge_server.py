@@ -45,3 +45,15 @@ def serve_gateway_session(path, *, key, audience, verifier, session_token,
         read_principal=read_principal, execution=execution,
         inventory=inventory)
     return BridgeUnixServer(path, bridge)
+
+def serve_managed_sessions(path, *, key, audience, sessions):
+    """Serve multiple gateway-owned sessions over one private Unix socket.
+
+    Session registration is deliberately separate: only a trusted gateway
+    request handler can call sessions.register with a verified bearer.
+    """
+    if sessions is None or not callable(getattr(sessions, "dispatch", None)):
+        raise TypeError("session manager required")
+    bridge = AuthenticatedBridge(key, audience=audience, dispatch=None,
+                                 sessions=sessions)
+    return BridgeUnixServer(path, bridge)
