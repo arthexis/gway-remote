@@ -172,6 +172,15 @@ def serve(host="127.0.0.1", port=8770):
         raise ValueError("mcp_must_bind_to_loopback")
     if not os.environ.get("GWAY_MCP_BEARER_TOKEN"):
         raise ValueError("mcp_bearer_token_required")
+    policy_path = os.environ.get("GWAY_MCP_SOURCE_POLICY")
+    policy_sha = os.environ.get("GWAY_MCP_SOURCE_POLICY_SHA256")
+    if bool(policy_path) != bool(policy_sha):
+        raise ValueError("incomplete source policy configuration")
+    if policy_path:
+        from .mcp_source_policy import load_source_policy
+        registrations, approved = load_source_policy(
+            policy_path, expected_sha256=policy_sha, builtins=mcp_agent.TOOLS)
+        mcp_agent.configure_sources(registrations, approved)
     with ThreadingHTTPServer((host, port), Handler) as server:
         server.serve_forever()
 
