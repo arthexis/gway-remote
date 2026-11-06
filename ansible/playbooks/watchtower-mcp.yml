@@ -276,8 +276,10 @@
           when: mcp_exec_gateway_unit.changed
 
         - name: Provision private bridge for this Watchtower playbook target
-          become: true
-          ansible.builtin.include_tasks: ../roles/gway_remote/tasks/watchtower-mcp-bridge.yml
+          ansible.builtin.include_tasks:
+            file: ../roles/gway_remote/tasks/watchtower-mcp-bridge.yml
+            apply:
+              become: true
           # Bridge activation is opt-in; no hostname string is used for selection.
 
         - name: Restart the dedicated MCP gateway for new protocol code
