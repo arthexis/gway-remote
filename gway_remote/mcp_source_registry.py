@@ -74,9 +74,9 @@ def compose_source_catalog(builtin_tools, registrations, source_tools):
             name = tool["name"]
             if not _TOOL.fullmatch(name) or name.startswith("_"):
                 raise ToolCatalogError("invalid source tool name")
-            if tool.get("annotations", {}).get("readOnlyHint") is not True:
+            annotations = tool.get("annotations")\n            if type(annotations) is not dict or annotations.get("readOnlyHint") is not True:
                 raise ToolCatalogError("source tool is not explicitly read-only")
-            if tool.get("annotations", {}).get("destructiveHint") is True:
+            if annotations.get("destructiveHint") is True:
                 raise ToolCatalogError("destructive source tool")
             mapped.append({**tool, "name": registration.source_id + "__" + name})
         catalogs.append(mapped)
