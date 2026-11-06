@@ -195,19 +195,18 @@ class Handler(BaseHTTPRequestHandler):
         has_exec = self.server.registry.verify(token, required_scope="gway:execute")
         if not (has_read or has_exec):
             return self.reject(401)
-        # Registration is opt-in until the private bridge is fully deployed.
-        # Only the verified HTTP Authorization header supplies the bearer.
-        bridge_session = None
-        if self.server.bridge_sessions is not None:
-            try:
-                bridge_session = self.server.bridge_sessions.register(
-                    token=token, audience="gway-001")
-            except (PermissionError, ValueError, RuntimeError):
-                return self.reject(403)
-            finally:
-                if bridge_session is not None:
-                    self.server.bridge_sessions.revoke(bridge_session)
+        if self.server.bridge_sessions is None:
+            return self._process_authenticated(token, has_read, has_exec)
+        from .mcp_bridge_gateway_session import gateway_bridge_session
+        try:
+            with gateway_bridge_session(
+                    self.server.bridge_sessions, bearer=token,
+                    audience="gway-001"):
+                return self._process_authenticated(token, has_read, has_exec)
+        except (PermissionError, ValueError, RuntimeError):
+            return self.reject(403)
 
+    def _process_authenticated(self, token, has_read, has_exec):
         if self.headers.get("Content-Type", "").split(";", 1)[0].strip().lower() != "application/json":
             return self.reject(415)
         if (self.headers.get("Transfer-Encoding") is not None
