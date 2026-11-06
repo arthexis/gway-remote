@@ -49,6 +49,9 @@ class SessionBridgeDispatch:
             # callback, not by any claim in the request body.
             if envelope["principal"] != self.read_principal(token):
                 raise PermissionError("principal mismatch")
+        if operation == "workspace.inspect" and set(args) == {"node", "repository"}:
+            from .mcp_workspace_inspect import inspect_authorized
+            return inspect_authorized(args)
         if operation == "inventory.list" and args == {}:
             return self.inventory.public_nodes(execution_enabled=self.execution is not None)
         if operation == "inventory.capabilities" and set(args) == {"node"}:
