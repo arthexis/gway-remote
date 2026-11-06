@@ -12,7 +12,7 @@ class GatewayTests(unittest.TestCase):
             self.assertTrue(inspect_rpc(json.dumps({"jsonrpc":"2.0","method":method}).encode()))
         self.assertFalse(inspect_rpc(b"[]"))
         self.assertFalse(inspect_rpc(b"not json"))
-        self.assertFalse(inspect_rpc(b'{"jsonrpc":"2.0","method":"tools/call","params":{"name":"agent_submit"}}'))
+        self.assertTrue(inspect_rpc(b'{"jsonrpc":"2.0","method":"tools/call","params":{"name":"agent_submit"}}'))
         self.assertFalse(inspect_rpc(b'{"jsonrpc":"2.0","method":"execute"}'))
         self.assertTrue(inspect_rpc(b'{"jsonrpc":"2.0","method":"tools/call","params":{"name":"agent_status"}}'))
 

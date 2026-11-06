@@ -15,7 +15,7 @@ MAX_RESPONSE = 262144
 # Agent Ops read adapters may take 20 seconds; allow bounded bridge overhead.
 UPSTREAM_TIMEOUT = 30
 ALLOWED_METHODS = frozenset({"server/discover", "initialize", "notifications/initialized", "tools/list", "tools/call"})
-ALLOWED_TOOLS = frozenset({"agent_list_issues", "agent_status", "agent_preview", "agent_observe",
+ALLOWED_TOOLS = frozenset({"agent_list_issues", "agent_status", "agent_preview", "agent_observe", "agent_submit",
     "github_workflow_runs", "github_workflow_status", "github_workflow_errors",
     "node_list", "node_capabilities", "node_exec_preview",
     "node_exec", "node_result", "node_cancel", "node_deploy", "node_deploy_status",
@@ -140,7 +140,7 @@ def payload_is_exec(raw):
         return False
     return (type(payload) is dict and payload.get("method") == "tools/call"
             and type(payload.get("params")) is dict
-            and payload["params"].get("name") in EXEC_TOOL_NAMES)
+            and payload["params"].get("name") in (EXEC_TOOL_NAMES | {"agent_submit"}))
 
 def inspect_rpc(raw):
     try:
@@ -224,6 +224,11 @@ class Handler(BaseHTTPRequestHandler):
             meta = payload.get("params", {}).get("_meta") if type(payload.get("params")) is dict else None
             if not isinstance(meta, dict) or meta.get("io.modelcontextprotocol/protocolVersion") != version:
                 return self.reject(400)
+        # Agent submission is proxied to the existing Agent Ops admission path,
+        # but only an execute-scoped operator may invoke it.
+        if (payload["method"] == "tools/call" and
+                payload.get("params", {}).get("name") == "agent_submit" and not has_exec):
+            return self.reject(401, scope="gway:execute")
         if payload["method"] == "tools/call" and payload.get("params", {}).get("name") in EXEC_TOOL_NAMES:
             params = payload.get("params", {})
             args = params.get("arguments", {})
@@ -355,7 +360,7 @@ class Handler(BaseHTTPRequestHandler):
                         any(type(tool) is not dict or tool.get("name") in
                             ({"node_list", "node_capabilities", "node_exec_preview", "node_deploy_preview"} | EXEC_TOOL_NAMES) for tool in tools)):
                     raise ValueError("upstream tool collision")
-                scoped_tools = [scoped_tool(tool, READ_SECURITY) for tool in tools]
+                scoped_tools = [scoped_tool(tool, EXEC_SECURITY if tool.get("name") == "agent_submit" else READ_SECURITY) for tool in tools]
                 node_tools = [scoped_tool(tool, READ_SECURITY) for tool in NODE_TOOLS]
                 exec_tools = [scoped_tool(tool, EXEC_SECURITY) for tool in EXEC_TOOLS]
                 result["tools"] = (scoped_tools + node_tools +
