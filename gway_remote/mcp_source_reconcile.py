@@ -5,6 +5,9 @@ configuration, changes OAuth, or grants execution permission.
 """
 import hashlib
 import json
+import os
+from pathlib import Path
+import tempfile
 
 from .mcp_source_policy import classify_source_catalog
 from .mcp_source_registry import SourceRegistration
@@ -81,3 +84,47 @@ def reconcile_sources(registrations, *, discover=list_source_tools):
         "failures": failures,
         "execute_required": execution_required,
     }
+
+
+def stage_policy(path, payload, digest):
+    """Atomically stage a root-owned policy; never activate it automatically.
+
+    Both hosts must independently verify the same digest before enabling
+    GWAY_MCP_SOURCE_POLICY and GWAY_MCP_SOURCE_POLICY_SHA256.
+    """
+    if os.geteuid() != 0:
+        raise PermissionError("root required to provision source policy")
+    if type(path) is not str or not path.startswith("/etc/gway-mcp-gateway/"):
+        raise ValueError("protected policy path required")
+    if type(payload) is not bytes or len(payload) > 65536:
+        raise ValueError("invalid policy bytes")
+    if type(digest) is not str or hashlib.sha256(payload).hexdigest() != digest:
+        raise ValueError("source policy digest mismatch")
+    target = Path(path)
+    parent = target.parent
+    if parent.is_symlink() or not parent.is_dir():
+        raise ValueError("untrusted policy directory")
+    parent_stat = parent.stat()
+    if parent_stat.st_uid != 0 or parent_stat.st_mode & 0o022:
+        raise ValueError("policy directory must be root-owned and protected")
+    if target.is_symlink() or (target.exists() and not target.is_file()):
+        raise ValueError("untrusted existing policy")
+    if target.exists() and (target.stat().st_uid != 0 or target.stat().st_mode & 0o022):
+        raise ValueError("untrusted existing policy permissions")
+    fd, temporary = tempfile.mkstemp(prefix=".mcp-source-", dir=parent)
+    try:
+        with os.fdopen(fd, "wb") as stream:
+            stream.write(payload)
+            stream.flush()
+            os.fchmod(stream.fileno(), 0o644)
+            os.fsync(stream.fileno())
+        os.replace(temporary, target)
+        directory_fd = os.open(parent, os.O_RDONLY | os.O_DIRECTORY)
+        try:
+            os.fsync(directory_fd)
+        finally:
+            os.close(directory_fd)
+    finally:
+        if os.path.exists(temporary):
+            os.unlink(temporary)
+    return digest
