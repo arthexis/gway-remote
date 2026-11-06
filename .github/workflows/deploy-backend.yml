@@ -68,6 +68,15 @@ jobs:
           deploy(token=local_api_token(), install=install)
           PY
           /usr/local/bin/gway-remote status --json | python3 -c 'import json,sys; assert json.load(sys.stdin)["schema"] == "gway-remote/status/v1"'
+      - name: Converge isolated gway-001 MCP runtime through Ansible
+        if: env.skip != 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          export XDG_RUNTIME_DIR="/run/user/$(id -u)"
+          export DBUS_SESSION_BUS_ADDRESS="unix:path=$XDG_RUNTIME_DIR/bus"
+          ansible-playbook ansible/playbooks/gway001-mcp-runtime.yml -i localhost, -c local \
+            -e "mcp_target_sha=${GITHUB_SHA}"
       - name: Deployment summary
         if: env.skip != 'true'
         env:

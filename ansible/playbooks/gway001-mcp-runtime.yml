@@ -1,0 +1,105 @@
+---
+# Runs only on the existing gway-001 runner, after the ordinary deployment.
+# Stage immutable reviewed code, then restart the existing user service.
+- name: Converge isolated gway-001 MCP backend
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  vars:
+    mcp_source: "{{ playbook_dir }}/../.."
+    mcp_root: /opt/gway-mcp
+    mcp_user: "{{ lookup('env', 'USER') }}"
+    mcp_runtime_dir: "/run/user/{{ lookup('pipe', 'id -u') }}"
+  tasks:
+    - name: Require attested local appliance and exact workflow revision
+      ansible.builtin.assert:
+        that:
+          - lookup('pipe', 'hostname -s') == 'gway-001'
+          - mcp_target_sha is defined
+          - mcp_target_sha is match('^[0-9a-f]{40}$')
+          - lookup('pipe', 'git -C ' ~ mcp_source ~ ' rev-parse HEAD') == mcp_target_sha
+          - mcp_user == 'arthe'
+    - name: Require existing protected runtime and user service
+      become: true
+      ansible.builtin.stat:
+        path: "{{ item }}"
+        follow: false
+      loop:
+        - /opt/gway-mcp/current
+        - /home/arthe/.config/systemd/user/gway-remote-mcp.service
+      register: prerequisites
+    - name: Refuse implicit first-time service provisioning
+      ansible.builtin.assert:
+        that:
+          - prerequisites.results[0].stat.islnk | default(false)
+          - prerequisites.results[1].stat.isreg | default(false)
+          - not (prerequisites.results[1].stat.islnk | default(false))
+    - name: Capture previous release for rollback
+      become: true
+      ansible.builtin.command:
+        argv: [readlink, /opt/gway-mcp/current]
+      changed_when: false
+      register: previous_release
+    - name: Validate previous immutable release pointer
+      ansible.builtin.assert:
+        that:
+          - previous_release.stdout is match('^releases/[0-9a-f]{40}$')
+    - name: Stage, activate and verify isolated MCP backend
+      block:
+        - name: Stage exact reviewed MCP release
+          become: true
+          ansible.builtin.command:
+            argv:
+              - /usr/bin/python3
+              - -I
+              - "{{ mcp_source }}/scripts/stage-mcp-runtime.py"
+              - --source
+              - "{{ mcp_source }}"
+              - --revision
+              - "{{ mcp_target_sha }}"
+          changed_when: previous_release.stdout != 'releases/' ~ mcp_target_sha
+        - name: Verify staged module imports
+          become: true
+          ansible.builtin.command:
+            argv: [/usr/bin/python3, -I, /opt/gway-mcp/current/run.py, --check]
+          changed_when: false
+        - name: Restart existing user MCP service only for changed release
+          ansible.builtin.command:
+            argv: [systemctl, --user, restart, gway-remote-mcp.service]
+          environment:
+            XDG_RUNTIME_DIR: "{{ mcp_runtime_dir }}"
+            DBUS_SESSION_BUS_ADDRESS: "unix:path={{ mcp_runtime_dir }}/bus"
+          when: previous_release.stdout != 'releases/' ~ mcp_target_sha
+        - name: Require active user MCP backend
+          ansible.builtin.command:
+            argv: [systemctl, --user, is-active, --quiet, gway-remote-mcp.service]
+          environment:
+            XDG_RUNTIME_DIR: "{{ mcp_runtime_dir }}"
+            DBUS_SESSION_BUS_ADDRESS: "unix:path={{ mcp_runtime_dir }}/bus"
+          changed_when: false
+        - name: Verify active runtime matches requested revision
+          become: true
+          ansible.builtin.command:
+            argv: [readlink, /opt/gway-mcp/current]
+          changed_when: false
+          register: active_release
+        - name: Refuse runtime drift
+          ansible.builtin.assert:
+            that: active_release.stdout == 'releases/' ~ mcp_target_sha
+      rescue:
+        - name: Restore previous immutable release pointer
+          become: true
+          ansible.builtin.file:
+            path: /opt/gway-mcp/current
+            src: "{{ previous_release.stdout }}"
+            state: link
+            force: true
+        - name: Restart restored user MCP backend
+          ansible.builtin.command:
+            argv: [systemctl, --user, restart, gway-remote-mcp.service]
+          environment:
+            XDG_RUNTIME_DIR: "{{ mcp_runtime_dir }}"
+            DBUS_SESSION_BUS_ADDRESS: "unix:path={{ mcp_runtime_dir }}/bus"
+        - name: Abort deployment on failed MCP runtime
+          ansible.builtin.fail:
+            msg: Isolated MCP update failed; previous release was restored.
