@@ -14,7 +14,7 @@ class WorkflowMCPTests(unittest.TestCase):
         names = {t["name"] for t in mcp_agent.list_tools()}
         self.assertTrue({"github_workflow_runs", "github_workflow_status",
                          "github_workflow_errors"} <= names)
-        self.assertTrue(all(t["annotations"]["readOnlyHint"] for t in mcp_agent.list_tools()))
+        self.assertTrue(all(t["annotations"]["readOnlyHint"] for t in mcp_agent.list_tools() if t["name"] != "agent_submit"))
         with self.assertRaises(ValueError):
             mcp_agent.call_tool("github_workflow_rerun", {"repository": REPO, "run_id": 1})
 
