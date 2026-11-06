@@ -485,6 +485,18 @@ def main():
     if os.environ.get("GWAY_MCP_EXEC_ENABLED") == "1":
         from .watchtower_exec_service import load_service
         execution = load_service()
+    policy_path = os.environ.get("GWAY_MCP_SOURCE_POLICY")
+    policy_sha = os.environ.get("GWAY_MCP_SOURCE_POLICY_SHA256")
+    if bool(policy_path) != bool(policy_sha):
+        raise ValueError("incomplete source policy configuration")
+    approved_sources = None
+    if policy_path:
+        from .mcp_source_policy import load_source_policy
+        from .mcp_source_registry import compose_source_catalog
+        registrations, approved = load_source_policy(
+            policy_path, expected_sha256=policy_sha)
+        catalog = compose_source_catalog([], registrations, approved)
+        approved_sources = {tool["name"]: tool for tool in catalog}
     verifier = BearerVerifier(args.database)
     from .mcp_bridge_bootstrap import start_bridge
     import signal
@@ -508,7 +520,7 @@ def main():
             _, _, sessions, transport = started
             options = {"bridge_sessions": sessions, "bridge_transport": transport}
         with make_server(("127.0.0.1", args.port), verifier, args.upstream,
-                         token, execution=execution, **options) as service:
+                         token, execution=execution, approved_sources=approved_sources, **options) as service:
             service.serve_forever()
     finally:
         if started is not None:
