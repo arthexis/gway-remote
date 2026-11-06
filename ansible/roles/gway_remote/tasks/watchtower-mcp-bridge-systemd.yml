@@ -39,3 +39,22 @@
   ansible.builtin.systemd:
     daemon_reload: true
   when: bridge_gateway_dropin.changed | default(false)
+
+- name: Inspect gateway effective systemd identity
+  ansible.builtin.command:
+    argv:
+      - systemctl
+      - show
+      - gway-mcp-gateway.service
+      - --property=User
+      - --value
+  changed_when: false
+  register: bridge_gateway_user
+  when: gway_mcp_bridge_enable | default(false) | bool
+
+- name: Require root service identity for private key access
+  ansible.builtin.assert:
+    that:
+      - bridge_gateway_user.stdout | trim in ['', 'root']
+    fail_msg: Bridge activation requires root-owned gateway or a dedicated key access policy
+  when: gway_mcp_bridge_enable | default(false) | bool
