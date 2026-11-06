@@ -1,4 +1,4 @@
-"""Verify Odoo CLIs are managed on gway-001 by the existing Ansible role."""
+"""Verify legacy Odoo installer safety without coupling normal GWay deploy."""
 import pathlib
 import unittest
 
@@ -16,8 +16,8 @@ class OdooCliDeployTests(unittest.TestCase):
 
     def test_role_is_controller_only_and_uses_system_owned_binaries(self):
         role = (ROOT / "ansible/roles/gway_remote/tasks/main.yml").read_text()
-        self.assertIn("include_tasks: odoo-gelectriic.yml", role)
-        self.assertIn("(ansible_hostname | default('')) == 'gway-001'", role)
+        self.assertNotIn("include_tasks: odoo-gelectriic.yml", role)
+        self.assertNotIn("Install Odoo Gelectriic command suite", role)
         play = (ROOT / "ansible/roles/gway_remote/tasks/odoo-gelectriic.yml").read_text()
         self.assertIn("pull, --ff-only, origin, main", play)
         self.assertIn("status, --porcelain", play)
