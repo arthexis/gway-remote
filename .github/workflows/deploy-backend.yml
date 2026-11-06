@@ -130,18 +130,21 @@ jobs:
 
           processes = subprocess.check_output(
               ["ps", "-eo", "args="], text=True).splitlines()
-          candidates = [line.split() for line in processes
-                        if "/opt/gway-mcp/releases/" in line and
-                        " mcp_http" in line and "run.py" in line]
+          candidates = []
+          for line in processes:
+              parts = line.split()
+              if (len(parts) >= 4 and parts[0] == "/usr/bin/python3"
+                      and parts[1] == "-I" and parts[-1] == "mcp_http"
+                      and parts[2].startswith("/opt/gway-mcp/")
+                      and parts[2].endswith("/run.py")):
+                  candidates.append(Path(parts[2]).resolve(strict=True))
           if len(candidates) != 1:
-              raise SystemExit("Expected exactly one active isolated gway-001 MCP backend")
-          command = candidates[0]
-          launchers = [part for part in command
-                       if part.startswith("/opt/gway-mcp/releases/")
-                       and part.endswith("/run.py")]
-          if len(launchers) != 1:
-              raise SystemExit("Unable to identify active MCP backend release")
-          module = Path(launchers[0]).parent / "gway_remote" / "mcp_agent.py"
+              raise SystemExit(
+                  f"Expected exactly one active isolated gway-001 MCP backend; found {len(candidates)}")
+          release = candidates[0].parent
+          if release.parent != Path("/opt/gway-mcp/releases"):
+              raise SystemExit("Active MCP backend launcher resolves outside immutable releases")
+          module = release / "gway_remote" / "mcp_agent.py"
           if not module.is_file() or '"name": "agent_submit"' not in module.read_text():
               raise SystemExit(
                   "MCP upstream drift: active gway-001 backend does not advertise agent_submit; "
