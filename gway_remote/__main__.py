@@ -276,6 +276,8 @@ def main() -> None:
     status_parser.add_argument("--json", action="store_true")
     hardware_parser = subparsers.add_parser("hardware", help="Read-only optional local RTC and ambient thermometer")
     hardware_parser.add_argument("--json", action="store_true")
+    network_parser = subparsers.add_parser("network", help="Read-only eth0/wlan0/wlan1 network snapshot")
+    network_parser.add_argument("--json", action="store_true")
     watchdog_parser = subparsers.add_parser("watchdog", help="Inspect or explicitly configure systemd hardware watchdog")
     watchdog_parser.add_argument("action", choices=("show", "enable", "disable"))
     watchdog_parser.add_argument("--seconds", type=int, default=None)
@@ -740,6 +742,11 @@ def main() -> None:
             serve(args.host, args.port)
         except (ValueError, OSError) as exc:
             parser.exit(1, f"gway-remote: API unavailable: {exc}\\n")
+        return
+    if args.command == "network":
+        from .network_diagnostics import inspect, format_network
+        result = inspect()
+        print(json.dumps(result, indent=2, sort_keys=True) if args.json else format_network(result))
         return
     if args.command == "hardware":
         from .hardware_diagnostics import inspect, format_hardware
