@@ -484,8 +484,6 @@ def main():
             bridge.shutdown()
             bridge.server_close()
             thread.join(timeout=5)
-            from pathlib import Path
-            Path(transport[0]).unlink(missing_ok=True)
         signal.signal(signal.SIGTERM, previous_term)
 
 if __name__ == "__main__":
