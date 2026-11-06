@@ -54,3 +54,22 @@ production activation must wait for a reviewed automation and field smoke.
 A policy declaration is **not** proof of the installed executable's release
 identity. The operator must verify the SHA-pinned source installation and
 service OS identity before enabling it. No source is enabled by this PR.
+
+## Explicit Ansible rollout
+
+The operator-only playbook `ansible/playbooks/mcp-source-policy.yml` targets
+an **explicit** `mcp_policy_endpoints` inventory group; it is not referenced
+by deploy.sh or CI deployments. Both endpoints require `mcp_policy_role`
+(`backend` or `gateway`) and the exact installed `mcp_policy_service`.
+The operator must supply `mcp_policy_source`, `mcp_policy_sha256` and
+`mcp_policy_approved=true` through trusted Ansible configuration. It stages
+identical bytes, checks their digest and existing service, installs a systemd
+drop-in, restarts only on change and attempts endpoint-local rollback on error.
+
+**Before using this playbook:** confirm actual backend unit name and remote
+Ansible transport, install and verify the release-pinned source binary and
+non-root identity, and test the deployment in a non-production environment.
+The playbook currently provides per-host rollback, **not an atomic two-host
+transaction**; if the second host fails, the first must be rolled back by the
+operator. The default empty policy remains the safe fallback. End-to-end
+OAuth smoke validation is still required before live activation.
