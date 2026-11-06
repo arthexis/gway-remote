@@ -116,6 +116,38 @@ jobs:
             -o ConnectTimeout=8 -o ServerAliveInterval=20 \
             -o ServerAliveCountMax=2 gelectriic.com \
             "sh -s -- $TARGET_SHA" < scripts/watchtower-auto-deploy.sh
+      - name: Verify live gway-001 MCP upstream advertises AgentOps submission
+        if: steps.revision.outputs.skip != 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          # Watchtower's private bridge terminates at this node on 127.0.0.1:8770.
+          # Inspect the *running* immutable backend, not the checkout or the
+          # Watchtower gateway release; neither proves effective tool discovery.
+          python3 - <<'PY'
+          from pathlib import Path
+          import subprocess
+
+          processes = subprocess.check_output(
+              ["ps", "-eo", "args="], text=True).splitlines()
+          candidates = [line.split() for line in processes
+                        if "/opt/gway-mcp/releases/" in line and
+                        " mcp_http" in line and "run.py" in line]
+          if len(candidates) != 1:
+              raise SystemExit("Expected exactly one active isolated gway-001 MCP backend")
+          command = candidates[0]
+          launchers = [part for part in command
+                       if part.startswith("/opt/gway-mcp/releases/")
+                       and part.endswith("/run.py")]
+          if len(launchers) != 1:
+              raise SystemExit("Unable to identify active MCP backend release")
+          module = Path(launchers[0]).parent / "gway_remote" / "mcp_agent.py"
+          if not module.is_file() or '"name": "agent_submit"' not in module.read_text():
+              raise SystemExit(
+                  "MCP upstream drift: active gway-001 backend does not advertise agent_submit; "
+                  "update the isolated backend before treating Watchtower deployment as complete")
+          print("Active gway-001 MCP backend contains agent_submit")
+          PY
       - name: Watchtower deployment summary
         if: steps.revision.outputs.skip != 'true'
         env:
