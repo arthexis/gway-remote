@@ -1,0 +1,174 @@
+---
+# Explicit operator-only cross-host policy convergence.
+# Run with -e mcp_policy_approved=true and an explicit trusted inventory.
+# Never invoked by the ordinary deploy workflow.
+- name: Provision approved MCP policy on both endpoints
+  hosts: mcp_policy_endpoints
+  gather_facts: false
+  become: true
+  serial: 1
+  vars:
+    mcp_policy_dest: /etc/gway-mcp-gateway/sources.json
+    mcp_policy_source: "{{ playbook_dir }}/../../config/mcp-sources-approved.json"
+  pre_tasks:
+    - name: Require deliberate operator activation and exact endpoint identity
+      ansible.builtin.assert:
+        that:
+          - mcp_policy_approved | default(false) | bool
+          - mcp_policy_role is defined
+          - mcp_policy_role in ['backend', 'gateway']
+          - mcp_policy_source is defined
+          - mcp_policy_source | length > 0
+          - mcp_policy_sha256 is defined
+          - mcp_policy_sha256 is match('^[0-9a-f]{64}$')
+          - mcp_policy_service is defined
+          - mcp_policy_service in ['gway-mcp-agent.service', 'gway-mcp-gateway.service']
+          - (mcp_policy_role == 'backend') == (mcp_policy_service == 'gway-mcp-agent.service')
+        fail_msg: Explicit approved source, digest, service and endpoint role are required.
+
+    - name: Check reviewed policy bytes on controller
+      ansible.builtin.stat:
+        path: "{{ mcp_policy_source }}"
+        checksum_algorithm: sha256
+      delegate_to: localhost
+      become: false
+      register: approved_policy
+    - name: Require exact approved policy digest
+      ansible.builtin.assert:
+        that:
+          - approved_policy.stat.isreg | default(false)
+          - not (approved_policy.stat.islnk | default(true))
+          - approved_policy.stat.checksum == mcp_policy_sha256
+
+    - name: Require pre-existing root-owned policy directory
+      ansible.builtin.stat:
+        path: /etc/gway-mcp-gateway
+        follow: false
+      register: policy_dir
+    - name: Refuse untrusted policy directory
+      ansible.builtin.assert:
+        that:
+          - policy_dir.stat.isdir | default(false)
+          - not (policy_dir.stat.islnk | default(true))
+          - policy_dir.stat.pw_name == 'root'
+          - (policy_dir.stat.mode | int(base=8)) % 8 == 5
+
+    - name: Require installed service and protected environment drop-in directory
+      ansible.builtin.stat:
+        path: "/etc/systemd/system/{{ mcp_policy_service }}"
+        follow: false
+      register: service_unit
+    - name: Reject missing service
+      ansible.builtin.assert:
+        that:
+          - service_unit.stat.isreg | default(false)
+          - not (service_unit.stat.islnk | default(true))
+
+    - name: Inspect existing policy without following symlinks
+      ansible.builtin.stat:
+        path: "{{ mcp_policy_dest }}"
+        follow: false
+      register: previous_policy
+    - name: Reject unsafe existing policy
+      ansible.builtin.assert:
+        that:
+          - not (previous_policy.stat.islnk | default(false))
+          - not (previous_policy.stat.exists | default(false)) or (previous_policy.stat.isreg | default(false))
+
+  tasks:
+    - name: Capture original policy for rollback
+      ansible.builtin.slurp:
+        src: "{{ mcp_policy_dest }}"
+      when: previous_policy.stat.exists | default(false)
+      register: original_policy
+      no_log: true
+
+    - name: Converge approved policy with rollback on failure
+      block:
+        - name: Install approved policy atomically
+          ansible.builtin.copy:
+            src: "{{ mcp_policy_source }}"
+            dest: "{{ mcp_policy_dest }}"
+            owner: root
+            group: root
+            mode: "0644"
+            backup: false
+          register: installed_policy
+
+        - name: Verify installed policy digest
+          ansible.builtin.stat:
+            path: "{{ mcp_policy_dest }}"
+            checksum_algorithm: sha256
+            follow: false
+          register: verified_policy
+        - name: Fail closed on policy mismatch
+          ansible.builtin.assert:
+            that:
+              - verified_policy.stat.checksum == mcp_policy_sha256
+              - not (verified_policy.stat.islnk | default(true))
+
+        - name: Write protected policy service drop-in
+          ansible.builtin.file:
+            path: "/etc/systemd/system/{{ mcp_policy_service }}.d"
+            state: directory
+            owner: root
+            group: root
+            mode: "0755"
+
+        - name: Install source policy environment
+          ansible.builtin.copy:
+            dest: "/etc/systemd/system/{{ mcp_policy_service }}.d/60-mcp-sources.conf"
+            owner: root
+            group: root
+            mode: "0644"
+            content: |
+              [Service]
+              Environment="GWAY_MCP_SOURCE_POLICY={{ mcp_policy_dest }}"
+              Environment="GWAY_MCP_SOURCE_POLICY_SHA256={{ mcp_policy_sha256 }}"
+          register: source_dropin
+
+        - name: Reload service definitions
+          ansible.builtin.systemd:
+            daemon_reload: true
+          when: source_dropin.changed
+
+        - name: Restart service only when approved policy changed
+          ansible.builtin.systemd:
+            name: "{{ mcp_policy_service }}"
+            state: restarted
+          when: installed_policy.changed or source_dropin.changed
+
+        - name: Verify service remains active
+          ansible.builtin.command:
+            argv: [systemctl, is-active, --quiet, "{{ mcp_policy_service }}"]
+          changed_when: false
+
+      rescue:
+        - name: Restore previous policy bytes
+          ansible.builtin.copy:
+            content: "{{ original_policy.content | b64decode }}"
+            dest: "{{ mcp_policy_dest }}"
+            owner: root
+            group: root
+            mode: "0644"
+          when: previous_policy.stat.exists | default(false)
+          no_log: true
+        - name: Remove newly introduced policy file
+          ansible.builtin.file:
+            path: "{{ mcp_policy_dest }}"
+            state: absent
+          when: not (previous_policy.stat.exists | default(false))
+        - name: Remove new service policy drop-in to prevent stale authorization
+          ansible.builtin.file:
+            path: "/etc/systemd/system/{{ mcp_policy_service }}.d/60-mcp-sources.conf"
+            state: absent
+        - name: Reload systemd after rollback
+          ansible.builtin.systemd:
+            daemon_reload: true
+        - name: Restart service with sources disabled
+          ansible.builtin.systemd:
+            name: "{{ mcp_policy_service }}"
+            state: restarted
+        - name: Stop rollout on failed endpoint
+          ansible.builtin.fail:
+            msg: MCP policy rollout failed and local rollback was attempted; verify both endpoints.
