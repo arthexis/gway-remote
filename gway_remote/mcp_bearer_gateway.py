@@ -19,7 +19,7 @@ ALLOWED_TOOLS = frozenset({"agent_list_issues", "agent_status", "agent_preview",
     "github_workflow_runs", "github_workflow_status", "github_workflow_errors",
     "node_list", "node_capabilities", "node_exec_preview",
     "node_exec", "node_result", "node_cancel", "node_deploy", "node_deploy_status",
-    "node_deploy_preview"})
+    "node_deploy_preview", "workspace_inspect"})
 
 EXEC_TOOL_NAMES = frozenset({"node_exec", "node_result", "node_cancel", "node_deploy", "node_deploy_status"})
 EXEC_SECURITY = {"securitySchemes": [{"type": "oauth2", "scopes": ["gway:execute"]}]}
@@ -58,6 +58,12 @@ EXEC_TOOLS = (
 )
 
 NODE_TOOLS = (
+    {"name": "workspace_inspect", "_meta": READ_SECURITY,
+     "description": "Inspect an allowlisted repository on the authenticated node; unknown evidence is explicit.",
+     "inputSchema": {"type": "object", "properties": {
+         "node": {"type": "string"}, "repository": {"type": "string"}},
+         "required": ["node", "repository"], "additionalProperties": False},
+     "annotations": {"readOnlyHint": True}},
     {"name": "node_deploy_preview", "_meta": READ_SECURITY,
      "description": "Check a fixed Ansible deployment recipe and current node eligibility without executing.",
      "inputSchema": {"type": "object", "properties": {
@@ -314,7 +320,7 @@ class Handler(BaseHTTPRequestHandler):
             self.end_headers()
             self.wfile.write(body)
             return
-        if payload["method"] == "tools/call" and payload.get("params", {}).get("name") in {"node_list", "node_capabilities", "node_exec_preview", "node_deploy_preview"}:
+        if payload["method"] == "tools/call" and payload.get("params", {}).get("name") in {"node_list", "node_capabilities", "node_exec_preview", "node_deploy_preview", "workspace_inspect"}:
             # The enrollment ledger lives on Watchtower. Never pass these tools
             # to gway-001, and never grant the gateway access to the root DB.
             arguments = payload["params"].get("arguments", {})
@@ -322,6 +328,9 @@ class Handler(BaseHTTPRequestHandler):
                 if self.server.bridge_transport is not None:
                     selected = self._bridge_node_tool(
                         payload["params"]["name"], arguments, token)
+                elif payload["params"]["name"] == "workspace_inspect":
+                    from .mcp_workspace_inspect import inspect_authorized
+                    selected = inspect_authorized(arguments)
                 else:
                     selected = local_node_result(payload["params"]["name"], arguments, execution=self.server.execution)
                 result = {"content": [{"type": "text", "text": json.dumps(selected, separators=(",", ":"))}]}
