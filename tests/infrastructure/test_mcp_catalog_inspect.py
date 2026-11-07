@@ -28,6 +28,16 @@ class CatalogInspectTests(unittest.TestCase):
         self.assertTrue(tool["annotations"]["readOnlyHint"])
         self.assertEqual(tool["inputSchema"]["properties"], {})
 
+    def test_namespaced_builtin_scope_matches_gateway_tools_list(self):
+        result = inspect_federated_catalog(FakeFederation(), builtins=[
+            {"name": "demo__mutate", "inputSchema": {"type": "object"}},
+            {"name": "demo__read", "inputSchema": {"type": "object"},
+             "annotations": {"readOnlyHint": True}},
+        ])
+        tools = {t["name"]: t for t in result["tools"]}
+        self.assertEqual(tools["demo__mutate"]["required_scope"], "gway:execute")
+        self.assertEqual(tools["demo__read"]["required_scope"], "gway:read")
+
     def test_scope_and_origin_without_arguments_or_secrets(self):
         result = inspect_federated_catalog(FakeFederation(), builtins=[
             {"name": "mcp_catalog_inspect", "inputSchema": {"type": "object"}}
