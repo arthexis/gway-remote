@@ -107,8 +107,7 @@
 - name: Prepare restricted execution SSH bridge on enrolled nodes when opted in
   ansible.builtin.include_tasks: node-exec-relay.yml
   when:
-    - (ansible_hostname | default('')) is match('^gway-[0-9]+
-- name: Copy CLI installer
+    - (ansible_hostname | default('')) is match('^gway-[0-9]+- name: Copy CLI installer
   ansible.builtin.copy:
     src: "{{ playbook_dir }}/../scripts/install-cli.sh"
     dest: "{{ gway_remote_install_root }}/scripts/install-cli.sh"
@@ -291,6 +290,9 @@
     enabled: false
     state: stopped
   when: not github_health_token_config.stat.exists
+
+)
+    - gway_exec_transport_prepare | default(false) | bool
 
 - name: Copy CLI installer
   ansible.builtin.copy:
