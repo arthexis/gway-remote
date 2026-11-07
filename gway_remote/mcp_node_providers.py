@@ -5,6 +5,8 @@ node transport must supply the caller's effective scope; arguments cannot
 upgrade authorization. Provider registrations are operator-provisioned.
 """
 from .mcp_source_policy import classify_source_catalog
+import os
+import pwd
 from .mcp_source_stdio import SourceProtocolError, call_source_tool, list_source_tools
 from .mcp_tool_scope import required_scope
 
@@ -22,6 +24,16 @@ class NodeProviderError(RuntimeError):
                 "stage": self.stage, "retryable": self.retryable}
 
 
+def _assert_local_identity(registration):
+    """The node owns execution identity; never accept it from remote requests."""
+    try:
+        configured_uid = pwd.getpwnam(registration.run_as).pw_uid
+    except (KeyError, TypeError, ValueError) as exc:
+        raise NodeProviderError("invalid_local_identity", provider=registration.source_id) from exc
+    if configured_uid == 0 or os.geteuid() != configured_uid:
+        raise NodeProviderError("local_identity_mismatch", provider=registration.source_id)
+
+
 def _registration(registrations, provider):
     if type(provider) is not str or not provider:
         raise NodeProviderError("invalid_provider")
@@ -32,6 +44,7 @@ def _registration(registrations, provider):
 
 
 def _catalog(registration):
+    _assert_local_identity(registration)
     try:
         return classify_source_catalog(registration, list_source_tools(registration))
     except SourceProtocolError as exc:
