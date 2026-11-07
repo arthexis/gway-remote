@@ -50,7 +50,8 @@ def adapt_component(row: dict, *, observed_at: str | None, depth: str = "deep") 
         "repository": dict(TARGETS).get(name),
         "source_revision": None,  # Attempted SHA is not verified source evidence.
         "staged_revision": staged,
-        "activated_revision": installed if activation_verified else None,\n        "activated_at": row.get("activated_at") if activation_verified else None,
+        "activated_revision": installed if activation_verified else None,
+        "activated_at": row.get("activated_at") if activation_verified else None,
         "installation_state": installation,
         "runtime_state": runtime,
         "observed_at": observed_at if depth == "deep" else None,
