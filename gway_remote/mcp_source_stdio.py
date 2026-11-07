@@ -2,6 +2,7 @@
 import json
 import os
 import pwd
+import re
 from pathlib import Path
 import selectors
 import subprocess
@@ -39,7 +40,7 @@ def _provider_environment(registration):
                     or info.st_mode & 0o022 or info.st_size > 4096):
                 raise SourceProtocolError("untrusted_provider_policy")
             repos = policy.read_text(encoding="utf-8").strip()
-            if not repos or any(not __import__("re").fullmatch(
+            if not repos or any(not re.fullmatch(
                     r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+", item.strip())
                     for item in repos.split(",")):
                 raise SourceProtocolError("invalid_provider_policy")
