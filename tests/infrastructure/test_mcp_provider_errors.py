@@ -3,6 +3,7 @@ import json
 import unittest
 from unittest.mock import patch
 from gway_remote import mcp_http, mcp_agent
+from gway_remote.mcp_source_stdio import SourceProtocolError
 
 
 class ProviderErrorsTest(unittest.TestCase):
@@ -27,6 +28,23 @@ class ProviderErrorsTest(unittest.TestCase):
         with patch.object(mcp_agent, "call_tool", side_effect=OSError("private path")):
             result, _, _ = self.call("github_workflow_runs")
         self.assertEqual(json.loads(result["content"][0]["text"])["provider"], "gway-remote")
+
+    def test_timeout_is_actionable(self):
+        with patch.object(mcp_agent, "call_tool",
+                          side_effect=SourceProtocolError("provider_timeout")):
+            result, _, _ = self.call("odoo__update")
+        detail = json.loads(result["content"][0]["text"])
+        self.assertEqual(detail["tool"], "odoo__update")
+        self.assertEqual(detail["error"]["code"], "provider_timeout")
+        self.assertTrue(detail["error"]["retryable"])
+
+    def test_declaration_change_is_not_retryable(self):
+        with patch.object(mcp_agent, "call_tool",
+                          side_effect=SourceProtocolError("tool_declaration_changed")):
+            result, _, _ = self.call("odoo__update")
+        detail = json.loads(result["content"][0]["text"])
+        self.assertEqual(detail["error"]["stage"], "tool_validation")
+        self.assertFalse(detail["error"]["retryable"])
 
     def test_scope_failure_is_explicit(self):
         with patch.object(mcp_agent, "call_tool", side_effect=ValueError(
