@@ -49,7 +49,7 @@
       - not gway_mcp_policy_existing.stat.islnk | default(false)
       - not gway_mcp_policy_existing.stat.exists or (gway_mcp_policy_existing.stat.isreg | default(false))
       - not gway_mcp_policy_existing.stat.exists or (gway_mcp_policy_existing.stat.pw_name | default('') == 'root')
-      - not gway_mcp_policy_existing.stat.exists or ((gway_mcp_policy_existing.stat.mode | default('0644'))[-3:] is match('^[0-7][0-4][0-4]$'))
+      - not gway_mcp_policy_existing.stat.exists or ((gway_mcp_policy_existing.stat.mode | default('0644') | int(base=8)) % 32 == 0)
     fail_msg: "Existing MCP source policy is not a protected regular file"
 
 - name: Stage canonical registration-only policy v2
@@ -58,7 +58,12 @@
     owner: root
     group: root
     mode: '0644'
-    content: "{{ {'version': 2, 'sources': (gway_mcp_sources | sort(attribute='source_id') | map('community.general.dict_kv', 'registration') | list)} | to_json(sort_keys=True, separators=(',', ':')) }}"
+    content: |
+      {% set ns = namespace(entries=[]) %}
+      {% for source in gway_mcp_sources | sort(attribute='source_id') %}
+      {% set ns.entries = ns.entries + [{'registration': source}] %}
+      {% endfor %}
+      {{ {'version': 2, 'sources': ns.entries} | to_json(sort_keys=True) }}
   register: gway_mcp_policy_staged
 
 - name: Compute staged MCP policy SHA256
