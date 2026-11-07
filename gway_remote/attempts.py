@@ -61,4 +61,5 @@ def mark(name, sha, status, directory=DEFAULT_DIR, error=None, log=None):
 
 
 def attempted_shas(directory=DEFAULT_DIR):
-    return {name: entry["sha"] for name, entry in read_attempts(directory).items()\n            if name in NAMES}
+    return {name: entry["sha"] for name, entry in read_attempts(directory).items()
+            if name in NAMES}
