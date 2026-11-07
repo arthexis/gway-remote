@@ -1,5 +1,4 @@
 import json
-import os
 from pathlib import Path
 
 import pytest
@@ -11,10 +10,15 @@ def test_empty_installation(tmp_path):
     assert discover_installed_providers(str(tmp_path / "missing")) == ()
 
 
-def test_discover_and_remove(tmp_path):
-    # Root-owned installation paths are mandatory in production.
-    if os.geteuid() != 0:
-        pytest.skip("requires root-owned test fixture")
+def test_discover_and_remove(tmp_path, monkeypatch):
+    # Emulate root-owned administrative manifest files in unprivileged CI.
+    original = Path.lstat
+    def root_owned(path):
+        info = original(path)
+        if path == tmp_path or path.parent == tmp_path and path.suffix == ".json":
+            return type("RootStat", (), {"st_uid": 0, "st_mode": info.st_mode, "st_size": info.st_size})()
+        return info
+    monkeypatch.setattr(Path, "lstat", root_owned)
     executable = tmp_path / "provider"
     executable.write_text("#!/bin/sh\nexit 0\n")
     executable.chmod(0o755)
