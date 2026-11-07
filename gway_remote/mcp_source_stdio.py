@@ -10,7 +10,13 @@ from .mcp_tool_scope import required_scope
 
 
 class SourceProtocolError(RuntimeError):
-    pass
+    """Classified, safe provider error."""
+
+    def __init__(self, code, stage="protocol", retryable=False):
+        self.code = code
+        self.stage = stage
+        self.retryable = retryable
+        super().__init__(code)
 
 
 _MAX_MESSAGE = 262144
@@ -63,12 +69,12 @@ class _Session:
             raise SourceProtocolError("request too large")
         remaining = self.deadline - time.monotonic()
         if remaining <= 0:
-            raise SourceProtocolError("source timeout")
+            raise SourceProtocolError("provider_timeout")
         try:
             self.process.stdin.write(encoded)
             self.process.stdin.flush()
         except (BrokenPipeError, OSError) as exc:
-            raise SourceProtocolError("source disconnected") from exc
+            raise SourceProtocolError("provider_unavailable") from exc
 
     def receive(self, request_id):
         with selectors.DefaultSelector() as selector:
@@ -86,18 +92,18 @@ class _Session:
                     if message.get("id") != request_id:
                         raise SourceProtocolError("unexpected response id")
                     if "error" in message:
-                        raise SourceProtocolError("source returned JSON-RPC error")
+                        raise SourceProtocolError("provider_execution_failed")
                     if type(message.get("result")) is not dict:
                         raise SourceProtocolError("invalid source result")
                     return message["result"]
                 remaining = self.deadline - time.monotonic()
                 if remaining <= 0:
-                    raise SourceProtocolError("source timeout")
+                    raise SourceProtocolError("provider_timeout")
                 if not selector.select(remaining):
-                    raise SourceProtocolError("source timeout")
+                    raise SourceProtocolError("provider_timeout")
                 chunk = os.read(self.process.stdout.fileno(), 8192)
                 if not chunk:
-                    raise SourceProtocolError("source closed output")
+                    raise SourceProtocolError("provider_unavailable")
                 self.buffer.extend(chunk)
                 if len(self.buffer) > _MAX_MESSAGE:
                     raise SourceProtocolError("source response too large")
@@ -150,15 +156,15 @@ def call_source_tool(registration, name, arguments, declared_tool, *, authorized
     if declared_tool.get("name") != name:
         raise SourceProtocolError("tool declaration mismatch")
     if required_scope(declared_tool) == "execute" and authorized_scope != "execute":
-        raise SourceProtocolError("execution scope required")
+        raise SourceProtocolError("permission_denied")
     with _Session(registration, timeout) as session:
         session.initialize()
         current = _check_tool_list(session.request(2, "tools/list", {}))
         matching = [tool for tool in current if tool.get("name") == name]
         if len(matching) != 1 or matching[0] != declared_tool:
-            raise SourceProtocolError("source tool changed since discovery")
+            raise SourceProtocolError("tool_declaration_changed")
         if required_scope(matching[0]) == "execute" and authorized_scope != "execute":
-            raise SourceProtocolError("execution scope required")
+            raise SourceProtocolError("permission_denied")
         result = session.request(3, "tools/call", {"name": name, "arguments": arguments})
         if type(result.get("content")) is not list:
             raise SourceProtocolError("invalid tool result")
