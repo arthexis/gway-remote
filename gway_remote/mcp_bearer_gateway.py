@@ -16,8 +16,7 @@ MAX_RESPONSE = 262144
 # Agent Ops read adapters may take 20 seconds; allow bounded bridge overhead.
 UPSTREAM_TIMEOUT = 30
 ALLOWED_METHODS = frozenset({"server/discover", "initialize", "notifications/initialized", "tools/list", "tools/call"})
-ALLOWED_TOOLS = frozenset({"agent_list_issues", "agent_status", "agent_preview", "agent_observe", "agent_submit",
-    "github_workflow_runs", "github_workflow_status", "github_workflow_errors", "mcp_source_status",
+ALLOWED_TOOLS = frozenset({"github_workflow_runs", "github_workflow_status", "github_workflow_errors", "mcp_source_status",
     "node_list", "node_capabilities", "node_exec_preview",
     "node_exec", "node_result", "node_cancel", "node_deploy", "node_deploy_status",
     "node_deploy_preview", "workspace_inspect"})
@@ -147,7 +146,7 @@ def payload_is_exec(raw):
         return False
     return (type(payload) is dict and payload.get("method") == "tools/call"
             and type(payload.get("params")) is dict
-            and payload["params"].get("name") in (EXEC_TOOL_NAMES | {"agent_submit"}))
+            and payload["params"].get("name") in EXEC_TOOL_NAMES)
 
 SOURCE_TOOL_NAME = re.compile(r"^[a-z][a-z0-9_]{1,39}__[a-z][a-z0-9_]{0,63}$")
 
@@ -291,11 +290,6 @@ class Handler(BaseHTTPRequestHandler):
             meta = payload.get("params", {}).get("_meta") if type(payload.get("params")) is dict else None
             if not isinstance(meta, dict) or meta.get("io.modelcontextprotocol/protocolVersion") != version:
                 return self.reject(400)
-        # Agent submission is proxied to the existing Agent Ops admission path,
-        # but only an execute-scoped operator may invoke it.
-        if (payload["method"] == "tools/call" and
-                payload.get("params", {}).get("name") == "agent_submit" and not has_exec):
-            return self.reject(401, scope="gway:execute")
         # Report the same node-owned federation used by tools/list, not the
         # legacy upstream source policy. This makes missing node transport
         # visible without revealing endpoints, credentials or manifests.
@@ -533,11 +527,10 @@ class Handler(BaseHTTPRequestHandler):
                     # per-provider allowlist or static tool approval.
                     builtin_names = {tool["name"] for tool in NODE_TOOLS + EXEC_TOOLS}
                     tools = [tool for tool in remote_tools if tool["name"] not in builtin_names]
-                scoped_tools = [scoped_tool(tool, EXEC_SECURITY if (tool.get("name") == "agent_submit" or
-                             (trusted_source_tool(tool) and not (
+                scoped_tools = [scoped_tool(tool, EXEC_SECURITY if (trusted_source_tool(tool) and not (
                                  type(tool.get("annotations")) is dict and
                                  tool["annotations"].get("readOnlyHint") is True and
-                                 tool["annotations"].get("destructiveHint") is not True))) else READ_SECURITY) for tool in tools]
+                                 tool["annotations"].get("destructiveHint") is not True)) else READ_SECURITY) for tool in tools]
                 node_tools = [scoped_tool(tool, READ_SECURITY) for tool in NODE_TOOLS]
                 exec_tools = [scoped_tool(tool, EXEC_SECURITY) for tool in EXEC_TOOLS]
                 result["tools"] = (scoped_tools + node_tools +

@@ -1,44 +1,26 @@
-"""MCP read-only boundary and fixed adapter wiring."""
+"""MCP builtin contract: AgentOps is provided only by node federation."""
 import unittest
-from unittest.mock import patch, Mock
-
+from unittest.mock import Mock, patch
 from gway_remote import mcp_agent
 
+LEGACY = {"agent_list_issues", "agent_status", "agent_preview", "agent_observe", "agent_submit"}
 
 class MCPAgentTests(unittest.TestCase):
-    def test_tool_inventory_is_read_only(self):
+    def test_tool_inventory_excludes_legacy(self):
         tools = mcp_agent.list_tools()
-        self.assertTrue({"agent_list_issues", "agent_status", "agent_preview", "agent_observe", "agent_submit",
-                         "github_workflow_runs", "github_workflow_status", "github_workflow_errors", "mcp_source_status"} <= {x["name"] for x in tools})
-        self.assertEqual(len({x["name"] for x in tools}), len(tools))
-        self.assertTrue(all(x["annotations"]["readOnlyHint"] for x in tools if x["name"] != "agent_submit"))
-        self.assertIn("agent_submit", {x["name"] for x in tools})
+        names = {t["name"] for t in tools}
+        self.assertFalse(LEGACY & names)
+        self.assertTrue({"github_workflow_runs", "github_workflow_status", "github_workflow_errors", "mcp_source_status"} <= names)
+        self.assertEqual(len(names), len(tools))
 
-    def test_dispatches_only_fixed_read_operations(self):
-        for name, handler, args in (
-            ("agent_list_issues", "issues", {}),
-            ("agent_status", "status", {}),
-            ("agent_preview", "preview_issue", {"ref": "arthexis/gway-bastion#2"}),
-            ("agent_observe", "observe_issue", {"ref": "arthexis/gway-bastion#2", "at": "2026-10-21T20:17:23Z"}),
-        ):
-            with self.subTest(name=name), patch.dict(mcp_agent._HANDLERS, {name: Mock(return_value={"status": "ok"})}):
-                operation = mcp_agent._HANDLERS[name]
-                self.assertEqual(mcp_agent.call_tool(name, args), {"status": "ok"})
-                operation.assert_called_once_with(args)
+    def test_builtin_read_dispatch(self):
+        with patch.dict(mcp_agent._HANDLERS, {"mcp_source_status": Mock(return_value={"status": "ok"})}):
+            self.assertEqual(mcp_agent.call_tool("mcp_source_status", {}), {"status": "ok"})
 
-    def test_invalid_requests_never_reach_adapter(self):
-        with patch.object(mcp_agent.agent_ops_adapter, "send_issue") as forbidden:
-            for name, args in (
-                ("agent_submit", {"ref": "arthexis/gway-bastion#2"}),
-                ("agent_list_issues", {"unexpected": True}),
-                ("agent_preview", {}),
-                ("agent_observe", {"ref": "arthexis/gway-bastion#2"}),
-                ("agent_status", None),
-            ):
-                with self.subTest(name=name), self.assertRaises(ValueError):
-                    mcp_agent.call_tool(name, args)
-            forbidden.assert_not_called()
-
+    def test_legacy_names_cannot_dispatch(self):
+        for name in LEGACY:
+            with self.subTest(name=name), self.assertRaisesRegex(ValueError, "mcp_tool_not_allowed"):
+                mcp_agent.call_tool(name, {}, authorized_scope="execute")
 
 if __name__ == "__main__":
     unittest.main()

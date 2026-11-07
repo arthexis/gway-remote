@@ -3,7 +3,7 @@
 This is a transport-independent core. It MUST NOT be exposed over public
 HTTP without an authenticated MCP transport and operator authorization.
 """
-from . import agent_ops_adapter, github_workflows_mcp
+from . import github_workflows_mcp
 from .mcp_catalog import compose_catalog
 from .mcp_source_registry import compose_source_catalog
 from .mcp_source_stdio import call_source_tool, list_source_tools
@@ -11,25 +11,6 @@ from .mcp_source_policy import classify_source_catalog
 from .mcp_tool_scope import required_scope
 
 TOOLS = (
-    {"name": "agent_list_issues", "description": "List trusted issues and their eligibility; never dispatch.",
-     "inputSchema": {"type": "object", "properties": {}, "additionalProperties": False},
-     "annotations": {"readOnlyHint": True}},
-    {"name": "agent_status", "description": "Inspect Agent Ops admission and worker status.",
-     "inputSchema": {"type": "object", "properties": {}, "additionalProperties": False},
-     "annotations": {"readOnlyHint": True}},
-    {"name": "agent_preview", "description": "Preview one trusted issue; does not execute it.",
-     "inputSchema": {"type": "object", "properties": {"ref": {"type": "string"}},
-                     "required": ["ref"], "additionalProperties": False},
-     "annotations": {"readOnlyHint": True}},
-    {"name": "agent_submit", "description": "Submit one trusted issue with a caller-frozen UTC identity; requires gway:execute at the gateway.",
-     "inputSchema": {"type": "object", "properties": {
-         "ref": {"type": "string"}, "at": {"type": "string"}},
-         "required": ["ref", "at"], "additionalProperties": False}},
-    {"name": "agent_observe", "description": "Observe a previously submitted issue by frozen UTC identity.",
-     "inputSchema": {"type": "object", "properties": {
-         "ref": {"type": "string"}, "at": {"type": "string"}},
-         "required": ["ref", "at"], "additionalProperties": False},
-     "annotations": {"readOnlyHint": True}},
     {"name": "github_workflow_runs", "description": "Read recent GitHub Actions runs across allowed repositories.",
      "inputSchema": {"type": "object", "properties": {"repository": {"type": "string"}, "branch": {"type": "string"}, "status": {"type": "string"}, "event": {"type": "string"}, "limit": {"type": "integer"}}, "additionalProperties": False}, "annotations": {"readOnlyHint": True}},
     {"name": "github_workflow_status", "description": "Read one workflow run, jobs and steps.",
@@ -42,11 +23,6 @@ TOOLS = (
 )
 
 _HANDLERS = {
-    "agent_list_issues": agent_ops_adapter.issues,
-    "agent_status": agent_ops_adapter.status,
-    "agent_preview": agent_ops_adapter.preview_issue,
-    "agent_observe": agent_ops_adapter.observe_issue,
-    "agent_submit": agent_ops_adapter.send_issue,
     "github_workflow_runs": github_workflows_mcp.runs,
     "github_workflow_status": github_workflows_mcp.status,
     "mcp_source_status": lambda arguments: source_status(),
@@ -62,7 +38,7 @@ def configure_sources(registrations, approved_catalogs):
     """Install operator-approved, release-pinned source catalogs at startup.
 
     The deployment controller must verify release identity and permissions.
-    This is opt-in; an empty registry preserves legacy behavior.
+    This is opt-in; an empty registry preserves built-in non-AgentOps tools.
     """
     global _SOURCE_REGISTRATIONS, _SOURCE_APPROVED
     registrations = tuple(registrations)

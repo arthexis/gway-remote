@@ -50,7 +50,7 @@ class GatewayHttpTests(unittest.TestCase):
                 try:
                     url = "http://127.0.0.1:%d/mcp" % gateway.server_port
                     body = json.dumps({"jsonrpc":"2.0","id":1,"method":"tools/call",
-                                       "params":{"name":"agent_list_issues","arguments":{}}}).encode()
+                                       "params":{"name":"github_workflow_runs","arguments":{}}}).encode()
                     request = Request(url, body, {"Authorization":"Bearer " + token,
                                       "Content-Type":"application/json"}, method="POST")
                     with urlopen(request, timeout=3) as result:
@@ -100,7 +100,7 @@ class GatewayHttpTests(unittest.TestCase):
                     self.assertEqual(send("wrong"), 401)
                     self.assertEqual(send(token, path="/other"), 404)
                     denied = json.dumps({"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"agent_submit"}}).encode()
-                    self.assertEqual(send(token, body=denied), 401)
+                    self.assertEqual(send(token, body=denied), 403)
                     self.assertEqual(len(Upstream.seen), before)
                     self.assertEqual(send(token), 200)
                     self.assertEqual(Upstream.seen[-1], "Bearer backend-secret")
