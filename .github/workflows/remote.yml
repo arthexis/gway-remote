@@ -1,7 +1,7 @@
 name: Remote workloads
 on:
   repository_dispatch:
-    types: [system-health, lcd-sound-deploy, ocpp-csms-deploy]
+    types: [system-health, lcd-sound-deploy, ocpp-csms-deploy, webos-tv-deploy]
   workflow_dispatch:
     inputs:
       task:
@@ -36,6 +36,14 @@ jobs:
           set -euo pipefail
           if [[ "$TASK" == system-health && -z "$REPO" && -z "$SHA" && -z "$PR" ]]; then
             echo "task=system-health" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          if [[ "$TASK" == webos-tv-deploy ]]; then
+            [[ "$REPO" == arthexis/gway-webos-tv && "$SHA" =~ ^[0-9a-fA-F]{40}$ && -z "$PR" ]]
+            MAIN_SHA="$(gh api "repos/$REPO/branches/main" --jq '.commit.sha')"
+            [[ "$SHA" == "$MAIN_SHA" ]]
+            echo "task=webos-tv-deploy" >> "$GITHUB_OUTPUT"
+            echo "sha=$SHA" >> "$GITHUB_OUTPUT"
             exit 0
           fi
           if [[ "$TASK" == ocpp-csms-deploy ]]; then
@@ -76,6 +84,8 @@ jobs:
             python3 -m gway_remote run system-health
           elif [[ "$TASK" == "lcd-sound-deploy" ]]; then
             python3 -m gway_remote run lcd-sound-deploy --repository arthexis/gway-lcd-sound --sha "$SHA"
+          elif [[ "$TASK" == "webos-tv-deploy" ]]; then
+            bash scripts/deploy-webos-tv.sh "$SHA"
           elif [[ "$TASK" == "ocpp-csms-deploy" ]]; then
             python3 -m gway_remote run ocpp-csms-deploy --repository arthexis/ocpp-csms --sha "$SHA"
           fi
