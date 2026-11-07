@@ -29,17 +29,13 @@ class DeployBrokerTests(unittest.TestCase):
         self.assertEqual(self.captured[-1]["command"],
             "/usr/bin/sudo -n /usr/bin/systemctl start --no-block gway-remote-deploy.service")
 
-    def test_odoo_deploy_uses_only_fixed_unit(self):
-        args = {**self.kwargs, "application": "odoo-gelectriic"}
-        preview = self.service.deployment_preview(node="gway-001",
-                                                   application="odoo-gelectriic")
-        self.assertEqual(preview["recipe"], "gway-odoo-deploy.service")
-        self.service.deployment(**args)
-        self.assertEqual(self.captured[-1]["command"],
-            "/usr/bin/sudo -n /usr/bin/systemctl start --no-block gway-odoo-deploy.service")
-        self.service.deployment(**args, status=True)
-        self.assertEqual(self.captured[-1]["command"],
-            "/usr/bin/cat /var/lib/gway-mcp-deploy/status-odoo-gelectriic.json")
+    def test_retired_odoo_recipe_is_not_advertised_as_eligible(self):
+        with self.assertRaisesRegex(PermissionError, "repository-owned Ansible workflow"):
+            self.service.deployment_preview(node="gway-001",
+                                            application="odoo-gelectriic")
+        with self.assertRaises(PermissionError):
+            self.service.deployment(**{**self.kwargs, "application": "odoo-gelectriic"})
+        self.assertFalse(any("command" in row for row in self.captured))
 
     def test_original_status_uses_legacy_receipt(self):
         self.service.deployment(**self.kwargs, status=True)
