@@ -181,7 +181,7 @@ def inspect_federated_catalog(federation, *, builtins=()):
     for tool in catalog:
         name = tool["name"]
         route = routes.get(name)
-        scope = route[3] if route else ("execute" if name in EXEC_TOOL_NAMES else "read")
+        scope = route[3] if route else ("execute" if (name in EXEC_TOOL_NAMES or (trusted_source_tool(tool) and not (type(tool.get("annotations")) is dict and tool["annotations"].get("readOnlyHint") is True and tool["annotations"].get("destructiveHint") is not True))) else "read")
         rows.append({"name": name, "origin": "federated" if route else "builtin",
                      "node": route[0] if route else None,
                      "source": route[1] if route else None,
