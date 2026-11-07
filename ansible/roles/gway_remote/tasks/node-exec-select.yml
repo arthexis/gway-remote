@@ -140,7 +140,7 @@
         mode: '0440'
         validate: /usr/sbin/visudo -cf %s
         content: |
-          gway-relay ALL=({{ gway_remote_exec_run_user }}) NOPASSWD: /usr/bin/env PYTHONPATH=/opt/gway-remote /usr/bin/python3 -m gway_remote.node_exec_protocol
+          gway-relay ALL=({{ gway_remote_exec_run_user }}) NOPASSWD: /usr/bin/env PYTHONPATH=/opt/gway-remote GWAY_MCP_SOURCE_POLICY=/etc/gway-mcp-gateway/sources.json /usr/bin/python3 -m gway_remote.node_exec_protocol
       when: exec_relay_files.results[1].stat.exists | default(false)
 
     - name: Update restricted SSH ForceCommand without changing other SSH settings
