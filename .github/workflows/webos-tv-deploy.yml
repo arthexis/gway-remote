@@ -1,0 +1,22 @@
+name: webOS TV automatic deployment
+on:
+  schedule:
+    - cron: '*/5 * * * *'
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: webos-tv-gway-001
+  cancel-in-progress: false
+jobs:
+  deploy:
+    name: Verify webOS main CI and deploy via gway-001
+    runs-on: [self-hosted, Linux, ARM64, gway-001]
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Deploy verified main and update TV when online
+        shell: bash
+        run: bash scripts/deploy-webos-tv.sh
