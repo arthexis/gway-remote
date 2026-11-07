@@ -38,8 +38,18 @@ jobs:
         run: |
           echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
           sudo udevadm control --reload-rules
-          sudo udevadm trigger --name-match=kvm
-          test -w /dev/kvm
+          if [[ -e /dev/kvm ]]; then
+            sudo chmod 666 /dev/kvm
+          else
+            echo "::error::/dev/kvm is unavailable on this runner"
+            ls -l /dev/kvm || true
+            exit 1
+          fi
+          if [[ ! -w /dev/kvm ]]; then
+            echo "::error::/dev/kvm is not writable"
+            ls -l /dev/kvm
+            exit 1
+          fi
       - uses: reactivecircus/android-emulator-runner@v2
         with:
           api-level: 35
