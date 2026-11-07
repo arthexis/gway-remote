@@ -79,6 +79,11 @@
   register: gway_remote_source
   changed_when: (gway_remote_source.stdout | from_json).changed | bool
 
+# Explicit opt-in: generic MCP provider policy staging, never auto-enroll sources.
+- name: Stage explicitly approved MCP provider registrations
+  ansible.builtin.include_tasks: mcp-source-provision.yml
+  when: gway_mcp_sources is defined
+
 - name: Select node-local executor identity
   ansible.builtin.include_tasks: node-exec-select.yml
   when: (ansible_hostname | default('')) is match('^gway-[0-9]+$')

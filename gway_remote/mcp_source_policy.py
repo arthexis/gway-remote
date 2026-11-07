@@ -31,13 +31,13 @@ def load_source_policy(path, *, expected_sha256, builtins=()):
     if len(raw) > MAX_POLICY or hashlib.sha256(raw).hexdigest() != expected_sha256:
         raise ValueError("source policy digest mismatch")
     policy = json.loads(raw)
-    if type(policy) is not dict or set(policy) != {"version", "sources"} or policy["version"] != 1:
+    if type(policy) is not dict or set(policy) != {"version", "sources"} or policy["version"] not in (1, 2):
         raise ValueError("invalid source policy")
     if type(policy["sources"]) is not list or len(policy["sources"]) > 16:
         raise ValueError("invalid source registry")
     registrations, approved = [], {}
     for item in policy["sources"]:
-        if type(item) is not dict or set(item) != {"registration", "tools"}:
+        if type(item) is not dict or set(item) != ({"registration", "tools"} if policy["version"] == 1 else {"registration"}):
             raise ValueError("invalid source entry")
         data = item["registration"]
         if type(data) is not dict or set(data) != {
@@ -48,9 +48,11 @@ def load_source_policy(path, *, expected_sha256, builtins=()):
             raise ValueError("duplicate source")
         registrations.append(registration)
         if registration.enabled:
-            approved[registration.source_id] = item["tools"]
-        elif item["tools"]:
+            approved[registration.source_id] = item["tools"] if policy["version"] == 1 else []
+        elif policy["version"] == 1 and item["tools"]:
             raise ValueError("disabled source cannot advertise tools")
+    # Version 2 pins only source identities; live tools/list is authoritative.
+    # Empty catalogs validate registration collisions without granting tools.
     compose_source_catalog(builtins, registrations, approved)
     return tuple(registrations), approved
 
