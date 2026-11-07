@@ -462,85 +462,20 @@ fun CompanionScreen(store: SecretStore, appearance: AppearanceMode = AppearanceM
             Text("Update available: ${update!!.version}", style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.primary)
         }
-        val unmatchedCommands = emptyList<String>() // Discovered commands are not palette actions
-        OperationPalette(
-            state = panelState,
-            onOpen = operationModel::open,
-            onClose = operationModel::close,
-            onMove = operationModel::move,
-            onRefresh = operationModel::refresh,
-            onCsmsInspect = operationModel::inspectCsms,
-            csmsView = operationModel.csmsView,
-            onSelectCsmsView = operationModel::selectCsmsView,
-            apiHealth = operationModel.apiHealth,
-            systemStatus = operationModel.systemStatus,
-            onRefreshSystem = operationModel::refreshSystem,
-            agentAssignments = agentIssues,
-            agentInstance = agentModel.localAgent,
-            agentAssignmentsLoading = agentIssuesLoading,
-            agentAssignmentsError = agentIssuesError,
-            onRefreshAgentAssignments = agentModel::refreshAssignments,
-            onAgentAssignmentsError = agentModel::reportAssignmentsError,
+        CompanionPalette(
+            operationModel = operationModel,
+            agentModel = agentModel,
             agentAssignmentsExpanded = agentAssignmentsExpanded,
             onAgentAssignmentsExpanded = { agentAssignmentsExpanded = it },
-            agentSendLoading = agentSendLoading,
-            agentSendResult = agentSendResult,
-            agentSendError = agentSendError,
-            agentObserveLoading = agentObserveLoading,
-            agentObserveResult = agentObserveResult,
-            agentObserveError = agentObserveError,
-            onAgentObserve = agentModel::observe,
-            onAgentCopyPrompt = { ref ->
-                agentModel.preview(ref) { prompt ->
-                    val clipboard = agentUiContext.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-                    clipboard.setPrimaryClip(ClipData.newPlainText("Agent issue prompt", prompt))
-                }
-            },
-            onAgentSend = agentModel::send,
             benchmarkContent = benchmarkPanelContent,
             motifs = availableMotifs,
-            lcdNotification = operationModel.lcdNotification,
-            soundNotification = operationModel.soundNotification,
-            onNotificationInput = operationModel::notificationInput,
-            onExecuteNotification = operationModel::executeNotification,
-            onInput = operationModel::input,
-            onExecute = operationModel::execute,
-            extraActions = listOf(
-                PaletteAction(
-                    id = "odoo-quotations",
-                    label = if (quotationsOpen) "Ocultar Cotizaciones" else "Cotizaciones",
-                    icon = "file-text",
-                    onClick = { quotationsOpen = !quotationsOpen }
-                ),
-                PaletteAction(
-                    id = "deployments",
-                    label = "Deployments",
-                    icon = "rocket",
-                    onClick = { localPanels = localPanels.toggle("deployments") }
-                ),
-                PaletteAction(
-                    id = "mcp-access",
-                    label = "MCP Access",
-                    icon = "key-round",
-                    onClick = { localPanels = localPanels.toggle("mcp-access") }
-                ),
-                PaletteAction(
-                    id = "github-health",
-                    label = "GitHub Health",
-                    icon = "github",
-                    onClick = { localPanels = localPanels.toggle("github-health") }
-                ),
-                PaletteAction(
-                    id = "app-update",
-                    label = if (updating) "Updating…" else "App update",
-                    icon = "update",
-                    onClick = { if (update == null) checkUpdates() else downloadUpdate() },
-                    enabled = !updating,
-                    attention = update != null
-                )
-            ) + unmatchedCommands.map { name ->
-                PaletteAction("server-" + name, name, "list", { perform("/api/v1/execute", name) }, !busy)
-            }
+            quotationsOpen = quotationsOpen,
+            onToggleQuotations = { quotationsOpen = !quotationsOpen },
+            localPanels = localPanels,
+            onToggleLocalPanel = { localPanels = localPanels.toggle(it) },
+            updating = updating,
+            hasUpdate = update != null,
+            onUpdate = { if (update == null) checkUpdates() else downloadUpdate() }
         )
         LocalPanelHost(
             state = localPanels, endpoint = endpoint, token = token,
