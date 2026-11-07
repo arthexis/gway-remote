@@ -33,6 +33,9 @@ TOOLS = (
      "inputSchema": {"type": "object", "properties": {"repository": {"type": "string"}, "branch": {"type": "string"}, "status": {"type": "string"}, "event": {"type": "string"}, "limit": {"type": "integer"}}, "additionalProperties": False}, "annotations": {"readOnlyHint": True}},
     {"name": "github_workflow_status", "description": "Read one workflow run, jobs and steps.",
      "inputSchema": {"type": "object", "properties": {"repository": {"type": "string"}, "run_id": {"type": "integer"}}, "required": ["repository", "run_id"], "additionalProperties": False}, "annotations": {"readOnlyHint": True}},
+    {"name": "mcp_source_status", "description": "Diagnose registered MCP source discovery without revealing secrets or source configuration.",
+     "inputSchema": {"type": "object", "properties": {}, "additionalProperties": False},
+     "annotations": {"readOnlyHint": True}},
     {"name": "github_workflow_errors", "description": "Read failed job/step metadata; unsafe build logs are withheld.",
      "inputSchema": {"type": "object", "properties": {"repository": {"type": "string"}, "run_id": {"type": "integer"}, "job_id": {"type": "integer"}, "limit": {"type": "integer"}}, "required": ["repository", "run_id"], "additionalProperties": False}, "annotations": {"readOnlyHint": True}},
 )
@@ -45,6 +48,7 @@ _HANDLERS = {
     "agent_submit": agent_ops_adapter.send_issue,
     "github_workflow_runs": github_workflows_mcp.runs,
     "github_workflow_status": github_workflows_mcp.status,
+    "mcp_source_status": lambda arguments: source_status(),
     "github_workflow_errors": github_workflows_mcp.errors,
 }
 
@@ -83,6 +87,25 @@ def _live_source_catalogs():
         except (OSError, ValueError, RuntimeError, TimeoutError):
             catalogs[registration.source_id] = []
     return catalogs
+
+
+def source_status():
+    """Safe source-level health summary; never disclose argv, paths or tokens."""
+    sources = []
+    for registration in _SOURCE_REGISTRATIONS:
+        if not registration.enabled:
+            sources.append({"source": registration.source_id, "enabled": False, "status": "disabled", "tools": []})
+            continue
+        try:
+            catalog = classify_source_catalog(registration, list_source_tools(registration))
+            names = sorted(registration.source_id + "__" + t["name"] for t in catalog["read"])
+            sources.append({"source": registration.source_id, "enabled": True,
+                            "status": "available", "tools": names,
+                            "withheld_execute_count": len(catalog["execute_required"])})
+        except (OSError, ValueError, RuntimeError, TimeoutError) as exc:
+            sources.append({"source": registration.source_id, "enabled": True,
+                            "status": "unavailable", "error_type": type(exc).__name__, "tools": []})
+    return {"sources": sources, "registered_count": len(_SOURCE_REGISTRATIONS)}
 
 
 def list_tools():
