@@ -8,6 +8,7 @@ from .mcp_catalog import compose_catalog
 from .mcp_source_registry import compose_source_catalog
 from .mcp_source_stdio import call_source_tool, list_source_tools
 from .mcp_source_policy import classify_source_catalog
+from .mcp_tool_scope import required_scope
 
 TOOLS = (
     {"name": "agent_list_issues", "description": "List trusted issues and their eligibility; never dispatch.",
@@ -82,8 +83,8 @@ def _live_source_catalogs():
         if not registration.enabled:
             continue
         try:
-            catalogs[registration.source_id] = classify_source_catalog(
-                registration, list_source_tools(registration))["read"]
+            classified = classify_source_catalog(registration, list_source_tools(registration))
+            catalogs[registration.source_id] = classified["read"] + classified["execute_required"]
         except (OSError, ValueError, RuntimeError, TimeoutError):
             catalogs[registration.source_id] = []
     return catalogs
@@ -113,8 +114,8 @@ def list_tools():
     return compose_source_catalog(TOOLS, _SOURCE_REGISTRATIONS, _live_source_catalogs())
 
 
-def call_tool(name, arguments):
-    """Dispatch only a currently advertised read-only tool from a trusted source."""
+def call_tool(name, arguments, *, authorized_scope="read"):
+    """Dispatch a trusted tool under the explicitly authorized caller scope."""
     if type(name) is not str:
         raise ValueError("mcp_tool_not_allowed")
     if name not in _HANDLERS:
@@ -124,10 +125,17 @@ def call_tool(name, arguments):
                 short_name = name[len(prefix):]
                 approved = _live_source_catalogs().get(registration.source_id, ())
                 if any(tool.get("name") == short_name for tool in approved):
-                    return call_source_tool(registration, short_name, arguments, approved)
+                    declared = next(tool for tool in approved if tool["name"] == short_name)
+                    if required_scope(declared) == "execute" and authorized_scope != "execute":
+                        raise ValueError("mcp_execute_scope_required")
+                    return call_source_tool(registration, short_name, arguments, declared,
+                                            authorized_scope=authorized_scope)
         raise ValueError("mcp_tool_not_allowed")
     if type(arguments) is not dict:
         raise ValueError("invalid_arguments")
+    declaration = next(tool for tool in TOOLS if tool["name"] == name)
+    if required_scope(declaration) == "execute" and authorized_scope != "execute":
+        raise ValueError("mcp_execute_scope_required")
     schema = TOOLS[tuple(_HANDLERS).index(name)]["inputSchema"]
     required = set(schema.get("required", ()))
     if not required <= set(arguments) or set(arguments) - set(schema["properties"]):
