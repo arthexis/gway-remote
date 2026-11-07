@@ -46,8 +46,8 @@ class TestFederatedExecution(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "mcp_tool_not_allowed"):
             mcp_agent.call_tool("odoo__update", {}, authorized_scope="execute")
 
-    def test_builtin_submit_requires_execute(self):
-        with self.assertRaisesRegex(ValueError, "execute_scope_required"):
+    def test_retired_builtin_submit_is_not_allowed(self):
+        with self.assertRaisesRegex(ValueError, "mcp_tool_not_allowed"):
             mcp_agent.call_tool("agent_submit", {}, authorized_scope="read")
 
     def test_http_transport_defaults_to_read(self):
