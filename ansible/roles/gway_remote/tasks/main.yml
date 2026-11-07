@@ -115,6 +115,27 @@
       {{ gway_agent_allowed_repos | join(',') }}
   when: gway_agent_allowed_repos is defined
 
+# AgentOps runtime configuration is opt-in and root-managed.
+- name: Validate optional AgentOps MCP launch runtime
+  ansible.builtin.assert:
+    that:
+      - gway_agent_mcp_workspace is match('^/[^ ]+$')
+      - gway_agent_mcp_executable is match('^/[^ ]+/agent$')
+      - "'..' not in gway_agent_mcp_workspace.split('/')"
+      - "'..' not in gway_agent_mcp_executable.split('/')"
+  when: gway_agent_mcp_workspace is defined or gway_agent_mcp_executable is defined
+
+- name: Install AgentOps MCP launch runtime policy
+  ansible.builtin.copy:
+    dest: /etc/gway-mcp-providers/agentops.runtime.json
+    owner: root
+    group: root
+    mode: '0644'
+    content: "{{ {'workspace': gway_agent_mcp_workspace, 'agent_executable': gway_agent_mcp_executable} | to_json }}\n"
+  when:
+    - gway_agent_mcp_workspace is defined
+    - gway_agent_mcp_executable is defined
+
 # Explicit opt-in: generic MCP provider policy staging, never auto-enroll sources.
 - name: Stage explicitly approved MCP provider registrations
   ansible.builtin.include_tasks: mcp-source-provision.yml

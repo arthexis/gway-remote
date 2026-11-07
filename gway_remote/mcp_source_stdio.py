@@ -45,6 +45,38 @@ def _provider_environment(registration):
                     for item in repos.split(",")):
                 raise SourceProtocolError("invalid_provider_policy")
             env["GWAY_AGENT_ALLOWED_REPOS"] = repos
+    if registration.source_id == "agentops":
+        # A root-owned, provider-specific runtime policy is the only source of
+        # launch inputs. Never inherit the gateway process environment.
+        runtime = Path("/etc/gway-mcp-providers/agentops.runtime.json")
+        if runtime.exists() or runtime.is_symlink():
+            info = runtime.lstat()
+            if (not runtime.is_file() or runtime.is_symlink() or info.st_uid != 0
+                    or info.st_mode & 0o022 or info.st_size > 4096):
+                raise SourceProtocolError("untrusted_provider_runtime")
+            try:
+                settings = json.loads(runtime.read_text(encoding="utf-8"))
+            except (ValueError, UnicodeError) as exc:
+                raise SourceProtocolError("invalid_provider_runtime") from exc
+            if (type(settings) is not dict or set(settings) != {"workspace", "agent_executable"}
+                    or any(type(value) is not str or not value.startswith("/")
+                           or ".." in value.split("/") for value in settings.values())):
+                raise SourceProtocolError("invalid_provider_runtime")
+            workspace = Path(settings["workspace"])
+            agent = Path(settings["agent_executable"])
+            if (workspace.is_symlink() or not workspace.is_dir()
+                    or workspace.stat().st_uid != os.geteuid()
+                    or workspace.stat().st_mode & 0o077
+                    or agent.is_symlink() or not agent.is_file()
+                    or not os.access(agent, os.X_OK) or agent.name != "agent"):
+                raise SourceProtocolError("invalid_provider_runtime")
+            env["GWAY_AGENT_WORKSPACE_ROOT"] = str(workspace)
+            env["PATH"] = str(agent.parent) + ":" + env["PATH"]
+            runtime_dir = Path("/run/user") / str(os.geteuid())
+            if (runtime_dir.is_dir() and not runtime_dir.is_symlink()
+                    and runtime_dir.stat().st_uid == os.geteuid()
+                    and not runtime_dir.stat().st_mode & 0o077):
+                env["XDG_RUNTIME_DIR"] = str(runtime_dir)
     return env
 
 
