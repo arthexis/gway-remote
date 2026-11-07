@@ -388,7 +388,8 @@ class Handler(BaseHTTPRequestHandler):
             raw = json.dumps(legacy_payload, separators=(",", ":")).encode("utf-8")
         # Validate source calls against the live trusted backend catalog. A
         # namespaced name alone is not authorization: unregistered tools fail closed.
-        if payload["method"] == "tools/call" and SOURCE_TOOL_NAME.fullmatch(payload["params"]["name"]):
+        if (self.server.federation is None and payload["method"] == "tools/call"
+                and SOURCE_TOOL_NAME.fullmatch(payload["params"]["name"])):
             probe = json.dumps({"jsonrpc": "2.0", "id": 0, "method": "tools/list",
                                 "params": {}}, separators=(",", ":")).encode()
             probe_headers = {"Authorization": "Bearer " + self.server.backend_token,
@@ -412,6 +413,39 @@ class Handler(BaseHTTPRequestHandler):
                     return self.reject(401, scope="gway:execute")
             except (OSError, URLError, HTTPError, ValueError, TypeError, KeyError):
                 return self.reject(502)
+        # Federated providers are resolved from attested nodes, not Watchtower policy.
+        # The federation object is provisioned by the trusted service bootstrap.
+        if payload["method"] == "tools/call" and SOURCE_TOOL_NAME.fullmatch(
+                payload.get("params", {}).get("name", "")):
+            if self.server.federation is None:
+                return self.reject(403)
+            try:
+                name = payload["params"]["name"]
+                arguments = payload["params"].get("arguments", {})
+                if type(arguments) is not dict:
+                    return self.reject(400)
+                _, routes = self.server.federation.discover()
+                if name not in routes:
+                    return self.reject(403)
+                if routes[name][3] == "execute" and not has_exec:
+                    return self.reject(401, scope="gway:execute")
+                selected = self.server.federation.call(
+                    name, arguments, authorized_scope="execute" if has_exec else "read")
+                result = {"content": [{"type": "text", "text": json.dumps(selected, separators=(",", ":"))}]}
+                body = json.dumps({"jsonrpc": "2.0", "id": payload.get("id"),
+                                   "result": {"resultType": "complete", **result}
+                                   if version == "2026-07-28" else result},
+                                  separators=(",", ":")).encode()
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json")
+                self.send_header("MCP-Protocol-Version", version)
+                self.send_header("Cache-Control", "no-store")
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
+                return
+            except (ValueError, PermissionError, RuntimeError, OSError, TypeError, KeyError):
+                return self.reject(403)
         # Forward only to a fixed private endpoint; never forward client headers.
         headers = {"Authorization": "Bearer " + self.server.backend_token,
                    "X-Gway-Caller-Scope": "execute" if has_exec else "read",
@@ -449,8 +483,13 @@ class Handler(BaseHTTPRequestHandler):
                 names = [tool.get("name") for tool in tools]
                 if any(type(name) is not str for name in names) or len(names) != len(set(names)):
                     raise ValueError("invalid upstream tool names")
-                tools = [tool for tool in tools if tool["name"] in ALLOWED_TOOLS
-                         or trusted_source_tool(tool)]
+                tools = [tool for tool in tools if tool["name"] in ALLOWED_TOOLS]
+                if self.server.federation is not None:
+                    remote_tools, _ = self.server.federation.discover(builtins=tools + list(NODE_TOOLS) + list(EXEC_TOOLS))
+                    # Node registrations are authoritative; no Watchtower
+                    # per-provider allowlist or static tool approval.
+                    builtin_names = {tool["name"] for tool in NODE_TOOLS + EXEC_TOOLS}
+                    tools = [tool for tool in remote_tools if tool["name"] not in builtin_names]
                 scoped_tools = [scoped_tool(tool, EXEC_SECURITY if (tool.get("name") == "agent_submit" or
                              (trusted_source_tool(tool) and not (
                                  type(tool.get("annotations")) is dict and
@@ -461,7 +500,7 @@ class Handler(BaseHTTPRequestHandler):
                 result["tools"] = (scoped_tools + node_tools +
                                    (exec_tools if self.server.execution is not None else []))
                 body = json.dumps(upstream_payload, separators=(",", ":")).encode()
-            except (ValueError, TypeError, KeyError, UnicodeError):
+            except (ValueError, TypeError, KeyError, UnicodeError, OSError, RuntimeError, TimeoutError):
                 return self.reject(502)
             if len(body) > MAX_RESPONSE:
                 return self.reject(502)
@@ -485,7 +524,7 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
-def make_server(address, registry, upstream, backend_token, *, execution=None, bridge_sessions=None, bridge_transport=None, approved_sources=None):
+def make_server(address, registry, upstream, backend_token, *, execution=None, bridge_sessions=None, bridge_transport=None, approved_sources=None, federation=None):
     from urllib.parse import urlsplit
     parsed = urlsplit(upstream)
     if parsed.scheme != "http" or parsed.hostname != "127.0.0.1" or not parsed.port or parsed.path != "/mcp" or parsed.query or parsed.fragment or parsed.username or parsed.password:
@@ -505,6 +544,7 @@ def make_server(address, registry, upstream, backend_token, *, execution=None, b
                 or tool["annotations"].get("destructiveHint") is True):
             raise ValueError("invalid approved source policy")
     server.approved_sources = approved_sources
+    server.federation = federation
     server.registry = registry
     server.execution = execution
     if bridge_transport is not None and bridge_sessions is None:
@@ -528,12 +568,21 @@ def main():
     if os.environ.get("GWAY_MCP_EXEC_ENABLED") == "1":
         from .watchtower_exec_service import load_service
         execution = load_service()
+    federation = None
+    if execution is not None:
+        from .mcp_gateway_federation import FederatedProviders
+        from .mcp_provider_transport import ProviderTransport
+        transport = execution.relay.transport
+        federation = FederatedProviders(
+            transport=ProviderTransport(transport),
+            nodes=lambda: tuple(transport.transports) if hasattr(transport, "transports")
+            else (transport.node.node,))
     policy_path = os.environ.get("GWAY_MCP_SOURCE_POLICY")
     policy_sha = os.environ.get("GWAY_MCP_SOURCE_POLICY_SHA256")
     if bool(policy_path) != bool(policy_sha):
         raise ValueError("incomplete source policy configuration")
     approved_sources = None
-    if policy_path:
+    if policy_path and federation is None:
         from .mcp_source_policy import load_source_policy
         from .mcp_source_registry import compose_source_catalog
         registrations, approved = load_source_policy(
@@ -563,7 +612,8 @@ def main():
             _, _, sessions, transport = started
             options = {"bridge_sessions": sessions, "bridge_transport": transport}
         with make_server(("127.0.0.1", args.port), verifier, args.upstream,
-                         token, execution=execution, approved_sources=approved_sources, **options) as service:
+                         token, execution=execution, approved_sources=approved_sources,
+                         federation=federation, **options) as service:
             service.serve_forever()
     finally:
         if started is not None:

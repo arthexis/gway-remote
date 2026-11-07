@@ -12,12 +12,14 @@ import sys
 from .node_exec_worker import Jobs, configured_max_active, require_account, validate_request_id
 from .node_exec_contract import validate_command
 
-MAX_REQUEST_BYTES = 8192
+MAX_REQUEST_BYTES = 65536
 OPERATIONS = {
     "submit": frozenset({"operation", "node", "request_id", "command"}),
     "result": frozenset({"operation", "node", "request_id", "cursor"}),
     "cancel": frozenset({"operation", "node", "request_id"}),
     "limits": frozenset({"operation", "node", "request_id"}),
+    "provider_list": frozenset({"operation", "node", "request_id"}),
+    "provider_call": frozenset({"operation", "node", "request_id", "provider", "tool", "arguments", "authorized_scope"}),
 }
 
 
@@ -39,6 +41,23 @@ def serve_one(raw, *, jobs=None, hostname=None):
     if host != "gway-001" or req["node"] != host:
         raise PermissionError("unapproved node")
     rid = validate_request_id(req["request_id"])
+    if op in ("provider_list", "provider_call"):
+        from .mcp_node_providers import dispatch_node_provider_request
+        from .mcp_source_policy import load_source_policy, policy_digest
+        path = os.environ.get("GWAY_MCP_SOURCE_POLICY")
+        if not path:
+            raise PermissionError("node provider registry unavailable")
+        registrations, _ = load_source_policy(path, expected_sha256=policy_digest(path))
+        if op == "provider_list":
+            request, scope = {"operation": "provider_list"}, "read"
+        else:
+            scope = req["authorized_scope"]
+            if scope not in ("read", "execute"):
+                raise PermissionError("invalid scope")
+            request = {key: req[key] for key in ("provider", "tool", "arguments")}
+            request["operation"] = "provider_call"
+        return {"node": host, "request_id": rid, "result": dispatch_node_provider_request(
+            registrations, request, node_id=host, trusted_scope=scope)}
     if op == "limits":
         return {"node": host, "request_id": rid,
                 "concurrent_jobs_per_node": configured_max_active()}
