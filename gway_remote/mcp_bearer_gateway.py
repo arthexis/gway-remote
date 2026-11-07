@@ -499,7 +499,7 @@ class Handler(BaseHTTPRequestHandler):
                 result["tools"] = (scoped_tools + node_tools +
                                    (exec_tools if self.server.execution is not None else []))
                 body = json.dumps(upstream_payload, separators=(",", ":")).encode()
-            except (ValueError, TypeError, KeyError, UnicodeError):
+            except (ValueError, TypeError, KeyError, UnicodeError, OSError, RuntimeError, TimeoutError):
                 return self.reject(502)
             if len(body) > MAX_RESPONSE:
                 return self.reject(502)
