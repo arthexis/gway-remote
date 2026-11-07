@@ -14,7 +14,7 @@ PROTOCOL = "2025-03-26"
 MODERN_PROTOCOL = "2026-07-28"
 
 
-def handle(payload):
+def handle(payload, *, authorized_scope="read"):
     """Return (result, error_code, safe_error_message) for one JSON-RPC message."""
     if type(payload) is not dict or payload.get("jsonrpc") != "2.0":
         return None, -32600, "Invalid Request"
@@ -52,7 +52,8 @@ def handle(payload):
         if type(params) is not dict or type(params.get("name")) is not str:
             return None, -32602, "Invalid params"
         try:
-            result = mcp_agent.call_tool(params["name"], params.get("arguments", {}))
+            result = mcp_agent.call_tool(params["name"], params.get("arguments", {}),
+                                         authorized_scope=authorized_scope)
         except (ValueError, TypeError):
             return None, -32602, "Invalid params"
         except Exception:
@@ -146,7 +147,11 @@ class Handler(BaseHTTPRequestHandler):
                 return
             if payload.get("method") in ("tools/list", "tools/call"):
                 payload = {**payload, "params": {k: v for k, v in payload["params"].items() if k != "_meta"}}
-        result, code, message = handle(payload)
+        caller_scope = self.headers.get("X-Gway-Caller-Scope", "read")
+        if caller_scope not in ("read", "execute"):
+            self._empty(403)
+            return
+        result, code, message = handle(payload, authorized_scope=caller_scope)
         if result is None and code is None:
             self._empty(202)
             return
