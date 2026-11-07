@@ -10,6 +10,7 @@ import os
 from pathlib import Path
 
 from .mcp_source_registry import SourceRegistration, compose_source_catalog
+from .mcp_tool_scope import required_scope
 
 MAX_POLICY = 65536
 
@@ -80,8 +81,7 @@ def classify_source_catalog(registration, discovered):
         if name in names:
             raise ValueError("duplicate discovered tool")
         names.add(name)
-        annotations = tool.get("annotations")
-        if type(annotations) is dict and annotations.get("readOnlyHint") is True and annotations.get("destructiveHint") is not True:
+        if required_scope(tool) == "read":
             readonly.append(tool)
         else:
             execute.append(tool)
