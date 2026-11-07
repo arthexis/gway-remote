@@ -13,7 +13,7 @@ import stat
 
 SSHD_CONFIG = Path("/etc/ssh/sshd_config.d/40-gway-exec-relay.conf")
 SUDOERS_CONFIG = Path("/etc/sudoers.d/gway-exec-relay")
-PROTOCOL = "/usr/bin/env PYTHONPATH=/opt/gway-remote /usr/bin/python3 -m gway_remote.node_exec_protocol"
+PROTOCOL = "/usr/bin/env PYTHONPATH=/opt/gway-remote GWAY_MCP_SOURCE_POLICY=/etc/gway-mcp-gateway/sources.json /usr/bin/python3 -m gway_remote.node_exec_protocol"
 FORCE = re.compile(r"\s*ForceCommand /usr/bin/sudo -n -u (gway-exec|arthe) (.*)")
 ALLOW = re.compile(r"gway-relay ALL=\((gway-exec|arthe)\) NOPASSWD: (.*)")
 
