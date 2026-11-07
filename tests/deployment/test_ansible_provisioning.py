@@ -41,7 +41,7 @@ class ProvisioningTests(unittest.TestCase):
 
     def test_agentops_policy_has_real_newline_not_literal_escape(self):
         source = Path("ansible/roles/gway_remote/tasks/main.yml").read_text()
-        section = source.split("- name: Install AgentOps repository policy", 1)[1].split("\\n- name:", 1)[0]
+        section = source.split("- name: Install AgentOps repository policy", 1)[1].split("\n- name:", 1)[0]
         self.assertIn("content: |", section)
         self.assertIn("gway_agent_allowed_repos | join", section)
         self.assertNotIn(r"\\n", section)
