@@ -8,6 +8,7 @@ import json
 import os
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from . import mcp_agent
+from .mcp_source_stdio import SourceProtocolError
 
 MAX_REQUEST = 65536
 PROTOCOL = "2025-03-26"
@@ -54,11 +55,33 @@ def handle(payload, *, authorized_scope="read"):
         try:
             result = mcp_agent.call_tool(params["name"], params.get("arguments", {}),
                                          authorized_scope=authorized_scope)
-        except (ValueError, TypeError):
-            return None, -32602, "Invalid params"
-        except Exception:
-            # Agent errors must not leak subprocess output or local file paths.
-            return {"content": [{"type": "text", "text": "Agent Ops unavailable"}],
+        except (ValueError, TypeError) as exc:
+            # Expose only stable, audited internal error identifiers.
+            code = str(exc)
+            allowed = {"mcp_tool_not_allowed", "mcp_execute_scope_required", "invalid_arguments"}
+            return None, -32602, code if code in allowed else "Invalid params"
+        except Exception as exc:
+            # Raw provider exceptions can contain secrets, paths or response bodies.
+            # Return actionable provider identity and exception class, not raw text.
+            name = params["name"]
+            provider = name.split("__", 1)[0] if "__" in name else "gway-remote"
+            codes = {
+                "provider_timeout": ("communication", True, "Provider response timed out"),
+                "provider_unavailable": ("startup", True, "Provider unavailable"),
+                "provider_execution_failed": ("provider_response", False, "Provider returned an error"),
+                "tool_declaration_changed": ("tool_validation", False, "Tool declaration changed"),
+                "permission_denied": ("authorization", False, "Execution permission required"),
+            }
+            code = exc.code if isinstance(exc, SourceProtocolError) else (
+                "provider_unavailable" if isinstance(exc, (ConnectionError, OSError)) else
+                "provider_timeout" if isinstance(exc, TimeoutError) else "provider_internal_error")
+            stage, retryable, message = codes.get(
+                code, ("tool_execution", False, "Unexpected provider failure"))
+            detail = {"provider": provider, "tool": name, "status": "failed",
+                      "error": {"code": code, "message": message,
+                                "stage": stage, "retryable": retryable},
+                      "error_type": type(exc).__name__}
+            return {"content": [{"type": "text", "text": json.dumps(detail)}],
                     "isError": True}, None, None
         return {"content": [{"type": "text", "text": json.dumps(result, separators=(",", ":"))}]}, None, None
     return None, -32601, "Method not found"
