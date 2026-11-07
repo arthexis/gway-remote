@@ -11,17 +11,6 @@ on:
       - 'android/**'
       - '.github/workflows/android-compose-ui.yml'
   workflow_dispatch:
-    inputs:
-      profile:
-        description: Android UI configuration
-        type: choice
-        options:
-          - phone
-          - narrow
-          - tablet
-          - large-text
-        default: phone
-        required: true
 
 permissions:
   contents: read
