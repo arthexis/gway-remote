@@ -79,6 +79,12 @@
   register: gway_remote_source
   changed_when: (gway_remote_source.stdout | from_json).changed | bool
 
+# deploy.sh uses a transient local inventory; read the committed node policy explicitly.
+- name: Load gway-001 AgentOps repository policy from canonical inventory
+  ansible.builtin.set_fact:
+    gway_agent_allowed_repos: "{{ (lookup('file', playbook_dir ~ '/inventory/deployment.yml') | from_yaml).all.children.controller.hosts['gway-001'].gway_agent_allowed_repos }}"
+  when: (ansible_hostname | default('')) == 'gway-001'
+
 # Node-owned AgentOps issue trust policy; independent of provider registration.
 - name: Validate AgentOps repository policy
   ansible.builtin.assert:
