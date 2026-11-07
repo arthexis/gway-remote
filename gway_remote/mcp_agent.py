@@ -83,8 +83,8 @@ def _live_source_catalogs():
         if not registration.enabled:
             continue
         try:
-            catalogs[registration.source_id] = classify_source_catalog(
-                registration, list_source_tools(registration))["read"] + classify_source_catalog(registration, list_source_tools(registration))["execute_required"]
+            classified = classify_source_catalog(registration, list_source_tools(registration))
+            catalogs[registration.source_id] = classified["read"] + classified["execute_required"]
         except (OSError, ValueError, RuntimeError, TimeoutError):
             catalogs[registration.source_id] = []
     return catalogs
@@ -133,6 +133,9 @@ def call_tool(name, arguments, *, authorized_scope="read"):
         raise ValueError("mcp_tool_not_allowed")
     if type(arguments) is not dict:
         raise ValueError("invalid_arguments")
+    declaration = next(tool for tool in TOOLS if tool["name"] == name)
+    if required_scope(declaration) == "execute" and authorized_scope != "execute":
+        raise ValueError("mcp_execute_scope_required")
     schema = TOOLS[tuple(_HANDLERS).index(name)]["inputSchema"]
     required = set(schema.get("required", ()))
     if not required <= set(arguments) or set(arguments) - set(schema["properties"]):
