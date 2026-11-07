@@ -39,6 +39,13 @@ class ProvisioningTests(unittest.TestCase):
         self.assertTrue(Path("scripts/configure-agent-seed-workspace.sh").is_file())
         self.assertNotIn("cmd: sh {{ gway_remote_install_root }}/scripts/configure-agent-seed-workspace.sh", source)
 
+    def test_agentops_policy_has_real_newline_not_literal_escape(self):
+        source = Path("ansible/roles/gway_remote/tasks/main.yml").read_text()
+        section = source.split("- name: Install AgentOps repository policy", 1)[1].split("\n- name:", 1)[0]
+        self.assertIn("content: |", section)
+        self.assertIn("gway_agent_allowed_repos | join", section)
+        self.assertNotIn(r"\\n", section)
+
     def test_local_deploy_wrapper(self):
         script = Path('deploy.sh').read_text()
         self.assertIn('ansible-playbook', script)
