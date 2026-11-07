@@ -1,0 +1,72 @@
+---
+# Opt-in, generic registration-only MCP policy provisioning (#449).
+# This stages an immutable root-controlled policy; activation/restart is separate.
+- name: Validate explicit MCP source registrations
+  ansible.builtin.assert:
+    that:
+      - gway_mcp_sources is sequence
+      - gway_mcp_sources is not string
+      - gway_mcp_sources | length <= 16
+      - (gway_mcp_sources | map(attribute='source_id') | list | unique | length) == (gway_mcp_sources | length)
+    fail_msg: "MCP source registrations must be a bounded, unique list"
+
+- name: Validate each MCP source identity and permission ceiling
+  ansible.builtin.assert:
+    that:
+      - item.source_id is match('^[a-z][a-z0-9_]{1,39}$')
+      - item.revision is match('^[0-9a-f]{40}$')
+      - item.executable is match('^/')
+      - "'..' not in item.executable.split('/')"
+      - item.argv is sequence
+      - item.argv is not string
+      - item.argv | length > 0
+      - item.argv[0] == item.executable
+      - item.run_as is match('^[a-z][a-z0-9_]{1,39}$')
+      - item.enabled is boolean
+      - item.permission == 'read'
+    fail_msg: "Invalid or unsafe MCP source registration"
+  loop: "{{ gway_mcp_sources }}"
+  loop_control:
+    label: "{{ item.source_id | default('invalid') }}"
+
+- name: Create protected MCP configuration directory
+  ansible.builtin.file:
+    path: /etc/gway-mcp-gateway
+    state: directory
+    owner: root
+    group: root
+    mode: '0755'
+
+- name: Check existing MCP source policy path
+  ansible.builtin.stat:
+    path: /etc/gway-mcp-gateway/sources.json
+    follow: false
+  register: gway_mcp_policy_existing
+
+- name: Refuse unsafe existing MCP source policy
+  ansible.builtin.assert:
+    that:
+      - not gway_mcp_policy_existing.stat.islnk | default(false)
+      - not gway_mcp_policy_existing.stat.exists or (gway_mcp_policy_existing.stat.isreg | default(false))
+      - not gway_mcp_policy_existing.stat.exists or (gway_mcp_policy_existing.stat.pw_name | default('') == 'root')
+      - not gway_mcp_policy_existing.stat.exists or ((gway_mcp_policy_existing.stat.mode | default('0644'))[-3:] is match('^[0-7][0-4][0-4]$'))
+    fail_msg: "Existing MCP source policy is not a protected regular file"
+
+- name: Stage canonical registration-only policy v2
+  ansible.builtin.copy:
+    dest: /etc/gway-mcp-gateway/sources.json
+    owner: root
+    group: root
+    mode: '0644'
+    content: "{{ {'version': 2, 'sources': (gway_mcp_sources | sort(attribute='source_id') | map('community.general.dict_kv', 'registration') | list)} | to_json(sort_keys=True, separators=(',', ':')) }}"
+  register: gway_mcp_policy_staged
+
+- name: Compute staged MCP policy SHA256
+  ansible.builtin.stat:
+    path: /etc/gway-mcp-gateway/sources.json
+    checksum_algorithm: sha256
+  register: gway_mcp_policy_checksum
+
+- name: Report digest for separately authorized gateway activation
+  ansible.builtin.debug:
+    msg: "MCP policy staged: SHA256={{ gway_mcp_policy_checksum.stat.checksum }}; gateway activation/reload is intentionally separate"
