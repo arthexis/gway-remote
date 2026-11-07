@@ -39,7 +39,9 @@ def discover_installed_providers(directory=INSTALL_DIR):
         if path.stem != data["source_id"]:
             raise ValueError("provider manifest filename mismatch")
         executable = Path(data["executable"])
-        # A managed release can be operator-owned; reject executables writable\n        # by unrelated users, and never follow executable links.\n        if executable.is_symlink() or not executable.is_file():
+        # A managed release can be operator-owned; reject executables writable
+        # by unrelated users, and never follow executable links.
+        if executable.is_symlink() or not executable.is_file():
             raise ValueError("unsafe provider executable")
         executable_stat = executable.stat()
         if executable_stat.st_mode & 0o022 or not executable_stat.st_mode & 0o111:
