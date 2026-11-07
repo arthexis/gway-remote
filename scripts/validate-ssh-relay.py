@@ -19,7 +19,8 @@ def forced_command(user: str) -> str:
         raise ValueError("unsupported executor identity")
     return (
         f"/usr/bin/sudo -n -u {user} /usr/bin/env "
-        "PYTHONPATH=/opt/gway-remote /usr/bin/python3 "
+        "PYTHONPATH=/opt/gway-remote "
+        "GWAY_MCP_SOURCE_POLICY=/etc/gway-mcp-gateway/sources.json /usr/bin/python3 "
         "-m gway_remote.node_exec_protocol"
     )
 EXPECTED = {
@@ -51,7 +52,9 @@ def fragment(user: str = "gway-exec") -> str:
         raise AssertionError("exactly one expected relay Match block required")
     # Render only the fixed node-owned identity selector for this fixture.
     # Validate production's default account without permitting arbitrary Jinja.
-    rendered = entries[0].replace("{{ gway_remote_exec_run_user }}", user)
+    rendered = (entries[0]
+                .replace("{{ gway_remote_exec_run_user }}", user)
+                .replace("{{ gway_remote_install_root }}", "/opt/gway-remote"))
     if "{{" in rendered or "{%" in rendered:
         raise AssertionError("unrendered Ansible template in sshd configuration")
     return rendered
