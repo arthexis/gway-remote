@@ -90,5 +90,3 @@
   ansible.builtin.assert:
     that:
       - gway_mcp_policy_verified.stdout == gway_mcp_policy_checksum.stat.checksum
-))
-
