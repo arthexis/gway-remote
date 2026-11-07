@@ -17,8 +17,6 @@ from .mcp_source_stdio import list_source_tools
 def build_readonly_source_entry(registration, *, discover=list_source_tools):
     if not isinstance(registration, SourceRegistration) or not registration.enabled:
         raise ValueError("enabled source registration required")
-    if registration.permission != "read":
-        raise ValueError("execute sources are not supported")
     tools = classify_source_catalog(registration, discover(registration))
     return {
         "registration": {
@@ -28,7 +26,6 @@ def build_readonly_source_entry(registration, *, discover=list_source_tools):
             "argv": list(registration.argv),
             "run_as": registration.run_as,
             "enabled": registration.enabled,
-            "permission": registration.permission,
         },
         "tools": tools["read"],
     }, tuple(tool["name"] for tool in tools["execute_required"])
