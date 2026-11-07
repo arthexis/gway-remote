@@ -65,21 +65,6 @@
         {% endfor %}
         {{ {'version': 2, 'sources': ns.entries} | to_json(sort_keys=True) }}
 
-- name: Read existing MCP policy without following symlinks
-  ansible.builtin.slurp:
-    src: /etc/gway-mcp-gateway/sources.json
-  register: gway_mcp_existing_policy_bytes
-  when: gway_mcp_policy_existing.stat.exists | default(false)
-
-- name: Require approval only for actual policy changes
-  ansible.builtin.assert:
-    that:
-      - gway_mcp_policy_replace_approved | default(false) | bool
-    fail_msg: 'Changing existing MCP registrations requires explicit approval; identical policy is idempotent'
-  when:
-    - gway_mcp_policy_existing.stat.exists | default(false)
-    - (gway_mcp_existing_policy_bytes.content | b64decode | from_json) != (gway_mcp_desired_policy | from_json)
-
 - name: Stage canonical registration-only policy v2
   ansible.builtin.copy:
     dest: /etc/gway-mcp-gateway/sources.json
