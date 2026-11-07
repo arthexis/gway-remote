@@ -54,11 +54,19 @@ def handle(payload, *, authorized_scope="read"):
         try:
             result = mcp_agent.call_tool(params["name"], params.get("arguments", {}),
                                          authorized_scope=authorized_scope)
-        except (ValueError, TypeError):
-            return None, -32602, "Invalid params"
-        except Exception:
-            # Agent errors must not leak subprocess output or local file paths.
-            return {"content": [{"type": "text", "text": "Agent Ops unavailable"}],
+        except (ValueError, TypeError) as exc:
+            # Expose only stable, audited internal error identifiers.
+            code = str(exc)
+            allowed = {"mcp_tool_not_allowed", "mcp_execute_scope_required", "invalid_arguments"}
+            return None, -32602, code if code in allowed else "Invalid params"
+        except Exception as exc:
+            # Raw provider exceptions can contain secrets, paths or response bodies.
+            # Return actionable provider identity and exception class, not raw text.
+            name = params["name"]
+            provider = name.split("__", 1)[0] if "__" in name else "gway-remote"
+            detail = {"provider": provider, "error_type": type(exc).__name__,
+                      "status": "failed"}
+            return {"content": [{"type": "text", "text": json.dumps(detail)}],
                     "isError": True}, None, None
         return {"content": [{"type": "text", "text": json.dumps(result, separators=(",", ":"))}]}, None, None
     return None, -32601, "Method not found"
