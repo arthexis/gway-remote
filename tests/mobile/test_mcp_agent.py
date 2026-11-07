@@ -10,7 +10,7 @@ class MCPAgentTests(unittest.TestCase):
         tools = mcp_agent.list_tools()
         self.assertEqual({x["name"] for x in tools},
                          {"agent_list_issues", "agent_status", "agent_preview", "agent_observe", "agent_submit",
-                          "github_workflow_runs", "github_workflow_status", "github_workflow_errors"})
+                          "github_workflow_runs", "github_workflow_status", "github_workflow_errors", "mcp_source_status"})
         self.assertTrue(all(x["annotations"]["readOnlyHint"] for x in tools if x["name"] != "agent_submit"))
         self.assertIn("agent_submit", {x["name"] for x in tools})
 
