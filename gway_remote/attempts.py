@@ -18,7 +18,7 @@ def read_attempts(directory=DEFAULT_DIR):
         return {}
     data = json.loads(path.read_text(encoding="utf-8"))
     if not isinstance(data, dict) or any(
-        name not in NAMES or not isinstance(item, dict) or
+        not isinstance(name, str) or not isinstance(item, dict) or
         not isinstance(item.get("sha"), str) for name, item in data.items()
     ):
         raise ValueError("invalid attempt journal")
@@ -61,4 +61,5 @@ def mark(name, sha, status, directory=DEFAULT_DIR, error=None, log=None):
 
 
 def attempted_shas(directory=DEFAULT_DIR):
-    return {name: entry["sha"] for name, entry in read_attempts(directory).items()}
+    return {name: entry["sha"] for name, entry in read_attempts(directory).items()
+            if name in NAMES}
