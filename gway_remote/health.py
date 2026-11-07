@@ -85,9 +85,13 @@ def quick_component_check(name: str):
     home = Path.home()
     spec = probe_for(name)
     if spec.kind == "executable":
+        if not spec.executable:
+            return "executable-missing"
         executable = (home / spec.executable) if not spec.executable.startswith("/") else Path(spec.executable)
         return "executable-present" if executable.is_file() else "executable-missing"
     if spec.kind == "lcd":
+        if not spec.release or not spec.executable:
+            return "installation-incomplete"
         prefix = home / spec.release
         observer = home / spec.executable
         unit = home / ".config/systemd/user/gway-app-observer.service"
@@ -102,6 +106,8 @@ def quick_component_check(name: str):
                 return "unit-configuration-mismatch"
         return "installation-present"
     if spec.kind == "systemd":
+        if not spec.release:
+            return "release-missing"
         link = home / spec.release
         return "release-present" if link.is_symlink() and link.exists() else "release-missing"
     if spec.kind == "csms":
