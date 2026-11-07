@@ -44,11 +44,8 @@ def serve_one(raw, *, jobs=None, hostname=None):
     rid = validate_request_id(req["request_id"])
     if op in ("provider_list", "provider_call"):
         from .mcp_node_providers import dispatch_node_provider_request
-        from .mcp_source_policy import load_source_policy, policy_digest
-        path = os.environ.get("GWAY_MCP_SOURCE_POLICY")
-        if not path:
-            raise PermissionError("node provider registry unavailable")
-        registrations, _ = load_source_policy(path, expected_sha256=policy_digest(path))
+        from .mcp_installed_providers import discover_installed_providers
+        registrations = discover_installed_providers()
         if op == "provider_list":
             request, scope = {"operation": "provider_list"}, "read"
         else:
