@@ -8,6 +8,7 @@ import json
 import os
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from . import mcp_agent
+from .mcp_source_stdio import SourceProtocolError
 
 MAX_REQUEST = 65536
 PROTOCOL = "2025-03-26"
@@ -64,8 +65,22 @@ def handle(payload, *, authorized_scope="read"):
             # Return actionable provider identity and exception class, not raw text.
             name = params["name"]
             provider = name.split("__", 1)[0] if "__" in name else "gway-remote"
-            detail = {"provider": provider, "error_type": type(exc).__name__,
-                      "status": "failed"}
+            codes = {
+                "provider_timeout": ("communication", True, "Provider response timed out"),
+                "provider_unavailable": ("startup", True, "Provider unavailable"),
+                "provider_execution_failed": ("provider_response", False, "Provider returned an error"),
+                "tool_declaration_changed": ("tool_validation", False, "Tool declaration changed"),
+                "permission_denied": ("authorization", False, "Execution permission required"),
+            }
+            code = exc.code if isinstance(exc, SourceProtocolError) else (
+                "provider_unavailable" if isinstance(exc, (ConnectionError, OSError)) else
+                "provider_timeout" if isinstance(exc, TimeoutError) else "provider_internal_error")
+            stage, retryable, message = codes.get(
+                code, ("tool_execution", False, "Unexpected provider failure"))
+            detail = {"provider": provider, "tool": name, "status": "failed",
+                      "error": {"code": code, "message": message,
+                                "stage": stage, "retryable": retryable},
+                      "error_type": type(exc).__name__}
             return {"content": [{"type": "text", "text": json.dumps(detail)}],
                     "isError": True}, None, None
         return {"content": [{"type": "text", "text": json.dumps(result, separators=(",", ":"))}]}, None, None
