@@ -3,7 +3,7 @@ import unittest
 from unittest.mock import patch
 
 from gway_remote.mcp_node_providers import (
-    NodeProviderError, provider_call, provider_list,
+    NodeProviderError, provider_call, provider_list, dispatch_node_provider_request,
 )
 from gway_remote.mcp_source_registry import SourceRegistration
 
@@ -48,6 +48,21 @@ class NodeProviderTests(unittest.TestCase):
         self.assertEqual(result["providers"][0]["status"], "unavailable")
         self.assertEqual(result["providers"][0]["tools"], [])
         self.assertEqual(result["providers"][0]["error"]["code"], "provider_unavailable")
+
+    @patch("gway_remote.mcp_node_providers.list_source_tools", return_value=[READ, WRITE])
+    def test_rpc_cannot_escalate_scope(self, discovery):
+        with self.assertRaises(NodeProviderError) as context:
+            dispatch_node_provider_request(
+                [REG], {"operation": "provider_call", "provider": "odoo",
+                        "tool": "customer_update", "arguments": {"id": 1}},
+                node_id="gway-001", trusted_scope="read")
+        self.assertEqual(context.exception.code, "permission_denied")
+
+    def test_rpc_rejects_scope_in_payload(self):
+        with self.assertRaises(NodeProviderError):
+            dispatch_node_provider_request(
+                [REG], {"operation": "provider_list", "authorized_scope": "execute"},
+                node_id="gway-001", trusted_scope="read")
 
     def test_unregistered_provider_rejected(self):
         with self.assertRaises(NodeProviderError):
