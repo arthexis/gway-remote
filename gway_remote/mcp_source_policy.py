@@ -57,9 +57,7 @@ def load_source_policy(path, *, expected_sha256, builtins=()):
             approved[registration.source_id] = item["tools"] if policy["version"] == 1 else []
         elif policy["version"] == 1 and item["tools"]:
             raise ValueError("disabled source cannot advertise tools")
-    # Version 2 pins only source identities; live tools/list is authoritative.
-    # Empty catalogs validate registration collisions without granting tools.
-    compose_source_catalog(builtins, registrations, approved)
+    # Version 2 pins registrations only; an empty catalog is not an approved\n    # static tool list. Validate registrations without composing tool grants.\n    if policy["version"] == 1:\n        compose_source_catalog(builtins, registrations, approved)\n    else:\n        from .mcp_catalog import compose_catalog\n        compose_catalog(builtins)\n        if len({registration.source_id for registration in registrations}) != len(registrations):\n            raise ValueError("duplicate source")
     return tuple(registrations), approved
 
 

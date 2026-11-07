@@ -242,19 +242,21 @@ class SSHTransport:
         self._run = run
 
     def invoke(self, payload):
-        if type(payload) is not dict or payload.get("operation") not in {"submit","result","cancel","limits"}:
+        if type(payload) is not dict or payload.get("operation") not in {"submit","result","cancel","limits","provider_list","provider_call"}:
             raise ValueError("invalid node operation")
         fields = {"submit":{"operation","node","request_id","command"},
                   "result":{"operation","node","request_id","cursor"},
                   "cancel":{"operation","node","request_id"},
-                   "limits":{"operation","node","request_id"}}
+                   "limits":{"operation","node","request_id"},
+                  "provider_list":{"operation","node","request_id"},
+                  "provider_call":{"operation","node","request_id","provider","tool","arguments","authorized_scope"}}
         if set(payload) != fields[payload["operation"]]:
             raise ValueError("unexpected transport arguments")
         if payload.get("node") != self.node.node:
             raise ValueError("wrong pinned node")
         validate_request_id(payload.get("request_id"))
         raw = json.dumps(payload, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
-        if len(raw) > 8192:
+        if len(raw) > (65536 if payload["operation"] == "provider_call" else 8192):
             raise ValueError("transport request too large")
         # Forced-command key on node must ignore all SSH_ORIGINAL_COMMAND values.
         argv = ["ssh","-F","/dev/null","-T","-o","BatchMode=yes","-o","StrictHostKeyChecking=yes",
