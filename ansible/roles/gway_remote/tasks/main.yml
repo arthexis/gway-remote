@@ -111,7 +111,8 @@
     owner: root
     group: root
     mode: '0644'
-    content: "{{ gway_agent_allowed_repos | join(',') }}\\n"
+    content: |
+      {{ gway_agent_allowed_repos | join(',') }}
   when: gway_agent_allowed_repos is defined
 
 # Explicit opt-in: generic MCP provider policy staging, never auto-enroll sources.
