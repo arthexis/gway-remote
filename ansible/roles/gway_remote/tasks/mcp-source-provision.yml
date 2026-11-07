@@ -48,7 +48,49 @@
       - not (gway_mcp_existing.stat.islnk | default(false))
       - not (gway_mcp_existing.stat.exists | default(false)) or (gway_mcp_existing.stat.isreg | default(false))
       - not (gway_mcp_existing.stat.exists | default(false)) or gway_mcp_existing.stat.pw_name == 'root'
-      - not (gway_mcp_existing.stat.exists | default(false)) or ((gway_mcp_existing.stat.mode | int(base=8)) % 32 == 0)
+      - not (gway_mcp_existing.stat.exists | default(false)) or ((gway_mcp_existing.stat.mode[-2:]) is match('^[0145]{2}
+
+- name: Render canonical MCP policy v2
+  ansible.builtin.set_fact:
+    gway_mcp_desired_policy: |
+      {% set ns = namespace(entries=[]) %}
+      {% for source in gway_mcp_sources | sort(attribute='source_id') %}
+      {% set ns.entries = ns.entries + [{'registration': source}] %}
+      {% endfor %}
+      {{ {'version': 2, 'sources': ns.entries} | to_json(sort_keys=True) }}
+
+- name: Install registration-only MCP policy
+  ansible.builtin.copy:
+    dest: /etc/gway-mcp-gateway/sources.json
+    owner: root
+    group: root
+    mode: '0644'
+    content: "{{ gway_mcp_desired_policy }}"
+  register: gway_mcp_policy_staged
+
+- name: Validate staged policy with installed package parser
+  ansible.builtin.command:
+    argv:
+      - /usr/bin/python3
+      - -c
+      - 'import hashlib,sys; from gway_remote.mcp_source_policy import load_source_policy; p=sys.argv[1]; d=hashlib.sha256(open(p,"rb").read()).hexdigest(); load_source_policy(p,expected_sha256=d); print(d)'
+      - /etc/gway-mcp-gateway/sources.json
+  environment:
+    PYTHONPATH: "{{ gway_remote_install_root }}"
+  changed_when: false
+  register: gway_mcp_policy_verified
+
+- name: Compute staged policy checksum
+  ansible.builtin.stat:
+    path: /etc/gway-mcp-gateway/sources.json
+    checksum_algorithm: sha256
+  register: gway_mcp_policy_checksum
+
+- name: Assert verified digest
+  ansible.builtin.assert:
+    that:
+      - gway_mcp_policy_verified.stdout == gway_mcp_policy_checksum.stat.checksum
+))
 
 - name: Render canonical MCP policy v2
   ansible.builtin.set_fact:
