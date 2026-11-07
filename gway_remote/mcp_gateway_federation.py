@@ -2,7 +2,7 @@
 
 The caller supplies a transport that is already bound to attested node IDs.
 """
-from .mcp_federated_catalog import catalog_from_nodes, route_provider_call
+from .mcp_federated_catalog import catalog_from_nodes, route_provider_call, FederationError
 
 
 class FederatedProviders:
@@ -15,9 +15,16 @@ class FederatedProviders:
     def discover(self, builtins=()):
         replies = {}
         for node in self.nodes():
-            # Never let an MCP caller choose an arbitrary address or node.
-            replies[node] = self.transport.invoke(
-                node, {"operation": "provider_list"}, trusted_scope="read")
+            # A transport outage must not hide healthy nodes or gateway tools.
+            # Invalid authenticated catalogs are not silently accepted.
+            try:
+                response = self.transport.invoke(
+                    node, {"operation": "provider_list"}, trusted_scope="read")
+            except (OSError, TimeoutError, ConnectionError):
+                continue
+            if type(response) is not dict:
+                raise FederationError("invalid_node_reply")
+            replies[node] = response
         return catalog_from_nodes(builtins, replies)
 
     def call(self, name, arguments, *, authorized_scope):
