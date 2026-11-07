@@ -277,6 +277,44 @@ class Handler(BaseHTTPRequestHandler):
         if (payload["method"] == "tools/call" and
                 payload.get("params", {}).get("name") == "agent_submit" and not has_exec):
             return self.reject(401, scope="gway:execute")
+        # Report the same node-owned federation used by tools/list, not the
+        # legacy upstream source policy. This makes missing node transport
+        # visible without revealing endpoints, credentials or manifests.
+        if (payload["method"] == "tools/call" and
+                payload.get("params", {}).get("name") == "mcp_source_status" and
+                self.server.federation is not None):
+            try:
+                catalog, routes = self.server.federation.discover()
+                sources = {}
+                for name in sorted(routes):
+                    node, source, _, scope = routes[name]
+                    item = sources.setdefault((node, source), {
+                        "source": source, "node": node, "enabled": True,
+                        "status": "available", "tools": [],
+                        "withheld_execute_count": 0})
+                    if scope == "read":
+                        item["tools"].append(name)
+                    else:
+                        item["withheld_execute_count"] += 1
+                selected = {"sources": list(sources.values()),
+                            "registered_count": len(sources),
+                            "discovery": "node_federation"}
+                result = {"content": [{"type": "text",
+                                      "text": json.dumps(selected, separators=(",", ":"))}]}
+                if version == "2026-07-28":
+                    result = {"resultType": "complete", **result}
+                body = json.dumps({"jsonrpc": "2.0", "id": payload.get("id"),
+                                   "result": result}, separators=(",", ":")).encode()
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json")
+                self.send_header("MCP-Protocol-Version", version)
+                self.send_header("Cache-Control", "no-store")
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
+                return
+            except (ValueError, PermissionError, RuntimeError, OSError, TypeError, KeyError):
+                return self.reject(502)
         if payload["method"] == "tools/call" and payload.get("params", {}).get("name") in EXEC_TOOL_NAMES:
             params = payload.get("params", {})
             args = params.get("arguments", {})
