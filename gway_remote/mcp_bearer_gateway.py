@@ -488,7 +488,8 @@ class Handler(BaseHTTPRequestHandler):
                     remote_tools, _ = self.server.federation.discover(builtins=tools + list(NODE_TOOLS) + list(EXEC_TOOLS))
                     # Node registrations are authoritative; no Watchtower
                     # per-provider allowlist or static tool approval.
-                    tools = remote_tools
+                    builtin_names = {tool["name"] for tool in NODE_TOOLS + EXEC_TOOLS}
+                    tools = [tool for tool in remote_tools if tool["name"] not in builtin_names]
                 scoped_tools = [scoped_tool(tool, EXEC_SECURITY if (tool.get("name") == "agent_submit" or
                              (trusted_source_tool(tool) and not (
                                  type(tool.get("annotations")) is dict and
