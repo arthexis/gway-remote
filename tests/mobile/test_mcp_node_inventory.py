@@ -98,6 +98,40 @@ class GatewayNodeInventoryTests(unittest.TestCase):
                 self.assertTrue(all(x["annotations"]["readOnlyHint"] for x in tools))
                 self.assertNotIn("agent_submit", {x["name"] for x in tools})
 
+    def test_authenticated_catalog_inspect_matches_tools_list(self):
+        class Federation:
+            def discover(self, builtins=()):
+                return (list(builtins) + [
+                    {"name": "agentops__status", "inputSchema": {"type": "object"},
+                     "annotations": {"readOnlyHint": True}},
+                    {"name": "agentops__submit", "inputSchema": {"type": "object"}},
+                ], {
+                    "agentops__status": ("gway-001", "agentops", "status", "read"),
+                    "agentops__submit": ("gway-001", "agentops", "submit", "execute"),
+                })
+
+        self.gateway.federation = Federation()
+        for version in ("2025-03-26", "2026-07-28"):
+            with self.subTest(version=version):
+                listed_status, listed = self.rpc("tools/list", version=version)
+                inspect_status, inspected = self.rpc("tools/call", {
+                    "name": "mcp_catalog_inspect", "arguments": {}}, version=version)
+                self.assertEqual(listed_status, 200)
+                self.assertEqual(inspect_status, 200)
+                listed_tools = listed["result"]["tools"]
+                diagnostic = json.loads(inspected["result"]["content"][0]["text"])
+                self.assertEqual([x["name"] for x in listed_tools],
+                                 [x["name"] for x in diagnostic["tools"]])
+                for tool, row in zip(listed_tools, diagnostic["tools"]):
+                    declared = tool["_meta"]["securitySchemes"][0]["scopes"][0]
+                    self.assertEqual(row["required_scope"], declared)
+                by_name = {x["name"]: x for x in diagnostic["tools"]}
+                self.assertEqual(by_name["agentops__submit"]["origin"], "federated")
+                self.assertEqual(by_name["agentops__submit"]["required_scope"], "gway:execute")
+                self.assertEqual(by_name["agentops__status"]["required_scope"], "gway:read")
+                self.assertEqual(by_name["mcp_catalog_inspect"]["origin"], "builtin")
+                self.assertNotIn("private-backend-secret", json.dumps(diagnostic))
+
     def test_node_list_excludes_private_ip_and_never_claims_reachability(self):
         status, response = self.rpc("tools/call",
                                     {"name": "node_list", "arguments": {}})
