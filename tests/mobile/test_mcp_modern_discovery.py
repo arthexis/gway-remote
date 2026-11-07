@@ -82,7 +82,7 @@ class ModernDiscoveryTests(unittest.TestCase):
         self.assertEqual({x["name"] for x in result["tools"][-5:]},
                          {"node_list", "node_capabilities", "node_exec_preview", "node_deploy_preview", "workspace_inspect"})
         self.assertTrue(all(tool["annotations"]["readOnlyHint"] for tool in result["tools"] if tool["name"] != "agent_submit"))
-        self.assertIn("agent_submit", {tool["name"] for tool in result["tools"]})
+        self.assertNotIn("agent_submit", {tool["name"] for tool in result["tools"]})
 
     def test_legacy_initialize_still_negotiates_exact_version(self):
         status, _, body = self.rpc("initialize", LEGACY,
