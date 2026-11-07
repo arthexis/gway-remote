@@ -8,9 +8,9 @@ from gway_remote import mcp_agent
 class MCPAgentTests(unittest.TestCase):
     def test_tool_inventory_is_read_only(self):
         tools = mcp_agent.list_tools()
-        self.assertEqual({x["name"] for x in tools},
-                         {"agent_list_issues", "agent_status", "agent_preview", "agent_observe", "agent_submit",
-                          "github_workflow_runs", "github_workflow_status", "github_workflow_errors"})
+        self.assertTrue({"agent_list_issues", "agent_status", "agent_preview", "agent_observe", "agent_submit",
+                         "github_workflow_runs", "github_workflow_status", "github_workflow_errors", "mcp_source_status"} <= {x["name"] for x in tools})
+        self.assertEqual(len({x["name"] for x in tools}), len(tools))
         self.assertTrue(all(x["annotations"]["readOnlyHint"] for x in tools if x["name"] != "agent_submit"))
         self.assertIn("agent_submit", {x["name"] for x in tools})
 

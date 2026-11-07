@@ -77,7 +77,8 @@ class ModernDiscoveryTests(unittest.TestCase):
         self.assertEqual(status, 200)
         result = json.loads(body)["result"]
         self.assertEqual(result["resultType"], "complete")
-        self.assertEqual(len(result["tools"]), 13)
+        self.assertIn("mcp_source_status", {tool["name"] for tool in result["tools"]})
+        self.assertEqual(len({tool["name"] for tool in result["tools"]}), len(result["tools"]))
         self.assertEqual({x["name"] for x in result["tools"][-5:]},
                          {"node_list", "node_capabilities", "node_exec_preview", "node_deploy_preview", "workspace_inspect"})
         self.assertTrue(all(tool["annotations"]["readOnlyHint"] for tool in result["tools"] if tool["name"] != "agent_submit"))

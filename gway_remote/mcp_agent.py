@@ -6,7 +6,8 @@ HTTP without an authenticated MCP transport and operator authorization.
 from . import agent_ops_adapter, github_workflows_mcp
 from .mcp_catalog import compose_catalog
 from .mcp_source_registry import compose_source_catalog
-from .mcp_source_stdio import call_source_tool
+from .mcp_source_stdio import call_source_tool, list_source_tools
+from .mcp_source_policy import classify_source_catalog
 
 TOOLS = (
     {"name": "agent_list_issues", "description": "List trusted issues and their eligibility; never dispatch.",
@@ -32,6 +33,9 @@ TOOLS = (
      "inputSchema": {"type": "object", "properties": {"repository": {"type": "string"}, "branch": {"type": "string"}, "status": {"type": "string"}, "event": {"type": "string"}, "limit": {"type": "integer"}}, "additionalProperties": False}, "annotations": {"readOnlyHint": True}},
     {"name": "github_workflow_status", "description": "Read one workflow run, jobs and steps.",
      "inputSchema": {"type": "object", "properties": {"repository": {"type": "string"}, "run_id": {"type": "integer"}}, "required": ["repository", "run_id"], "additionalProperties": False}, "annotations": {"readOnlyHint": True}},
+    {"name": "mcp_source_status", "description": "Diagnose registered MCP source discovery without revealing secrets or source configuration.",
+     "inputSchema": {"type": "object", "properties": {}, "additionalProperties": False},
+     "annotations": {"readOnlyHint": True}},
     {"name": "github_workflow_errors", "description": "Read failed job/step metadata; unsafe build logs are withheld.",
      "inputSchema": {"type": "object", "properties": {"repository": {"type": "string"}, "run_id": {"type": "integer"}, "job_id": {"type": "integer"}, "limit": {"type": "integer"}}, "required": ["repository", "run_id"], "additionalProperties": False}, "annotations": {"readOnlyHint": True}},
 )
@@ -44,6 +48,7 @@ _HANDLERS = {
     "agent_submit": agent_ops_adapter.send_issue,
     "github_workflow_runs": github_workflows_mcp.runs,
     "github_workflow_status": github_workflows_mcp.status,
+    "mcp_source_status": lambda arguments: source_status(),
     "github_workflow_errors": github_workflows_mcp.errors,
 }
 
@@ -66,13 +71,50 @@ def configure_sources(registrations, approved_catalogs):
     _SOURCE_APPROVED = approved_catalogs
 
 
+def _live_source_catalogs():
+    """Discover current read-only tools from each already registered source.
+
+    Source registration (not tool enumeration) is the authorization boundary.
+    A failing source contributes no tools, without hiding built-in operations.
+    """
+    catalogs = {}
+    for registration in _SOURCE_REGISTRATIONS:
+        if not registration.enabled:
+            continue
+        try:
+            catalogs[registration.source_id] = classify_source_catalog(
+                registration, list_source_tools(registration))["read"]
+        except (OSError, ValueError, RuntimeError, TimeoutError):
+            catalogs[registration.source_id] = []
+    return catalogs
+
+
+def source_status():
+    """Safe source-level health summary; never disclose argv, paths or tokens."""
+    sources = []
+    for registration in _SOURCE_REGISTRATIONS:
+        if not registration.enabled:
+            sources.append({"source": registration.source_id, "enabled": False, "status": "disabled", "tools": []})
+            continue
+        try:
+            catalog = classify_source_catalog(registration, list_source_tools(registration))
+            names = sorted(registration.source_id + "__" + t["name"] for t in catalog["read"])
+            sources.append({"source": registration.source_id, "enabled": True,
+                            "status": "available", "tools": names,
+                            "withheld_execute_count": len(catalog["execute_required"])})
+        except (OSError, ValueError, RuntimeError, TimeoutError) as exc:
+            sources.append({"source": registration.source_id, "enabled": True,
+                            "status": "unavailable", "error_type": type(exc).__name__, "tools": []})
+    return {"sources": sources, "registered_count": len(_SOURCE_REGISTRATIONS)}
+
+
 def list_tools():
-    """Return the fixed, audited tool inventory."""
-    return compose_source_catalog(TOOLS, _SOURCE_REGISTRATIONS, _SOURCE_APPROVED)
+    """Return built-ins and freshly discovered tools from registered sources."""
+    return compose_source_catalog(TOOLS, _SOURCE_REGISTRATIONS, _live_source_catalogs())
 
 
 def call_tool(name, arguments):
-    """Execute a fixed operation through the existing trusted adapter."""
+    """Dispatch only a currently advertised read-only tool from a trusted source."""
     if type(name) is not str:
         raise ValueError("mcp_tool_not_allowed")
     if name not in _HANDLERS:
@@ -80,7 +122,7 @@ def call_tool(name, arguments):
             prefix = registration.source_id + "__"
             if registration.enabled and name.startswith(prefix):
                 short_name = name[len(prefix):]
-                approved = _SOURCE_APPROVED.get(registration.source_id, ())
+                approved = _live_source_catalogs().get(registration.source_id, ())
                 if any(tool.get("name") == short_name for tool in approved):
                     return call_source_tool(registration, short_name, arguments, approved)
         raise ValueError("mcp_tool_not_allowed")

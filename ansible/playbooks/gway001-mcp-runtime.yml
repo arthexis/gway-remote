@@ -34,6 +34,33 @@
           - prerequisites.results[0].stat.islnk | default(false)
           - prerequisites.results[1].stat.isreg | default(false)
           - not (prerequisites.results[1].stat.islnk | default(false))
+    - name: Inspect existing operator-approved MCP source policy
+      become: true
+      ansible.builtin.stat:
+        path: /etc/gway-mcp-gateway/sources.json
+        checksum_algorithm: sha256
+        follow: false
+      register: source_policy
+    - name: Require protected approved source policy when present
+      ansible.builtin.assert:
+        that:
+          - source_policy.stat.isreg
+          - not (source_policy.stat.islnk | default(false))
+          - source_policy.stat.pw_name == 'root'
+          - source_policy.stat.mode in ['0644', '0640', '0600', '0444', '0440', '0400']
+      when: source_policy.stat.exists
+    - name: Activate existing source policy in the MCP service environment
+      ansible.builtin.lineinfile:
+        path: /home/arthe/.config/gway-remote/mcp.env
+        regexp: '^{{ item.key }}='
+        line: '{{ item.key }}={{ item.value }}'
+        create: false
+        mode: '0600'
+      loop:
+        - { key: GWAY_MCP_SOURCE_POLICY, value: /etc/gway-mcp-gateway/sources.json }
+        - { key: GWAY_MCP_SOURCE_POLICY_SHA256, value: "{{ source_policy.stat.checksum | default('') }}" }
+      register: source_policy_env
+      when: source_policy.stat.exists
     - name: Capture previous release for rollback
       become: true
       ansible.builtin.command:
@@ -57,7 +84,7 @@
               - "{{ mcp_source }}"
               - --revision
               - "{{ mcp_target_sha }}"
-          changed_when: previous_release.stdout != 'releases/' ~ mcp_target_sha
+          changed_when: previous_release.stdout != 'releases/' ~ mcp_target_sha or (source_policy_env is changed)
         - name: Verify staged module imports
           become: true
           ansible.builtin.command:
