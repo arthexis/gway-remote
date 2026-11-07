@@ -89,7 +89,8 @@ class MCPTransportTests(unittest.TestCase):
                     payload={"jsonrpc": "2.0", "method": "notifications/initialized"})[0], 202)
                 status, body = request(headers=HEADERS)
                 self.assertEqual(status, 200)
-                self.assertIn(b"agent_list_issues", body)
+                self.assertIn(b"mcp_source_status", body)
+                self.assertNotIn(b"agent_list_issues", body)
                 status, body = request(headers=HEADERS,
                     payload={"jsonrpc": "2.0", "id": 2, "method": "tools/call",
                              "params": {"name": "agent_submit", "arguments": {}}})
