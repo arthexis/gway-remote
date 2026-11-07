@@ -89,3 +89,35 @@
   ansible.builtin.assert:
     that:
       - gway_mcp_policy_verified.stdout == gway_mcp_policy_checksum.stat.checksum
+
+
+# Compatibility migration: each administratively installed source becomes an
+# independently discoverable manifest. No tools or source approvals are pinned.
+- name: Create administrative provider manifest directory
+  ansible.builtin.file:
+    path: /etc/gway-mcp-providers
+    state: directory
+    owner: root
+    group: root
+    mode: '0755'
+
+- name: Publish installed MCP provider manifests atomically
+  ansible.builtin.copy:
+    dest: "/etc/gway-mcp-providers/{{ item.source_id }}.json"
+    owner: root
+    group: root
+    mode: '0644'
+    content: "{{ {'source_id': item.source_id, 'revision': item.revision, 'executable': item.executable, 'argv': item.argv} | to_json(sort_keys=True) }}\n"
+  loop: "{{ gway_mcp_sources }}"
+  loop_control:
+    label: "{{ item.source_id }}"
+
+- name: Validate installed provider discovery
+  ansible.builtin.command:
+    argv:
+      - /usr/bin/python3
+      - -c
+      - "from gway_remote.mcp_installed_providers import discover_installed_providers; print([r.source_id for r in discover_installed_providers()])"
+  environment:
+    PYTHONPATH: "{{ gway_remote_install_root }}"
+  changed_when: false
