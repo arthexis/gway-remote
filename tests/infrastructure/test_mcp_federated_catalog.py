@@ -26,7 +26,7 @@ class FederatedCatalogTests(unittest.TestCase):
         with self.assertRaises(FederationError):
             catalog_from_nodes([], {
                 "gway-001": {"node": "gway-001", "providers": [{"provider": "odoo", "node": "gway-001", "revision": "a"*40, "status": "available", "tools": [TOOL]}]},
-                "gway-002": [{"provider": "odoo", "node": "gway-001", "revision": "a"*40, "status": "available", "tools": [TOOL]}]})
+                "gway-002": {"node": "gway-002", "providers": [{"provider": "odoo", "node": "gway-002", "revision": "a"*40, "status": "available", "tools": [TOOL]}]}})
 
     def test_unknown_tool_rejected(self):
         _, routes = catalog_from_nodes([], {})
