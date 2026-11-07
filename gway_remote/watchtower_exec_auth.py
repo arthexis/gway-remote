@@ -112,10 +112,11 @@ class AuthorizedExecution:
             raise ValueError("unsupported deployment revision or target")
         recipes = {
             ("gway-001", "gway-remote"): "gway-remote-deploy.service",
-            ("gway-001", "odoo-gelectriic"): "gway-odoo-deploy.service",
         }
         unit = recipes.get((node, application))
         if unit is None:
+            if (node, application) == ("gway-001", "odoo-gelectriic"):
+                raise PermissionError("Odoo removed the legacy systemd deployment unit; deploy through the repository-owned Ansible workflow")
             raise PermissionError("deployment target has no installed fixed recipe")
         self._allow_preview_eligibility(node)
         return {"node": node, "application": application, "revision": revision,
