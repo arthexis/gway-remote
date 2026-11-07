@@ -79,6 +79,41 @@
   register: gway_remote_source
   changed_when: (gway_remote_source.stdout | from_json).changed | bool
 
+# deploy.sh uses a transient local inventory; read the committed node policy explicitly.
+- name: Load gway-001 AgentOps repository policy from canonical inventory
+  ansible.builtin.set_fact:
+    gway_agent_allowed_repos: "{{ (lookup('file', playbook_dir ~ '/inventory/deployment.yml') | from_yaml).all.children.controller.hosts['gway-001'].gway_agent_allowed_repos }}"
+  when: (ansible_hostname | default('')) == 'gway-001'
+
+# Node-owned AgentOps issue trust policy; independent of provider registration.
+- name: Validate AgentOps repository policy
+  ansible.builtin.assert:
+    that:
+      - gway_agent_allowed_repos is sequence
+      - gway_agent_allowed_repos is not string
+      - gway_agent_allowed_repos | length > 0
+      - gway_agent_allowed_repos | length <= 32
+      - (gway_agent_allowed_repos | select('match', '^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$') | list | length) == (gway_agent_allowed_repos | length)
+  when: gway_agent_allowed_repos is defined
+
+- name: Ensure AgentOps provider policy directory
+  ansible.builtin.file:
+    path: /etc/gway-mcp-providers
+    state: directory
+    owner: root
+    group: root
+    mode: '0755'
+  when: gway_agent_allowed_repos is defined
+
+- name: Install AgentOps repository policy
+  ansible.builtin.copy:
+    dest: /etc/gway-mcp-providers/agentops.repositories
+    owner: root
+    group: root
+    mode: '0644'
+    content: "{{ gway_agent_allowed_repos | join(',') }}\\n"
+  when: gway_agent_allowed_repos is defined
+
 # Explicit opt-in: generic MCP provider policy staging, never auto-enroll sources.
 - name: Stage explicitly approved MCP provider registrations
   ansible.builtin.include_tasks: mcp-source-provision.yml

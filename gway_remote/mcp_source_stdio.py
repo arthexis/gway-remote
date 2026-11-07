@@ -1,6 +1,9 @@
 """Bounded MCP stdio client for registered, pinned providers."""
 import json
 import os
+import pwd
+import re
+from pathlib import Path
 import selectors
 import subprocess
 import time
@@ -23,6 +26,28 @@ _MAX_MESSAGE = 262144
 _PROTOCOL = "2025-03-26"
 
 
+def _provider_environment(registration):
+    """Minimal node-owned provider context, never the caller's environment."""
+    account = pwd.getpwuid(os.geteuid())
+    env = {"PATH": "/usr/bin:/bin", "LANG": "C.UTF-8", "HOME": account.pw_dir}
+    # An optional root-managed repository policy, scoped to AgentOps only.
+    # The node owns this policy; Watchtower never supplies a repository list.
+    if registration.source_id == "agentops":
+        policy = Path("/etc/gway-mcp-providers/agentops.repositories")
+        if policy.exists():
+            info = policy.lstat()
+            if (not policy.is_file() or policy.is_symlink() or info.st_uid != 0
+                    or info.st_mode & 0o022 or info.st_size > 4096):
+                raise SourceProtocolError("untrusted_provider_policy")
+            repos = policy.read_text(encoding="utf-8").strip()
+            if not repos or any(not re.fullmatch(
+                    r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+", item.strip())
+                    for item in repos.split(",")):
+                raise SourceProtocolError("invalid_provider_policy")
+            env["GWAY_AGENT_ALLOWED_REPOS"] = repos
+    return env
+
+
 class _Session:
     def __init__(self, registration, timeout):
         if not isinstance(registration, SourceRegistration) or not registration.enabled:
@@ -41,7 +66,7 @@ class _Session:
             raise SourceProtocolError("source requires its dedicated non-root service identity")
         self.process = subprocess.Popen(
             self.registration.argv, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
-            stderr=subprocess.DEVNULL, env={"PATH": "/usr/bin:/bin", "LANG": "C.UTF-8"},
+            stderr=subprocess.DEVNULL, env=_provider_environment(self.registration),
             close_fds=True, start_new_session=True)
         return self
 
