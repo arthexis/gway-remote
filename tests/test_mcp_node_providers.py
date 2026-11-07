@@ -18,7 +18,7 @@ WRITE = {"name": "customer_update", "inputSchema": {"type": "object"},
          "annotations": {"readOnlyHint": False}}
 
 
-@patch("gway_remote.mcp_node_providers._assert_local_identity")
+@patch("gway_remote.mcp_node_providers._node_registration", side_effect=lambda registration: registration)
 class NodeProviderTests(unittest.TestCase):
     @patch("gway_remote.mcp_node_providers.list_source_tools", return_value=[READ, WRITE])
     def test_local_catalog_includes_writes(self, discovery, identity):
