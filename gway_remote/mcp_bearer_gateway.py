@@ -19,7 +19,7 @@ ALLOWED_METHODS = frozenset({"server/discover", "initialize", "notifications/ini
 ALLOWED_TOOLS = frozenset({"github_workflow_runs", "github_workflow_status", "github_workflow_errors", "mcp_source_status",
     "node_list", "node_capabilities", "node_exec_preview",
     "node_exec", "node_result", "node_cancel", "node_deploy", "node_deploy_status",
-    "node_deploy_preview", "workspace_inspect"})
+    "node_deploy_preview", "workspace_inspect", "mcp_catalog_inspect"})
 
 EXEC_TOOL_NAMES = frozenset({"node_exec", "node_result", "node_cancel", "node_deploy", "node_deploy_status"})
 EXEC_SECURITY = {"securitySchemes": [{"type": "oauth2", "scopes": ["gway:execute"]}]}
@@ -58,6 +58,10 @@ EXEC_TOOLS = (
 )
 
 NODE_TOOLS = (
+    {"name": "mcp_catalog_inspect", "_meta": READ_SECURITY,
+     "description": "Inspect the live Watchtower federated MCP catalog, origin and required OAuth scope; never returns credentials or executes tools.",
+     "inputSchema": {"type": "object", "properties": {}, "additionalProperties": False},
+     "annotations": {"readOnlyHint": True}},
     {"name": "workspace_inspect", "_meta": READ_SECURITY,
      "description": "Inspect an allowlisted repository on the authenticated node; unknown evidence is explicit.",
      "inputSchema": {"type": "object", "properties": {
@@ -168,6 +172,23 @@ def federated_source_status(federation):
     return {"sources": list(sources.values()),
             "registered_count": len(sources),
             "discovery": "node_federation"}
+
+
+def inspect_federated_catalog(federation, *, builtins=()):
+    """Describe the live node-owned catalog with no credentials or provider arguments."""
+    catalog, routes = federation.discover(builtins=builtins)
+    rows = []
+    for tool in catalog:
+        name = tool["name"]
+        route = routes.get(name)
+        scope = route[3] if route else ("execute" if name in EXEC_TOOL_NAMES else "read")
+        rows.append({"name": name, "origin": "federated" if route else "builtin",
+                     "node": route[0] if route else None,
+                     "source": route[1] if route else None,
+                     "classification": scope,
+                     "required_scope": "gway:execute" if scope == "execute" else "gway:read"})
+    return {"schema": 1, "discovery": "node_federation", "tools": rows,
+            "count": len(rows)}
 
 
 def trusted_source_tool(tool):
@@ -313,6 +334,30 @@ class Handler(BaseHTTPRequestHandler):
                 self.wfile.write(body)
                 return
             except (ValueError, PermissionError, RuntimeError, OSError, TypeError, KeyError):
+                return self.reject(502)
+        if (payload["method"] == "tools/call" and
+                payload.get("params", {}).get("name") == "mcp_catalog_inspect"):
+            try:
+                if payload["params"].get("arguments", {}) != {} or self.server.federation is None:
+                    raise ValueError("invalid catalog request")
+                selected = inspect_federated_catalog(
+                    self.server.federation,
+                    builtins=list(NODE_TOOLS) + (list(EXEC_TOOLS) if self.server.execution is not None else []))
+                result = {"content": [{"type": "text",
+                                      "text": json.dumps(selected, separators=(",", ":"))}]}
+                if version == "2026-07-28":
+                    result = {"resultType": "complete", **result}
+                body = json.dumps({"jsonrpc": "2.0", "id": payload.get("id"),
+                                   "result": result}, separators=(",", ":")).encode()
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json")
+                self.send_header("MCP-Protocol-Version", version)
+                self.send_header("Cache-Control", "no-store")
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
+                return
+            except (ValueError, RuntimeError, OSError, TypeError, KeyError):
                 return self.reject(502)
         if payload["method"] == "tools/call" and payload.get("params", {}).get("name") in EXEC_TOOL_NAMES:
             params = payload.get("params", {})
