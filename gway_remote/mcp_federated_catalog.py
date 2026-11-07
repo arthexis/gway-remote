@@ -28,24 +28,33 @@ def catalog_from_nodes(builtins, node_catalogs):
         raise FederationError("invalid_node_catalogs")
     routes = {}
     declarations = []
+    # Source names are global MCP names. A collision across nodes is ambiguous
+    # even when their individual tool names do not overlap.
+    owners = {}
     for node, response in sorted(node_catalogs.items()):
         if type(node) is not str or not _NODE.fullmatch(node) or type(response) is not dict or set(response) != {"node", "providers"} or response["node"] != node or type(response["providers"]) is not list:
             raise FederationError("invalid_node_catalog")
         providers = response["providers"]
+        if len(providers) > 32:
+            raise FederationError("too_many_providers")
         for provider in providers:
             if type(provider) is not dict or not {"provider", "node", "revision", "status", "tools"} <= set(provider) or provider["node"] != node or provider["status"] not in ("available", "unavailable") or type(provider["revision"]) is not str:
                 raise FederationError("invalid_provider")
             source = provider["provider"]
             if type(source) is not str or not _PROVIDER.fullmatch(source):
                 raise FederationError("invalid_provider")
-            if type(provider["tools"]) is not list:
+            if type(provider["tools"]) is not list or len(provider["tools"]) > 64:
                 raise FederationError("invalid_tools")
+            if source in owners:
+                raise FederationError("ambiguous_provider")
+            owners[source] = node
             if provider["status"] != "available":
                 continue
             for tool in provider["tools"]:
                 if type(tool) is not dict or type(tool.get("name")) is not str or not _TOOL.fullmatch(tool["name"]):
                     raise FederationError("invalid_tool")
-                if type(tool.get("inputSchema")) is not dict:
+                if (type(tool.get("inputSchema")) is not dict
+                        or tool["inputSchema"].get("type") != "object"):
                     raise FederationError("invalid_tool_schema")
                 name = source + "__" + tool["name"]
                 if name in routes:
