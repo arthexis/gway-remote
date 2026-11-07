@@ -126,7 +126,9 @@ def status(directory=DEFAULT_DIR, probe=component_health, *, depth="deep"):
                            "release_state": release["release_state"] if release else None,
                            "staged_sha": release["staged_sha"] if release else None,
                            "error": error, "log": log})
-    for item in components:\n        item["activated_at"] = activated_timestamp(item["name"], item["installed_sha"])\n    checked_at = datetime.now(timezone.utc).isoformat()
+    for item in components:
+        item["activated_at"] = activated_timestamp(item["name"], item["installed_sha"])
+    checked_at = datetime.now(timezone.utc).isoformat()
     for item in components:
         item["deployment_evidence"] = adapt_component(item, observed_at=checked_at, depth=depth)
     total_ms = round((perf_counter_ns() - started_ns) / 1_000_000, 2)
@@ -152,4 +154,5 @@ def format_status(report):
     rows.append(format_power(report.get("power", {"status": "unavailable"})))
     rows.append(format_watchdog(report.get("watchdog", {"status": "unavailable", "devices": []})))
     rows.append("Installed revision is independently read from release links when available; unknown otherwise.")
-    return "\n".join(rows)
+    return "
+".join(rows)
