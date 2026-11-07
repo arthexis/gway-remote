@@ -38,6 +38,14 @@ class EvidenceContractTests(unittest.TestCase):
         self.assertEqual(row["activated_revision"], "b" * 12)
         self.assertEqual(row["runtime_state"], "unhealthy")
 
+    def test_activation_time_requires_verified_release(self):
+        verified = self.adapt("ocpp-csms", installed_sha="b" * 12,
+                              activated_at="2026-11-07T01:00:00+00:00")
+        self.assertEqual(verified["activated_at"], "2026-11-07T01:00:00+00:00")
+        unknown = self.adapt("gway-ap-kiosk", installed_sha="b" * 40,
+                             activated_at="2026-11-07T01:00:00+00:00")
+        self.assertIsNone(unknown["activated_at"])
+
     def test_revision_file_alone_is_not_activation(self):
         row = self.adapt("gway-ap-kiosk", installed_sha="b" * 40)
         self.assertEqual(row["installation_state"], "unknown")
