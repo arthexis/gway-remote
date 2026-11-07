@@ -92,7 +92,7 @@ class GatewayNodeInventoryTests(unittest.TestCase):
                 status, result = self.rpc("tools/list", version=version)
                 self.assertEqual(status, 200)
                 tools = result["result"]["tools"]
-                self.assertEqual(len(tools), 8)
+                self.assertEqual(len(tools), 9)
                 self.assertEqual({x["name"] for x in tools[-5:]},
                                  {"node_list", "node_capabilities", "node_exec_preview", "node_deploy_preview", "workspace_inspect"})
                 self.assertTrue(all(x["annotations"]["readOnlyHint"] for x in tools))
