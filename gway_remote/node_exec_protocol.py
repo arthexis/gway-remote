@@ -6,6 +6,7 @@ forced-command setup; never execute arbitrary SSH_ORIGINAL_COMMAND.
 """
 import json
 import os
+import re
 import socket
 import sys
 
@@ -38,7 +39,7 @@ def serve_one(raw, *, jobs=None, hostname=None):
     if set(req) != OPERATIONS[op]:
         raise ValueError("invalid request fields")
     host = hostname if hostname is not None else socket.gethostname()
-    if host != "gway-001" or req["node"] != host:
+    if not re.fullmatch(r"gway-[0-9]+", host) or req["node"] != host:
         raise PermissionError("unapproved node")
     rid = validate_request_id(req["request_id"])
     if op in ("provider_list", "provider_call"):
