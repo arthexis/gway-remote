@@ -56,12 +56,29 @@
       - not gway_mcp_policy_existing.stat.exists or ((gway_mcp_policy_existing.stat.mode | default('0644') | int(base=8)) % 32 == 0)
     fail_msg: "Existing MCP source policy is not a protected regular file"
 
-- name: Require explicit approval before replacing existing MCP source policy
+- name: Render desired registration-only MCP policy v2
+  ansible.builtin.set_fact:
+    gway_mcp_desired_policy: |
+        {% set ns = namespace(entries=[]) %}
+        {% for source in gway_mcp_sources | sort(attribute='source_id') %}
+        {% set ns.entries = ns.entries + [{'registration': source}] %}
+        {% endfor %}
+        {{ {'version': 2, 'sources': ns.entries} | to_json(sort_keys=True) }}
+
+- name: Read existing MCP policy without following symlinks
+  ansible.builtin.slurp:
+    src: /etc/gway-mcp-gateway/sources.json
+  register: gway_mcp_existing_policy_bytes
+  when: gway_mcp_policy_existing.stat.exists | default(false)
+
+- name: Require approval only for actual policy changes
   ansible.builtin.assert:
     that:
       - gway_mcp_policy_replace_approved | default(false) | bool
-    fail_msg: 'Existing MCP policy must not be overwritten without explicit approval'
-  when: gway_mcp_policy_existing.stat.exists | default(false)
+    fail_msg: 'Changing existing MCP registrations requires explicit approval; identical policy is idempotent'
+  when:
+    - gway_mcp_policy_existing.stat.exists | default(false)
+    - (gway_mcp_existing_policy_bytes.content | b64decode | from_json) != (gway_mcp_desired_policy | from_json)
 
 - name: Stage canonical registration-only policy v2
   ansible.builtin.copy:
@@ -69,12 +86,7 @@
     owner: root
     group: root
     mode: '0644'
-    content: |
-      {% set ns = namespace(entries=[]) %}
-      {% for source in gway_mcp_sources | sort(attribute='source_id') %}
-      {% set ns.entries = ns.entries + [{'registration': source}] %}
-      {% endfor %}
-      {{ {'version': 2, 'sources': ns.entries} | to_json(sort_keys=True) }}
+    content: "{{ gway_mcp_desired_policy }}"
   register: gway_mcp_policy_staged
 
 - name: Verify staged policy against the application parser
