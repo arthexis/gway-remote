@@ -3,6 +3,7 @@
 The caller supplies a transport that is already bound to attested node IDs.
 """
 from .mcp_federated_catalog import catalog_from_nodes, route_provider_call, FederationError
+import subprocess
 
 
 class FederatedProviders:
@@ -20,7 +21,7 @@ class FederatedProviders:
             try:
                 response = self.transport.invoke(
                     node, {"operation": "provider_list"}, trusted_scope="read")
-            except (OSError, TimeoutError, ConnectionError):
+            except (OSError, TimeoutError, ConnectionError, subprocess.SubprocessError):
                 continue
             if type(response) is not dict:
                 raise FederationError("invalid_node_reply")
