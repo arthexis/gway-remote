@@ -1,4 +1,4 @@
-"""Loopback-only, authenticated MCP Streamable HTTP transport (read-only).
+"""Loopback-only, authenticated MCP Streamable HTTP transport.
 
 This transport supports JSON replies (no SSE streams or sessions). An HTTPS
 gateway and verified client authentication remain prerequisites for external use.
@@ -147,7 +147,13 @@ class Handler(BaseHTTPRequestHandler):
                 return
             if payload.get("method") in ("tools/list", "tools/call"):
                 payload = {**payload, "params": {k: v for k, v in payload["params"].items() if k != "_meta"}}
-        caller_scope = self.headers.get("X-Gway-Caller-Scope", "read")
+        # Only the private bearer-authenticated gateway may supply this assertion.
+        # Reject duplicate values to prevent header-smuggling ambiguity.
+        scopes = self.headers.get_all("X-Gway-Caller-Scope", [])
+        if len(scopes) > 1:
+            self._empty(403)
+            return
+        caller_scope = scopes[0] if scopes else "read"
         if caller_scope not in ("read", "execute"):
             self._empty(403)
             return
