@@ -412,6 +412,39 @@ class Handler(BaseHTTPRequestHandler):
                     return self.reject(401, scope="gway:execute")
             except (OSError, URLError, HTTPError, ValueError, TypeError, KeyError):
                 return self.reject(502)
+        # Federated providers are resolved from attested nodes, not Watchtower policy.
+        # The federation object is provisioned by the trusted service bootstrap.
+        if payload["method"] == "tools/call" and SOURCE_TOOL_NAME.fullmatch(
+                payload.get("params", {}).get("name", "")):
+            if self.server.federation is None:
+                return self.reject(403)
+            try:
+                name = payload["params"]["name"]
+                arguments = payload["params"].get("arguments", {})
+                if type(arguments) is not dict:
+                    return self.reject(400)
+                _, routes = self.server.federation.discover()
+                if name not in routes:
+                    return self.reject(403)
+                if routes[name][3] == "execute" and not has_exec:
+                    return self.reject(401, scope="gway:execute")
+                selected = self.server.federation.call(
+                    name, arguments, authorized_scope="execute" if has_exec else "read")
+                result = {"content": [{"type": "text", "text": json.dumps(selected, separators=(",", ":"))}]}
+                body = json.dumps({"jsonrpc": "2.0", "id": payload.get("id"),
+                                   "result": {"resultType": "complete", **result}
+                                   if version == "2026-07-28" else result},
+                                  separators=(",", ":")).encode()
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json")
+                self.send_header("MCP-Protocol-Version", version)
+                self.send_header("Cache-Control", "no-store")
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
+                return
+            except (ValueError, PermissionError, RuntimeError, OSError, TypeError, KeyError):
+                return self.reject(403)
         # Forward only to a fixed private endpoint; never forward client headers.
         headers = {"Authorization": "Bearer " + self.server.backend_token,
                    "X-Gway-Caller-Scope": "execute" if has_exec else "read",
@@ -449,8 +482,10 @@ class Handler(BaseHTTPRequestHandler):
                 names = [tool.get("name") for tool in tools]
                 if any(type(name) is not str for name in names) or len(names) != len(set(names)):
                     raise ValueError("invalid upstream tool names")
-                tools = [tool for tool in tools if tool["name"] in ALLOWED_TOOLS
-                         or trusted_source_tool(tool)]
+                tools = [tool for tool in tools if tool["name"] in ALLOWED_TOOLS]
+                if self.server.federation is not None:
+                    remote_tools, _ = self.server.federation.discover()
+                    tools.extend(remote_tools)
                 scoped_tools = [scoped_tool(tool, EXEC_SECURITY if (tool.get("name") == "agent_submit" or
                              (trusted_source_tool(tool) and not (
                                  type(tool.get("annotations")) is dict and
@@ -485,7 +520,7 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
-def make_server(address, registry, upstream, backend_token, *, execution=None, bridge_sessions=None, bridge_transport=None, approved_sources=None):
+def make_server(address, registry, upstream, backend_token, *, execution=None, bridge_sessions=None, bridge_transport=None, approved_sources=None, federation=None):
     from urllib.parse import urlsplit
     parsed = urlsplit(upstream)
     if parsed.scheme != "http" or parsed.hostname != "127.0.0.1" or not parsed.port or parsed.path != "/mcp" or parsed.query or parsed.fragment or parsed.username or parsed.password:
@@ -505,6 +540,7 @@ def make_server(address, registry, upstream, backend_token, *, execution=None, b
                 or tool["annotations"].get("destructiveHint") is True):
             raise ValueError("invalid approved source policy")
     server.approved_sources = approved_sources
+    server.federation = federation
     server.registry = registry
     server.execution = execution
     if bridge_transport is not None and bridge_sessions is None:
