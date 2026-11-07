@@ -5,6 +5,9 @@ all:
       hosts:
         gway-001:
           ansible_connection: local
+          gway_agent_allowed_repos:
+            - arthexis/gway-agent-ops
+            - arthexis/gway-remote
           remote_managed_repositories:
             - ocpp-csms
             - ocpp-reports
