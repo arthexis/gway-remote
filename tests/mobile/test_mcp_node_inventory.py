@@ -92,7 +92,7 @@ class GatewayNodeInventoryTests(unittest.TestCase):
                 status, result = self.rpc("tools/list", version=version)
                 self.assertEqual(status, 200)
                 tools = result["result"]["tools"]
-                self.assertEqual(len(tools), 12)
+                self.assertEqual(len(tools), 8)
                 self.assertEqual({x["name"] for x in tools[-5:]},
                                  {"node_list", "node_capabilities", "node_exec_preview", "node_deploy_preview", "workspace_inspect"})
                 self.assertTrue(all(x["annotations"]["readOnlyHint"] for x in tools))
@@ -144,7 +144,7 @@ class GatewayNodeInventoryTests(unittest.TestCase):
         self.assertEqual(status, 200)
         self.assertTrue(denied["result"]["isError"])
         self.assertIn("mcp/www_authenticate", denied["result"]["_meta"])
-        self.assertEqual(self.rpc("tools/call", {"name": "agent_submit"})[0], 401)
+        self.assertEqual(self.rpc("tools/call", {"name": "agent_submit"})[0], 403)
 
 
 if __name__ == "__main__":
