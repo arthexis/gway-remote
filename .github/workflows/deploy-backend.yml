@@ -125,9 +125,11 @@ jobs:
             -o ConnectTimeout=8 -o ServerAliveInterval=20 \
             -o ServerAliveCountMax=2 gelectriic.com \
             "sh -s -- $TARGET_SHA" < scripts/watchtower-auto-deploy.sh
-      - name: Verify live gway-001 MCP upstream advertises AgentOps submission
+      - name: Verify live gway-001 MCP upstream excludes retired AgentOps tools
         if: steps.revision.outputs.skip != 'true'
         shell: bash
+        env:
+          EXPECTED_SHA: ${{ github.sha }}
         run: |
           set -euo pipefail
           # Watchtower's private bridge terminates at this node on 127.0.0.1:8770.
@@ -136,6 +138,7 @@ jobs:
           python3 - <<'PY'
           from pathlib import Path
           import subprocess
+          import os
 
           processes = subprocess.check_output(
               ["ps", "-eo", "args="], text=True).splitlines()
@@ -153,12 +156,18 @@ jobs:
           release = candidates[0].parent
           if release.parent != Path("/opt/gway-mcp/releases"):
               raise SystemExit("Active MCP backend launcher resolves outside immutable releases")
-          module = release / "gway_remote" / "mcp_agent.py"
-          if not module.is_file() or '"name": "agent_submit"' not in module.read_text():
-              raise SystemExit(
-                  "MCP upstream drift: active gway-001 backend does not advertise agent_submit; "
-                  "update the isolated backend before treating Watchtower deployment as complete")
-          print("Active gway-001 MCP backend contains agent_submit")
+          if release.name != os.environ["EXPECTED_SHA"]:
+              raise SystemExit(f"Active MCP revision drift: {release.name}")
+          legacy = ("agent_list_issues", "agent_status", "agent_preview",
+                    "agent_submit", "agent_observe")
+          for module_name in ("mcp_agent.py", "mcp_bearer_gateway.py"):
+              module = release / "gway_remote" / module_name
+              if not module.is_file():
+                  raise SystemExit(f"Missing active MCP module: {module}")
+              source = module.read_text()
+              if any(f'"name": "{name}"' in source for name in legacy):
+                  raise SystemExit(f"Retired AgentOps tool still advertised by {module}")
+          print("Active gway-001 MCP backend has expected revision and no retired AgentOps tools")
           PY
       - name: Watchtower deployment summary
         if: steps.revision.outputs.skip != 'true'
