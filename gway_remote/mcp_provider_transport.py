@@ -32,7 +32,7 @@ class ProviderTransport:
         pinned = pinned_transport(self.execution_transport, node).node
         request_id = secrets.token_hex(16)
         envelope = {"node": node, "request_id": request_id,
-                    "scope": trusted_scope, "request": request}
+                    "request": request}
         raw = json.dumps(envelope, separators=(",", ":"), allow_nan=False).encode()
         if len(raw) > MAX_PROVIDER_REQUEST:
             raise ValueError("provider request too large")
