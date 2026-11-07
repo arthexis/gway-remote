@@ -388,7 +388,8 @@ class Handler(BaseHTTPRequestHandler):
             raw = json.dumps(legacy_payload, separators=(",", ":")).encode("utf-8")
         # Validate source calls against the live trusted backend catalog. A
         # namespaced name alone is not authorization: unregistered tools fail closed.
-        if payload["method"] == "tools/call" and SOURCE_TOOL_NAME.fullmatch(payload["params"]["name"]):
+        if (self.server.federation is None and payload["method"] == "tools/call"
+                and SOURCE_TOOL_NAME.fullmatch(payload["params"]["name"])):
             probe = json.dumps({"jsonrpc": "2.0", "id": 0, "method": "tools/list",
                                 "params": {}}, separators=(",", ":")).encode()
             probe_headers = {"Authorization": "Bearer " + self.server.backend_token,
