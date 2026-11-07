@@ -361,8 +361,21 @@ class Handler(BaseHTTPRequestHandler):
                                  if tool["name"] in ALLOWED_TOOLS]
                 selected = inspect_federated_catalog(
                     self.server.federation,
-                    builtins=backend_tools + list(NODE_TOOLS) +
-                    (list(EXEC_TOOLS) if self.server.execution is not None else []))
+                    builtins=backend_tools + list(NODE_TOOLS) + list(EXEC_TOOLS))
+                # Match tools/list's exact ordering: upstream/federated
+                # followed by Watchtower-local read and enabled exec tools.
+                local_names = {tool["name"] for tool in NODE_TOOLS + EXEC_TOOLS}
+                remote_rows = [row for row in selected["tools"]
+                               if row["name"] not in local_names]
+                local_rows = [row for tool in NODE_TOOLS
+                              for row in selected["tools"]
+                              if row["name"] == tool["name"]]
+                if self.server.execution is not None:
+                    local_rows += [row for tool in EXEC_TOOLS
+                                   for row in selected["tools"]
+                                   if row["name"] == tool["name"]]
+                selected["tools"] = remote_rows + local_rows
+                selected["count"] = len(selected["tools"])
                 result = {"content": [{"type": "text",
                                       "text": json.dumps(selected, separators=(",", ":"))}]}
                 if version == "2026-07-28":
