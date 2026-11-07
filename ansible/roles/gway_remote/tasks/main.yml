@@ -123,9 +123,7 @@
       - gway_agent_mcp_executable is match('^/[^ ]+/agent$')
       - "'..' not in gway_agent_mcp_workspace.split('/')"
       - "'..' not in gway_agent_mcp_executable.split('/')"
-  when:
-    - gway_agent_mcp_workspace is defined
-    - gway_agent_mcp_executable is defined
+  when: gway_agent_mcp_workspace is defined or gway_agent_mcp_executable is defined
 
 - name: Install AgentOps MCP launch runtime policy
   ansible.builtin.copy:
