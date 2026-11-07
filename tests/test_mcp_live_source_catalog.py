@@ -48,7 +48,7 @@ class LiveSourceCatalogTests(unittest.TestCase):
             self.assertEqual(mcp_agent.source_status()["sources"][0]["status"], "unavailable")
 
     def test_live_call_rechecks_readonly_catalog(self):
-        with patch.object(mcp_agent, "list_source_tools", return_value=[self.tool("customer_search")]), \\
+        with patch.object(mcp_agent, "list_source_tools", return_value=[self.tool("customer_search")]), \
              patch.object(mcp_agent, "call_source_tool", return_value={"content": []}) as invoke:
             mcp_agent.call_tool("odoo__customer_search", {"query": "example"})
             self.assertEqual(invoke.call_args.args[1], "customer_search")
