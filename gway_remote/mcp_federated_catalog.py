@@ -28,17 +28,20 @@ def catalog_from_nodes(builtins, node_catalogs):
         raise FederationError("invalid_node_catalogs")
     routes = {}
     declarations = []
-    for node, providers in sorted(node_catalogs.items()):
-        if type(node) is not str or not _NODE.fullmatch(node) or type(providers) is not list:
+    for node, response in sorted(node_catalogs.items()):
+        if type(node) is not str or not _NODE.fullmatch(node) or type(response) is not dict or set(response) != {"node", "providers"} or response["node"] != node or type(response["providers"]) is not list:
             raise FederationError("invalid_node_catalog")
+        providers = response["providers"]
         for provider in providers:
-            if type(provider) is not dict or set(provider) != {"provider", "tools"}:
+            if type(provider) is not dict or not {"provider", "node", "revision", "status", "tools"} <= set(provider) or provider["node"] != node or provider["status"] not in ("available", "unavailable") or type(provider["revision"]) is not str:
                 raise FederationError("invalid_provider")
             source = provider["provider"]
             if type(source) is not str or not _PROVIDER.fullmatch(source):
                 raise FederationError("invalid_provider")
             if type(provider["tools"]) is not list:
                 raise FederationError("invalid_tools")
+            if provider["status"] != "available":
+                continue
             for tool in provider["tools"]:
                 if type(tool) is not dict or type(tool.get("name")) is not str or not _TOOL.fullmatch(tool["name"]):
                     raise FederationError("invalid_tool")
