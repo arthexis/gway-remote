@@ -4,7 +4,7 @@ Instrumented tests run production Compose components with fake callbacks, withou
 
 ## GitHub Actions
 
-From **Actions → Android Compose UI Tests → Run workflow**, select the branch and one profile:
+The workflow runs automatically on pull requests and pushes to `main` that change `android/**` or this workflow. Manual dispatch also runs the complete four-profile matrix:
 
 | Profile | Emulator configuration |
 | --- | --- |
@@ -13,11 +13,11 @@ From **Actions → Android Compose UI Tests → Run workflow**, select the branc
 | `tablet` | 1600 × 2400 px, 320 dpi (800 dp width) |
 | `large-text` | Default Pixel 6, font scale 1.5 |
 
-The Android 35 x86_64 emulator uses KVM on the GitHub-hosted Ubuntu runner. Each run tests **one profile**; no automatic matrix and no emulator run on routine PRs.
+The Android 35 x86_64 emulator uses KVM on the GitHub-hosted Ubuntu runner. Each qualifying run tests **all four profiles** in parallel; Python-only changes do not trigger the emulator workflow.
 
 The runner invokes `android/scripts/run-compose-ui-tests.sh`, preserving Android instrumented XML/results and emulator logcat, device geometry, and font scale. A failure also records a screenshot of the emulator's current screen. All evidence is uploaded under the `compose-ui-<profile>-<run id>` artifact, including on failures. The captured screenshot is diagnostic, not a pixel-perfect golden baseline.
 
-Initial acceptance: manually run the workflow on the PR branch (once GitHub exposes the workflow on the default branch), starting with `phone`, then `narrow`, `tablet`, and `large-text`. Repeat the baseline to check reproducibility before enabling any automatic trigger. **No emulator acceptance should be claimed until real Actions runs finish successfully.**
+Initial acceptance: validate the four-profile matrix in the PR and repeat a run to check reproducibility. Do not claim emulator acceptance until real Actions runs finish successfully.
 
 ## Local execution
 
@@ -31,4 +31,4 @@ The script writes diagnostics to `android/build/compose-ui-diagnostics`, and aut
 
 ## Automation policy
 
-Keep `workflow_dispatch` only until the baseline is stable across repeated emulator runs. A later focused change may add a path-filtered `pull_request` trigger for Compose UI files and `androidTest`; it should not run for Python-only changes or trigger multiple emulators per PR.
+The workflow uses path-filtered `pull_request` and `push` triggers for Android changes, plus manual `workflow_dispatch`. The existing Android APK workflow remains separate. Avoid requiring this path-filtered workflow as a branch protection check without an always-running gate, because skipped workflows can leave required checks pending.
