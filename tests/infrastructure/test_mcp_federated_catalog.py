@@ -3,7 +3,7 @@ from gway_remote.mcp_federated_catalog import (
     FederationError, catalog_from_nodes, route_provider_call,
 )
 
-TOOL = {"name": "search", "inputSchema": {"type": "object", "properties": {}}}
+TOOL = {"name": "search", "inputSchema": {"type": "object", "properties": {}},\n        "annotations": {"readOnlyHint": True}}
 
 
 class FederatedCatalogTests(unittest.TestCase):
