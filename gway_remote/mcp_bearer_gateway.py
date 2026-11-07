@@ -565,12 +565,21 @@ def main():
     if os.environ.get("GWAY_MCP_EXEC_ENABLED") == "1":
         from .watchtower_exec_service import load_service
         execution = load_service()
+    federation = None
+    if execution is not None:
+        from .mcp_gateway_federation import FederatedProviders
+        from .mcp_provider_transport import ProviderTransport
+        transport = execution.relay.transport
+        federation = FederatedProviders(
+            transport=ProviderTransport(transport),
+            nodes=lambda: tuple(transport.transports) if hasattr(transport, "transports")
+            else (transport.node.node,))
     policy_path = os.environ.get("GWAY_MCP_SOURCE_POLICY")
     policy_sha = os.environ.get("GWAY_MCP_SOURCE_POLICY_SHA256")
     if bool(policy_path) != bool(policy_sha):
         raise ValueError("incomplete source policy configuration")
     approved_sources = None
-    if policy_path:
+    if policy_path and federation is None:
         from .mcp_source_policy import load_source_policy
         from .mcp_source_registry import compose_source_catalog
         registrations, approved = load_source_policy(
@@ -600,7 +609,8 @@ def main():
             _, _, sessions, transport = started
             options = {"bridge_sessions": sessions, "bridge_transport": transport}
         with make_server(("127.0.0.1", args.port), verifier, args.upstream,
-                         token, execution=execution, approved_sources=approved_sources, **options) as service:
+                         token, execution=execution, approved_sources=approved_sources,
+                         federation=federation, **options) as service:
             service.serve_forever()
     finally:
         if started is not None:
