@@ -17,7 +17,7 @@ MAX_RESPONSE = 262144
 UPSTREAM_TIMEOUT = 30
 ALLOWED_METHODS = frozenset({"server/discover", "initialize", "notifications/initialized", "tools/list", "tools/call"})
 ALLOWED_TOOLS = frozenset({"agent_list_issues", "agent_status", "agent_preview", "agent_observe", "agent_submit",
-    "github_workflow_runs", "github_workflow_status", "github_workflow_errors",
+    "github_workflow_runs", "github_workflow_status", "github_workflow_errors", "mcp_source_status",
     "node_list", "node_capabilities", "node_exec_preview",
     "node_exec", "node_result", "node_cancel", "node_deploy", "node_deploy_status",
     "node_deploy_preview", "workspace_inspect"})
