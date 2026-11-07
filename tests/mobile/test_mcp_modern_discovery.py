@@ -95,7 +95,7 @@ class ModernDiscoveryTests(unittest.TestCase):
         status, _, _ = self.rpc("server/discover", bearer=False)
         self.assertEqual(status, 401)
         status, _, _ = self.rpc("tools/call", params={"name": "agent_submit", "arguments": {}})
-        self.assertEqual(status, 401)
+        self.assertEqual(status, 403)
 
     def test_modern_metadata_version_mismatch_is_denied(self):
         payload = {"jsonrpc": "2.0", "id": 23, "method": "tools/list",
