@@ -292,9 +292,6 @@
     state: stopped
   when: not github_health_token_config.stat.exists
 
-)
-    - gway_exec_transport_prepare | default(false) | bool
-
 - name: Copy CLI installer
   ansible.builtin.copy:
     src: "{{ playbook_dir }}/../scripts/install-cli.sh"
