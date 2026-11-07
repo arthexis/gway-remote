@@ -55,6 +55,10 @@ def main():
         if executable.is_file() and executable.stat().st_mode & 0o111:
             publish({"source_id": "agentops", "revision": release.name,
                      "executable": str(executable), "argv": [str(executable)]})
+        else:
+            (DEST / "agentops.json").unlink(missing_ok=True)
+    else:
+        (DEST / "agentops.json").unlink(missing_ok=True)
 
 
 if __name__ == "__main__":
