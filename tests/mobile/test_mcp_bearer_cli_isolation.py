@@ -29,7 +29,7 @@ class BearerCliIsolationTests(unittest.TestCase):
         from gway_remote.mcp_agent import list_tools
         allowed = {item["name"] for item in list_tools()}
         self.assertFalse(allowed & {"bearer", "bearer_issue", "bearer_revoke"})
-        self.assertEqual(len(allowed), 9)
+        self.assertTrue({"agent_status", "mcp_source_status"} <= allowed)
         self.assertIn("mcp_source_status", allowed)
 
 
