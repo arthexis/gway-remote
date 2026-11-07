@@ -1,4 +1,4 @@
-"""Pure, deny-by-default registration for future read-only MCP stdio sources.
+"""Pinned registration and validated MCP tool catalog composition.
 
 This module does not launch processes, load configuration, or change live tool
 discovery. Only an operator-provisioned, release-pinned registry may use it.
@@ -22,7 +22,6 @@ class SourceRegistration:
     argv: tuple[str, ...]
     run_as: str
     enabled: bool = False
-    permission: str = "read"
 
     def __post_init__(self):
         if not isinstance(self.source_id, str) or not _NAME.fullmatch(self.source_id):
@@ -40,15 +39,14 @@ class SourceRegistration:
             raise ValueError("invalid fixed argv")
         if not isinstance(self.run_as, str) or not _NAME.fullmatch(self.run_as):
             raise ValueError("invalid service identity")
-        if type(self.enabled) is not bool or self.permission != "read":
-            raise ValueError("only explicit read-only sources are supported")
+        if type(self.enabled) is not bool:
+            raise ValueError("enabled must be boolean")
 
 
 def compose_source_catalog(builtin_tools, registrations, source_tools):
-    """Compose preapproved source declarations, rejecting all collisions.
+    """Compose registered source declarations, rejecting collisions.
 
-    Tool annotations are untrusted. The operator's permission ceiling is
-    authoritative; this function does not authorize calls or start sources.
+    This function validates discovery, not caller authorization.
     """
     if type(registrations) not in (tuple, list) or type(source_tools) is not dict:
         raise ToolCatalogError("invalid source registry")
@@ -74,11 +72,6 @@ def compose_source_catalog(builtin_tools, registrations, source_tools):
             name = tool["name"]
             if not _TOOL.fullmatch(name) or name.startswith("_"):
                 raise ToolCatalogError("invalid source tool name")
-            annotations = tool.get("annotations")
-            if type(annotations) is not dict or annotations.get("readOnlyHint") is not True:
-                raise ToolCatalogError("source tool is not explicitly read-only")
-            if annotations.get("destructiveHint") is True:
-                raise ToolCatalogError("destructive source tool")
             mapped.append({**tool, "name": registration.source_id + "__" + name})
         catalogs.append(mapped)
     if set(source_tools) - known:

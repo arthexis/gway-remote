@@ -13,7 +13,7 @@ class TestAnsibleMcpPolicyContract(unittest.TestCase):
         source = TASKS.read_text(encoding="utf-8")
         for name in (
             "Validate MCP source registrations",
-            "Validate each pinned read-only MCP provider",
+            "Validate each pinned MCP provider",
             "Inspect existing policy without following symlinks",
             "Install registration-only MCP policy",
             "Validate staged policy with installed package parser",
@@ -28,7 +28,7 @@ class TestAnsibleMcpPolicyContract(unittest.TestCase):
         self.assertNotIn("gway_mcp_policy_replace_approved", source)
         self.assertNotIn("ansible.builtin.systemd:", source)
         self.assertNotIn("ansible.builtin.service:", source)
-        self.assertIn("item.permission == 'read'", source)
+        self.assertNotIn("item.permission", source)
         self.assertIn("follow: false", source)
         self.assertIn("checksum_algorithm: sha256", source)
 
