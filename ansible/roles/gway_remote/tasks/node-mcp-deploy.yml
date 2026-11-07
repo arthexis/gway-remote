@@ -7,11 +7,12 @@
       - gway_remote_runner_user not in ['root', 'gway-exec']
       - (getent_passwd[gway_remote_runner_user][4] | length) > 1
 
-# Resolve the checkout that actually launched this playbook, not a guessed
-# ~/Repos location hidden from the unprivileged executor.
-- name: Set canonical operator checkout from deploying playbook
+# GitHub Actions checks out detached HEAD in a transient runner workspace.
+# The broker must always use a persistent, operator-owned main checkout.
+# Operators may override this explicitly for nonstandard installations.
+- name: Set persistent operator checkout
   ansible.builtin.set_fact:
-    gway_remote_deploy_checkout: "{{ playbook_dir }}/.."
+    gway_remote_deploy_checkout: "{{ gway_remote_deploy_checkout_override | default(getent_passwd[gway_remote_runner_user][4] ~ '/Repos/gway-remote', true) }}"
 
 - name: Inspect deployment checkout without following symlinks
   ansible.builtin.stat:
