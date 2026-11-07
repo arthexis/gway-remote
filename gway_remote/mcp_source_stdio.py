@@ -1,7 +1,4 @@
-"""Bounded, opt-in MCP stdio client for approved read-only source processes.
-
-No service integration, public discovery, or authorization policy changes.
-"""
+"""Bounded MCP stdio client for registered, pinned providers."""
 import json
 import os
 import selectors
@@ -9,6 +6,7 @@ import subprocess
 import time
 
 from .mcp_source_registry import SourceRegistration
+from .mcp_tool_scope import required_scope
 
 
 class SourceProtocolError(RuntimeError):
@@ -23,8 +21,6 @@ class _Session:
     def __init__(self, registration, timeout):
         if not isinstance(registration, SourceRegistration) or not registration.enabled:
             raise SourceProtocolError("source not enabled")
-        if registration.permission != "read":
-            raise SourceProtocolError("source not read-only")
         if not isinstance(timeout, (int, float)) or isinstance(timeout, bool) or not 0 < timeout <= 30:
             raise ValueError("invalid timeout")
         self.registration = registration
@@ -141,22 +137,28 @@ def list_source_tools(registration, timeout=10):
         return _check_tool_list(session.request(2, "tools/list", {}))
 
 
-def call_source_tool(registration, name, arguments, approved_tools, timeout=10):
-    """Call only a previously approved read-only tool after fresh discovery."""
-    if type(name) is not str or type(arguments) is not dict:
+def call_source_tool(registration, name, arguments, declared_tool, *, authorized_scope="read", timeout=10):
+    """Execute only the currently declared tool under the caller's scope.
+
+    Re-discovery in the same stdio session prevents a provider from changing
+    its declaration between authorization and invocation.
+    """
+    if type(name) is not str or type(arguments) is not dict or type(declared_tool) is not dict:
         raise SourceProtocolError("invalid tool call")
-    if type(approved_tools) not in (list, tuple):
-        raise SourceProtocolError("missing approved catalog")
-    approved = {tool["name"]: tool for tool in approved_tools
-                if type(tool) is dict and type(tool.get("name")) is str}
-    if name not in approved or approved[name].get("annotations", {}).get("readOnlyHint") is not True:
-        raise SourceProtocolError("tool not approved for read-only call")
+    if authorized_scope not in ("read", "execute"):
+        raise SourceProtocolError("invalid caller scope")
+    if declared_tool.get("name") != name:
+        raise SourceProtocolError("tool declaration mismatch")
+    if required_scope(declared_tool) == "execute" and authorized_scope != "execute":
+        raise SourceProtocolError("execution scope required")
     with _Session(registration, timeout) as session:
         session.initialize()
         current = _check_tool_list(session.request(2, "tools/list", {}))
         matching = [tool for tool in current if tool.get("name") == name]
-        if len(matching) != 1 or matching[0] != approved[name]:
-            raise SourceProtocolError("source tool changed since approval")
+        if len(matching) != 1 or matching[0] != declared_tool:
+            raise SourceProtocolError("source tool changed since discovery")
+        if required_scope(matching[0]) == "execute" and authorized_scope != "execute":
+            raise SourceProtocolError("execution scope required")
         result = session.request(3, "tools/call", {"name": name, "arguments": arguments})
         if type(result.get("content")) is not list:
             raise SourceProtocolError("invalid tool result")
