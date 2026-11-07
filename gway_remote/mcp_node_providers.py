@@ -90,3 +90,24 @@ def provider_call(registrations, *, provider, tool, arguments, authorized_scope)
     except (OSError, ValueError, RuntimeError, TimeoutError) as exc:
         raise NodeProviderError("provider_unavailable", provider=provider,
                                 stage="execution", retryable=True) from exc
+
+def dispatch_node_provider_request(registrations, request, *, node_id, trusted_scope):
+    """RPC entrypoint for an authenticated node transport.
+
+    The transport MUST derive trusted_scope from its authenticated peer and
+    MUST NOT accept it from request payload. Never shell out from Watchtower.
+    """
+    if type(request) is not dict or set(request) - {"operation", "provider", "tool", "arguments"}:
+        raise NodeProviderError("invalid_request")
+    operation = request.get("operation")
+    if operation == "provider_list":
+        if set(request) != {"operation"}:
+            raise NodeProviderError("invalid_request")
+        return provider_list(registrations, node_id=node_id)
+    if operation == "provider_call":
+        if set(request) != {"operation", "provider", "tool", "arguments"}:
+            raise NodeProviderError("invalid_request")
+        return provider_call(registrations, provider=request["provider"],
+                             tool=request["tool"], arguments=request["arguments"],
+                             authorized_scope=trusted_scope)
+    raise NodeProviderError("unknown_operation")
