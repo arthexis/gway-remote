@@ -5,6 +5,7 @@ node transport must supply the caller's effective scope; arguments cannot
 upgrade authorization. Provider registrations are operator-provisioned.
 """
 from .mcp_source_policy import classify_source_catalog
+from dataclasses import replace
 import os
 import pwd
 from .mcp_source_stdio import SourceProtocolError, call_source_tool, list_source_tools
@@ -24,14 +25,16 @@ class NodeProviderError(RuntimeError):
                 "stage": self.stage, "retryable": self.retryable}
 
 
-def _assert_local_identity(registration):
-    """The node owns execution identity; never accept it from remote requests."""
-    try:
-        configured_uid = pwd.getpwnam(registration.run_as).pw_uid
-    except (KeyError, TypeError, ValueError) as exc:
-        raise NodeProviderError("invalid_local_identity", provider=registration.source_id) from exc
-    if configured_uid == 0 or os.geteuid() != configured_uid:
-        raise NodeProviderError("local_identity_mismatch", provider=registration.source_id)
+def _node_registration(registration):
+    """Run every provider as the node service account, never a provider account.
+
+    The legacy run_as field is retained in the registry wire format for
+    compatibility, but it cannot select a different OS identity here.
+    """
+    if os.geteuid() == 0:
+        raise NodeProviderError("root_execution_forbidden",
+                                provider=registration.source_id)
+    return replace(registration, run_as=pwd.getpwuid(os.geteuid()).pw_name)
 
 
 def _registration(registrations, provider):
@@ -44,7 +47,7 @@ def _registration(registrations, provider):
 
 
 def _catalog(registration):
-    _assert_local_identity(registration)
+    registration = _node_registration(registration)
     try:
         return classify_source_catalog(registration, list_source_tools(registration))
     except SourceProtocolError as exc:
@@ -95,7 +98,7 @@ def provider_call(registrations, *, provider, tool, arguments, authorized_scope)
     if required_scope(declaration) == "execute" and authorized_scope != "execute":
         raise NodeProviderError("permission_denied", provider=provider)
     try:
-        return call_source_tool(registration, tool, arguments, declaration,
+        return call_source_tool(_node_registration(registration), tool, arguments, declaration,
                                 authorized_scope=authorized_scope)
     except SourceProtocolError as exc:
         raise NodeProviderError(exc.code, provider=provider, stage=exc.stage,
