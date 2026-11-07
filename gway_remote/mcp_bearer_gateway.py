@@ -153,12 +153,10 @@ SOURCE_TOOL_NAME = re.compile(r"^[a-z][a-z0-9_]{1,39}__[a-z][a-z0-9_]{0,63}$")
 
 
 def trusted_source_tool(tool):
-    """Backend has already admitted the source; expose only read-only namespaced tools."""
+    """Backend admits the provider; annotations declare the tool scope."""
     return (type(tool) is dict and type(tool.get('name')) is str
             and SOURCE_TOOL_NAME.fullmatch(tool['name']) is not None
-            and type(tool.get('annotations')) is dict
-            and tool['annotations'].get('readOnlyHint') is True
-            and tool['annotations'].get('destructiveHint') is not True)
+            and type(tool.get('inputSchema')) is dict)
 
 
 def inspect_rpc(raw, approved_sources=()):
@@ -403,14 +401,20 @@ class Handler(BaseHTTPRequestHandler):
                     if response.status != 200:
                         return self.reject(502)
                     listed = json.loads(response.read(MAX_RESPONSE + 1))["result"]["tools"]
-                if type(listed) is not list or not any(
-                        trusted_source_tool(tool) and tool["name"] == payload["params"]["name"]
-                        for tool in listed):
+                matching = [tool for tool in listed if trusted_source_tool(tool)
+                            and tool["name"] == payload["params"]["name"]]
+                if len(matching) != 1:
                     return self.reject(403)
+                annotations = matching[0].get("annotations", {})
+                is_read = (type(annotations) is dict and annotations.get("readOnlyHint") is True
+                           and annotations.get("destructiveHint") is not True)
+                if not is_read and not has_exec:
+                    return self.reject(401, scope="gway:execute")
             except (OSError, URLError, HTTPError, ValueError, TypeError, KeyError):
                 return self.reject(502)
         # Forward only to a fixed private endpoint; never forward client headers.
         headers = {"Authorization": "Bearer " + self.server.backend_token,
+                   "X-Gway-Caller-Scope": "execute" if has_exec else "read",
                    "Content-Type": "application/json",
                    "Accept": "application/json, text/event-stream",
                    "MCP-Protocol-Version": "2025-03-26"}
@@ -447,7 +451,11 @@ class Handler(BaseHTTPRequestHandler):
                     raise ValueError("invalid upstream tool names")
                 tools = [tool for tool in tools if tool["name"] in ALLOWED_TOOLS
                          or trusted_source_tool(tool)]
-                scoped_tools = [scoped_tool(tool, EXEC_SECURITY if tool.get("name") == "agent_submit" else READ_SECURITY) for tool in tools]
+                scoped_tools = [scoped_tool(tool, EXEC_SECURITY if (tool.get("name") == "agent_submit" or
+                             (trusted_source_tool(tool) and not (
+                                 type(tool.get("annotations")) is dict and
+                                 tool["annotations"].get("readOnlyHint") is True and
+                                 tool["annotations"].get("destructiveHint") is not True))) else READ_SECURITY) for tool in tools]
                 node_tools = [scoped_tool(tool, READ_SECURITY) for tool in NODE_TOOLS]
                 exec_tools = [scoped_tool(tool, EXEC_SECURITY) for tool in EXEC_TOOLS]
                 result["tools"] = (scoped_tools + node_tools +
