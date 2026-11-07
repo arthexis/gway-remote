@@ -41,10 +41,15 @@ def load_source_policy(path, *, expected_sha256, builtins=()):
         if type(item) is not dict or set(item) != ({"registration", "tools"} if policy["version"] == 1 else {"registration"}):
             raise ValueError("invalid source entry")
         data = item["registration"]
-        if type(data) is not dict or set(data) != {
-                "source_id", "revision", "executable", "argv", "run_as", "enabled", "permission"}:
+        if type(data) is not dict:
             raise ValueError("invalid registration")
-        registration = SourceRegistration(**{**data, "argv": tuple(data["argv"])})
+        fields = {"source_id", "revision", "executable", "argv", "run_as", "enabled"}
+        if set(data) not in (fields, fields | {"permission"}):
+            raise ValueError("invalid registration")
+        if "permission" in data and data["permission"] != "read":
+            raise ValueError("invalid legacy source permission")
+        registration = SourceRegistration(**{**{k: v for k, v in data.items() if k != "permission"},
+                                             "argv": tuple(data["argv"])})
         if registration.source_id in approved:
             raise ValueError("duplicate source")
         registrations.append(registration)
@@ -63,11 +68,7 @@ def policy_digest(path):
 
 
 def classify_source_catalog(registration, discovered):
-    """Classify all tools; never grant execution based on source metadata.
-
-    Untrusted/missing annotations default to execute-required. The read-only
-    catalog remains bounded by the independently approved source permission.
-    """
+    """Classify provider-declared scopes; unknown defaults to execute."""
     if not isinstance(registration, SourceRegistration) or not registration.enabled:
         raise ValueError("registered enabled source required")
     if type(discovered) is not list or len(discovered) > 64:
@@ -85,7 +86,7 @@ def classify_source_catalog(registration, discovered):
             readonly.append(tool)
         else:
             execute.append(tool)
-    compose_source_catalog((), (registration,), {registration.source_id: readonly})
+    compose_source_catalog((), (registration,), {registration.source_id: discovered})
     return {
         "read": sorted(readonly, key=lambda tool: tool["name"]),
         "execute_required": sorted(execute, key=lambda tool: tool["name"]),
