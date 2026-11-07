@@ -23,11 +23,14 @@ class SourcePolicyV2Tests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "sources.json"
             path.write_bytes(raw)
+            original_stat = Path.stat
+            def trusted_stat(file, *args, **kwargs):
+                actual = original_stat(file, *args, **kwargs)
+                if str(file) != str(path):
+                    return actual
+                return type("Stat", (), {"st_uid": 0, "st_mode": actual.st_mode})()
             with patch("gway_remote.mcp_source_policy.Path", return_value=path):
-                with patch.object(Path, "stat", autospec=True) as stat:
-                    # The production loader requires a root-owned file.
-                    actual = path.stat()
-                    stat.return_value = type("Stat", (), {"st_uid": 0, "st_mode": actual.st_mode})()
+                with patch.object(Path, "stat", trusted_stat):
                     return load_source_policy(
                         "/etc/gway-mcp-gateway/sources.json",
                         expected_sha256=hashlib.sha256(raw).hexdigest())
