@@ -62,6 +62,7 @@ jobs:
           python -m pip install 'ansible-core>=2.16,<2.19'
           ansible-playbook --syntax-check -i 'localhost,' ansible/playbook.yml
           ansible-playbook --syntax-check -i 'localhost,' ansible/playbooks/stage-release.yml
+          ansible-playbook --syntax-check -i 'localhost,' ansible/playbooks/validate-mcp-source-provision.yml
           ansible-playbook --syntax-check -i 'localhost,' ansible/playbooks/watchtower-mcp.yml
 
   ansible-core-2-12:
@@ -79,6 +80,7 @@ jobs:
           ansible-playbook --version
           ansible-playbook --syntax-check -i 'gway_remote,' ansible/playbook.yml
           ansible-playbook --syntax-check -i 'localhost,' ansible/playbooks/stage-release.yml
+          ansible-playbook --syntax-check -i 'localhost,' ansible/playbooks/validate-mcp-source-provision.yml
           ansible-playbook --syntax-check -i 'wireguard_hub,' ansible/playbooks/adopt-wireguard-peer.yml
           ansible-playbook --syntax-check -i 'watchtower,' ansible/playbooks/watchtower-enrollment.yml
           ansible-playbook --syntax-check -i 'watchtower,' ansible/playbooks/watchtower-enrollment-production.yml

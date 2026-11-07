@@ -1,0 +1,9 @@
+---
+# Static parse of the task file; dynamic include_tasks in the main role
+# does not guarantee this file is parsed by --syntax-check.
+- name: Validate MCP provider policy tasks
+  hosts: localhost
+  gather_facts: false
+  tasks:
+    - name: Parse registration-only policy provisioning
+      ansible.builtin.import_tasks: ../roles/gway_remote/tasks/mcp-source-provision.yml
