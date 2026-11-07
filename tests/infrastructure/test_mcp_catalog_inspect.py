@@ -39,6 +39,11 @@ class CatalogInspectTests(unittest.TestCase):
         self.assertEqual(tools["mcp_catalog_inspect"]["origin"], "builtin")
         self.assertNotIn("inputSchema", tools["agentops__submit"])
         self.assertEqual(result["count"], 3)
+        expected, _ = FakeFederation().discover(builtins=[
+            {"name": "mcp_catalog_inspect", "inputSchema": {"type": "object"}}
+        ])
+        self.assertEqual([t["name"] for t in result["tools"]],
+                         [t["name"] for t in expected])
 
 
 if __name__ == "__main__":
