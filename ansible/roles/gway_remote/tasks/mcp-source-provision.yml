@@ -9,10 +9,10 @@
       - (gway_mcp_sources | map(attribute='source_id') | list | unique | length) == (gway_mcp_sources | length)
     fail_msg: "Invalid MCP source list"
 
-- name: Validate each pinned read-only MCP provider
+- name: Validate each pinned MCP provider
   ansible.builtin.assert:
     that:
-      - item.keys() | list | sort == ['argv', 'enabled', 'executable', 'permission', 'revision', 'run_as', 'source_id']
+      - item.keys() | list | sort == ['argv', 'enabled', 'executable', 'revision', 'run_as', 'source_id']
       - item.source_id is match('^[a-z][a-z0-9_]{1,39}$')
       - item.revision is match('^[0-9a-f]{40}$')
       - item.executable is match('^/[^/]+')
@@ -23,7 +23,6 @@
       - item.argv[0] == item.executable
       - item.run_as is match('^[a-z][a-z0-9_]{1,39}$')
       - item.enabled is boolean
-      - item.permission == 'read'
   loop: "{{ gway_mcp_sources }}"
   loop_control:
     label: "{{ item.source_id | default('invalid') }}"
