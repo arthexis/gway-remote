@@ -9,6 +9,8 @@
     mcp_source: "{{ playbook_dir }}/../.."
     mcp_root: /opt/gway-mcp
     mcp_unit: gway-mcp-link.service
+    # Explicit Watchtower-only opt-in; not inferred from the OS hostname.
+    gway_mcp_bridge_enable: true
   tasks:
     - name: Resolve reviewed repository commit
       ansible.builtin.command:
@@ -79,6 +81,32 @@
       ansible.builtin.slurp:
         src: /etc/systemd/system/gway-mcp-link.service
       register: mcp_original_unit
+
+    - name: Inspect original private bridge configuration before activation
+      become: true
+      ansible.builtin.stat:
+        path: "{{ item }}"
+        follow: false
+      loop:
+        - /etc/gway-mcp/bridge/gateway.env
+        - /etc/systemd/system/gway-mcp-gateway.service.d/20-private-bridge.conf
+      register: mcp_bridge_original_stats
+
+    - name: Reject unsafe existing bridge configuration paths
+      ansible.builtin.assert:
+        that:
+          - not (item.stat.islnk | default(false))
+          - not (item.stat.exists | default(false)) or (item.stat.isreg | default(false))
+      loop: "{{ mcp_bridge_original_stats.results }}"
+
+    - name: Capture original bridge configuration for recovery
+      become: true
+      ansible.builtin.slurp:
+        src: "{{ item.item }}"
+      loop: "{{ mcp_bridge_original_stats.results }}"
+      when: item.stat.exists | default(false)
+      register: mcp_bridge_original_contents
+      no_log: true
 
     - name: Detect checked-in service unit change
       ansible.builtin.stat:
@@ -282,12 +310,32 @@
               become: true
           # Bridge activation is opt-in; no hostname string is used for selection.
 
-        - name: Restart the dedicated MCP gateway for new protocol code
+        - name: Restart the dedicated MCP gateway for new protocol code or bridge configuration
           become: true
           ansible.builtin.systemd:
             name: gway-mcp-gateway.service
             state: restarted
-          when: mcp_gateway_activation_needed | bool or mcp_exec_gateway_unit.changed
+          when: >-
+            mcp_gateway_activation_needed | bool or
+            mcp_exec_gateway_unit.changed or
+            bridge_gateway_env.changed or
+            bridge_gateway_dropin.changed | default(false)
+
+        - name: Verify enabled bridge socket exists after gateway restart
+          become: true
+          ansible.builtin.stat:
+            path: /run/gway-mcp-bridge/bridge.sock
+            follow: false
+          register: mcp_bridge_socket
+          when: gway_mcp_bridge_enable | bool
+
+        - name: Require a private gateway-owned Unix bridge socket
+          ansible.builtin.assert:
+            that:
+              - mcp_bridge_socket.stat.issock | default(false)
+              - mcp_bridge_socket.stat.pw_name == 'gway-mcp-gateway'
+              - mcp_bridge_socket.stat.mode == '0600'
+          when: gway_mcp_bridge_enable | bool
 
         - name: Verify gateway is reachable only on its existing loopback listener
           ansible.builtin.uri:
@@ -328,6 +376,26 @@
               - mcp_discovery.json.authorization_response_iss_parameter_supported | bool
               - "'S256' in mcp_discovery.json.code_challenge_methods_supported"
       rescue:
+        - name: Restore original bridge configuration files when present
+          become: true
+          ansible.builtin.copy:
+            dest: "{{ item.item.item }}"
+            content: "{{ item.content | b64decode }}"
+            owner: "{{ item.item.stat.pw_name }}"
+            group: "{{ item.item.stat.gr_name }}"
+            mode: "{{ item.item.stat.mode }}"
+          loop: "{{ mcp_bridge_original_contents.results | default([]) }}"
+          when: not (item.skipped | default(false))
+          no_log: true
+
+        - name: Remove bridge configuration introduced by failed activation
+          become: true
+          ansible.builtin.file:
+            path: "{{ item.item }}"
+            state: absent
+          loop: "{{ mcp_bridge_original_stats.results }}"
+          when: not (item.stat.exists | default(false))
+
         - name: Restore previous pointer atomically if activation failed
           become: true
           ansible.builtin.shell: |
@@ -370,7 +438,11 @@
           ansible.builtin.systemd:
             name: gway-mcp-gateway.service
             state: restarted
-          when: mcp_gateway_activation_needed | bool or mcp_exec_gateway_unit.changed | default(false)
+          when: >-
+            mcp_gateway_activation_needed | bool or
+            mcp_exec_gateway_unit.changed | default(false) or
+            bridge_gateway_env.changed | default(false) or
+            bridge_gateway_dropin.changed | default(false)
 
         - name: Restart existing OAuth link after rollback
           become: true
@@ -380,6 +452,18 @@
             daemon_reload: true
           when: mcp_activation_needed | bool
 
+        - name: Verify recovered gateway route responds
+          ansible.builtin.uri:
+            url: http://127.0.0.1:19010/mcp
+            method: GET
+            status_code: 405
+            timeout: 8
+          register: mcp_recovery_health
+          retries: 5
+          delay: 1
+          until: mcp_recovery_health.status == 405
+          changed_when: false
+
         - name: Stop on failed MCP release activation
           ansible.builtin.fail:
-            msg: MCP gateway or OAuth health validation failed; restored the previous selected release.
+            msg: MCP gateway or OAuth health validation failed; restored the previous release, service units and bridge configuration. Inspect gateway logs before retrying.
