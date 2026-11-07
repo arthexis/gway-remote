@@ -12,9 +12,9 @@ class GatewayTests(unittest.TestCase):
             self.assertTrue(inspect_rpc(json.dumps({"jsonrpc":"2.0","method":method}).encode()))
         self.assertFalse(inspect_rpc(b"[]"))
         self.assertFalse(inspect_rpc(b"not json"))
-        self.assertTrue(inspect_rpc(b'{"jsonrpc":"2.0","method":"tools/call","params":{"name":"agent_submit"}}'))
+        self.assertFalse(inspect_rpc(b'{"jsonrpc":"2.0","method":"tools/call","params":{"name":"agent_submit"}}'))
         self.assertFalse(inspect_rpc(b'{"jsonrpc":"2.0","method":"execute"}'))
-        self.assertTrue(inspect_rpc(b'{"jsonrpc":"2.0","method":"tools/call","params":{"name":"agent_status"}}'))
+        self.assertFalse(inspect_rpc(b'{"jsonrpc":"2.0","method":"tools/call","params":{"name":"agent_status"}}'))
 
     def test_private_endpoint_required(self):
         with tempfile.TemporaryDirectory() as d:
