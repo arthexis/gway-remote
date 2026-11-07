@@ -340,9 +340,29 @@ class Handler(BaseHTTPRequestHandler):
             try:
                 if payload["params"].get("arguments", {}) != {} or self.server.federation is None:
                     raise ValueError("invalid catalog request")
+                # Read the same private backend builtins as tools/list, then
+                # apply the same allowlist before composing the live federation.
+                probe = json.dumps({"jsonrpc": "2.0", "id": 0,
+                                    "method": "tools/list", "params": {}}).encode()
+                headers = {"Authorization": "Bearer " + self.server.backend_token,
+                           "Content-Type": "application/json",
+                           "Accept": "application/json, text/event-stream",
+                           "MCP-Protocol-Version": "2025-03-26"}
+                with self.server.opener.open(Request(self.server.upstream, probe,
+                                                     headers), timeout=UPSTREAM_TIMEOUT) as upstream:
+                    backend_tools = json.loads(upstream.read())["result"]["tools"]
+                if type(backend_tools) is not list:
+                    raise ValueError("invalid backend catalog")
+                builtin_names = {tool["name"] for tool in NODE_TOOLS + EXEC_TOOLS}
+                if any(type(tool) is not dict or type(tool.get("name")) is not str
+                       or tool["name"] in builtin_names for tool in backend_tools):
+                    raise ValueError("invalid backend tools")
+                backend_tools = [tool for tool in backend_tools
+                                 if tool["name"] in ALLOWED_TOOLS]
                 selected = inspect_federated_catalog(
                     self.server.federation,
-                    builtins=list(NODE_TOOLS) + (list(EXEC_TOOLS) if self.server.execution is not None else []))
+                    builtins=backend_tools + list(NODE_TOOLS) +
+                    (list(EXEC_TOOLS) if self.server.execution is not None else []))
                 result = {"content": [{"type": "text",
                                       "text": json.dumps(selected, separators=(",", ":"))}]}
                 if version == "2026-07-28":
@@ -357,7 +377,7 @@ class Handler(BaseHTTPRequestHandler):
                 self.end_headers()
                 self.wfile.write(body)
                 return
-            except (ValueError, RuntimeError, OSError, TypeError, KeyError):
+            except (ValueError, RuntimeError, OSError, TypeError, KeyError, URLError, HTTPError):
                 return self.reject(502)
         if payload["method"] == "tools/call" and payload.get("params", {}).get("name") in EXEC_TOOL_NAMES:
             params = payload.get("params", {})
