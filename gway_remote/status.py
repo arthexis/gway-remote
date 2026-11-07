@@ -154,5 +154,4 @@ def format_status(report):
     rows.append(format_power(report.get("power", {"status": "unavailable"})))
     rows.append(format_watchdog(report.get("watchdog", {"status": "unavailable", "devices": []})))
     rows.append("Installed revision is independently read from release links when available; unknown otherwise.")
-    return "
-".join(rows)
+    return "\n".join(rows)
