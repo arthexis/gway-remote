@@ -152,6 +152,25 @@ def payload_is_exec(raw):
 SOURCE_TOOL_NAME = re.compile(r"^[a-z][a-z0-9_]{1,39}__[a-z][a-z0-9_]{0,63}$")
 
 
+def federated_source_status(federation):
+    """Summarize the exact node-federated routes, without exposing transport details."""
+    _, routes = federation.discover()
+    sources = {}
+    for name in sorted(routes):
+        node, source, _, scope = routes[name]
+        item = sources.setdefault((node, source), {
+            "source": source, "node": node, "enabled": True,
+            "status": "available", "tools": [],
+            "withheld_execute_count": 0})
+        if scope == "read":
+            item["tools"].append(name)
+        else:
+            item["withheld_execute_count"] += 1
+    return {"sources": list(sources.values()),
+            "registered_count": len(sources),
+            "discovery": "node_federation"}
+
+
 def trusted_source_tool(tool):
     """Backend admits the provider; annotations declare the tool scope."""
     return (type(tool) is dict and type(tool.get('name')) is str
@@ -284,21 +303,7 @@ class Handler(BaseHTTPRequestHandler):
                 payload.get("params", {}).get("name") == "mcp_source_status" and
                 self.server.federation is not None):
             try:
-                catalog, routes = self.server.federation.discover()
-                sources = {}
-                for name in sorted(routes):
-                    node, source, _, scope = routes[name]
-                    item = sources.setdefault((node, source), {
-                        "source": source, "node": node, "enabled": True,
-                        "status": "available", "tools": [],
-                        "withheld_execute_count": 0})
-                    if scope == "read":
-                        item["tools"].append(name)
-                    else:
-                        item["withheld_execute_count"] += 1
-                selected = {"sources": list(sources.values()),
-                            "registered_count": len(sources),
-                            "discovery": "node_federation"}
+                selected = federated_source_status(self.server.federation)
                 result = {"content": [{"type": "text",
                                       "text": json.dumps(selected, separators=(",", ":"))}]}
                 if version == "2026-07-28":
