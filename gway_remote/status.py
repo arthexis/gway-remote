@@ -55,6 +55,29 @@ def installed_revision(name):
         return None
     return candidate if re.fullmatch(spec.revision_pattern, candidate) else None
 
+def activated_timestamp(name, revision):
+    """Best available activation time from the verified active release pointer.
+
+    Never use an attempt timestamp or the release directory creation time.
+    A pointer's own mtime records when that pointer was last installed.
+    """
+    if not revision:
+        return None
+    spec = probe_for(name)
+    if spec.revision_from_executable and spec.executable:
+        pointer = Path.home() / spec.executable
+    elif spec.release:
+        pointer = Path.home() / spec.release
+    else:
+        return None
+    try:
+        if not pointer.is_symlink():
+            return None
+        return datetime.fromtimestamp(pointer.lstat().st_mtime, timezone.utc).isoformat()
+    except (OSError, OverflowError, ValueError):
+        return None
+
+
 def status(directory=DEFAULT_DIR, probe=component_health, *, depth="deep"):
     if depth not in ("deep", "quick"):
         raise ValueError("invalid_status_depth")
@@ -103,6 +126,8 @@ def status(directory=DEFAULT_DIR, probe=component_health, *, depth="deep"):
                            "release_state": release["release_state"] if release else None,
                            "staged_sha": release["staged_sha"] if release else None,
                            "error": error, "log": log})
+    for item in components:
+        item["activated_at"] = activated_timestamp(item["name"], item["installed_sha"])
     checked_at = datetime.now(timezone.utc).isoformat()
     for item in components:
         item["deployment_evidence"] = adapt_component(item, observed_at=checked_at, depth=depth)
