@@ -27,6 +27,21 @@ jobs:
       - name: Run subsystem tests with timings
         run: python -m pytest tests/${{ matrix.group }} -v --durations=0 --durations-min=0
 
+  mcp-provider-lifecycle-ansible:
+    name: MCP provider lifecycle / Ansible idempotence
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install test dependencies
+        run: python -m pip install 'pytest>=8,<10' 'ansible-core>=2.16,<2.19'
+      - name: Syntax check isolated fixture
+        run: ansible-playbook --syntax-check -i 'localhost,' ansible/playbooks/test-mcp-provider-lifecycle.yml
+      - name: Test install, update, rollback and changed=0
+        run: python -m pytest tests/deployment/test_mcp_provider_lifecycle_ansible.py -v
+
   webauthn-python310:
     name: WebAuthn B2 / Watchtower Python 3.10
     runs-on: ubuntu-22.04
