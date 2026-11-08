@@ -46,7 +46,7 @@ class DeploymentInventoryTests(unittest.TestCase):
     @patch("gway_remote.__main__.subprocess.run")
     def test_kiosk_deploy_uses_owner_install_and_stage_entrypoints(self, run, output):
         sha = "a" * 40
-        output.return_value = sha + "\\n"
+        output.return_value = sha + "\n"
         deploy_ap_kiosk(sha)
         commands = [call.args[0] for call in run.call_args_list]
         self.assertEqual(commands[-2:], [
