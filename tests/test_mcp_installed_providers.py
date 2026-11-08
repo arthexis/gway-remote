@@ -40,3 +40,37 @@ def test_reject_writable_directory(tmp_path):
     tmp_path.chmod(0o777)
     with pytest.raises(ValueError, match="untrusted provider installation"):
         discover_installed_providers(str(tmp_path))
+
+
+def test_runtime_policy_is_not_a_provider_manifest(tmp_path, monkeypatch):
+    """Root-managed runtime inputs must not be interpreted as a tool source."""
+    original = Path.lstat
+
+    def root_owned(path):
+        info = original(path)
+        if path == tmp_path or (path.parent == tmp_path and path.suffix == ".json"):
+            return type("RootStat", (), {
+                "st_uid": 0, "st_mode": info.st_mode, "st_size": info.st_size
+            })()
+        return info
+
+    monkeypatch.setattr(Path, "lstat", root_owned)
+    executable = tmp_path / "agent-mcp"
+    executable.write_text("#!/bin/sh\\nexit 0\\n")
+    executable.chmod(0o755)
+    (tmp_path / "agentops.json").write_text(json.dumps({
+        "source_id": "agentops",
+        "revision": "a" * 40,
+        "executable": str(executable),
+        "argv": [str(executable)],
+    }))
+    (tmp_path / "agentops.runtime.json").write_text(json.dumps({
+        "workspace": "/private/workspaces",
+        "agent_executable": "/private/bin/agent",
+    }))
+    registrations = discover_installed_providers(str(tmp_path))
+    assert len(registrations) == 1
+    assert registrations[0].source_id == "agentops"
+    (tmp_path / "unknown.json").write_text("{}")
+    with pytest.raises(ValueError, match="invalid provider manifest"):
+        discover_installed_providers(str(tmp_path))
