@@ -1,9 +1,11 @@
 """Read-only appliance installation and runtime health report."""
 from datetime import datetime, timezone
+import json
 import platform
 import logging
 from pathlib import Path
 import re
+import subprocess
 from time import perf_counter_ns
 
 _LOG = logging.getLogger(__name__)
@@ -16,6 +18,24 @@ from .bastion_status import read_bastion_evidence
 from .deployment_evidence import adapt_component
 from .power_status import probe as power_probe, format_power
 from .watchdog import inspect as watchdog_inspect, format_watchdog
+
+
+def kiosk_activation_evidence(installed_sha):
+    """Corroborate AP Kiosk only with its independently installed read-only checker."""
+    if not isinstance(installed_sha, str) or not re.fullmatch(r"[0-9a-f]{40}", installed_sha):
+        return False
+    try:
+        result = subprocess.run(
+            ["/usr/local/libexec/gway-kiosk-verify-activation"],
+            capture_output=True, text=True, timeout=3, check=False)
+        if result.returncode != 0:
+            return False
+        payload = json.loads(result.stdout)
+        return (isinstance(payload, dict)
+                and set(payload) == {"activation_verified"}
+                and payload["activation_verified"] is True)
+    except (OSError, subprocess.SubprocessError, ValueError, UnicodeError):
+        return False
 
 
 def installed_revision(name):
@@ -126,6 +146,10 @@ def status(directory=DEFAULT_DIR, probe=component_health, *, depth="deep"):
                            "release_state": release["release_state"] if release else None,
                            "staged_sha": release["staged_sha"] if release else None,
                            "error": error, "log": log})
+    if depth == "deep":
+        for item in components:
+            if item["name"] == "gway-ap-kiosk":
+                item["kiosk_activation_verified"] = kiosk_activation_evidence(item["installed_sha"])
     for item in components:
         item["activated_at"] = activated_timestamp(item["name"], item["installed_sha"])
     checked_at = datetime.now(timezone.utc).isoformat()
