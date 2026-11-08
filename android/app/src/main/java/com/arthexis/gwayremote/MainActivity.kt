@@ -247,11 +247,7 @@ fun CompanionScreen(store: SecretStore, appearance: AppearanceMode = AppearanceM
                 }
                 if (path.endsWith("/commands")) {
                     val entries = response.getJSONArray("commands")
-                    commands = (0 until entries.length()).mapNotNull { index ->
-                        val item = entries.getJSONObject(index)
-                        if (item.optBoolean("read_only") && (item.optJSONObject("arguments")?.length() ?: 0) == 0)
-                            item.optString("name").takeIf { it.isNotBlank() } else null
-                    }
+                    commands = ReadOnlyCommandCatalog.names(entries)
                 }
                 result = response.toString(2)
             } catch (e: Exception) {
@@ -287,12 +283,7 @@ fun CompanionScreen(store: SecretStore, appearance: AppearanceMode = AppearanceM
                     fetch("Quick status", "/api/v1/execute", "status-quick")?.let { result = it.toString(2) }
                     fetch("Commands", "/api/v1/commands")?.let { response ->
                         val entries = response.getJSONArray("commands")
-                        commands = (0 until entries.length()).mapNotNull { index ->
-                            val item = entries.getJSONObject(index)
-                            if (item.optBoolean("read_only") &&
-                                (item.optJSONObject("arguments")?.length() ?: 0) == 0)
-                                item.optString("name").takeIf { it.isNotBlank() } else null
-                        }
+                        commands = ReadOnlyCommandCatalog.names(entries)
                     }
 
                 }
