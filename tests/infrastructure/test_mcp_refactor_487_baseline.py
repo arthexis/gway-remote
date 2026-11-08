@@ -6,24 +6,20 @@ from gway_remote.mcp_bearer_gateway import inspect_federated_catalog
 from gway_remote.mcp_node_providers import NodeProviderError, dispatch_node_provider_request
 
 
-class FakeFederation:
-    def discover(self, builtins=()):
-        tools = list(builtins) + [
-            {"name": "fixture__read", "inputSchema": {"type": "object"},
-             "annotations": {"readOnlyHint": True}},
-            {"name": "fixture__write", "inputSchema": {"type": "object"}},
-        ]
-        routes = {
-            "fixture__read": ("gway-001", "fixture", "read", "read"),
-            "fixture__write": ("gway-001", "fixture", "write", "execute"),
-        }
-        return tools, routes
+from tests.helpers.mcp_federation import FederationCatalogFixture, fixture_tool
+
+
+def federation():
+    return FederationCatalogFixture([
+        fixture_tool('fixture__read', read=True),
+        fixture_tool('fixture__write'),
+    ], route_names={'fixture__read': 'read', 'fixture__write': 'write'})
 
 
 class RefactorBaselineTests(unittest.TestCase):
     def test_catalog_projection_preserves_names_and_scopes(self):
-        listed, _ = FakeFederation().discover()
-        inspected = inspect_federated_catalog(FakeFederation())
+        listed, _ = federation().discover()
+        inspected = inspect_federated_catalog(federation())
         self.assertEqual([tool["name"] for tool in listed],
                          [tool["name"] for tool in inspected["tools"]])
         scopes = {tool["name"]: tool["required_scope"] for tool in inspected["tools"]}

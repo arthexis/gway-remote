@@ -6,19 +6,16 @@ from gway_remote.mcp_bearer_gateway import (
 )
 
 
-class FakeFederation:
-    def discover(self, builtins=()):
-        return (list(builtins) + [{
-            "name": "agentops__submit",
-            "inputSchema": {"type": "object"},
-        }, {
-            "name": "agentops__status",
-            "inputSchema": {"type": "object"},
-            "annotations": {"readOnlyHint": True},
-        }], {
-            "agentops__submit": ("gway-001", "agentops", "submit", "execute"),
-            "agentops__status": ("gway-001", "agentops", "status", "read"),
-        })
+from tests.helpers.mcp_federation import FederationCatalogFixture, fixture_tool
+
+
+def federation():
+    return FederationCatalogFixture([
+        fixture_tool('agentops__submit'),
+        fixture_tool('agentops__status', read=True),
+    ], source='agentops', route_names={
+        'agentops__submit': 'submit', 'agentops__status': 'status',
+    })
 
 
 class CatalogInspectTests(unittest.TestCase):
@@ -29,7 +26,7 @@ class CatalogInspectTests(unittest.TestCase):
         self.assertEqual(tool["inputSchema"]["properties"], {})
 
     def test_namespaced_builtin_scope_matches_gateway_tools_list(self):
-        result = inspect_federated_catalog(FakeFederation(), builtins=[
+        result = inspect_federated_catalog(federation(), builtins=[
             {"name": "demo__mutate", "inputSchema": {"type": "object"}},
             {"name": "demo__read", "inputSchema": {"type": "object"},
              "annotations": {"readOnlyHint": True}},
@@ -39,7 +36,7 @@ class CatalogInspectTests(unittest.TestCase):
         self.assertEqual(tools["demo__read"]["required_scope"], "gway:read")
 
     def test_scope_and_origin_without_arguments_or_secrets(self):
-        result = inspect_federated_catalog(FakeFederation(), builtins=[
+        result = inspect_federated_catalog(federation(), builtins=[
             {"name": "mcp_catalog_inspect", "inputSchema": {"type": "object"}}
         ])
         tools = {t["name"]: t for t in result["tools"]}
@@ -48,10 +45,10 @@ class CatalogInspectTests(unittest.TestCase):
         self.assertEqual(tools["agentops__submit"]["node"], "gway-001")
         self.assertEqual(tools["mcp_catalog_inspect"]["origin"], "builtin")
         self.assertNotIn("inputSchema", tools["agentops__submit"])
-        self.assertEqual(result["count"], 3)
-        expected, _ = FakeFederation().discover(builtins=[
+        expected, _ = federation().discover(builtins=[
             {"name": "mcp_catalog_inspect", "inputSchema": {"type": "object"}}
         ])
+        self.assertEqual(result["count"], len(expected))
         self.assertEqual([t["name"] for t in result["tools"]],
                          [t["name"] for t in expected])
 
