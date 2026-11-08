@@ -109,7 +109,7 @@ fun CompanionScreen(store: SecretStore, appearance: AppearanceMode = AppearanceM
     var lcdDuration by remember { mutableFloatStateOf(30f) }
     var lcdLine1 by remember { mutableStateOf("") }
     var lcdLine2 by remember { mutableStateOf("") }
-    var availableMotifs by remember { mutableStateOf(listOf<String>()) }
+    var soundMotifs by remember { mutableStateOf(CompanionSoundMotifsState()) }
     var selectedSound by remember { mutableStateOf("notice") }
     var soundMenuOpen by remember { mutableStateOf(false) }
     val settingsOpen = settings.open
@@ -139,11 +139,9 @@ fun CompanionScreen(store: SecretStore, appearance: AppearanceMode = AppearanceM
                     ApiClient(endpoint.trim(), token).request(
                         "/api/v1/execute", "sound-motifs", JSONObject())
                 }
-                val array = response.optJSONObject("result")?.optJSONArray("motifs")
-                availableMotifs = if (array == null) emptyList()
-                    else (0 until array.length()).map { array.getString(it) }
+                soundMotifs = soundMotifs.loaded(response)
             } catch (_: Exception) {
-                availableMotifs = emptyList()
+                soundMotifs = soundMotifs.failed()
             }
         }
     }
@@ -486,7 +484,7 @@ fun CompanionScreen(store: SecretStore, appearance: AppearanceMode = AppearanceM
             },
             onAgentSend = agentModel::send,
             benchmarkContent = benchmarkPanelContent,
-            motifs = availableMotifs,
+            motifs = soundMotifs.available,
             lcdNotification = operationModel.lcdNotification,
             soundNotification = operationModel.soundNotification,
             onNotificationInput = operationModel::notificationInput,
