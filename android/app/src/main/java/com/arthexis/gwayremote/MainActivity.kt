@@ -113,15 +113,16 @@ fun CompanionScreen(store: SecretStore, appearance: AppearanceMode = AppearanceM
     var soundMenuOpen by remember { mutableStateOf(false) }
     val settingsOpen = settings.open
     var benchmarkExpanded by remember { mutableStateOf(false) }
-    var benchmarkSamples by remember { mutableStateOf("100") }
-    var benchmarkWarmup by remember { mutableStateOf("5") }
-    var benchmarkTimeout by remember { mutableStateOf("5") }
-    var benchmarkPayload by remember { mutableStateOf("0") }
+    var benchmarkInput by remember { mutableStateOf(CompanionBenchmarkInput()) }
+    val benchmarkSamples = benchmarkInput.samples
+    val benchmarkWarmup = benchmarkInput.warmup
+    val benchmarkTimeout = benchmarkInput.timeout
+    val benchmarkPayload = benchmarkInput.payload
+    val benchmarkMode = benchmarkInput.mode
+    val benchmarkLabel = benchmarkInput.label
     var benchmarkProgress by remember { mutableIntStateOf(0) }
     var benchmarkRunning by remember { mutableStateOf(false) }
     var benchmarkReport by remember { mutableStateOf<BenchmarkReport?>(null) }
-    var benchmarkMode by remember { mutableStateOf(BenchmarkMode.BOTH) }
-    var benchmarkLabel by remember { mutableStateOf("Unspecified") }
     var benchmarkError by remember { mutableStateOf("") }
     val benchmarkStop = remember { java.util.concurrent.atomic.AtomicBoolean(false) }
 
@@ -313,18 +314,18 @@ fun CompanionScreen(store: SecretStore, appearance: AppearanceMode = AppearanceM
                         label = { Text(mode.name.lowercase().replaceFirstChar { it.uppercase() }) })
                 }
             }
-            OutlinedTextField(benchmarkLabel, { benchmarkLabel = it }, label = { Text("Connection label (AP / LAN / remote)") },
+            OutlinedTextField(benchmarkLabel, { benchmarkInput = benchmarkInput.copy(label = it) }, label = { Text("Connection label (AP / LAN / remote)") },
                 modifier = Modifier.fillMaxWidth(), singleLine = true)
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                OutlinedTextField(benchmarkSamples, { benchmarkSamples = it }, label = { Text("Samples") },
+                OutlinedTextField(benchmarkSamples, { benchmarkInput = benchmarkInput.copy(samples = it) }, label = { Text("Samples") },
                     modifier = Modifier.weight(1f), singleLine = true)
-                OutlinedTextField(benchmarkWarmup, { benchmarkWarmup = it }, label = { Text("Warmup") },
+                OutlinedTextField(benchmarkWarmup, { benchmarkInput = benchmarkInput.copy(warmup = it) }, label = { Text("Warmup") },
                     modifier = Modifier.weight(1f), singleLine = true)
             }
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                OutlinedTextField(benchmarkTimeout, { benchmarkTimeout = it }, label = { Text("Timeout (s)") },
+                OutlinedTextField(benchmarkTimeout, { benchmarkInput = benchmarkInput.copy(timeout = it) }, label = { Text("Timeout (s)") },
                     modifier = Modifier.weight(1f), singleLine = true)
-                OutlinedTextField(benchmarkPayload, { benchmarkPayload = it }, label = { Text("Payload (bytes)") },
+                OutlinedTextField(benchmarkPayload, { benchmarkInput = benchmarkInput.copy(payload = it) }, label = { Text("Payload (bytes)") },
                     modifier = Modifier.weight(1f), singleLine = true)
             }
             if (benchmarkRunning) {
@@ -337,12 +338,7 @@ fun CompanionScreen(store: SecretStore, appearance: AppearanceMode = AppearanceM
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Button(enabled = !benchmarkRunning, onClick = {
                     try {
-                        val config = BenchmarkConfig(
-                            samples = benchmarkSamples.toInt(),
-                            warmup = benchmarkWarmup.toInt(),
-                            timeoutMs = benchmarkTimeout.toInt() * 1000,
-                            payloadBytes = benchmarkPayload.toInt()
-                        )
+                        val config = benchmarkInput.config()
                         benchmarkError = ""
                         benchmarkReport = null
                         benchmarkProgress = 0
@@ -358,9 +354,7 @@ fun CompanionScreen(store: SecretStore, appearance: AppearanceMode = AppearanceM
                                     )
                                 }
                                 val selected = benchmarkMode
-                                val modes = if (selected == BenchmarkMode.BOTH)
-                                    listOf("benchmark-echo", "status") else
-                                    listOf(if (selected == BenchmarkMode.ECHO) "benchmark-echo" else "status")
+                                val modes = benchmarkInput.copy(mode = selected).commands()
                                 val results = mutableListOf<BenchmarkResult>()
                                 for ((index, command) in modes.withIndex()) {
                                     if (benchmarkStop.get()) break
