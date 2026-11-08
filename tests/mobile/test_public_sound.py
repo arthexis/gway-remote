@@ -79,6 +79,34 @@ class PublicSoundTests(unittest.TestCase):
             with patch.object(helper, "ROOT", root), patch.object(helper, "TARGET", target), \
                  patch.object(helper, "PUBLIC", (alias,)), patch.object(helper.os, "chown"):
                 helper.operate("promote:" + sha)
-                self.assertEqual(target.read_bytes(), source.read_bytes())
+                self.assertTrue(target.is_symlink())
+                self.assertEqual(target.resolve(), source)
+                self.assertEqual(alias.read_bytes(), source.read_bytes())
+                # A repeated promotion must remain safe and idempotent.
+                helper.operate("promote:" + sha)
+                self.assertEqual(target.resolve(), source)
                 with self.assertRaisesRegex(ValueError, "Unknown operation"):
                     helper.operate("restore:" + sha)
+
+    def test_helper_rejects_foreign_target_symlink(self):
+        helper = load_helper()
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            sha = "a" * 40
+            source = root / "releases" / sha[:12] / "scripts/gway/sound.sh"
+            source.parent.mkdir(parents=True)
+            source.write_text("#!/bin/sh\\necho --motif\\n")
+            source.chmod(0o755)
+            (root / "current").symlink_to(source.parent.parent.parent)
+            foreign = root / "foreign"
+            foreign.write_text("do not replace")
+            target = root / "system" / "sound.sh"
+            target.parent.mkdir()
+            target.symlink_to(foreign)
+            alias = root / "sound"
+            alias.symlink_to(target)
+            with patch.object(helper, "ROOT", root), patch.object(helper, "TARGET", target), patch.object(helper, "PUBLIC", (alias,)):
+                with self.assertRaisesRegex(ValueError, "Unexpected public sound target"):
+                    helper.operate("promote:" + sha)
+            self.assertEqual(target.resolve(), foreign)
+
