@@ -8,6 +8,7 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
+from tests.helpers.mcp_deployment import ansible_changed_count
 from gway_remote.mcp_node_providers import provider_list
 from gway_remote.mcp_source_registry import SourceRegistration
 from gway_remote.mcp_source_stdio import list_source_tools
@@ -30,11 +31,11 @@ class MCPProviderLifecycleAnsibleTests(unittest.TestCase):
                 self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
                 return proc.stdout
 
-            self.assertIn("changed=3", converge("v1"))
-            self.assertIn("changed=0", converge("v1"))
-            self.assertIn("changed=2", converge("v2"))
-            self.assertIn("changed=0", converge("v2"))
-            self.assertIn("changed=2", converge("v1"))
+            self.assertEqual(ansible_changed_count(converge("v1")), 3)
+            self.assertEqual(ansible_changed_count(converge("v1")), 0)
+            self.assertEqual(ansible_changed_count(converge("v2")), 2)
+            self.assertEqual(ansible_changed_count(converge("v2")), 0)
+            self.assertEqual(ansible_changed_count(converge("v1")), 2)
             manifest = json.loads((directory / "fixture474.json").read_text())
             self.assertEqual(manifest["revision"], "a" * 40)
             self.assertIn("ping_v1", (directory / "fixture.py").read_text())
