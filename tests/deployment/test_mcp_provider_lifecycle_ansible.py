@@ -22,7 +22,7 @@ def test_ansible_fixture_lifecycle(tmp_path):
         assert proc.returncode == 0, proc.stdout + proc.stderr
         return proc.stdout
 
-    assert "changed=2" in converge("v1")
+    assert "changed=3" in converge("v1")
     assert "changed=0" in converge("v1")
     assert "changed=2" in converge("v2")
     assert "changed=0" in converge("v2")
