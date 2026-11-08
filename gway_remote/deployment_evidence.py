@@ -29,12 +29,19 @@ def adapt_component(row: dict, *, observed_at: str | None, depth: str = "deep") 
         installation = "activated"
     else:
         installation = "unknown"
-    # AgentOps is an on-demand CLI: --help probes installation, not a daemon.\n    # Reports also has an executable, but its role/warehouse readiness is required.\n    runtime_required = name != "gway-agent-ops"\n    runtime = row.get("health", "unknown")
+    # AgentOps is an on-demand CLI: --help probes installation, not a daemon.
+    # Reports also has an executable, but its role/warehouse readiness is required.
+    runtime_required = name != "gway-agent-ops"
+    runtime = row.get("health", "unknown")
     if depth != "deep" and not bastion:
         runtime = "unknown"
     if runtime not in ("healthy", "unhealthy", "unknown", "not_applicable"):
         runtime = "unknown"
-    if not runtime_required:\n        # A valid active release has no continuously running service to inspect.\n        runtime = "not_applicable" if activation_verified else "unknown"\n    elif runtime == "not_applicable":\n        runtime = "unknown"
+    if not runtime_required:
+        # A valid active release has no continuously running service to inspect.
+        runtime = "not_applicable" if activation_verified else "unknown"
+    elif runtime == "not_applicable":
+        runtime = "unknown"
     # Staged-only Bastion has no activated runtime to check. Do not infer that an
     # activated Bastion is healthy from the release record.
     if bastion:
