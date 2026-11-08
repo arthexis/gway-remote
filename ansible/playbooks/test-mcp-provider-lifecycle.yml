@@ -1,0 +1,35 @@
+---
+# CI-only fixture: no root access, services, or production manifest paths.
+- hosts: localhost
+  connection: local
+  gather_facts: false
+  tasks:
+    - ansible.builtin.assert:
+        that:
+          - fixture_dir is match('^/tmp/|^/var/tmp/')
+          - fixture_version in ['v1', 'v2']
+    - ansible.builtin.file:
+        path: "{{ fixture_dir }}"
+        state: directory
+        mode: '0755'
+    - ansible.builtin.copy:
+        dest: "{{ fixture_dir }}/fixture.py"
+        mode: '0755'
+        content: |
+          #!/usr/bin/env python3
+          import json, sys
+          for line in sys.stdin:
+              request = json.loads(line)
+              if 'id' not in request: continue
+              method = request.get('method')
+              if method == 'initialize':
+                  result = {'protocolVersion': '2025-03-26', 'capabilities': {'tools': {}}, 'serverInfo': {'name': 'fixture474', 'version': '1'}}
+              elif method == 'tools/list':
+                  result = {'tools': [{'name': 'ping_{{ fixture_version }}', 'inputSchema': {'type': 'object'}, 'annotations': {'readOnlyHint': True}}]}
+              else:
+                  result = {'content': [{'type': 'text', 'text': 'ok'}]}
+              print(json.dumps({'jsonrpc': '2.0', 'id': request['id'], 'result': result}), flush=True)
+    - ansible.builtin.copy:
+        dest: "{{ fixture_dir }}/fixture474.json"
+        mode: '0644'
+        content: "{{ {'source_id': 'fixture474', 'revision': ('a' * 40 if fixture_version == 'v1' else 'b' * 40), 'executable': fixture_dir ~ '/fixture.py', 'argv': [fixture_dir ~ '/fixture.py']} | to_nice_json }}\n"
