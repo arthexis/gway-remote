@@ -1,0 +1,72 @@
+{
+  "--help": {
+    "code": 0,
+    "stdout_sha256": "16c0930095c1f122092bb57d124f5cae7925a7110032f17125331e0feff6bb55",
+    "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  "deploy-targets --help": {
+    "code": 0,
+    "stdout_sha256": "363ac53a94a958dc2ebcab87c6ab2d7fe2d7dc269557f4a2d3ed1c3105dda9de",
+    "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  "reconcile --help": {
+    "code": 0,
+    "stdout_sha256": "795ac83b2dd7c813466cbdd5aa7b293291b9c4fac71461905b5923995c2a8458",
+    "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  "retention --help": {
+    "code": 0,
+    "stdout_sha256": "97dbfc8479dba899bbe99809d2a650e8c83d213f23248ae23be8d2f927f620ed",
+    "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  "deployments --help": {
+    "code": 0,
+    "stdout_sha256": "54f558466c7548c2fcd6e9ff6e8b448ffc7741ae929bef04f0c139933c22327c",
+    "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  "deploy --help": {
+    "code": 0,
+    "stdout_sha256": "b4e294755bbb3c7be1c452ab66558c11a9fc821c1495e339f74997ffa11bb6af",
+    "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  "deploy-batch --help": {
+    "code": 0,
+    "stdout_sha256": "39e1a644a6b508f2a14e417027fb61114c786fb8f0f5bb0dbb939aacee970a02",
+    "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  "deploy --all ocpp-csms": {
+    "code": 2,
+    "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "stderr_sha256": "79f0e7cbf5427f0033a15fe590d06f9dc2650912a6a83c19c8bc9320e9a7c368"
+  },
+  "deploy": {
+    "code": 2,
+    "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "stderr_sha256": "79f0e7cbf5427f0033a15fe590d06f9dc2650912a6a83c19c8bc9320e9a7c368"
+  },
+  "deploy-batch --target ocpp-csms": {
+    "code": 2,
+    "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "stderr_sha256": "5dd264eb7db3f8f05a0325f4230d8d6c8b601efda392b9784965083d40285aa7"
+  },
+  "deploy-batch --all --now": {
+    "code": 2,
+    "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "stderr_sha256": "d111f797d12eee17ff25ef3c2e9dac7dcb9899b64b44cb95116c533b43cd2ded"
+  },
+  "retention --bad": {
+    "code": 2,
+    "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "stderr_sha256": "170235ceba0f2dda9e83867746205f74dbfb25ae5b6849fbf771cc5297022928"
+  },
+  "deployments --bad": {
+    "code": 2,
+    "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "stderr_sha256": "170235ceba0f2dda9e83867746205f74dbfb25ae5b6849fbf771cc5297022928"
+  },
+  "reconcile --bad": {
+    "code": 2,
+    "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "stderr_sha256": "170235ceba0f2dda9e83867746205f74dbfb25ae5b6849fbf771cc5297022928"
+  }
+}
