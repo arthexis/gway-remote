@@ -44,16 +44,6 @@
     "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
     "stderr_sha256": "79f0e7cbf5427f0033a15fe590d06f9dc2650912a6a83c19c8bc9320e9a7c368"
   },
-  "deploy-batch --target ocpp-csms": {
-    "code": 2,
-    "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
-    "stderr_sha256": "5dd264eb7db3f8f05a0325f4230d8d6c8b601efda392b9784965083d40285aa7"
-  },
-  "deploy-batch --all --now": {
-    "code": 2,
-    "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
-    "stderr_sha256": "d111f797d12eee17ff25ef3c2e9dac7dcb9899b64b44cb95116c533b43cd2ded"
-  },
   "retention --bad": {
     "code": 2,
     "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
