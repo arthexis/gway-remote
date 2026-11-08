@@ -1,6 +1,7 @@
 """Deployment inventory must never confuse attempts with installed revisions."""
 import unittest
 from unittest.mock import patch
+from gway_remote.__main__ import deploy_ap_kiosk
 from gway_remote.deployments import inventory, format_inventory
 
 
@@ -40,6 +41,20 @@ class DeploymentInventoryTests(unittest.TestCase):
         behind = inventory("ocpp-csms", node="gway-001", policy={"ocpp-csms"}, client=FakeGitHub(), attempts={},
                            installed=lambda _: "111111111111")
         self.assertEqual(behind["components"][0]["revision_status"], "behind")
+
+    @patch("gway_remote.__main__.subprocess.check_output")
+    @patch("gway_remote.__main__.subprocess.run")
+    def test_kiosk_deploy_uses_owner_install_and_stage_entrypoints(self, run, output):
+        sha = "a" * 40
+        output.return_value = sha + "\\n"
+        deploy_ap_kiosk(sha)
+        commands = [call.args[0] for call in run.call_args_list]
+        self.assertEqual(commands[-2:], [
+            ["bash", "./deploy.sh"],
+            ["bash", "./deploy.sh", "--stage-release"],
+        ])
+        self.assertEqual(run.call_args_list[-1].kwargs["cwd"],
+                         run.call_args_list[-2].kwargs["cwd"])
 
     def test_invalid_repository(self):
         with self.assertRaises(ValueError):
