@@ -120,10 +120,11 @@ fun CompanionScreen(store: SecretStore, appearance: AppearanceMode = AppearanceM
     val benchmarkPayload = benchmarkInput.payload
     val benchmarkMode = benchmarkInput.mode
     val benchmarkLabel = benchmarkInput.label
-    var benchmarkProgress by remember { mutableIntStateOf(0) }
-    var benchmarkRunning by remember { mutableStateOf(false) }
-    var benchmarkReport by remember { mutableStateOf<BenchmarkReport?>(null) }
-    var benchmarkError by remember { mutableStateOf("") }
+    var benchmarkLifecycle by remember { mutableStateOf(CompanionBenchmarkLifecycle()) }
+    val benchmarkProgress = benchmarkLifecycle.progress
+    val benchmarkRunning = benchmarkLifecycle.running
+    val benchmarkReport = benchmarkLifecycle.report
+    val benchmarkError = benchmarkLifecycle.error
     val benchmarkStop = remember { java.util.concurrent.atomic.AtomicBoolean(false) }
 
     operationModel.bindCredentials { endpoint to token }
@@ -339,10 +340,7 @@ fun CompanionScreen(store: SecretStore, appearance: AppearanceMode = AppearanceM
                 Button(enabled = !benchmarkRunning, onClick = {
                     try {
                         val config = benchmarkInput.config()
-                        benchmarkError = ""
-                        benchmarkReport = null
-                        benchmarkProgress = 0
-                        benchmarkRunning = true
+                        benchmarkLifecycle = benchmarkLifecycle.started()
                         benchmarkStop.set(false)
                         val targetEndpoint = endpoint.trim()
                         val targetToken = token
@@ -362,18 +360,18 @@ fun CompanionScreen(store: SecretStore, appearance: AppearanceMode = AppearanceM
                                             progress(completed)
                                         }
                                     },
-                                    { benchmarkProgress = it }
+                                    { benchmarkLifecycle = benchmarkLifecycle.progressed(it) }
                                 )
-                                benchmarkReport = BenchmarkReport.create(
+                                benchmarkLifecycle = benchmarkLifecycle.succeeded(BenchmarkReport.create(
                                     benchmarkLabel, java.net.URL(targetEndpoint).host, config, selected,
                                     results, context.packageManager.getPackageInfo(context.packageName, 0).versionName ?: "unknown"
-                                )
+                                ))
                             } catch (e: Exception) {
-                                benchmarkError = e.message ?: "Benchmark failed"
-                            } finally { benchmarkRunning = false }
+                                benchmarkLifecycle = benchmarkLifecycle.failed(e.message ?: "Benchmark failed")
+                            } finally { benchmarkLifecycle = benchmarkLifecycle.finished() }
                         }
                     } catch (e: Exception) {
-                        benchmarkError = "Invalid parameters: samples 1–1000, warmup 0–100, timeout 1–30s, payload 0–4096 bytes"
+                        benchmarkLifecycle = benchmarkLifecycle.failed("Invalid parameters: samples 1–1000, warmup 0–100, timeout 1–30s, payload 0–4096 bytes")
                     }
                 }) { Text("Run benchmark") }
                 OutlinedButton(enabled = benchmarkRunning, onClick = { benchmarkStop.set(true) }) {
