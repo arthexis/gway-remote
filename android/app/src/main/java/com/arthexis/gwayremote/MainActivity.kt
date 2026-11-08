@@ -261,7 +261,7 @@ fun CompanionScreen(store: SecretStore, appearance: AppearanceMode = AppearanceM
     }
 
     fun refreshAll() {
-        if (refreshing || busy || benchmarkRunning || updating) return
+        if (!CompanionRefreshLifecycle.canStart(refreshing, busy, benchmarkRunning, updating)) return
         refreshState = refreshState.started()
         operationModel.refreshOpenPanels()
         if (agentAssignmentsExpanded && operationModel.panels.panels.any { it.id == "agent-ops" })
@@ -269,8 +269,8 @@ fun CompanionScreen(store: SecretStore, appearance: AppearanceMode = AppearanceM
         val targetEndpoint = endpoint.trim()
         val targetToken = token
         scope.launch {
-            val failures = mutableListOf<String>()
-            try {
+            CompanionRefreshLifecycle.run(
+                work = { failures ->
                 val client = try { ApiClient(targetEndpoint, targetToken) }
                     catch (e: Exception) {
                         failures.add("API settings: ${e.message}")
@@ -298,8 +298,10 @@ fun CompanionScreen(store: SecretStore, appearance: AppearanceMode = AppearanceM
                     failures.add("App update: ${e.message}")
                     updateState = updateState.status("Update check failed: ${e.message}")
                 }
-                refreshState = refreshState.copy(status = CompanionRefreshSummary.message(failures))
-            } finally { refreshState = refreshState.copy(running = false) }
+                },
+                onSummary = { refreshState = refreshState.copy(status = it) },
+                onFinished = { refreshState = refreshState.copy(running = false) }
+            )
         }
     }
 
