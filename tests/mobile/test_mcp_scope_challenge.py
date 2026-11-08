@@ -1,4 +1,5 @@
 """Per-tool OAuth scope challenge over the real gateway HTTP boundary."""
+import json
 import tempfile
 import threading
 import unittest

@@ -1,5 +1,6 @@
 """End-to-end HTTP authorization boundary, with no real remote SSH execution."""
 from pathlib import Path
+import json
 import tempfile
 import threading
 import unittest
