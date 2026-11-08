@@ -1,0 +1,31 @@
+---
+# Opt-in local observation only. Uses GWay Remote's existing probes and v1 adapter.
+# Does not invoke installation roles, deploy commands, services or remote SSH.
+- name: Observe one authorized local deployment
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  vars:
+    observation_component: ""
+  tasks:
+    - name: Require explicit component selection
+      ansible.builtin.assert:
+        that:
+          - observation_component | length > 0
+        fail_msg: Supply -e observation_component=<managed-component>
+
+    - name: Read existing deployment evidence
+      ansible.builtin.command:
+        argv:
+          - python3
+          - -m
+          - gway_remote.observe_deployment
+          - --component
+          - "{{ observation_component }}"
+      register: deployment_observation
+      changed_when: false
+      no_log: false
+
+    - name: Return existing v1 evidence
+      ansible.builtin.debug:
+        msg: "{{ deployment_observation.stdout | from_json }}"
