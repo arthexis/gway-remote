@@ -1,0 +1,177 @@
+{
+  "--help": {
+    "code": 0,
+    "stdout_sha256": "16c0930095c1f122092bb57d124f5cae7925a7110032f17125331e0feff6bb55",
+    "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  "run --help": {
+    "code": 0,
+    "stdout_sha256": "ff8aff7f67c322ee63ee0507bc59178daf400eaeec44acc5bdabbb40ad402444",
+    "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  "bearer --help": {
+    "code": 0,
+    "stdout_sha256": "330cbeedd73b80a3bf7174d35d4d30424ba3c54292b40b05b650673560be45e4",
+    "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  "exec --help": {
+    "code": 0,
+    "stdout_sha256": "eddf24bf27f4fb03bc5256a3c0717abb578ebbac5f3a8bce2c5f5d032558aff1",
+    "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  "deploy-targets --help": {
+    "code": 0,
+    "stdout_sha256": "363ac53a94a958dc2ebcab87c6ab2d7fe2d7dc269557f4a2d3ed1c3105dda9de",
+    "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  "reconcile --help": {
+    "code": 0,
+    "stdout_sha256": "795ac83b2dd7c813466cbdd5aa7b293291b9c4fac71461905b5923995c2a8458",
+    "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  "diagnose --help": {
+    "code": 0,
+    "stdout_sha256": "be0d0f215971fa648f921786271e9eea17f19b2f1e6a7e937140ef73008b0335",
+    "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  "watch --help": {
+    "code": 0,
+    "stdout_sha256": "ca2fd372a3cd5773507776a96d6fbbd1cdb214585e89e708341fed71e632dbf9",
+    "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  "status --help": {
+    "code": 0,
+    "stdout_sha256": "89948bf80d71d7a145edf8a40428c8d27448d3dd552161bd77b39b55385f7ec1",
+    "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  "hardware --help": {
+    "code": 0,
+    "stdout_sha256": "e5f2317eb48cf7b57013e7d7a275338aff0de5e3d50618d75d3c007eed1817ce",
+    "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  "network --help": {
+    "code": 0,
+    "stdout_sha256": "7a1d344a8fd0aac59450dddc5ffb3769da8bb31eab721d5c73518f4c90506edc",
+    "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  "watchdog --help": {
+    "code": 0,
+    "stdout_sha256": "e9ed469da7a5db50b347bf62072f9998c55e49344832cf03ea9e4e2bc01634b6",
+    "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  "probe-csms --help": {
+    "code": 0,
+    "stdout_sha256": "015f9ba0df2764b74fb913f63cdc824ee807677f7ec98b3f87c6a1029f2a1f1d",
+    "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  "logs --help": {
+    "code": 0,
+    "stdout_sha256": "c0e57a2533a4bab49a7af6415f4c163c56480775386716a758d7066c6b917e13",
+    "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  "report-bundle --help": {
+    "code": 0,
+    "stdout_sha256": "e2267d9d56ab3b5e97db6e9f8ef0983f322178726ebaa4cffb9d4d52a140d2ce",
+    "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  "retention --help": {
+    "code": 0,
+    "stdout_sha256": "97dbfc8479dba899bbe99809d2a650e8c83d213f23248ae23be8d2f927f620ed",
+    "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  "deployments --help": {
+    "code": 0,
+    "stdout_sha256": "54f558466c7548c2fcd6e9ff6e8b448ffc7741ae929bef04f0c139933c22327c",
+    "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  "deploy --help": {
+    "code": 0,
+    "stdout_sha256": "b4e294755bbb3c7be1c452ab66558c11a9fc821c1495e339f74997ffa11bb6af",
+    "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  "deploy-batch --help": {
+    "code": 0,
+    "stdout_sha256": "39e1a644a6b508f2a14e417027fb61114c786fb8f0f5bb0dbb939aacee970a02",
+    "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  "host-key --help": {
+    "code": 0,
+    "stdout_sha256": "3e60fc564a8e7f7f243d497603e8dab26d026f4f1b3d3688ad26a6c57290ba63",
+    "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  "wireguard --help": {
+    "code": 0,
+    "stdout_sha256": "95befe6d562905f7041c404d1f1cce032a969d9a5fb01f3488d401e818ad31aa",
+    "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  "inspection-host-rotate --help": {
+    "code": 0,
+    "stdout_sha256": "638ec5ac4cd6cdbf41d4c1719c431a8e634bd7dc68f1328ad123d565c3c786cf",
+    "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  "inspection-host-pin --help": {
+    "code": 0,
+    "stdout_sha256": "87049929c68dd7566c4fb0f0503882f465da41ef1f92c9c58a6a9b00cef903ae",
+    "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  "register --help": {
+    "code": 0,
+    "stdout_sha256": "25ea797c52a75627d3bffc077a56c79b87e58d556439fc483d2362489a00508d",
+    "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  "watchtower --help": {
+    "code": 0,
+    "stdout_sha256": "d789751ef70c92c1411196b3ce440c798a1c65695e1c60c4a918666bcbba283e",
+    "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  "codex --help": {
+    "code": 0,
+    "stdout_sha256": "03ee405254d17511dccf0e1a6c3a456922296822c0e488e0f4894cbfe6ba5afb",
+    "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  "codex-worker --help": {
+    "code": 0,
+    "stdout_sha256": "03ee405254d17511dccf0e1a6c3a456922296822c0e488e0f4894cbfe6ba5afb",
+    "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  "api --help": {
+    "code": 0,
+    "stdout_sha256": "11528f27cefbbab5399fadef83801d2f69d7aa3487312f4a67a0a7a557a3a628",
+    "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  "run": {
+    "code": 2,
+    "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "stderr_sha256": "bc65b2ace907dd16f854747d43c78a4c4aacde6c788031795ae597703e2afe41"
+  },
+  "watchdog": {
+    "code": 2,
+    "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "stderr_sha256": "e9254af2726c22ec0a6e1597359d7936b2e065546ebedf38df9453025163fe83"
+  },
+  "report-bundle": {
+    "code": 2,
+    "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "stderr_sha256": "d5fb92809a7dbb1291e2c430ee777119b41b11bdd8d29bca9077a8fc08f077f4"
+  },
+  "codex approve": {
+    "code": 2,
+    "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "stderr_sha256": "5458e0a7b3bcad187a28c5eff700745240e601e4eb09cc6ec9e9bf40822b5eca"
+  },
+  "api --port oops": {
+    "code": 2,
+    "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "stderr_sha256": "1be63437b269712a76f1882de98864f92e55c2ea685e47e37f148f4da78e2ce6"
+  },
+  "bearer issue --help": {
+    "code": 0,
+    "stdout_sha256": "7574ed94302227352419f8452d52e1779f363ebebcbf94e72947f1eae49e564b",
+    "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  "watchtower adopt --help": {
+    "code": 0,
+    "stdout_sha256": "d789751ef70c92c1411196b3ce440c798a1c65695e1c60c4a918666bcbba283e",
+    "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  }
+}
