@@ -181,13 +181,12 @@ fun CompanionScreen(store: SecretStore, appearance: AppearanceMode = AppearanceM
         if (updating) return
         updateState = updateState.started("Checking downloaded APK…")
         scope.launch {
-            try {
-                withContext(Dispatchers.IO) { AppUpdater.verifyDownloadedApk(context, file, candidate) }
-                AppUpdater.install(context, file)
-                updateState = updateState.status("Android installer requested. Confirm the update in the system dialog.")
-            } catch (e: Exception) {
-                updateState = updateState.status("Installation could not start: ${e.message ?: e.javaClass.simpleName}")
-            } finally { updateState = updateState.finished() }
+            CompanionUpdateTransfer.install(
+                verify = { withContext(Dispatchers.IO) { AppUpdater.verifyDownloadedApk(context, file, candidate) } },
+                launch = { AppUpdater.install(context, file) },
+                onStatus = { updateState = updateState.status(it) },
+                onFinished = { updateState = updateState.finished() }
+            )
         }
     }
 
@@ -233,14 +232,13 @@ fun CompanionScreen(store: SecretStore, appearance: AppearanceMode = AppearanceM
         if (updating) return
         updateState = updateState.started("Downloading and verifying…")
         scope.launch {
-            var downloaded = false
-            try {
-                apk = withContext(Dispatchers.IO) { AppUpdater.download(context, candidate) }
-                updateState = updateState.status("Download verified; ready to install")
-                downloaded = true
-            } catch (e: Exception) { updateState = updateState.status(e.message ?: "Update failed") }
-            finally { updateState = updateState.finished() }
-            if (downloaded) requestInstall()
+            CompanionUpdateTransfer.download(
+                transfer = { withContext(Dispatchers.IO) { AppUpdater.download(context, candidate) } },
+                onDownloaded = { apk = it },
+                onStatus = { updateState = updateState.status(it) },
+                onFinished = { updateState = updateState.finished() },
+                requestInstall = { requestInstall() }
+            )
         }
     }
     LaunchedEffect(Unit) { checkUpdates() }
