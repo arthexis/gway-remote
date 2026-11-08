@@ -23,7 +23,7 @@ class ApKioskDeployTests(unittest.TestCase):
         with patch("gway_remote.__main__.subprocess.run", side_effect=run), \
              patch("gway_remote.__main__.subprocess.check_output", return_value=SHA):
             deploy_ap_kiosk(SHA)
-        self.assertEqual(["bash", "./deploy.sh"], commands[-1][0])
+        self.assertEqual([["bash", "./deploy.sh"],\n                          ["bash", "./deploy.sh", "--stage-release"]],\n                         [cmd for cmd, _ in commands[-2:]])\n        self.assertEqual(commands[-2][1]["cwd"], commands[-1][1]["cwd"])
         self.assertTrue(any(cmd[:3] == ["git", "clone", "--quiet"] for cmd, _ in commands))
         self.assertTrue(any("checkout" in cmd and SHA in cmd for cmd, _ in commands))
 
