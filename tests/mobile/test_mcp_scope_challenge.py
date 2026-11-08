@@ -1,5 +1,4 @@
 """Per-tool OAuth scope challenge over the real gateway HTTP boundary."""
-import json
 import tempfile
 import threading
 import unittest
@@ -8,6 +7,7 @@ from urllib.error import HTTPError
 from urllib.request import Request, urlopen
 from unittest.mock import Mock
 
+from tests.helpers.mcp_http import mcp_call, bearer_post
 from gway_remote.mcp_bearer import BearerRegistry, BearerVerifier
 from gway_remote.mcp_bearer_gateway import make_server, EXEC_TOOLS, NODE_TOOLS, scoped_tool, EXEC_SECURITY, READ_SECURITY
 
@@ -39,13 +39,9 @@ class ExecuteScopeChallengeTests(unittest.TestCase):
                 thread.start()
                 try:
                     endpoint = "http://127.0.0.1:%d/mcp" % gateway.server_port
-                    body = json.dumps({"jsonrpc": "2.0", "id": 1, "method": "tools/call",
-                                       "params": {"name": "node_list", "arguments": {}}}).encode()
+                    body = mcp_call('node_list')
                     def send(token=None):
-                        headers = {"Content-Type": "application/json"}
-                        if token is not None:
-                            headers["Authorization"] = "Bearer " + token
-                        return Request(endpoint, body, headers, method="POST")
+                        return bearer_post(endpoint, body, token)
                     with self.assertRaises(HTTPError) as missing:
                         urlopen(send(), timeout=3)
                     self.assertEqual(missing.exception.code, 401)

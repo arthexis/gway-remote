@@ -1,6 +1,5 @@
+from tests.helpers.mcp_http import pkce_s256
 """OAuth refresh rotation, operator lineage and live HTTP token endpoint tests."""
-import base64
-import hashlib
 import http.client
 import json
 import tempfile
@@ -30,8 +29,7 @@ class RefreshTests(unittest.TestCase):
 
     def grant(self, scope="gway:execute"):
         proof = self.registry.issue(scope=scope, operator_approved=scope == "gway:execute")
-        challenge = base64.urlsafe_b64encode(
-            hashlib.sha256(b"x" * 43).digest()).rstrip(b"=").decode()
+        challenge = pkce_s256("x" * 43)
         session, _ = self.flow.begin(
             client_id=CLIENT, redirect_uri=CALLBACK, resource=RESOURCE,
             response_type="code", code_challenge=challenge,
