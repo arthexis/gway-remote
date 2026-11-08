@@ -22,7 +22,7 @@ def discover_installed_providers(directory=INSTALL_DIR):
     if not root.is_dir() or root.is_symlink() or stat.st_uid != 0 or stat.st_mode & 0o022:
         raise ValueError("untrusted provider installation directory")
     registrations = []
-    entries = sorted(path for path in root.iterdir() if path.suffix == ".json")
+    entries = sorted(path for path in root.iterdir() if path.suffix == ".json" and path.name != "agentops.runtime.json")
     if len(entries) > MAX_PROVIDERS:
         raise ValueError("too many installed providers")
     for path in entries:
