@@ -44,7 +44,10 @@ jobs:
           test "$(git -C "$work/repo" rev-parse HEAD)" = "$SOURCE_SHA"
           # Never deploy a superseded revision.
           test "$(git ls-remote "$SOURCE_REPO" refs/heads/main | awk '{print $1}')" = "$SOURCE_SHA"
-          # Refuse to alter any unexpected sound ownership/link layout.\n          test "$(readlink "$HOME/.local/bin/sound")" = /usr/local/bin/sound\n          test "$(readlink /usr/local/bin/sound)" = /usr/local/libexec/gway-home-tools/sound.sh\n          # The installer's release lock, integrity and idempotence checks are authoritative.
+          # Refuse to alter any unexpected sound ownership/link layout.
+          test "$(readlink "$HOME/.local/bin/sound")" = /usr/local/bin/sound
+          test "$(readlink /usr/local/bin/sound)" = /usr/local/libexec/gway-home-tools/sound.sh
+          # The installer's release lock, integrity and idempotence checks are authoritative.
           sh "$work/repo/deploy.sh"
           expected="$HOME/.local/share/gway-lcd-sound/releases/${SOURCE_SHA:0:12}"
           test "$(readlink -f "$HOME/.local/share/gway-lcd-sound/current")" = "$expected"
