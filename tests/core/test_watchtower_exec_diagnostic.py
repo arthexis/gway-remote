@@ -26,18 +26,25 @@ class ReadinessTests(unittest.TestCase):
     def test_unattested_fails_closed(self):
         self.inventory["nodes"][0]["identity_verified"] = False
         result = diagnose("gway-002", inventory=self.inventory)
-        self.assertEqual(result["stages"]["current_eligibility"], "denied")
+        self.assertEqual(result["stages"]["current_eligibility"], "failure")
 
     def test_unpinned_is_not_ready(self):
         result = diagnose("gway-002", inventory=self.inventory,
                           config={"enabled": True, "nodes": []})
         self.assertEqual(result["stages"]["pinned_transport"], "missing")
+        self.assertEqual(result["stages"]["ssh_transport"], "blocked")
 
     def test_unknown_is_not_success(self):
         result = diagnose("gway-005", inventory=self.inventory)
         self.assertEqual(result["stages"]["current_eligibility"], "denied")
-        self.assertTrue(all(v != "pass" for k,v in result["stages"].items()
-                            if k != "current_eligibility"))
+        self.assertEqual(result["stages"]["bridge_dispatch"], "blocked")
+        self.assertEqual(result["stages"]["worker_readiness"], "blocked")
+
+    def test_unknown_oauth_and_bridge_are_not_claimed_healthy(self):
+        result = diagnose("gway-002", inventory=self.inventory,
+                          config={"enabled": True, "nodes": [{"node": "gway-002"}]})
+        self.assertEqual(result["stages"]["auth_scope"], "unknown")
+        self.assertEqual(result["stages"]["bridge_dispatch"], "unknown")
 
     def test_no_transport_or_mutation(self):
         with patch("subprocess.run", side_effect=AssertionError("SSH forbidden")):
