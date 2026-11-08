@@ -12,6 +12,9 @@ from .mcp_source_registry import SourceRegistration
 INSTALL_DIR = "/etc/gway-mcp-providers"
 MAX_MANIFEST_BYTES = 8192
 MAX_PROVIDERS = 32
+# Version 1 is the deployed on-disk contract.
+MANIFEST_SCHEMA_VERSION = 1
+MANIFEST_FIELDS_V1 = frozenset({"source_id", "revision", "executable", "argv"})
 
 
 def discover_installed_providers(directory=INSTALL_DIR):
@@ -34,7 +37,7 @@ def discover_installed_providers(directory=INSTALL_DIR):
         if info.st_size > MAX_MANIFEST_BYTES:
             raise ValueError("oversized provider manifest")
         data = json.loads(path.read_bytes())
-        if type(data) is not dict or set(data) != {"source_id", "revision", "executable", "argv"}:
+        if type(data) is not dict or set(data) != MANIFEST_FIELDS_V1:
             raise ValueError("invalid provider manifest")
         if path.stem != data["source_id"]:
             raise ValueError("provider manifest filename mismatch")
