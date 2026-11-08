@@ -9,30 +9,28 @@ from gway_remote.mcp_tool_scope import required_scope
 ROOT = Path(__file__).resolve().parents[2]
 
 
-class FixtureFederation:
-    def discover(self, builtins=()):
-        catalog = list(builtins) + [
-            {"name": "fixture__read", "inputSchema": {"type": "object"},
-             "annotations": {"readOnlyHint": True}},
-            {"name": "fixture__execute", "inputSchema": {"type": "object"}},
-        ]
-        routes = {t["name"]: ("gway-001", "fixture", t["name"], required_scope(t))
-                  for t in catalog[len(builtins):]}
-        return catalog, routes
+from tests.helpers.mcp_federation import FederationCatalogFixture, fixture_tool
+
+
+def federation():
+    return FederationCatalogFixture([
+        fixture_tool('fixture__read', read=True),
+        fixture_tool('fixture__execute'),
+    ])
 
 
 class MCPRefactorDeploymentContracts(unittest.TestCase):
     def test_effective_tools_list_matches_inspection(self):
         builtins = [{"name": "mcp_catalog_inspect", "inputSchema": {"type": "object"}}]
-        listed, routes = FixtureFederation().discover(builtins=builtins)
-        inspected = inspect_federated_catalog(FixtureFederation(), builtins=builtins)
+        listed, routes = federation().discover(builtins=builtins)
+        inspected = inspect_federated_catalog(federation(), builtins=builtins)
         self.assertEqual([t["name"] for t in listed],
                          [t["name"] for t in inspected["tools"]])
         self.assertEqual(set(routes), {"fixture__read", "fixture__execute"})
         scopes = {t["name"]: t["required_scope"] for t in inspected["tools"]}
         self.assertEqual(scopes["fixture__read"], "gway:read")
         self.assertEqual(scopes["fixture__execute"], "gway:execute")
-        self.assertNotIn("inputSchema", inspected["tools"][1])
+        self.assertTrue(all("inputSchema" not in tool for tool in inspected["tools"]))
 
     def test_production_playbook_has_release_rollback_and_idempotence_guards(self):
         content = (ROOT / "ansible/playbooks/gway001-mcp-runtime.yml").read_text()
