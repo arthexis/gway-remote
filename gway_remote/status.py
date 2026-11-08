@@ -33,7 +33,8 @@ def kiosk_activation_evidence(installed_sha):
         payload = json.loads(result.stdout)
         return (isinstance(payload, dict)
                 and set(payload) == {"activation_verified"}
-                and payload["activation_verified"] is True)
+                and payload["activation_verified"] is True
+                and installed_revision("gway-ap-kiosk") == installed_sha)
     except (OSError, subprocess.SubprocessError, ValueError, UnicodeError):
         return False
 
