@@ -3,31 +3,32 @@ from gway_remote.mcp_federated_catalog import (
     FederationError, catalog_from_nodes, route_provider_call,
 )
 
-TOOL = {"name": "search", "inputSchema": {"type": "object", "properties": {}},
-        "annotations": {"readOnlyHint": True}}
+from tests.helpers.mcp_federation import fixture_tool
+from tests.helpers.mcp_provider import provider_reply, InvocationSpy
+
+TOOL = fixture_tool('search', read=True)
+
+
+def nodes(*names, tool=TOOL):
+    return {name: provider_reply(name, tools=[tool]) for name in names}
 
 
 class FederatedCatalogTests(unittest.TestCase):
     def test_routes_to_authenticated_node(self):
-        tools, routes = catalog_from_nodes([], {
-            "gway-001": {"node": "gway-001", "providers": [{"provider": "odoo", "node": "gway-001", "revision": "a"*40, "status": "available", "tools": [TOOL]}]}})
+        tools, routes = catalog_from_nodes([], nodes('gway-001'))
         self.assertEqual([t["name"] for t in tools], ["odoo__search"])
-        calls = []
-        def invoke(node, request, *, trusted_scope):
-            calls.append((node, request, trusted_scope))
-            return {"ok": True}
+        spy = InvocationSpy(response={'ok': True})
         self.assertEqual(route_provider_call(routes, "odoo__search", {},
-                                              authorized_scope="read", invoke=invoke),
+                                              authorized_scope="read", invoke=spy.invoke),
                          {"ok": True})
-        self.assertEqual(calls[0][0], "gway-001")
-        self.assertEqual(calls[0][1]["operation"], "provider_call")
-        self.assertEqual(calls[0][2], "read")
+        self.assertEqual(spy.calls[0][0], "gway-001")
+        self.assertEqual(spy.calls[0][1]["operation"], "provider_call")
+        self.assertEqual(spy.calls[0][2], "read")
 
     def test_duplicate_provider_tool_rejected(self):
         with self.assertRaises(FederationError):
-            catalog_from_nodes([], {
-                "gway-001": {"node": "gway-001", "providers": [{"provider": "odoo", "node": "gway-001", "revision": "a"*40, "status": "available", "tools": [TOOL]}]},
-                "gway-002": {"node": "gway-002", "providers": [{"provider": "odoo", "node": "gway-002", "revision": "a"*40, "status": "available", "tools": [TOOL]}]}})
+            catalog_from_nodes([], nodes('gway-001', 'gway-002'))
+
 
     def test_unknown_tool_rejected(self):
         _, routes = catalog_from_nodes([], {})
@@ -37,8 +38,7 @@ class FederatedCatalogTests(unittest.TestCase):
 
     def test_execute_scope_enforced(self):
         execute = {**TOOL, "annotations": {"readOnlyHint": False}}
-        _, routes = catalog_from_nodes([], {
-            "gway-001": {"node": "gway-001", "providers": [{"provider": "odoo", "node": "gway-001", "revision": "a"*40, "status": "available", "tools": [execute]}]}})
+        _, routes = catalog_from_nodes([], nodes('gway-001', tool=execute))
         with self.assertRaises(PermissionError):
             route_provider_call(routes, "odoo__search", {}, authorized_scope="read",
                                 invoke=lambda *a, **kw: None)
