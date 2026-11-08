@@ -1,0 +1,122 @@
+{
+  "--help": {
+    "code": 0,
+    "stdout_sha256": "16c0930095c1f122092bb57d124f5cae7925a7110032f17125331e0feff6bb55",
+    "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  "run --help": {
+    "code": 0,
+    "stdout_sha256": "ff8aff7f67c322ee63ee0507bc59178daf400eaeec44acc5bdabbb40ad402444",
+    "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  "watch --help": {
+    "code": 0,
+    "stdout_sha256": "ca2fd372a3cd5773507776a96d6fbbd1cdb214585e89e708341fed71e632dbf9",
+    "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  "watchdog --help": {
+    "code": 0,
+    "stdout_sha256": "e9ed469da7a5db50b347bf62072f9998c55e49344832cf03ea9e4e2bc01634b6",
+    "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  "probe-csms --help": {
+    "code": 0,
+    "stdout_sha256": "015f9ba0df2764b74fb913f63cdc824ee807677f7ec98b3f87c6a1029f2a1f1d",
+    "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  "report-bundle --help": {
+    "code": 0,
+    "stdout_sha256": "e2267d9d56ab3b5e97db6e9f8ef0983f322178726ebaa4cffb9d4d52a140d2ce",
+    "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  "codex --help": {
+    "code": 0,
+    "stdout_sha256": "03ee405254d17511dccf0e1a6c3a456922296822c0e488e0f4894cbfe6ba5afb",
+    "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  "codex-worker --help": {
+    "code": 0,
+    "stdout_sha256": "03ee405254d17511dccf0e1a6c3a456922296822c0e488e0f4894cbfe6ba5afb",
+    "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  "api --help": {
+    "code": 0,
+    "stdout_sha256": "11528f27cefbbab5399fadef83801d2f69d7aa3487312f4a67a0a7a557a3a628",
+    "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  "run": {
+    "code": 2,
+    "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "stderr_sha256": "bc65b2ace907dd16f854747d43c78a4c4aacde6c788031795ae597703e2afe41"
+  },
+  "run invalid": {
+    "code": 2,
+    "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "stderr_sha256": "23cbcf62951c246bb9d133862b665df68103c3bc29c35cd4af8f64dfdef06048"
+  },
+  "watch --wrong": {
+    "code": 2,
+    "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "stderr_sha256": "993f23528eccd4eba087dc28e99d71b5933a4c6b223acf00577b4457447c01a9"
+  },
+  "watchdog": {
+    "code": 2,
+    "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "stderr_sha256": "e9254af2726c22ec0a6e1597359d7936b2e065546ebedf38df9453025163fe83"
+  },
+  "watchdog invalid": {
+    "code": 2,
+    "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "stderr_sha256": "1ee29a2968c343c5ea501216a21f15dbe6e789bfa4ed3136ca0e054195cb0a5f"
+  },
+  "watchdog show --seconds bad": {
+    "code": 2,
+    "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "stderr_sha256": "d9c3764300f38a9386ae55e4ccd76e42a251a2cf1b5224e9022c392e43b96cc3"
+  },
+  "report-bundle": {
+    "code": 2,
+    "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "stderr_sha256": "d5fb92809a7dbb1291e2c430ee777119b41b11bdd8d29bca9077a8fc08f077f4"
+  },
+  "codex": {
+    "code": 2,
+    "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "stderr_sha256": "e1fddfecfab52be68356091e7cf2ec81a2865f4805c5994a8254de6976a48ed0"
+  },
+  "codex invalid": {
+    "code": 2,
+    "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "stderr_sha256": "a298f3890f26a316fea30bc974f36f3757279eec2979e33042533e49e9b08a61"
+  },
+  "codex task": {
+    "code": 2,
+    "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "stderr_sha256": "275d4b8cb92da8247fd311a24eb8898c91d7e46ef01289772e4fdf26e876a266"
+  },
+  "codex approve": {
+    "code": 2,
+    "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "stderr_sha256": "5458e0a7b3bcad187a28c5eff700745240e601e4eb09cc6ec9e9bf40822b5eca"
+  },
+  "codex next unexpected": {
+    "code": 2,
+    "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "stderr_sha256": "6634d85d7f0dde33a1816b1ea2a47610b2cf5454afce703e40547367e18e273f"
+  },
+  "codex submit": {
+    "code": 2,
+    "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "stderr_sha256": "bc94c1b1f87db41e60bb530e0a70b2585a25d6de5ec8cc560aa74b03b678b82c"
+  },
+  "codex veto": {
+    "code": 2,
+    "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "stderr_sha256": "297c417c227ba97d25c62310b1e8f0c8da587669812ccb56af662761c146c995"
+  },
+  "api --port invalid": {
+    "code": 2,
+    "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "stderr_sha256": "58d1adfe1ff27d0a31f46d1b674fa21fc842b1099a600acf5961c45b53d6a08d"
+  }
+}
