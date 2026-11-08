@@ -97,12 +97,13 @@ fun CompanionScreen(store: SecretStore, appearance: AppearanceMode = AppearanceM
     var result by remember { mutableStateOf("Configure HTTPS endpoint and token") }
     var commands by remember { mutableStateOf(listOf<String>()) }
     var busy by remember { mutableStateOf(false) }
-    var refreshing by remember { mutableStateOf(false) }
+    var refreshState by remember { mutableStateOf(CompanionRefreshState()) }
+    val refreshing = refreshState.running
     var agentAssignmentsExpanded by remember { mutableStateOf(false) }
     val agentIssues = agentModel.issues
     val agentIssuesError = agentModel.issuesError
     val agentIssuesLoading = agentModel.issuesLoading
-    var refreshStatus by remember { mutableStateOf("") }
+    val refreshStatus = refreshState.status
     var expandedWriteOperation by remember { mutableStateOf<String?>(null) }
     var lcdDuration by remember { mutableFloatStateOf(30f) }
     var lcdLine1 by remember { mutableStateOf("") }
@@ -159,8 +160,9 @@ fun CompanionScreen(store: SecretStore, appearance: AppearanceMode = AppearanceM
         context.packageManager.getPackageInfo(context.packageName, android.content.pm.PackageManager.PackageInfoFlags.of(0)).longVersionCode
     else @Suppress("DEPRECATION") context.packageManager.getPackageInfo(context.packageName, 0).longVersionCode
     var update by remember { mutableStateOf<AvailableUpdate?>(null) }
-    var updateStatus by remember { mutableStateOf("") }
-    var updating by remember { mutableStateOf(false) }
+    var updateState by remember { mutableStateOf(CompanionUpdateState()) }
+    val updateStatus = updateState.status
+    val updating = updateState.running
     var apk by remember {
         mutableStateOf(java.io.File(context.cacheDir, "gway-remote-update.apk").takeIf { it.isFile })
     }
@@ -170,20 +172,19 @@ fun CompanionScreen(store: SecretStore, appearance: AppearanceMode = AppearanceM
         val candidate = update
         val file = apk
         if (candidate == null || file == null) {
-            updateStatus = "No verified update available; download it again"
+            updateState = updateState.status("No verified update available; download it again")
             return
         }
         if (updating) return
-        updating = true
-        updateStatus = "Checking downloaded APK…"
+        updateState = updateState.started("Checking downloaded APK…")
         scope.launch {
             try {
                 withContext(Dispatchers.IO) { AppUpdater.verifyDownloadedApk(context, file, candidate) }
                 AppUpdater.install(context, file)
-                updateStatus = "Android installer requested. Confirm the update in the system dialog."
+                updateState = updateState.status("Android installer requested. Confirm the update in the system dialog.")
             } catch (e: Exception) {
-                updateStatus = "Installation could not start: ${e.message ?: e.javaClass.simpleName}"
-            } finally { updating = false }
+                updateState = updateState.status("Installation could not start: ${e.message ?: e.javaClass.simpleName}")
+            } finally { updateState = updateState.finished() }
         }
     }
 
@@ -193,7 +194,7 @@ fun CompanionScreen(store: SecretStore, appearance: AppearanceMode = AppearanceM
         if (awaitingInstallPermission) {
             awaitingInstallPermission = false
             if (AppUpdater.canInstall(context)) launchInstaller()
-            else updateStatus = "Installation permission not granted; allow installs from GWay Remote"
+            else updateState = updateState.status("Installation permission not granted; allow installs from GWay Remote")
         }
     }
 
@@ -201,42 +202,40 @@ fun CompanionScreen(store: SecretStore, appearance: AppearanceMode = AppearanceM
         if (updating) return
         if (!AppUpdater.canInstall(context)) {
             awaitingInstallPermission = true
-            updateStatus = "Grant installation permission, then return to GWay Remote"
+            updateState = updateState.status("Grant installation permission, then return to GWay Remote")
             try {
                 permissionLauncher.launch(AppUpdater.installPermissionIntent(context))
             } catch (e: Exception) {
                 awaitingInstallPermission = false
-                updateStatus = "Unable to open installation settings: ${e.message}"
+                updateState = updateState.status("Unable to open installation settings: ${e.message}")
             }
         } else launchInstaller()
     }
 
     fun checkUpdates() {
         if (updating) return
-        updating = true
-        updateStatus = "Checking releases…"
+        updateState = updateState.started("Checking releases…")
         scope.launch {
             try {
                 update = withContext(Dispatchers.IO) { AppUpdater.check(installedCode) }
-                updateStatus = if (update == null) "App is up to date" else "Update available: ${update!!.version}"
-            } catch (e: Exception) { updateStatus = e.message ?: "Update check failed" }
-            finally { updating = false }
+                updateState = updateState.status(if (update == null) "App is up to date" else "Update available: ${update!!.version}")
+            } catch (e: Exception) { updateState = updateState.status(e.message ?: "Update check failed") }
+            finally { updateState = updateState.finished() }
         }
     }
 
     fun downloadUpdate() {
         val candidate = update ?: return
         if (updating) return
-        updating = true
-        updateStatus = "Downloading and verifying…"
+        updateState = updateState.started("Downloading and verifying…")
         scope.launch {
             var downloaded = false
             try {
                 apk = withContext(Dispatchers.IO) { AppUpdater.download(context, candidate) }
-                updateStatus = "Download verified; ready to install"
+                updateState = updateState.status("Download verified; ready to install")
                 downloaded = true
-            } catch (e: Exception) { updateStatus = e.message ?: "Update failed" }
-            finally { updating = false }
+            } catch (e: Exception) { updateState = updateState.status(e.message ?: "Update failed") }
+            finally { updateState = updateState.finished() }
             if (downloaded) requestInstall()
         }
     }
@@ -264,8 +263,7 @@ fun CompanionScreen(store: SecretStore, appearance: AppearanceMode = AppearanceM
 
     fun refreshAll() {
         if (refreshing || busy || benchmarkRunning || updating) return
-        refreshing = true
-        refreshStatus = "Refreshing…"
+        refreshState = refreshState.started()
         operationModel.refreshOpenPanels()
         if (agentAssignmentsExpanded && operationModel.panels.panels.any { it.id == "agent-ops" })
             agentModel.refreshAssignments()
@@ -293,16 +291,16 @@ fun CompanionScreen(store: SecretStore, appearance: AppearanceMode = AppearanceM
 
                 }
                 try {
-                    updateStatus = "Checking releases…"
+                    updateState = updateState.status("Checking releases…")
                     update = withContext(Dispatchers.IO) { AppUpdater.check(installedCode) }
-                    updateStatus = if (update == null) "App is up to date" else "Update available: ${update!!.version}"
+                    updateState = updateState.status(if (update == null) "App is up to date" else "Update available: ${update!!.version}")
                 } catch (e: Exception) {
                     failures.add("App update: ${e.message}")
-                    updateStatus = "Update check failed: ${e.message}"
+                    updateState = updateState.status("Update check failed: ${e.message}")
                 }
-                refreshStatus = if (failures.isEmpty()) "Refresh completed" else
-                    "Refresh partially failed: ${failures.joinToString("; ")}"
-            } finally { refreshing = false }
+                refreshState = refreshState.copy(status = if (failures.isEmpty()) "Refresh completed" else
+                    "Refresh partially failed: ${failures.joinToString("; ")}")
+            } finally { refreshState = refreshState.copy(running = false) }
         }
     }
 
