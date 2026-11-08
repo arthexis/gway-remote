@@ -244,37 +244,16 @@ def deploy_lcd_sound(sha: str) -> None:
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Run an approved gway-001 workload")
-    subparsers = parser.add_subparsers(dest="command", required=True)
-    from .cli.local import register as register_local, dispatch as dispatch_local
-    register_local(subparsers, ("run",), TASKS)
-    from .cli.security import register as register_security, dispatch as dispatch_security
-    register_security(subparsers, ("bearer","exec"))
-    from .cli.deploy import register as register_deploy, dispatch as dispatch_deploy
-    register_deploy(subparsers, DEPLOYMENT_TARGETS, ("deploy-targets","reconcile"))
-    from .cli.operations import register, dispatch
-    register(subparsers, DEPLOYMENT_TARGETS, ("diagnose",))
-    register_local(subparsers, ("watch",), TASKS)
-    register(subparsers, DEPLOYMENT_TARGETS, ("status","hardware","network"))
-    register_local(subparsers, ("watchdog", "probe-csms"), TASKS)
-    register(subparsers, DEPLOYMENT_TARGETS, ("logs",))
-    register_local(subparsers, ("report-bundle",), TASKS)
-    register_deploy(subparsers, DEPLOYMENT_TARGETS, ("retention","deployments","deploy","deploy-batch"))
-    register_security(subparsers, ("host-key","wireguard","inspection-host-rotate","inspection-host-pin","register","watchtower"))
-    register_local(subparsers, ("codex", "api"), TASKS)
+    from .cli.registry import build_parser, dispatch
+    parser = build_parser(TASKS, DEPLOYMENT_TARGETS)
     args = parser.parse_args()
-    if dispatch_local(args, parser, run_task=run):
-        return
-    if dispatch_security(args, parser):
-        return
-    if dispatch(args, parser):
-        return
-    if dispatch_deploy(args, parser, deployers={
+    dispatch(args, parser, run_task=run, deployers={
         "ocpp-csms": deploy_csms, "ocpp-reports": deploy_reports,
         "gway-lcd-sound": deploy_lcd_sound, "gway-agent-ops": deploy_agent_ops,
         "gway-ap-kiosk": deploy_ap_kiosk, "gway-rfid": deploy_rfid,
         "gway-bastion": deploy_bastion,
-    }):
-        return
+    })
+
+
 if __name__ == "__main__":
     main()
