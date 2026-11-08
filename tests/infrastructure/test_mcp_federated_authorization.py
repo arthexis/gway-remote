@@ -4,14 +4,15 @@ import unittest
 from gway_remote.mcp_federated_catalog import catalog_from_nodes, route_provider_call
 
 
+from tests.helpers.mcp_provider import provider_reply
+from tests.helpers.mcp_federation import fixture_tool
+
+
 def catalog():
-    return {"gway-001": {"node": "gway-001", "providers": [{
-        "provider": "odoo", "node": "gway-001", "revision": "a" * 40,
-        "status": "available", "tools": [
-            {"name": "contacts_list", "inputSchema": {"type": "object"},
-             "annotations": {"readOnlyHint": True}},
-            {"name": "contacts_update", "inputSchema": {"type": "object"}},
-        ]}]}}
+    return {'gway-001': provider_reply(tools=[
+        fixture_tool('contacts_list', read=True),
+        fixture_tool('contacts_update'),
+    ])}
 
 
 class FederationAuthorizationTests(unittest.TestCase):
