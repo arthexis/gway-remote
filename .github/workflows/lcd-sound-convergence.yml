@@ -47,6 +47,8 @@ jobs:
           # Refuse to alter any unexpected sound ownership/link layout.
           test "$(readlink "$HOME/.local/bin/sound")" = /usr/local/bin/sound
           test "$(readlink /usr/local/bin/sound)" = /usr/local/libexec/gway-home-tools/sound.sh
+          test "$(stat -c %U:%G "$HOME/.local/bin/sound")" = arthe:arthe
+          test "$(stat -c %U:%G /usr/local/bin/sound)" = root:root
           # The installer's release lock, integrity and idempotence checks are authoritative.
           sh "$work/repo/deploy.sh"
           expected="$HOME/.local/share/gway-lcd-sound/releases/${SOURCE_SHA:0:12}"
@@ -54,3 +56,5 @@ jobs:
           # The opt-in sound migration is never called.
           test "$(readlink "$HOME/.local/bin/sound")" = /usr/local/bin/sound
           test "$(readlink /usr/local/bin/sound)" = /usr/local/libexec/gway-home-tools/sound.sh
+          test "$(stat -c %U:%G "$HOME/.local/bin/sound")" = arthe:arthe
+          test "$(stat -c %U:%G /usr/local/bin/sound)" = root:root
