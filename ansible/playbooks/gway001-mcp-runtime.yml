@@ -68,7 +68,8 @@
           - /usr/bin/python3
           - -I
           - "{{ mcp_source }}/scripts/converge-mcp-manifests.py"
-      changed_when: false
+      register: manifest_convergence
+      changed_when: "'changed=1' in manifest_convergence.stdout_lines"
     - name: Verify installed MCP manifests are discoverable
       become: true
       ansible.builtin.command:
