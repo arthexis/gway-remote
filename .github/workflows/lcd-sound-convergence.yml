@@ -1,0 +1,54 @@
+name: Converge LCD Sound on gway-001
+
+on:
+  schedule:
+    - cron: '*/30 * * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: gway-001-appliance-report
+  cancel-in-progress: false
+
+jobs:
+  lcd-sound:
+    if: github.repository == 'arthexis/gway-remote' && github.ref == 'refs/heads/main'
+    runs-on: [self-hosted, Linux, ARM64, gway-001]
+    timeout-minutes: 15
+    steps:
+      - name: Fetch reviewed LCD Sound main revision
+        id: source
+        shell: bash
+        run: |
+          set -euo pipefail
+          repo=https://github.com/arthexis/gway-lcd-sound.git
+          sha="$(git ls-remote "$repo" refs/heads/main | awk '{print $1}')"
+          [[ "$sha" =~ ^[0-9a-f]{40}$ ]]
+          echo "sha=$sha" >> "$GITHUB_OUTPUT"
+          echo "source_repo=$repo" >> "$GITHUB_OUTPUT"
+      - name: Converge with existing locked Ansible installer
+        shell: bash
+        env:
+          SOURCE_SHA: ${{ steps.source.outputs.sha }}
+          SOURCE_REPO: ${{ steps.source.outputs.source_repo }}
+        run: |
+          set -euo pipefail
+          test "$(id -un)" = arthe
+          command -v ansible-playbook
+          command -v flock
+          work="$(mktemp -d)"
+          trap 'rm -rf "$work"' EXIT
+          git clone --quiet --no-checkout "$SOURCE_REPO" "$work/repo"
+          git -C "$work/repo" checkout --quiet --detach "$SOURCE_SHA"
+          test "$(git -C "$work/repo" rev-parse HEAD)" = "$SOURCE_SHA"
+          # Never deploy a superseded revision.
+          test "$(git ls-remote "$SOURCE_REPO" refs/heads/main | awk '{print $1}')" = "$SOURCE_SHA"
+          # The installer's release lock, integrity and idempotence checks are authoritative.
+          sh "$work/repo/deploy.sh"
+          expected="$HOME/.local/share/gway-lcd-sound/releases/${SOURCE_SHA:0:12}"
+          test "$(readlink -f "$HOME/.local/share/gway-lcd-sound/current")" = "$expected"
+          # The opt-in sound migration is never called.
+          test "$(readlink "$HOME/.local/bin/sound")" = /usr/local/bin/sound
+          test "$(readlink /usr/local/bin/sound)" = /usr/local/libexec/gway-home-tools/sound.sh
