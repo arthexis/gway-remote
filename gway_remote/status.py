@@ -156,7 +156,9 @@ def status(directory=DEFAULT_DIR, probe=component_health, *, depth="deep"):
         item["activated_at"] = activated_timestamp(item["name"], item["installed_sha"])
     checked_at = datetime.now(timezone.utc).isoformat()
     for item in components:
-        item["deployment_evidence"] = adapt_component(\n            item, observed_at=checked_at, depth=depth,\n            kiosk_activation_verified=kiosk_verified if item["name"] == "gway-ap-kiosk" else False)
+        item["deployment_evidence"] = adapt_component(
+            item, observed_at=checked_at, depth=depth,
+            kiosk_activation_verified=kiosk_verified if item["name"] == "gway-ap-kiosk" else False)
     total_ms = round((perf_counter_ns() - started_ns) / 1_000_000, 2)
     _LOG.info("status timing total_ms=%.2f journal_ms=%.2f probe_ms=%s",
               total_ms, journal_ms, probe_durations)
@@ -180,4 +182,5 @@ def format_status(report):
     rows.append(format_power(report.get("power", {"status": "unavailable"})))
     rows.append(format_watchdog(report.get("watchdog", {"status": "unavailable", "devices": []})))
     rows.append("Installed revision is independently read from release links when available; unknown otherwise.")
-    return "\n".join(rows)
+    return "
+".join(rows)
