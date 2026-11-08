@@ -8,6 +8,8 @@ from __future__ import annotations
 import argparse
 import json
 from pathlib import Path
+import os
+import stat
 
 from . import node_registry_inventory
 
@@ -45,6 +47,8 @@ def diagnose(node: str, *, inventory=None, config=None):
             result["stages"]["pinned_transport"] = (
                 "configured" if any(isinstance(x, dict) and x.get("node") == node
                                     for x in entries) else "missing")
+    # These stages cannot be proved from the enrollment snapshot. Keep them
+    # unknown rather than presenting configuration as successful execution.
     return result
 
 
@@ -58,14 +62,11 @@ def main(argv=None):
     try:
         path = Path(args.execute_config)
         if not path.is_symlink() and path.is_file():
-            from .watchtower_exec_service import CONFIG, load_service
             # Never load_service here: it constructs transports and opens ledgers.
-            import os
-            import stat
             st = path.lstat()
-            if st.st_uid == 0 and stat.S_ISREG(st.st_mode) and not st.st_mode & 0o077 and st.st_size <= 4096:
+            if st.st_uid == 0 and stat.S_ISREG(st.st_mode) and not st.st_mode & 0o022 and st.st_size <= 4096:
                 config = json.loads(path.read_text())
-    except (OSError, ValueError, TypeError):
+    except (OSError, ValueError, TypeError, KeyError):
         pass
     print(json.dumps(diagnose(args.node, config=config), sort_keys=True))
     return 0
