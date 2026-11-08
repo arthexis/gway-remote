@@ -87,8 +87,13 @@ fun CompanionScreen(store: SecretStore, appearance: AppearanceMode = AppearanceM
     val agentObserveError = agentModel.observeError
     var quotationsOpen by remember { mutableStateOf(false) }
     var localPanels by remember { mutableStateOf(LocalPanelState()) }
-    var endpoint by remember { mutableStateOf(store.endpoint.ifBlank { "https://remote.arthexis.com" }) }
-    var token by remember { mutableStateOf(store.token) }
+    var settings by remember {
+        mutableStateOf(CompanionSettingsState.initial(
+            store.endpoint.ifBlank { "https://remote.arthexis.com" }, store.token
+        ))
+    }
+    val endpoint = settings.endpoint
+    val token = settings.token
     var result by remember { mutableStateOf("Configure HTTPS endpoint and token") }
     var commands by remember { mutableStateOf(listOf<String>()) }
     var busy by remember { mutableStateOf(false) }
@@ -105,7 +110,7 @@ fun CompanionScreen(store: SecretStore, appearance: AppearanceMode = AppearanceM
     var availableMotifs by remember { mutableStateOf(listOf<String>()) }
     var selectedSound by remember { mutableStateOf("notice") }
     var soundMenuOpen by remember { mutableStateOf(false) }
-    var settingsOpen by remember { mutableStateOf(endpoint.isBlank() || token.isBlank()) }
+    val settingsOpen = settings.open
     var benchmarkExpanded by remember { mutableStateOf(false) }
     var benchmarkSamples by remember { mutableStateOf("100") }
     var benchmarkWarmup by remember { mutableStateOf("5") }
@@ -420,7 +425,7 @@ fun CompanionScreen(store: SecretStore, appearance: AppearanceMode = AppearanceM
         verticalArrangement = Arrangement.spacedBy(12.dp)) {
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
             Text("GWay Remote", style = MaterialTheme.typography.headlineMedium)
-            IconButton(onClick = { settingsOpen = !settingsOpen },
+            IconButton(onClick = { settings = settings.toggle() },
                 modifier = Modifier.semantics { contentDescription = "API settings" }) {
                 Text("⚙", style = MaterialTheme.typography.headlineMedium)
             }
@@ -434,9 +439,9 @@ fun CompanionScreen(store: SecretStore, appearance: AppearanceMode = AppearanceM
                 }
             }
             Text("API settings", style = MaterialTheme.typography.titleMedium)
-            OutlinedTextField(endpoint, { endpoint = it }, label = { Text("HTTPS endpoint") },
+            OutlinedTextField(endpoint, { settings = settings.copy(endpoint = it) }, label = { Text("HTTPS endpoint") },
                 modifier = Modifier.fillMaxWidth(), singleLine = true)
-            OutlinedTextField(token, { token = it }, label = { Text("Bearer token") },
+            OutlinedTextField(token, { settings = settings.copy(token = it) }, label = { Text("Bearer token") },
                 visualTransformation = androidx.compose.ui.text.input.PasswordVisualTransformation(),
                 modifier = Modifier.fillMaxWidth(), singleLine = true)
             Button(onClick = {
@@ -444,7 +449,7 @@ fun CompanionScreen(store: SecretStore, appearance: AppearanceMode = AppearanceM
                     ApiClient(endpoint.trim(), token)
                     store.endpoint = endpoint.trim()
                     store.token = token
-                    settingsOpen = false
+                    settings = settings.saved()
                     result = "Connection settings saved"
                 } catch (e: Exception) { result = e.message ?: "Invalid settings" }
             }) { Text("Save settings") }
