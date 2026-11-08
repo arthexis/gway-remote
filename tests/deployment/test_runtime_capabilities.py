@@ -1,6 +1,7 @@
 """Regression tests for conservative deployment evidence capabilities."""
 import unittest
-from unittest.mock import patch, SimpleNamespace
+from unittest.mock import patch
+from types import SimpleNamespace
 
 from gway_remote.status import kiosk_activation_evidence
 
