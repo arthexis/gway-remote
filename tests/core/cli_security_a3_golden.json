@@ -1,0 +1,97 @@
+{
+  "--help": {
+    "code": 0,
+    "stdout_sha256": "16c0930095c1f122092bb57d124f5cae7925a7110032f17125331e0feff6bb55",
+    "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  "bearer --help": {
+    "code": 0,
+    "stdout_sha256": "330cbeedd73b80a3bf7174d35d4d30424ba3c54292b40b05b650673560be45e4",
+    "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  "exec --help": {
+    "code": 0,
+    "stdout_sha256": "eddf24bf27f4fb03bc5256a3c0717abb578ebbac5f3a8bce2c5f5d032558aff1",
+    "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  "host-key --help": {
+    "code": 0,
+    "stdout_sha256": "3e60fc564a8e7f7f243d497603e8dab26d026f4f1b3d3688ad26a6c57290ba63",
+    "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  "wireguard --help": {
+    "code": 0,
+    "stdout_sha256": "95befe6d562905f7041c404d1f1cce032a969d9a5fb01f3488d401e818ad31aa",
+    "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  "inspection-host-rotate --help": {
+    "code": 0,
+    "stdout_sha256": "638ec5ac4cd6cdbf41d4c1719c431a8e634bd7dc68f1328ad123d565c3c786cf",
+    "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  "inspection-host-pin --help": {
+    "code": 0,
+    "stdout_sha256": "87049929c68dd7566c4fb0f0503882f465da41ef1f92c9c58a6a9b00cef903ae",
+    "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  "register --help": {
+    "code": 0,
+    "stdout_sha256": "25ea797c52a75627d3bffc077a56c79b87e58d556439fc483d2362489a00508d",
+    "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  "watchtower --help": {
+    "code": 0,
+    "stdout_sha256": "d789751ef70c92c1411196b3ce440c798a1c65695e1c60c4a918666bcbba283e",
+    "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  "bearer issue --help": {
+    "code": 0,
+    "stdout_sha256": "7574ed94302227352419f8452d52e1779f363ebebcbf94e72947f1eae49e564b",
+    "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  "bearer revoke --help": {
+    "code": 0,
+    "stdout_sha256": "ca6967785f214bf2e067be97db8c4b1dc56f4d0345e2d322238fbfbfff8ad21a",
+    "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  "exec grant --help": {
+    "code": 0,
+    "stdout_sha256": "1128e0f720e95fc257dac5886b83bc92499f8b78e9b896bcf12b3e05bf84f8ef",
+    "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  "watchtower adopt --help": {
+    "code": 0,
+    "stdout_sha256": "d789751ef70c92c1411196b3ce440c798a1c65695e1c60c4a918666bcbba283e",
+    "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  "wireguard wrong": {
+    "code": 2,
+    "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "stderr_sha256": "2148aadde86f84d41e6bf2052890c04e979916b58764bbd29bc928941e2d63ad"
+  },
+  "inspection-host-pin": {
+    "code": 2,
+    "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "stderr_sha256": "790dd1961b5b9c3490cd553cd2ab95a6f05d56d895ca4f2b52eab8556a932b6b"
+  },
+  "watchtower invalid": {
+    "code": 2,
+    "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "stderr_sha256": "ce6aec145dbc52d403f7673600e6eb5f02cec994ca66052303398fe6136f06e5"
+  },
+  "register": {
+    "code": 2,
+    "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "stderr_sha256": "776585ee8ce3ef3501efbec1b3029a4d1b114a1ef9eddaef07abf5ee74bb91c9"
+  },
+  "bearer issue --days oops": {
+    "code": 2,
+    "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "stderr_sha256": "58b9418bf5739f1c12c3f5b6c32f0ba57e47b6ea412fe84ac5c649480282ae53"
+  },
+  "exec status": {
+    "code": 2,
+    "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "stderr_sha256": "6d20f706625beddccb715e4e14908119a9fe5fad95154089068ac764b756f649"
+  }
+}
