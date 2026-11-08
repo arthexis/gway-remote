@@ -310,7 +310,7 @@ fun CompanionScreen(store: SecretStore, appearance: AppearanceMode = AppearanceM
             Text("Authenticated echo and read-only status · connected node", style = MaterialTheme.typography.bodySmall)
             Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                 for (mode in BenchmarkMode.entries) {
-                    FilterChip(selected = benchmarkMode == mode, onClick = { benchmarkMode = mode },
+                    FilterChip(selected = benchmarkMode == mode, onClick = { benchmarkInput = benchmarkInput.copy(mode = mode) },
                         label = { Text(mode.name.lowercase().replaceFirstChar { it.uppercase() }) })
                 }
             }
