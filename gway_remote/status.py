@@ -146,15 +146,16 @@ def status(directory=DEFAULT_DIR, probe=component_health, *, depth="deep"):
                            "release_state": release["release_state"] if release else None,
                            "staged_sha": release["staged_sha"] if release else None,
                            "error": error, "log": log})
+    kiosk_verified = False
     if depth == "deep":
         for item in components:
             if item["name"] == "gway-ap-kiosk":
-                item["kiosk_activation_verified"] = kiosk_activation_evidence(item["installed_sha"])
+                kiosk_verified = kiosk_activation_evidence(item["installed_sha"])
     for item in components:
         item["activated_at"] = activated_timestamp(item["name"], item["installed_sha"])
     checked_at = datetime.now(timezone.utc).isoformat()
     for item in components:
-        item["deployment_evidence"] = adapt_component(item, observed_at=checked_at, depth=depth)
+        item["deployment_evidence"] = adapt_component(\n            item, observed_at=checked_at, depth=depth,\n            kiosk_activation_verified=kiosk_verified if item["name"] == "gway-ap-kiosk" else False)
     total_ms = round((perf_counter_ns() - started_ns) / 1_000_000, 2)
     _LOG.info("status timing total_ms=%.2f journal_ms=%.2f probe_ms=%s",
               total_ms, journal_ms, probe_durations)
