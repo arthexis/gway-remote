@@ -41,19 +41,33 @@ def validated_source(sha):
     return source
 
 
-def atomic_copy(source, destination, mode=0o755):
+def atomic_link(source, destination):
+    """Publish the pinned release script, preserving its sibling Python modules."""
     destination.parent.mkdir(parents=True, exist_ok=True)
-    fd, temp = tempfile.mkstemp(prefix=".sound-", dir=destination.parent)
+    temporary = None
     try:
-        with os.fdopen(fd, "wb") as stream:
-            stream.write(source.read_bytes())
-            stream.flush()
-            os.fsync(stream.fileno())
-        os.chmod(temp, mode)
-        os.replace(temp, destination)
+        with tempfile.NamedTemporaryFile(prefix=".sound-", dir=destination.parent, delete=True) as handle:
+            temporary = Path(handle.name)
+        temporary.symlink_to(source)
+        os.replace(temporary, destination)
     finally:
-        if os.path.exists(temp):
-            os.unlink(temp)
+        if temporary is not None and temporary.is_symlink():
+            temporary.unlink()
+
+
+def expected_existing_target(target):
+    if target.is_symlink():
+        # A prior promotion may only point to a versioned LCD Sound script.
+        source = target.resolve(strict=True)
+        root = release_root().resolve(strict=True) / "releases"
+        if (source.parent.name != "gway" or source.name != "sound.sh"
+                or source.parent.parent.name != "scripts"
+                or source.parent.parent.parent.parent != root
+                or not re.fullmatch(r"[0-9a-f]{12}", source.parent.parent.parent.name)):
+            raise ValueError("Unexpected public sound target")
+    elif not target.is_file():
+        raise ValueError("Public sound target must exist")
+
 
 
 def main(argv):
@@ -67,12 +81,10 @@ def operate(action):
         sha = action.split(":", 1)[1]
         source = validated_source(sha)
         for path in PUBLIC:
-            if not path.is_symlink() or path.resolve(strict=True) != TARGET:
+            if not path.is_symlink() or path.readlink() != TARGET:
                 raise ValueError("Unexpected public sound entry point")
-        if TARGET.is_symlink() or not TARGET.is_file():
-            raise ValueError("Public sound target must be a regular file")
-        atomic_copy(source, TARGET)
-        os.chown(TARGET, 0, 0)
+        expected_existing_target(TARGET)
+        atomic_link(source, TARGET)
         print(json.dumps({"release": sha, "sha256": hashlib.sha256(TARGET.read_bytes()).hexdigest()}))
     else:
         raise ValueError("Unknown operation")
