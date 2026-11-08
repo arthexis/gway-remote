@@ -10,6 +10,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, build_opener, HTTPRedirectHandler
 from .mcp_bearer import BearerVerifier
+from .mcp_tool_scope import required_scope
 
 MAX_BODY = 65536
 MAX_RESPONSE = 262144
@@ -181,7 +182,8 @@ def inspect_federated_catalog(federation, *, builtins=()):
     for tool in catalog:
         name = tool["name"]
         route = routes.get(name)
-        scope = route[3] if route else ("execute" if (name in EXEC_TOOL_NAMES or (trusted_source_tool(tool) and not (type(tool.get("annotations")) is dict and tool["annotations"].get("readOnlyHint") is True and tool["annotations"].get("destructiveHint") is not True))) else "read")
+        scope = route[3] if route else ("execute" if name in EXEC_TOOL_NAMES else
+                required_scope(tool) if trusted_source_tool(tool) else "read")
         rows.append({"name": name, "origin": "federated" if route else "builtin",
                      "node": route[0] if route else None,
                      "source": route[1] if route else None,
