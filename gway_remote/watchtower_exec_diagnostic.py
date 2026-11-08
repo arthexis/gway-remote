@@ -7,9 +7,9 @@ from __future__ import annotations
 
 import argparse
 import json
-from pathlib import Path
 import os
 import stat
+from pathlib import Path
 
 from . import node_registry_inventory
 
@@ -25,14 +25,16 @@ def diagnose(node: str, *, inventory=None, config=None):
     rows = (inventory if inventory is not None else node_registry_inventory.load())["nodes"]
     matches = [row for row in rows if row.get("node") == node]
     if len(matches) != 1:
-        result["stages"]["current_eligibility"] = "denied"
+        result["stages"]["current_eligibility"] = "failure"
+        for stage in ("pinned_transport", "bridge_dispatch", "ssh_transport", "worker_readiness"):
+            result["stages"][stage] = "blocked"
         return result
     row = matches[0]
     eligible = (row.get("registered") is True and
                 row.get("identity_verified") is True and
                 row.get("execute_eligible") is True and
                 row.get("reachable") == "reachable")
-    result["stages"]["current_eligibility"] = "pass" if eligible else "denied"
+    result["stages"]["current_eligibility"] = "pass" if eligible else "failure"
     # Configuration is only used to establish membership, never to report
     # hostnames, fingerprints, file paths, identities or credentials.
     if config is not None:
@@ -47,8 +49,11 @@ def diagnose(node: str, *, inventory=None, config=None):
             result["stages"]["pinned_transport"] = (
                 "configured" if any(isinstance(x, dict) and x.get("node") == node
                                     for x in entries) else "missing")
-    # These stages cannot be proved from the enrollment snapshot. Keep them
-    # unknown rather than presenting configuration as successful execution.
+    # Do not infer SSH or worker health from pinned configuration. A failed
+    # prerequisite makes downstream execution blocked, not merely unknown.
+    if not eligible or result["stages"]["pinned_transport"] in ("disabled", "missing"):
+        for stage in ("bridge_dispatch", "ssh_transport", "worker_readiness"):
+            result["stages"][stage] = "blocked"
     return result
 
 
