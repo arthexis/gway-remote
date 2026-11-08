@@ -6,7 +6,7 @@ import unittest
 from gway_remote.mcp_bearer_gateway import inspect_federated_catalog
 from gway_remote.mcp_tool_scope import required_scope
 
-ROOT = Path(__file__).resolve().parents[2]
+from tests.helpers.mcp_deployment import ROOT, PLAYBOOK
 
 
 from tests.helpers.mcp_federation import FederationCatalogFixture, fixture_tool
@@ -33,7 +33,7 @@ class MCPRefactorDeploymentContracts(unittest.TestCase):
         self.assertTrue(all("inputSchema" not in tool for tool in inspected["tools"]))
 
     def test_production_playbook_has_release_rollback_and_idempotence_guards(self):
-        content = (ROOT / "ansible/playbooks/gway001-mcp-runtime.yml").read_text()
+        content = PLAYBOOK.read_text()
         for invariant in (
             "mcp_target_sha", "previous_release.stdout", "active_release.stdout",
             "Restore previous immutable release pointer", "Restart restored user MCP backend",
@@ -48,7 +48,7 @@ class MCPRefactorDeploymentContracts(unittest.TestCase):
         if shutil.which("ansible-playbook") is None:
             self.skipTest("ansible-core unavailable")
         command = ["ansible-playbook", "--syntax-check", "-i", "localhost,",
-                   str(ROOT / "ansible/playbooks/gway001-mcp-runtime.yml")]
+                   str(PLAYBOOK)]
         result = subprocess.run(command, capture_output=True, text=True, timeout=40)
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 
