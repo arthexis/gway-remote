@@ -355,13 +355,15 @@ fun CompanionScreen(store: SecretStore, appearance: AppearanceMode = AppearanceM
                                 }
                                 val selected = benchmarkMode
                                 val modes = benchmarkInput.copy(mode = selected).commands()
-                                val results = mutableListOf<BenchmarkResult>()
-                                for ((index, command) in modes.withIndex()) {
-                                    if (benchmarkStop.get()) break
-                                    results.add(runner.run(config, command, { benchmarkStop.get() }) { completed, _ ->
-                                        benchmarkProgress = index * config.samples + completed
-                                    })
-                                }
+                                val results = CompanionBenchmarkExecution.run(
+                                    config, modes, { benchmarkStop.get() },
+                                    { command, progress ->
+                                        runner.run(config, command, { benchmarkStop.get() }) { completed, _ ->
+                                            progress(completed)
+                                        }
+                                    },
+                                    { benchmarkProgress = it }
+                                )
                                 benchmarkReport = BenchmarkReport.create(
                                     benchmarkLabel, java.net.URL(targetEndpoint).host, config, selected,
                                     results, context.packageManager.getPackageInfo(context.packageName, 0).versionName ?: "unknown"
