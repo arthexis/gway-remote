@@ -1,0 +1,57 @@
+{
+  "--help": {
+    "code": 0,
+    "stdout_sha256": "16c0930095c1f122092bb57d124f5cae7925a7110032f17125331e0feff6bb55",
+    "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  "status --help": {
+    "code": 0,
+    "stdout_sha256": "89948bf80d71d7a145edf8a40428c8d27448d3dd552161bd77b39b55385f7ec1",
+    "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  "diagnose --help": {
+    "code": 0,
+    "stdout_sha256": "be0d0f215971fa648f921786271e9eea17f19b2f1e6a7e937140ef73008b0335",
+    "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  "logs --help": {
+    "code": 0,
+    "stdout_sha256": "c0e57a2533a4bab49a7af6415f4c163c56480775386716a758d7066c6b917e13",
+    "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  "hardware --help": {
+    "code": 0,
+    "stdout_sha256": "e5f2317eb48cf7b57013e7d7a275338aff0de5e3d50618d75d3c007eed1817ce",
+    "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  "network --help": {
+    "code": 0,
+    "stdout_sha256": "7a1d344a8fd0aac59450dddc5ffb3769da8bb31eab721d5c73518f4c90506edc",
+    "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  "status --bad": {
+    "code": 2,
+    "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "stderr_sha256": "170235ceba0f2dda9e83867746205f74dbfb25ae5b6849fbf771cc5297022928"
+  },
+  "diagnose --lines nope": {
+    "code": 2,
+    "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "stderr_sha256": "c4c5d566f50ed5a59e85be802ad5d629906a5b3c55e7556f2b150c2f3e0b0958"
+  },
+  "logs --lines nope": {
+    "code": 2,
+    "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "stderr_sha256": "8a21b022cbd895056e78b9784490267e68f741072e1d54b9488aed7492912a11"
+  },
+  "hardware --bad": {
+    "code": 2,
+    "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "stderr_sha256": "170235ceba0f2dda9e83867746205f74dbfb25ae5b6849fbf771cc5297022928"
+  },
+  "network --bad": {
+    "code": 2,
+    "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "stderr_sha256": "170235ceba0f2dda9e83867746205f74dbfb25ae5b6849fbf771cc5297022928"
+  }
+}

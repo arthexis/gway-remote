@@ -266,27 +266,18 @@ def main() -> None:
     export_parser.add_argument("--json", action="store_true")
     inspection = subparsers.add_parser("reconcile", help="Read-only appliance deployment report")
     inspection.add_argument("--dry-run", action="store_true", help="Do not deploy (always read-only)")
-    diagnose_parser = subparsers.add_parser("diagnose", help="Read-only appliance deployment troubleshooting")
-    diagnose_parser.add_argument("component", nargs="?", choices=tuple(name for name, _ in DEPLOYMENT_TARGETS))
-    diagnose_parser.add_argument("--json", action="store_true")
-    diagnose_parser.add_argument("--lines", type=int, default=30)
+    from .cli.operations import register, dispatch
+    register(subparsers, DEPLOYMENT_TARGETS, ("diagnose",))
     watch_parser = subparsers.add_parser("watch", help="One bounded appliance reconciliation tick")
     watch_parser.add_argument("--apply", action="store_true", help="Dispatch eligible deployments and file incidents")
-    status_parser = subparsers.add_parser("status", help="Inspect local attempts and health")
-    status_parser.add_argument("--json", action="store_true")
-    hardware_parser = subparsers.add_parser("hardware", help="Read-only optional local RTC and ambient thermometer")
-    hardware_parser.add_argument("--json", action="store_true")
-    network_parser = subparsers.add_parser("network", help="Read-only eth0/wlan0/wlan1 network snapshot")
-    network_parser.add_argument("--json", action="store_true")
+    register(subparsers, DEPLOYMENT_TARGETS, ("status","hardware","network"))
     watchdog_parser = subparsers.add_parser("watchdog", help="Inspect or explicitly configure systemd hardware watchdog")
     watchdog_parser.add_argument("action", choices=("show", "enable", "disable"))
     watchdog_parser.add_argument("--seconds", type=int, default=None)
     watchdog_parser.add_argument("--apply", action="store_true", help="Confirm privileged systemd watchdog configuration")
     watchdog_parser.add_argument("--json", action="store_true")
     subparsers.add_parser("probe-csms", help="Read-only CSMS health diagnosis")
-    logs_parser = subparsers.add_parser("logs", help="Inspect local installation logs")
-    logs_parser.add_argument("component", nargs="?", choices=tuple(name for name, _ in DEPLOYMENT_TARGETS))
-    logs_parser.add_argument("--lines", type=int, default=None)
+    register(subparsers, DEPLOYMENT_TARGETS, ("logs",))
     report_parser = subparsers.add_parser("report-bundle", help="Export sanitized artifact report")
     report_parser.add_argument("--output", required=True)
     retention_parser = subparsers.add_parser("retention", help="Read-only managed release retention preview")
@@ -743,15 +734,7 @@ def main() -> None:
         except (ValueError, OSError) as exc:
             parser.exit(1, f"gway-remote: API unavailable: {exc}\\n")
         return
-    if args.command == "network":
-        from .network_diagnostics import inspect, format_network
-        result = inspect()
-        print(json.dumps(result, indent=2, sort_keys=True) if args.json else format_network(result))
-        return
-    if args.command == "hardware":
-        from .hardware_diagnostics import inspect, format_hardware
-        result = inspect()
-        print(json.dumps(result, indent=2, sort_keys=True) if args.json else format_hardware(result))
+    if dispatch(args, parser):
         return
     if args.command == "watchdog":
         from .watchdog import inspect, configure, format_watchdog
@@ -771,20 +754,6 @@ def main() -> None:
         from .csms_health import csms_probe
         print(json.dumps(csms_probe(), indent=2, sort_keys=True))
         return
-    if args.command == "logs":
-        from .logs import list_logs, read_log
-        try:
-            if args.lines is None and args.component is None:
-                for item in list_logs():
-                    print(item.name)
-            else:
-                content = read_log(name=args.component, lines=args.lines or 100)
-                if content is None:
-                    parser.exit(1, "gway-remote: no installation logs found\\n")
-                print(content)
-        except (OSError, ValueError) as exc:
-            parser.exit(1, f"gway-remote: {exc}\\n")
-        return
     if args.command == "report-bundle":
         from .report_bundle import bundle
         try:
@@ -792,22 +761,9 @@ def main() -> None:
         except (OSError, ValueError) as exc:
             parser.exit(1, f"gway-remote: report unavailable: {exc}\\n")
         return
-    if args.command == "diagnose":
-        from .diagnostics import diagnose, format_diagnosis
-        try:
-            report = diagnose(args.component, lines=args.lines)
-            print(json.dumps(report, indent=2, sort_keys=True) if args.json else format_diagnosis(report))
-        except (OSError, ValueError) as exc:
-            parser.exit(1, f"gway-remote: diagnosis unavailable: {exc}\\n")
-        return
     if args.command == "watch":
         from .appliance_watch import check
         print(json.dumps(check(apply=args.apply), indent=2, sort_keys=True))
-        return
-    if args.command == "status":
-        from .status import status, format_status
-        result = status()
-        print(json.dumps(result, indent=2, sort_keys=True) if args.json else format_status(result))
         return
     if args.command == "reconcile":
         from .github_state import GitHub, report
