@@ -74,13 +74,18 @@ class RuntimeCapabilitiesTests(unittest.TestCase):
         ]
         for code, output, expected in cases:
             with patch("gway_remote.status.subprocess.run",
-                       return_value=SimpleNamespace(returncode=code, stdout=output)) as run:
+                       return_value=SimpleNamespace(returncode=code, stdout=output)) as run, \
+                 patch("gway_remote.status.installed_revision", return_value=SHA):
                 assert kiosk_activation_evidence(SHA) is expected
                 assert run.call_args.kwargs["timeout"] == 3
                 assert run.call_args.args[0] == ["/usr/local/libexec/gway-kiosk-verify-activation"]
         with patch("gway_remote.status.subprocess.run") as run:
             assert kiosk_activation_evidence("bad-sha") is False
             run.assert_not_called()
+        with patch("gway_remote.status.subprocess.run",
+                   return_value=SimpleNamespace(returncode=0, stdout='{"activation_verified": true}')), \
+             patch("gway_remote.status.installed_revision", return_value="b" * 40):
+            assert kiosk_activation_evidence(SHA) is False
 
     def test_unknown_component_never_infers_not_applicable(self):
         result = validate(adapt_component(record("ocpp-simulator"), observed_at=OBSERVED))
