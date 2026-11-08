@@ -1,6 +1,5 @@
+from tests.helpers.mcp_http import pkce_s256
 """Real HTTP OAuth /connect regression: intentional scope choice, no upgrades."""
-import base64
-import hashlib
 import http.client
 import re
 import tempfile
@@ -47,8 +46,7 @@ class OAuthConnectScopeHTTPTests(unittest.TestCase):
             conn.close()
 
     def begin(self, scope=None):
-        challenge = base64.urlsafe_b64encode(
-            hashlib.sha256(b"x" * 43).digest()).rstrip(b"=").decode()
+        challenge = pkce_s256("x" * 43)
         parameters = dict(client_id="private-client",
                           redirect_uri="https://chatgpt.com/approved-callback",
                           resource="https://remote.arthexis.com/mcp",

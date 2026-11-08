@@ -1,6 +1,5 @@
+from tests.helpers.mcp_http import pkce_s256
 """OAuth grant revocation, bounded state and ambiguous HTTP rejection."""
-import base64
-import hashlib
 import http.client
 import json
 import os
@@ -29,7 +28,7 @@ class LinkSecurityTests(unittest.TestCase):
         self.verifier = 'x' * 43
         self.params = dict(client_id=self.flow.client_id, redirect_uri=self.flow.redirect_uri,
                            resource=self.flow.resource, response_type='code',
-                           code_challenge=base64.urlsafe_b64encode(hashlib.sha256(self.verifier.encode()).digest()).rstrip(b'=').decode(),
+                           code_challenge=pkce_s256(self.verifier),
                            code_challenge_method='S256', state='valid-state', scope='gway:read')
 
     def code(self):

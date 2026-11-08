@@ -8,6 +8,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.error import HTTPError
 from urllib.request import Request, urlopen
+from tests.helpers.mcp_http import mcp_call, bearer_post
 from gway_remote.mcp_bearer import BearerRegistry, BearerVerifier
 from gway_remote.mcp_bearer_gateway import make_server, MAX_RESPONSE
 
@@ -49,10 +50,8 @@ class GatewayHttpTests(unittest.TestCase):
                 thread.start()
                 try:
                     url = "http://127.0.0.1:%d/mcp" % gateway.server_port
-                    body = json.dumps({"jsonrpc":"2.0","id":1,"method":"tools/call",
-                                       "params":{"name":"github_workflow_runs","arguments":{}}}).encode()
-                    request = Request(url, body, {"Authorization":"Bearer " + token,
-                                      "Content-Type":"application/json"}, method="POST")
+                    body = mcp_call('github_workflow_runs')
+                    request = bearer_post(url, body, token)
                     with urlopen(request, timeout=3) as result:
                         self.assertEqual(result.status, 200)
                         self.assertIn(b'"result"', result.read())
@@ -84,12 +83,9 @@ class GatewayHttpTests(unittest.TestCase):
                     t2 = threading.Thread(target=gateway.serve_forever, daemon=True)
                     t2.start()
                     url = "http://127.0.0.1:%d" % gateway.server_port
-                    payload = json.dumps({"jsonrpc":"2.0","id":1,"method":"tools/list"}).encode()
+                    payload = json.dumps({'jsonrpc': '2.0', 'id': 1, 'method': 'tools/list'}).encode()
                     def send(bearer=None, path="/mcp", body=payload):
-                        headers = {"Content-Type":"application/json"}
-                        if bearer is not None:
-                            headers["Authorization"] = "Bearer " + bearer
-                        req = Request(url + path, body, headers, method="POST")
+                        req = bearer_post(url + path, body, bearer)
                         try:
                             with urlopen(req, timeout=3) as response:
                                 return response.status

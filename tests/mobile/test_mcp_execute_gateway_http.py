@@ -1,6 +1,6 @@
 """End-to-end HTTP authorization boundary, with no real remote SSH execution."""
-import json
 from pathlib import Path
+import json
 import tempfile
 import threading
 import unittest
@@ -8,6 +8,7 @@ from unittest.mock import Mock
 from urllib.error import HTTPError
 from urllib.request import Request, urlopen
 
+from tests.helpers.mcp_http import mcp_call, bearer_post
 from gway_remote.mcp_bearer import BearerRegistry, BearerVerifier
 from gway_remote.mcp_bearer_gateway import make_server
 
@@ -29,13 +30,10 @@ class GatewayExecuteHTTPTests(unittest.TestCase):
                 thread.start()
                 try:
                     endpoint = "http://127.0.0.1:%d/mcp" % gateway.server_port
-                    body = json.dumps({"jsonrpc": "2.0", "id": 1, "method": "tools/call",
-                        "params": {"name": "node_exec", "arguments": {
-                            "node": "gway-001", "command": "uptime", "request_id": "a"*32}}}).encode()
+                    body = mcp_call('node_exec', {'node': 'gway-001',
+                        'command': 'uptime', 'request_id': 'a' * 32})
                     def call(token):
-                        request = Request(endpoint, body, {
-                            "Authorization": "Bearer " + token,
-                            "Content-Type": "application/json"}, method="POST")
+                        request = bearer_post(endpoint, body, token)
                         try:
                             with urlopen(request, timeout=3) as response:
                                 return response.status, json.loads(response.read())
