@@ -219,11 +219,12 @@ fun CompanionScreen(store: SecretStore, appearance: AppearanceMode = AppearanceM
         if (updating) return
         updateState = updateState.started("Checking releases…")
         scope.launch {
-            try {
-                update = withContext(Dispatchers.IO) { AppUpdater.check(installedCode) }
-                updateState = updateState.status(if (update == null) "App is up to date" else "Update available: ${update!!.version}")
-            } catch (e: Exception) { updateState = updateState.status(e.message ?: "Update check failed") }
-            finally { updateState = updateState.finished() }
+            CompanionUpdateCheck.run(
+                check = { withContext(Dispatchers.IO) { AppUpdater.check(installedCode) } },
+                onUpdate = { update = it },
+                onStatus = { updateState = updateState.status(it) },
+                onFinished = { updateState = updateState.finished() }
+            )
         }
     }
 
