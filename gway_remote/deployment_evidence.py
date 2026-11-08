@@ -13,7 +13,8 @@ from .reconcile import TARGETS
 _SCHEMA = 1
 
 
-def adapt_component(row: dict, *, observed_at: str | None, depth: str = "deep",\n                    kiosk_activation_verified: bool = False) -> dict:
+def adapt_component(row: dict, *, observed_at: str | None, depth: str = "deep",
+                    kiosk_activation_verified: bool = False) -> dict:
     name = row["name"]
     spec = probe_for(name)
     bastion = name == "gway-bastion"
@@ -21,7 +22,13 @@ def adapt_component(row: dict, *, observed_at: str | None, depth: str = "deep",\
     installed = row.get("installed_sha")
     release_state = row.get("release_state") if bastion else None
     # A revision file alone does not establish activation.
-    kiosk_verified = (name == "gway-ap-kiosk" and depth == "deep"\n                      and kiosk_activation_verified is True\n                      and isinstance(installed, str)\n                      and re.fullmatch(r"[0-9a-f]{40}", installed) is not None)\n    activation_verified = bool(installed) and (bastion and release_state == "activated"\n                                                or kiosk_verified\n                                                or not bastion and not spec.revision_file)
+    kiosk_verified = (name == "gway-ap-kiosk" and depth == "deep"
+                      and kiosk_activation_verified is True
+                      and isinstance(installed, str)
+                      and re.fullmatch(r"[0-9a-f]{40}", installed) is not None)
+    activation_verified = bool(installed) and (bastion and release_state == "activated"
+                                                or kiosk_verified
+                                                or not bastion and not spec.revision_file)
     if bastion and release_state == "staged" and staged and not installed:
         installation = "staged"
     elif activation_verified:
