@@ -169,7 +169,7 @@ fun CompanionScreen(store: SecretStore, appearance: AppearanceMode = AppearanceM
     var apk by remember {
         mutableStateOf(java.io.File(context.cacheDir, "gway-remote-update.apk").takeIf { it.isFile })
     }
-    var awaitingInstallPermission by remember { mutableStateOf(false) }
+    var installPermissionState by remember { mutableStateOf(CompanionInstallPermissionState()) }
 
     fun launchInstaller() {
         val candidate = update
@@ -193,23 +193,25 @@ fun CompanionScreen(store: SecretStore, appearance: AppearanceMode = AppearanceM
     val permissionLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.StartActivityForResult()
     ) {
-        if (awaitingInstallPermission) {
-            awaitingInstallPermission = false
-            if (AppUpdater.canInstall(context)) launchInstaller()
-            else updateState = updateState.status("Installation permission not granted; allow installs from GWay Remote")
+        if (installPermissionState.awaitingResult) {
+            val outcome = installPermissionState.result(AppUpdater.canInstall(context))
+            installPermissionState = outcome.state
+            if (outcome.launchInstaller) launchInstaller()
+            else outcome.status?.let { updateState = updateState.status(it) }
         }
     }
 
     fun requestInstall() {
         if (updating) return
         if (!AppUpdater.canInstall(context)) {
-            awaitingInstallPermission = true
+            installPermissionState = installPermissionState.requested()
             updateState = updateState.status("Grant installation permission, then return to GWay Remote")
             try {
                 permissionLauncher.launch(AppUpdater.installPermissionIntent(context))
             } catch (e: Exception) {
-                awaitingInstallPermission = false
-                updateState = updateState.status("Unable to open installation settings: ${e.message}")
+                val outcome = installPermissionState.launchFailed(e.message)
+                installPermissionState = outcome.state
+                outcome.status?.let { updateState = updateState.status(it) }
             }
         } else launchInstaller()
     }
