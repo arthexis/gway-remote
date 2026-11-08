@@ -249,16 +249,13 @@ fun CompanionScreen(store: SecretStore, appearance: AppearanceMode = AppearanceM
         commandState = commandState.started()
         scope.launch {
             try {
-                val response = withContext(Dispatchers.IO) {
-                    ApiClient(endpoint.trim(), token).request(path, command, arguments)
-                }
-                if (path.endsWith("/commands")) {
-                    val entries = response.getJSONArray("commands")
-                    commandState = commandState.listed(ReadOnlyCommandCatalog.names(entries))
-                }
-                commandState = commandState.displayed(response.toString(2))
-            } catch (e: Exception) {
-                commandState = commandState.failed(e.message ?: "Connection failed", path.endsWith("/commands"))
+                CompanionCommandActions.perform(
+                    path,
+                    { withContext(Dispatchers.IO) { ApiClient(endpoint.trim(), token).request(path, command, arguments) } },
+                    { commandState = commandState.listed(it) },
+                    { commandState = commandState.displayed(it) },
+                    { message, clearCommands -> commandState = commandState.failed(message, clearCommands) }
+                )
             } finally { commandState = commandState.completed() }
         }
     }
@@ -282,8 +279,9 @@ fun CompanionScreen(store: SecretStore, appearance: AppearanceMode = AppearanceM
                 if (client != null) {
                     suspend fun fetch(label: String, path: String, command: String? = null,
                                       args: JSONObject = JSONObject()): JSONObject? =
-                        try { withContext(Dispatchers.IO) { client.request(path, command, args) } }
-                        catch (e: Exception) { failures.add("${label}: ${e.message}"); null }
+                        CompanionCommandActions.fetch(label, failures) {
+                            withContext(Dispatchers.IO) { client.request(path, command, args) }
+                        }
                     fetch("Health", "/api/v1/health")?.let { commandState = commandState.displayed(it.toString(2)) }
                     fetch("Quick status", "/api/v1/execute", "status-quick")?.let { commandState = commandState.displayed(it.toString(2)) }
                     fetch("Commands", "/api/v1/commands")?.let { response ->
