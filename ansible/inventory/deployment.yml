@@ -7,7 +7,7 @@ all:
           ansible_connection: local
           # Explicit opt-in: private runtime and pinned installed AgentOps CLI.
           gway_agent_mcp_workspace: /home/arthe/.local/share/gway-agent-ops/workspaces
-          gway_agent_mcp_executable: /home/arthe/.local/share/gway-agent-ops/releases/69788f723e58fcc7e2b512f7c9b0499045b8ad52/bin/agent
+          gway_agent_mcp_executable: /home/arthe/.local/share/gway-agent-ops/releases/ac1ff877ef521f0a2fde82a665f3acea207817b6/bin/agent
           gway_agent_allowed_repos:
             - arthexis/gway-agent-ops
             - arthexis/gway-remote
