@@ -94,9 +94,10 @@ fun CompanionScreen(store: SecretStore, appearance: AppearanceMode = AppearanceM
     }
     val endpoint = settings.endpoint
     val token = settings.token
-    var result by remember { mutableStateOf("Configure HTTPS endpoint and token") }
-    var commands by remember { mutableStateOf(listOf<String>()) }
-    var busy by remember { mutableStateOf(false) }
+    var commandState by remember { mutableStateOf(CompanionCommandState()) }
+    val result = commandState.result
+    val commands = commandState.commands
+    val busy = commandState.busy
     var refreshState by remember { mutableStateOf(CompanionRefreshState()) }
     val refreshing = refreshState.running
     var agentAssignmentsExpanded by remember { mutableStateOf(false) }
@@ -245,7 +246,7 @@ fun CompanionScreen(store: SecretStore, appearance: AppearanceMode = AppearanceM
 
     fun perform(path: String, command: String? = null, arguments: JSONObject = JSONObject()) {
         if (busy) return
-        busy = true
+        commandState = commandState.started()
         scope.launch {
             try {
                 val response = withContext(Dispatchers.IO) {
@@ -253,13 +254,12 @@ fun CompanionScreen(store: SecretStore, appearance: AppearanceMode = AppearanceM
                 }
                 if (path.endsWith("/commands")) {
                     val entries = response.getJSONArray("commands")
-                    commands = ReadOnlyCommandCatalog.names(entries)
+                    commandState = commandState.listed(ReadOnlyCommandCatalog.names(entries))
                 }
-                result = response.toString(2)
+                commandState = commandState.displayed(response.toString(2))
             } catch (e: Exception) {
-                result = e.message ?: "Connection failed"
-                if (path.endsWith("/commands")) commands = emptyList()
-            } finally { busy = false }
+                commandState = commandState.failed(e.message ?: "Connection failed", path.endsWith("/commands"))
+            } finally { commandState = commandState.completed() }
         }
     }
 
@@ -284,11 +284,11 @@ fun CompanionScreen(store: SecretStore, appearance: AppearanceMode = AppearanceM
                                       args: JSONObject = JSONObject()): JSONObject? =
                         try { withContext(Dispatchers.IO) { client.request(path, command, args) } }
                         catch (e: Exception) { failures.add("${label}: ${e.message}"); null }
-                    fetch("Health", "/api/v1/health")?.let { result = it.toString(2) }
-                    fetch("Quick status", "/api/v1/execute", "status-quick")?.let { result = it.toString(2) }
+                    fetch("Health", "/api/v1/health")?.let { commandState = commandState.displayed(it.toString(2)) }
+                    fetch("Quick status", "/api/v1/execute", "status-quick")?.let { commandState = commandState.displayed(it.toString(2)) }
                     fetch("Commands", "/api/v1/commands")?.let { response ->
                         val entries = response.getJSONArray("commands")
-                        commands = ReadOnlyCommandCatalog.names(entries)
+                        commandState = commandState.listed(ReadOnlyCommandCatalog.names(entries))
                     }
 
                 }
@@ -300,8 +300,7 @@ fun CompanionScreen(store: SecretStore, appearance: AppearanceMode = AppearanceM
                     failures.add("App update: ${e.message}")
                     updateState = updateState.status("Update check failed: ${e.message}")
                 }
-                refreshState = refreshState.copy(status = if (failures.isEmpty()) "Refresh completed" else
-                    "Refresh partially failed: ${failures.joinToString("; ")}")
+                refreshState = refreshState.copy(status = CompanionRefreshSummary.message(failures))
             } finally { refreshState = refreshState.copy(running = false) }
         }
     }
@@ -442,8 +441,8 @@ fun CompanionScreen(store: SecretStore, appearance: AppearanceMode = AppearanceM
                     store.endpoint = endpoint.trim()
                     store.token = token
                     settings = settings.saved()
-                    result = "Connection settings saved"
-                } catch (e: Exception) { result = e.message ?: "Invalid settings" }
+                    commandState = commandState.displayed("Connection settings saved")
+                } catch (e: Exception) { commandState = commandState.displayed(e.message ?: "Invalid settings") }
             }) { Text("Save settings") }
         }
         if (update != null) {
