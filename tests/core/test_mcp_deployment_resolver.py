@@ -5,7 +5,7 @@ from gway_remote.mcp_source_registry import SourceRegistration
 
 SHA = "a" * 40
 DEPLOY = dict(schema=1, checkout="/opt/managed/agentops",
-              runner="/opt/managed/agentops/deploy.sh", run_as="arthe", revision=SHA)
+              runner="/opt/managed/agentops/deploy.sh", revision=SHA)
 
 
 def source(name="agentops", enabled=True, deployment=DEPLOY):
