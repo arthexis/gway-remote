@@ -23,7 +23,7 @@ OPERATIONS = {
     "provider_call": frozenset({"operation", "node", "request_id", "provider", "tool", "arguments", "authorized_scope"}),
     "deployment_preview": frozenset({"operation", "node", "request_id", "application"}),
     "deployment_status": frozenset({"operation", "node", "request_id", "application"}),
-    "deployment_run": frozenset({"operation", "node", "request_id", "application"}),
+    "deployment_run": frozenset({"operation", "node", "request_id", "application", "expected_revision"}),
 }
 
 
@@ -52,7 +52,7 @@ def serve_one(raw, *, jobs=None, hostname=None):
         elif op == "deployment_status":
             result = request_status(req["application"], rid)
         else:
-            result = accept(req["application"], rid)
+            result = accept(req["application"], rid, expected_revision=req["expected_revision"])
         return {"node": host, "request_id": rid, "result": result}
     if op in ("provider_list", "provider_call"):
         from .mcp_node_providers import dispatch_node_provider_request
