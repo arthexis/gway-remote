@@ -36,7 +36,7 @@ class BrokerTests(unittest.TestCase):
         with patch("gway_remote.watchtower_exec_auth.pinned_transport", return_value=Pinned()):
             with patch.object(self.service, "_allow", return_value=None):
                 with patch.object(self.service, "_current_eligibility", return_value=None):
-                    with self.assertRaises((AttributeError, ValueError)):
+                    with self.assertRaises(ValueError):
                         self.service.deployment(principal="a"*24, request_id="b"*32,
                             node="gway-001", application="agentops", status=True)
                     with self.assertRaises(PermissionError):
