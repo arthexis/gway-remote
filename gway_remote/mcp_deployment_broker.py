@@ -172,7 +172,7 @@ def _private_state(state_dir):
 
 
 def request_status(application, request_id, *, state_dir=STATE_DIR,
-                   resolve=resolve_deployment):
+                   resolve=resolve_deployment, worker_claim=False):
     resolve(application)
     _private_state(state_dir)
     path = _request_path(request_id, state_dir)
@@ -193,7 +193,7 @@ def request_status(application, request_id, *, state_dir=STATE_DIR,
     # A running receipt is historical state. The worker holds its dedicated
     # flock until it writes a terminal receipt; without that lock we have no
     # proof it is still alive (including after a host restart).
-    if result["state"] == "running":
+    if result["state"] in {"accepted", "running"} and not (worker_claim and result["state"] == "accepted"):
         lock_path = state_dir / (".request-lock-" + path.stem)
         if lock_path.is_symlink():
             raise PermissionError("symlink worker lock denied")
@@ -214,7 +214,7 @@ def request_status(application, request_id, *, state_dir=STATE_DIR,
             finally:
                 os.close(fd)
         if not active:
-            result = {**result, "state": "uncertain", "recorded_state": "running"}
+            result = {**result, "state": "uncertain", "recorded_state": result["state"]}
     return result
 
 
@@ -294,7 +294,7 @@ def worker(application, request_id, *, state_dir=STATE_DIR,
             raise PermissionError("untrusted worker lock")
         fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
         receipt = request_status(application, request_id, state_dir=state_dir,
-                                 resolve=resolve)
+                                 resolve=resolve, worker_claim=True)
         if receipt["state"] != "accepted":
             raise PermissionError("deployment worker already claimed")
         if receipt.get("declaration_sha256") != _declaration_digest(_eligible(application, resolve=resolve)):
