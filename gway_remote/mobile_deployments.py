@@ -4,6 +4,7 @@ from __future__ import annotations
 from .attempts import read_attempts
 from .reconcile import TARGETS
 from .status import installed_revision
+from .bastion_status import read_bastion_evidence
 from .target_export import export_targets
 
 TARGET_NAMES = frozenset(name for name, _ in TARGETS)
@@ -22,11 +23,13 @@ def validate_selection(arguments):
             "confirmation_required": True, "ci_required": True}
 
 
-def overview(arguments, *, attempts_reader=read_attempts, revision_reader=installed_revision):
+def overview(arguments, *, attempts_reader=read_attempts, revision_reader=installed_revision,
+             bastion_reader=read_bastion_evidence):
     if type(arguments) is not dict or arguments:
         raise ValueError("invalid_deployment_arguments")
     attempts = attempts_reader()
     targets = export_targets()["targets"]
+    bastion = bastion_reader()
     return {
         "schema": 1,
         "controller": {
@@ -39,6 +42,8 @@ def overview(arguments, *, attempts_reader=read_attempts, revision_reader=instal
         "targets": [{
             "name": entry["name"], "repository": entry["repository"],
             "installed_sha": revision_reader(entry["name"]),
+            "release_state": bastion["release_state"] if entry["name"] == "gway-bastion" else None,
+            "staged_sha": bastion["staged_sha"] if entry["name"] == "gway-bastion" else None,
             "last_attempt": {
                 "sha": attempts[entry["name"]].get("sha"),
                 "status": attempts[entry["name"]].get("status"),
