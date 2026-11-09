@@ -50,6 +50,58 @@ class DeploymentBridgeNegativeTests(unittest.TestCase):
                     arguments={"node": "gway-001", "request_id": "a"*32,
                                "application": "sample", "revision": "main"})
 
+    def test_real_hmac_reply_rejects_tampering_and_cross_request(self):
+        import io
+        import json
+        from gway_remote.mcp_bridge_transport import call_unix, canonical, sign_reply
+
+        key = b"k" * 32
+        envelope = {"version": 1, "request_id": "a"*32,
+                    "principal": "b"*24, "audience": "gway-001",
+                    "operation": "deployment.start", "scope": "gway:execute",
+                    "issued_at": 1, "expires_at": 30,
+                    "arguments": {"node": "gway-001", "request_id": "c"*32,
+                                  "application": "sample"}}
+
+        class FakeSocket:
+            def __init__(self, mode):
+                self.mode = mode
+            def __enter__(self):
+                return self
+            def __exit__(self, *args):
+                return False
+            def settimeout(self, value):
+                pass
+            def connect(self, path):
+                pass
+            def sendall(self, payload):
+                request = json.loads(payload)
+                body = {"ok": True, "result": {"node": "gway-001",
+                        "request_id": "c"*32, "status": "accepted"}}
+                signature = sign_reply(key, request["signature"], body)
+                if self.mode == "wrong-request":
+                    signature = sign_reply(key, "0"*64, body)
+                body["reply_signature"] = signature
+                if self.mode == "tamper":
+                    body["result"]["request_id"] = "d"*32
+                self.reply = canonical(body) + b"\\n"
+            def makefile(self, mode):
+                return io.BytesIO(self.reply)
+
+        for mode in ("tamper", "wrong-request"):
+            with self.subTest(mode=mode):
+                with patch("gway_remote.mcp_bridge_transport.socket.socket",
+                           return_value=FakeSocket(mode)):
+                    with self.assertRaises(PermissionError):
+                        call_unix("/offline", key, envelope,
+                                  require_signed_reply=True)
+
+        with patch("gway_remote.mcp_bridge_transport.socket.socket",
+                   return_value=FakeSocket("valid")):
+            result = call_unix("/offline", key, envelope,
+                               require_signed_reply=True)
+            self.assertEqual(result["request_id"], "c"*32)
+
 
 if __name__ == "__main__":
     unittest.main()
