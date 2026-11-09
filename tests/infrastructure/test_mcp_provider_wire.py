@@ -17,6 +17,40 @@ class ProviderWireTests(unittest.TestCase):
             response = serve_one(request)
         self.assertEqual(response["result"], {"node": "gway-001", "providers": []})
 
+    def test_read_operation_enforced_on_node_and_no_scope_override(self):
+        import json
+        request = {"operation": "provider_read_call", "node": "gway-001",
+                   "request_id": "0123456789abcdef0123456789abcdef",
+                   "provider": "diagnostics", "tool": "hardware", "arguments": {}}
+        with patch("gway_remote.node_exec_protocol.require_account"), \
+             patch("gway_remote.node_exec_protocol.socket.gethostname", return_value="gway-001"), \
+             patch("gway_remote.mcp_installed_providers.discover_installed_providers", return_value=[]), \
+             patch("gway_remote.mcp_node_providers.dispatch_node_provider_request",
+                   return_value={"schema": "gway-remote/hardware/v1"}) as dispatch:
+            serve_one(json.dumps(request).encode())
+            self.assertEqual(dispatch.call_args.kwargs["trusted_scope"], "read")
+            request["authorized_scope"] = "execute"
+            with self.assertRaises(ValueError):
+                serve_one(json.dumps(request).encode())
+            self.assertEqual(dispatch.call_count, 1)
+
+    def test_provider_transport_maps_read_to_node_enforced_operation(self):
+        from gway_remote.mcp_provider_transport import ProviderTransport
+        from types import SimpleNamespace
+        class Pinned:
+            node = SimpleNamespace(node="gway-001")
+            def __init__(self): self.calls = []
+            def invoke(self, payload):
+                self.calls.append(payload)
+                return {"result": {"ok": True}}
+        pinned = Pinned()
+        provider = ProviderTransport(pinned)
+        self.assertEqual(provider.invoke("gway-001", {
+            "operation": "provider_call", "provider": "diagnostics",
+            "tool": "hardware", "arguments": {}}, trusted_scope="read"), {"ok": True})
+        self.assertEqual(pinned.calls[0]["operation"], "provider_read_call")
+        self.assertNotIn("authorized_scope", pinned.calls[0])
+
     def test_watchtower_uses_node_transport(self):
         from tests.helpers.mcp_provider import InvocationSpy
         transport = InvocationSpy(response={"node": "gway-001", "providers": []})
