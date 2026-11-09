@@ -190,6 +190,31 @@ def request_status(application, request_id, *, state_dir=STATE_DIR,
             or result.get("state") not in
             {"accepted", "running", "succeeded", "failed", "uncertain"}):
         raise PermissionError("deployment request binding mismatch")
+    # A running receipt is historical state. The worker holds its dedicated
+    # flock until it writes a terminal receipt; without that lock we have no
+    # proof it is still alive (including after a host restart).
+    if result["state"] == "running":
+        lock_path = state_dir / (".request-lock-" + path.stem)
+        if lock_path.is_symlink():
+            raise PermissionError("symlink worker lock denied")
+        active = False
+        if lock_path.exists():
+            _trusted(lock_path)
+            info = lock_path.stat()
+            if info.st_uid != os.geteuid() or info.st_mode & 0o077:
+                raise PermissionError("untrusted worker lock")
+            fd = os.open(lock_path, os.O_RDONLY | os.O_NOFOLLOW)
+            try:
+                try:
+                    fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                except BlockingIOError:
+                    active = True
+                else:
+                    fcntl.flock(fd, fcntl.LOCK_UN)
+            finally:
+                os.close(fd)
+        if not active:
+            result = {**result, "state": "uncertain", "recorded_state": "running"}
     return result
 
 
