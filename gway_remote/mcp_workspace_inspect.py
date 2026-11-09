@@ -21,7 +21,7 @@ class WorkspaceUnavailable(PermissionError):
         super().__init__(code)
 
 
-def inspect_authorized(arguments: dict) -> dict:
+def inspect_authorized(arguments: dict, *, deployment_receipt: dict | None = None) -> dict:
     if type(arguments) is not dict or set(arguments) != {"node", "repository"}:
         raise ValueError("invalid workspace inspection arguments")
     node, repository = arguments["node"], arguments["repository"]
@@ -50,4 +50,7 @@ def inspect_authorized(arguments: dict) -> dict:
         raise WorkspaceUnavailable("workspace_config_invalid")
     if repository not in roots:
         raise WorkspaceUnavailable("repository_not_allowlisted")
-    return inspect_workspace(repository, roots, node=node)
+    # Only trusted server-side callers may supply a verified activation receipt.
+    # Never accept receipt data or paths from MCP request arguments.
+    return inspect_workspace(repository, roots, node=node,
+                             deployment_receipt=deployment_receipt)
