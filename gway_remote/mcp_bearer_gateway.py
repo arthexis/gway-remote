@@ -490,7 +490,17 @@ class Handler(BaseHTTPRequestHandler):
             # to gway-001, and never grant the gateway access to the root DB.
             arguments = payload["params"].get("arguments", {})
             try:
-                if self.server.bridge_transport is not None:
+                if payload["params"]["name"] == "fleet_snapshot":
+                    if arguments != {}:
+                        raise ValueError("fleet_snapshot takes no arguments")
+                    from .fleet_contract import project
+                    if self.server.bridge_transport is not None:
+                        inventory = self._bridge_node_tool("node_list", {}, token)
+                    else:
+                        from . import node_registry_inventory
+                        inventory = node_registry_inventory.public_nodes(execution_enabled=False)
+                    selected = project(inventory)
+                elif self.server.bridge_transport is not None:
                     selected = self._bridge_node_tool(
                         payload["params"]["name"], arguments, token)
                 elif payload["params"]["name"] == "workspace_inspect":
