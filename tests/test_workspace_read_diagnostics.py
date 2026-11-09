@@ -6,9 +6,16 @@ from pathlib import Path
 from unittest.mock import patch
 
 from gway_remote.mcp_workspace_inspect import WorkspaceUnavailable, inspect_authorized
+from gway_remote.mcp_bridge_transport import BridgeReadUnavailable, AuthenticatedBridge, sign_reply
 
 
 class WorkspaceReadDiagnosticsTests(unittest.TestCase):
+    def test_bridge_codes_are_allowlisted(self):
+        self.assertEqual(BridgeReadUnavailable("workspace_not_configured").code,
+                         "workspace_not_configured")
+        with self.assertRaises(ValueError):
+            BridgeReadUnavailable("/private/secret/path")
+
     def test_unconfigured_and_wrong_node_have_safe_codes(self):
         with patch.dict("os.environ", {"GWAY_WORKSPACE_NODE": "gway-001"}, clear=True):
             with self.assertRaises(WorkspaceUnavailable) as cm:
