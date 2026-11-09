@@ -157,6 +157,9 @@ def deploy_ap_kiosk(sha: str) -> None:
         if actual.lower() != sha.lower():
             raise ValueError("AP kiosk checkout SHA mismatch")
         subprocess.run(["bash", "./deploy.sh"], cwd=source, check=True, timeout=600)
+        # Reuse the owner's immutable staging entrypoint; do not activate a second time.
+        subprocess.run(["bash", "./deploy.sh", "--stage-release"],
+                       cwd=source, check=True, timeout=600)
 
 
 def deploy_rfid(sha: str) -> None:
