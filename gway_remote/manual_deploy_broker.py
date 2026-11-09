@@ -143,3 +143,58 @@ def prepare_repository_owned_deploy(*, repository, node, revision, request_id,
     return {"request_id": request_id, "node": node, "repository": repository,
             "sha": approved["sha"], "status": record["state"],
             "recipe": preview["entrypoint"], "dispatched": False}
+
+
+def dispatch_prepared_repository_deploy(*, prepared, principal, receipts,
+                                        transport, inventory):
+    """One-shot authenticated dispatch of a previously reserved deployment.
+
+    A node-side fixed-recipe executor must independently check its registry.
+    The transport cannot be chosen by the request and must be pinned to the
+    currently attested node. Ambiguous delivery is permanently marked unknown.
+    """
+    from .watchtower_exec_transport import pinned_transport
+    from .manual_deploy_recipe import repository_installer_argv
+    if type(prepared) is not dict or prepared.get("dispatched") is not False:
+        raise PermissionError("untrusted deployment reservation")
+    request_id = prepared["request_id"]
+    record = receipts.status(request_id, principal)
+    if (record["node"] != prepared["node"] or
+            record["repository"] != prepared["repository"] or
+            record["sha"] != prepared["sha"]):
+        raise PermissionError("deployment reservation binding mismatch")
+    if record["state"] != "reserved":
+        return {"request_id": request_id, "node": record["node"],
+                "status": record["state"], "dispatched": False}
+    node = record["node"]
+    pinned = pinned_transport(transport, node)
+    rows = [row for row in inventory["nodes"] if row.get("node") == node]
+    if (len(rows) != 1 or rows[0].get("registered") is not True
+            or rows[0].get("identity_verified") is not True
+            or rows[0].get("execute_eligible") is not True
+            or rows[0].get("reachable") != "reachable"
+            or rows[0].get("address") != pinned.node.wireguard_address):
+        raise PermissionError("node attestation no longer valid")
+    # This checks only the Watchtower side. The node must independently
+    # authorize the fixed recipe and verify the installed SHA.
+    repository_installer_argv(record["repository"], node, record["sha"])
+    if not receipts.transition(request_id, "reserved", "running"):
+        raise PermissionError("deployment already claimed")
+    try:
+        reply = transport.invoke({"operation": "repository_deploy",
+                                  "node": node, "request_id": request_id,
+                                  "repository": record["repository"],
+                                  "sha": record["sha"]})
+        if (type(reply) is not dict or reply.get("node") != node
+                or reply.get("request_id") != request_id
+                or reply.get("status") not in ("accepted", "already_current")):
+            raise ValueError("invalid deployment acknowledgement")
+    except (OSError, ValueError, TimeoutError):
+        receipts.transition(request_id, "running", "unknown")
+        return {"request_id": request_id, "node": node, "status": "unknown",
+                "dispatched": False}
+    if reply["status"] == "already_current":
+        receipts.transition(request_id, "running", "already_current")
+    return {"request_id": request_id, "node": node,
+            "status": "already_current" if reply["status"] == "already_current" else "running",
+            "dispatched": reply["status"] == "accepted"}
