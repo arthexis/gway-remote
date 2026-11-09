@@ -219,7 +219,8 @@ class AuthorizedExecution:
             response = pinned.invoke({"operation": "deployment_run", "node": node,
                                       "request_id": request_id, "application": application})
             result = response.get("result") if type(response) is dict else None
-            if (response.get("node") != node or response.get("request_id") != request_id
+            if (type(response) is not dict or response.get("node") != node
+                    or response.get("request_id") != request_id
                     or type(result) is not dict or result.get("application") != application
                     or result.get("request_id") != request_id
                     or type(result.get("revision")) is not str
