@@ -51,6 +51,27 @@ class DeployBrokerTests(unittest.TestCase):
                 self.service.deployment(**{**self.kwargs, **changes})
         self.assertFalse(any("command" in row for row in self.captured))
 
+    def test_gway_002_requires_installed_fixed_recipes_before_activation(self):
+        # Inventory opt-in alone must never authorize arbitrary remote systemctl.
+        for application in ("ocpp-csms", "gway-remote", "ocpp-reports",
+                            "smtp", "sms", "other"):
+            with self.subTest(application=application):
+                with self.assertRaises(PermissionError):
+                    self.service.deployment_preview(
+                        node="gway-002", application=application)
+        self.assertFalse(any("command" in row for row in self.captured))
+
+    def test_gway_002_rejects_batch_and_unreviewed_revision(self):
+        for application, revision in (("all", "main"),
+                                      ("ocpp-csms", "deadbeef"),
+                                      ("../ocpp-reports", "main")):
+            with self.subTest(application=application, revision=revision):
+                with self.assertRaises((ValueError, PermissionError)):
+                    self.service.deployment(
+                        **{**self.kwargs, "node": "gway-002",
+                           "application": application, "revision": revision})
+        self.assertFalse(any("command" in row for row in self.captured))
+
     def test_tools_preserve_original_name_and_authentication(self):
         names = {tool["name"] for tool in EXEC_TOOLS}
         self.assertTrue({"node_deploy", "node_deploy_status"} <= names)
