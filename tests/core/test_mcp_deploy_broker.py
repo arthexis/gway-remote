@@ -44,9 +44,9 @@ class BrokerTests(unittest.TestCase):
                                 node="gway-001", application="agentops", status=True)
                     with patch.object(self.service, "ledger") as ledger:
                         ledger.get.side_effect = ValueError("request not found")
-                        with self.assertRaises(ValueError):
-                            self.service.deployment(principal="a"*24, request_id="b"*32,
-                                node="gway-001", application="agentops")
+                        result = self.service.deployment(principal="a"*24, request_id="b"*32,
+                            node="gway-001", application="agentops")
+                        self.assertEqual(result["status"], "uncertain")
 
     def test_negative_targets(self):
         for app in ("../bad", "agentops;id", ""):
