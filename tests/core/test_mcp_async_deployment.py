@@ -69,7 +69,9 @@ class AsyncDeploymentTests(unittest.TestCase):
             runner.chmod(0o700)
             declaration = {"checkout": str(state), "runner": str(runner),
                            "revision": "a"*40}
-            (state / ("request-" + "2"*32 + ".json")).write_text("{")
+            partial = state / ("request-" + "2"*32 + ".json")
+            partial.write_text("{")
+            partial.chmod(0o600)
             with patch.object(broker.subprocess, "Popen", side_effect=AssertionError("redispatched")):
                 receipt = broker.accept("sample", "2"*32, state_dir=state,
                                         resolve=lambda _: declaration)
@@ -145,7 +147,7 @@ class AsyncDeploymentTests(unittest.TestCase):
                 with self.assertRaises(SystemExit):
                     broker.worker("sample", "f"*32, state_dir=state, resolve=resolve)
             self.assertEqual(broker.request_status("sample", "f"*32, state_dir=state,
-                                                    resolve=resolve)["state"], "running")
+                                                    resolve=resolve)["state"], "uncertain")
             with self.assertRaises(PermissionError):
                 broker.worker("sample", "f"*32, state_dir=state, resolve=resolve)
 
