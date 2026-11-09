@@ -5,14 +5,24 @@ Watchtower before the request enters this operator-pinned channel.
 """
 import secrets
 
-from .watchtower_exec_transport import PinnedNode, pinned_transport
+from .watchtower_exec_transport import PinnedNode, SSHTransport, MultiNodeTransport, pinned_transport
 
 
 class ProviderTransport:
-    def __init__(self, execution_transport, *, read_transport=None, require_read_identity=False):
+    def __init__(self, execution_transport, *, read_transport=None, require_read_identity=False, require_pinned_ssh=False):
         self.execution_transport = execution_transport
         self.read_transport = read_transport
         self.require_read_identity = require_read_identity
+        self.require_pinned_ssh = require_pinned_ssh
+        if require_pinned_ssh and not require_read_identity:
+            raise ValueError("pinned SSH requires strict read identity")
+        if require_pinned_ssh:
+            for inventory in (execution_transport, read_transport):
+                transports = (inventory.transports.values() if type(inventory) is MultiNodeTransport
+                              else (inventory,))
+                if any(type(item) is not SSHTransport or type(item.node) is not PinnedNode
+                       for item in transports):
+                    raise TypeError("production provider transport requires pinned SSH")
 
     def invoke(self, node, request, *, trusted_scope):
         if trusted_scope not in ("read", "execute"):
@@ -50,6 +60,9 @@ class ProviderTransport:
                         or read_node.host_key_sha256 != execute_node.host_key_sha256
                         or read_node.ssh_host_alias != execute_node.ssh_host_alias):
                     raise PermissionError("read and execute pin different enrolled hosts")
+        if self.require_pinned_ssh and (type(transport) is not SSHTransport
+                or type(transport.node) is not PinnedNode):
+            raise PermissionError("untrusted SSH transport")
         response = transport.invoke(payload)
         if (type(response) is not dict or set(response) != {"node", "request_id", "result"}
                 or response["node"] != node or response["request_id"] != payload["request_id"]):
