@@ -181,6 +181,8 @@ class AuthorizedExecution:
                 raise PermissionError("invalid deployment receipt state")
             if state in {"succeeded", "failed"}:
                 self.ledger.record_result_state(request_id, state)
+            elif row["state"] in {"succeeded", "failed", "cancelled", "timed_out"}:
+                raise PermissionError("node receipt contradicts terminal ledger")
             return {"node": node, "request_id": request_id,
                     "application": application,
                     "ledger_state": self.ledger.get(request_id)["state"],
@@ -219,6 +221,7 @@ class AuthorizedExecution:
             if (response.get("node") != node or response.get("request_id") != request_id
                     or type(result) is not dict or result.get("application") != application
                     or result.get("request_id") != request_id
+                    or type(result.get("revision")) is not str
                     or result.get("state") not in {"accepted", "running", "succeeded", "failed", "uncertain"}):
                 raise PermissionError("uncorrelated deployment acknowledgement")
         except (OSError, ValueError, RuntimeError, PermissionError):
