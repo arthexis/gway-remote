@@ -128,14 +128,14 @@ class _Handler(socketserver.StreamRequestHandler):
                 raise ValueError("response too large")
         except BridgeReadUnavailable as exc:
             response = {"ok": False, "error": "read_unavailable", "code": exc.code}
+        except (InvalidBridgeRequest, ValueError, TypeError, KeyError):
+            response = {"ok": False, "error": "request_rejected"}
         except Exception as exc:
             from .mcp_workspace_inspect import WorkspaceUnavailable
             if isinstance(exc, WorkspaceUnavailable):
                 response = {"ok": False, "error": "read_unavailable", "code": exc.code}
             else:
                 response = {"ok": False, "error": "bridge_unavailable"}
-        except (InvalidBridgeRequest, ValueError, TypeError, KeyError):
-            response = {"ok": False, "error": "request_rejected"}
         if request_signature is not None and len(request_signature) == 64:
             response["reply_signature"] = sign_reply(
                 self.server.bridge.key, request_signature, response)
