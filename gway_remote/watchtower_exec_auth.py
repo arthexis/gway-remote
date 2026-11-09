@@ -224,7 +224,7 @@ class AuthorizedExecution:
                     or type(result.get("revision")) is not str
                     or result.get("state") not in {"accepted", "running", "succeeded", "failed", "uncertain"}):
                 raise PermissionError("uncorrelated deployment acknowledgement")
-        except (OSError, ValueError, RuntimeError, PermissionError):
+        except (OSError, ValueError, RuntimeError, PermissionError, subprocess.SubprocessError):
             # The request might have reached the node; never retry the claim.
             self.ledger.mark_dispatched(request_id, confirmed=False)
             return {"node": node, "request_id": request_id, "application": application,
