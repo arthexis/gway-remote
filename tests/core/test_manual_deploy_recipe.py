@@ -5,6 +5,8 @@ from unittest.mock import patch
 import stat
 
 from gway_remote.manual_deploy_recipe import recipe_argv, execute_recipe, repository_installer_argv, repository_installer_preview
+from gway_remote.node_exec_protocol import serve_one
+import json
 
 SHA = "a" * 40
 
@@ -37,6 +39,22 @@ class RecipeTests(unittest.TestCase):
         with patch("gway_remote.manual_deploy_recipe._trusted_registry", return_value=[{**row, "enabled": False}]):
             with self.assertRaises(PermissionError):
                 repository_installer_argv(repo, node, SHA)
+
+    def test_node_protocol_deploy_is_dormant(self):
+        request = {"operation": "repository_deploy", "node": "gway-001",
+                   "request_id": "a" * 32, "repository": "arthexis/odoo-gelectriic",
+                   "sha": SHA}
+        with patch("gway_remote.node_exec_protocol.require_account"):
+            with patch("gway_remote.manual_deploy_recipe.repository_installer_argv",
+                       return_value=["/usr/local/libexec/fixed", SHA]) as verified:
+                with self.assertRaises(PermissionError):
+                    serve_one(json.dumps(request).encode(), hostname="gway-001")
+                verified.assert_called_once()
+            for altered in ({**request, "path": "/bin/sh"},
+                            {**request, "node": "gway-002"},
+                            {**request, "command": "id"}):
+                with self.assertRaises((PermissionError, ValueError)):
+                    serve_one(json.dumps(altered).encode(), hostname="gway-001")
 
     def test_allowlisted_fixed_recipe(self):
         argv = recipe_argv("arthexis/ocpp-reports", "gway-001", SHA)
