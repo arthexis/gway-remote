@@ -28,7 +28,10 @@ all:
     production:
       hosts:
         gway-002:
-          remote_managed_repositories: []
+          remote_managed_repositories:
+            - ocpp-csms
+            - gway-remote
+            - ocpp-reports
         gway-005:
           remote_managed_repositories: []
         customer.gelectriic.com:
