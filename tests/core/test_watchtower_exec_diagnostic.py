@@ -14,7 +14,7 @@ class ReadinessTests(unittest.TestCase):
     def test_eligible_is_not_execution_health(self):
         result = diagnose("gway-002", inventory=self.inventory,
                           config={"enabled": True, "nodes": [{"node": "gway-002",
-                          "identity_file": "DO_NOT_DISCLOSE"}]})
+                          "address": "192.0.2.1", "identity_file": "DO_NOT_DISCLOSE"}]})
         self.assertEqual(set(result["stages"]), set(STAGES))
         self.assertEqual(result["stages"]["current_eligibility"], "pass")
         self.assertEqual(result["stages"]["pinned_transport"], "configured")
@@ -40,9 +40,17 @@ class ReadinessTests(unittest.TestCase):
         self.assertEqual(result["stages"]["bridge_dispatch"], "blocked")
         self.assertEqual(result["stages"]["worker_readiness"], "blocked")
 
+    def test_pinned_address_mismatch_is_failure_without_address_leak(self):
+        result = diagnose("gway-002", inventory=self.inventory,
+                          config={"enabled": True, "nodes": [
+                              {"node": "gway-002", "address": "198.51.100.2"}]})
+        self.assertEqual(result["stages"]["pinned_transport"], "failure")
+        self.assertEqual(result["stages"]["ssh_transport"], "blocked")
+        self.assertNotIn("198.51.100.2", str(result))
+
     def test_unknown_oauth_and_bridge_are_not_claimed_healthy(self):
         result = diagnose("gway-002", inventory=self.inventory,
-                          config={"enabled": True, "nodes": [{"node": "gway-002"}]})
+                          config={"enabled": True, "nodes": [{"node": "gway-002", "address": "192.0.2.1"}]})
         self.assertEqual(result["stages"]["auth_scope"], "unknown")
         self.assertEqual(result["stages"]["bridge_dispatch"], "unknown")
 
