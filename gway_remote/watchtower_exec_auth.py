@@ -139,21 +139,32 @@ class AuthorizedExecution:
 
     def deployment(self, *, principal, request_id, node, application,
                    revision="main", status=False):
-        """Read node-owned receipts; deny deployment until durable dispatch exists.
+        """Deployment status is restricted to its original authenticated request.
 
-        Never infer permission to run provider-owned scripts from the ability
-        to query an installed manifest over the pinned node transport.
+        Execution remains disabled until the node-local asynchronous runner
+        can persist a receipt before acknowledging an SSH dispatch.
         """
+        from .mcp_deployment_resolver import _APP
+        from .watchtower_exec_transport import _digest
         if type(status) is not bool:
             raise ValueError("invalid deployment status")
         self._allow(principal)
         validate_request_id(request_id)
-        preview = self.deployment_preview(node=node, application=application,
-                                          revision=revision)
+        if (type(application) is not str or not _APP.fullmatch(application)
+                or revision != "main"):
+            raise ValueError("unsupported deployment target")
+        self._current_eligibility(node)
         if status:
-            # Read-only receipt query; the request ID is correlation only.
-            # It does not dispatch a job or claim a deployment result.
-            response = pinned_transport(self.relay.transport, node).invoke({
+            row = self.ledger.get(request_id)
+            pinned = pinned_transport(self.relay.transport, node)
+            binding = "deployment:" + json.dumps([application, revision], separators=(",", ":"))
+            if (row["node"] != node or row["principal"] != principal
+                    or row["host_key_sha256"] != pinned.node.host_key_sha256
+                    or row["command"] != binding
+                    or row["command_sha256"] != _digest(
+                        node, binding, principal, pinned.node.host_key_sha256)):
+                raise PermissionError("deployment request binding mismatch")
+            response = pinned.invoke({
                 "operation": "deployment_status", "node": node,
                 "request_id": request_id, "application": application})
             if (type(response) is not dict or response.get("node") != node or
@@ -162,11 +173,9 @@ class AuthorizedExecution:
                     response["result"].get("application") != application):
                 raise PermissionError("uncorrelated deployment status")
             return {"node": node, "request_id": request_id,
-                    "application": application, "result": response["result"]}
-        # The broker inherits the current node process identity; Ansible owns
-        # its normal become behavior. Dispatch stays disabled until a durable
-        # request-ID ledger and authenticated execution lifecycle are wired.
-        raise PermissionError("deployment ledger and authenticated dispatch not provisioned")
+                    "application": application, "ledger_state": row["state"],
+                    "result": response["result"]}
+        raise PermissionError("deployment asynchronous dispatch not provisioned")
 
     def _owned(self, principal, request_id):
         self._allow(principal)
