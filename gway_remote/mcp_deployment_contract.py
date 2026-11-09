@@ -3,6 +3,7 @@
 The declaration is data, not an instruction to execute its path. Execution
 requires separate node-local authorization and trusted file verification.
 """
+import re
 from pathlib import PurePosixPath
 
 _SHA = re.compile(r"^[0-9a-f]{40}$")
