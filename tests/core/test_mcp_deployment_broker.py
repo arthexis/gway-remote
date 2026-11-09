@@ -52,6 +52,28 @@ class BrokerTests(unittest.TestCase):
             with self.assertRaises(PermissionError):
                 broker.status("agentops", state_dir=state, resolve=lambda _: DECL)
 
+    def test_corrupt_or_cross_application_receipt_denied(self):
+        with tempfile.TemporaryDirectory() as directory:
+            state = Path(directory)
+            receipt = state / "status-agentops.json"
+            for data in ('not-json', '{"application":"other","state":"succeeded"}',
+                         '{"application":"agentops","state":"unknown"}'):
+                with self.subTest(data=data):
+                    receipt.write_text(data)
+                    with self.assertRaises(ValueError):
+                        broker.status("agentops", state_dir=state, resolve=lambda _: DECL)
+
+    def test_repeated_request_reinvokes_provider_for_active_revision_check(self):
+        with tempfile.TemporaryDirectory() as directory:
+            calls = []
+            def invoke(*args, **kwargs):
+                calls.append(True)
+                return Result()
+            with patch.object(broker, "_eligible", return_value=DECL):
+                broker.run("agentops", state_dir=Path(directory), resolve=lambda _: DECL, invoke=invoke)
+                broker.run("agentops", state_dir=Path(directory), resolve=lambda _: DECL, invoke=invoke)
+            self.assertEqual(len(calls), 2)
+
     def test_lock_symlink_denied(self):
         with tempfile.TemporaryDirectory() as directory:
             state = Path(directory)
