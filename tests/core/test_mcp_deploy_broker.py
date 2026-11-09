@@ -12,7 +12,7 @@ class Pinned:
 
     def invoke(self, payload):
         return {"node": payload["node"], "request_id": payload["request_id"],
-                "result": {"application": payload["application"], "status": "declared"}}
+                "result": {"application": payload["application"], "status": "declared", "revision": "a"*40}}
 
 
 class BrokerTests(unittest.TestCase):
