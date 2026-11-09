@@ -9,6 +9,25 @@ from gway_remote import mcp_deployment_broker as broker
 
 
 class AsyncDeploymentTests(unittest.TestCase):
+    def test_changed_manifest_before_first_accept_never_claims_or_spawns(self):
+        with tempfile.TemporaryDirectory() as root:
+            state = Path(root)
+            os.chmod(state, 0o700)
+            runner = state / "deploy.sh"
+            runner.write_text("#!/bin/sh\\nexit 0\\n")
+            runner.chmod(0o700)
+            declaration = {"checkout": str(state), "runner": str(runner),
+                           "revision": "f"*40}
+            with patch.object(broker.subprocess, "Popen",
+                              side_effect=AssertionError("must not spawn")):
+                with self.assertRaises(PermissionError):
+                    broker.accept("sample", "8"*32, expected_revision="a"*40,
+                                  state_dir=state, resolve=lambda _: declaration)
+            self.assertFalse((state / ("request-" + "8"*32 + ".json")).exists())
+            with self.assertRaises(ValueError):
+                broker.accept("sample", "8"*32, expected_revision="main",
+                              state_dir=state, resolve=lambda _: declaration)
+
     def test_receipt_written_before_spawn_and_duplicate_not_spawned(self):
         with tempfile.TemporaryDirectory() as root:
             state = Path(root)
