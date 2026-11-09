@@ -34,6 +34,33 @@ class AsyncDeploymentTests(unittest.TestCase):
                 broker.request_status("other", "b" * 32, state_dir=state,
                                       resolve=lambda _: declaration)
 
+    def test_concurrent_worker_claim_cannot_execute_twice(self):
+        import fcntl
+        with tempfile.TemporaryDirectory() as root:
+            state = Path(root)
+            os.chmod(state, 0o700)
+            runner = state / "deploy.sh"
+            runner.write_text("#!/bin/sh\\nexit 0\\n")
+            runner.chmod(0o700)
+            declaration = {"checkout": str(state), "runner": str(runner),
+                           "revision": "a"*40}
+            resolve = lambda _: declaration
+            broker.accept("sample", "4"*32, state_dir=state,
+                          resolve=resolve, spawn=lambda *a, **k: Mock())
+            lock_path = state / (".request-lock-request-" + "4"*32)
+            fd = os.open(lock_path, os.O_CREAT | os.O_RDWR, 0o600)
+            try:
+                fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                with patch.object(broker, "run", side_effect=AssertionError("executed")):
+                    with self.assertRaises(BlockingIOError):
+                        broker.worker("sample", "4"*32, state_dir=state, resolve=resolve)
+            finally:
+                os.close(fd)
+            with patch.object(broker, "run", return_value={"state": "succeeded", "exit_code": 0}) as run:
+                self.assertEqual(broker.worker("sample", "4"*32, state_dir=state,
+                                               resolve=resolve)["state"], "succeeded")
+                run.assert_called_once()
+
     def test_interrupted_running_receipt_is_uncertain_without_restart(self):
         with tempfile.TemporaryDirectory() as root:
             state = Path(root)
