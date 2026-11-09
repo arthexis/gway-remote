@@ -22,7 +22,7 @@ LOCK_NAME = ".managed-provider.lock"
 
 def _trusted(path, *, executable=False, directory=False):
     target = Path(path)
-    if target.is_symlink():
+    if target.is_symlink() or any(parent.is_symlink() for parent in target.parents):
         raise PermissionError("symlink deployment path denied")
     info = target.stat()
     if info.st_mode & 0o022 or info.st_uid not in (0, os.geteuid()):
@@ -120,7 +120,8 @@ def run(application, *, state_dir=STATE_DIR, resolve=resolve_deployment, invoke=
         if _eligible(application, resolve=resolve) != declaration:
             raise PermissionError("deployment declaration changed")
         path = _receipt_path(application, state_dir)
-        if status(application, state_dir=state_dir, resolve=resolve).get("state") == "succeeded" and status(application, state_dir=state_dir, resolve=resolve).get("revision") == declaration["revision"]:
+        previous = status(application, state_dir=state_dir, resolve=resolve)
+        if previous.get("state") == "succeeded" and previous.get("revision") == declaration["revision"]:
             return {"application": application, "state": "succeeded", "skipped": True}
         started = datetime.now(timezone.utc).isoformat()
         _write_receipt(path, {"application": application, "revision": declaration["revision"],
