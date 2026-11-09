@@ -34,6 +34,32 @@ class AsyncDeploymentTests(unittest.TestCase):
                 broker.request_status("other", "b" * 32, state_dir=state,
                                       resolve=lambda _: declaration)
 
+    def test_interrupted_running_receipt_is_uncertain_without_restart(self):
+        with tempfile.TemporaryDirectory() as root:
+            state = Path(root)
+            os.chmod(state, 0o700)
+            runner = state / "deploy.sh"
+            runner.write_text("#!/bin/sh\\nexit 0\\n")
+            runner.chmod(0o700)
+            declaration = {"checkout": str(state), "runner": str(runner),
+                           "revision": "a"*40}
+            resolve = lambda _: declaration
+            broker.accept("sample", "3"*32, state_dir=state,
+                          resolve=resolve, spawn=lambda *a, **k: Mock())
+            receipt = broker.request_status("sample", "3"*32, state_dir=state,
+                                            resolve=resolve)
+            receipt["state"] = "running"
+            broker._write_receipt(state / ("request-" + "3"*32 + ".json"), receipt)
+            # No held worker lock after a crash/restart: do not claim success.
+            observed = broker.request_status("sample", "3"*32, state_dir=state,
+                                             resolve=resolve)
+            self.assertEqual(observed["state"], "uncertain")
+            self.assertEqual(observed["recorded_state"], "running")
+            with patch.object(broker.subprocess, "Popen", side_effect=AssertionError("replayed")):
+                duplicate = broker.accept("sample", "3"*32, state_dir=state,
+                                          resolve=resolve)
+            self.assertEqual(duplicate["state"], "uncertain")
+
     def test_partial_claim_is_never_replayed(self):
         with tempfile.TemporaryDirectory() as root:
             state = Path(root)
