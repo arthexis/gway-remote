@@ -236,11 +236,13 @@ def accept(application, request_id, *, state_dir=STATE_DIR,
         try:
             existing = request_status(application, request_id, state_dir=state_dir,
                                       resolve=resolve)
-        except (ValueError, json.JSONDecodeError):
+        except ValueError:
             # Another process may still be fsyncing its initial receipt.
             # Never interpret an incomplete durable claim as permission to retry.
             return {"application": application, "request_id": request_id,
                     "state": "uncertain"}
+        if (existing.get("state") == "uncertain" and "revision" not in existing):
+            return existing
         if (existing["revision"] != declaration["revision"] or
                 existing.get("declaration_sha256") != _declaration_digest(declaration)):
             raise PermissionError("request bound to another deployment revision")
