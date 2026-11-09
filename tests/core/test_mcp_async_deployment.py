@@ -23,11 +23,11 @@ class AsyncDeploymentTests(unittest.TestCase):
                                                 state_dir=state, resolve=lambda _: declaration)
                 self.assertEqual(receipt["state"], "accepted")
                 return Mock()
-            first = broker.accept("sample", "b" * 32, state_dir=state,
+            first = broker.accept("sample", "b" * 32, expected_revision="a"*40, state_dir=state,
                                   resolve=lambda _: declaration, spawn=spawn)
             self.assertEqual(first["state"], "accepted")
             with patch.object(broker.subprocess, "Popen", side_effect=AssertionError("redispatched")):
-                second = broker.accept("sample", "b" * 32, state_dir=state,
+                second = broker.accept("sample", "b" * 32, expected_revision="a"*40, state_dir=state,
                                        resolve=lambda _: declaration)
             self.assertEqual(second, first)
             with self.assertRaises(PermissionError):
@@ -45,7 +45,7 @@ class AsyncDeploymentTests(unittest.TestCase):
             declaration = {"checkout": str(state), "runner": str(runner),
                            "revision": "a"*40}
             resolve = lambda _: declaration
-            broker.accept("sample", "4"*32, state_dir=state,
+            broker.accept("sample", "4"*32, expected_revision="a"*40, state_dir=state,
                           resolve=resolve, spawn=lambda *a, **k: Mock())
             lock_path = state / (".request-lock-request-" + "4"*32)
             fd = os.open(lock_path, os.O_CREAT | os.O_RDWR, 0o600)
@@ -71,7 +71,7 @@ class AsyncDeploymentTests(unittest.TestCase):
             declaration = {"checkout": str(state), "runner": str(runner),
                            "revision": "a"*40}
             resolve = lambda _: declaration
-            broker.accept("sample", "3"*32, state_dir=state,
+            broker.accept("sample", "3"*32, expected_revision="a"*40, state_dir=state,
                           resolve=resolve, spawn=lambda *a, **k: Mock())
             receipt = broker.request_status("sample", "3"*32, state_dir=state,
                                             resolve=resolve)
@@ -83,7 +83,7 @@ class AsyncDeploymentTests(unittest.TestCase):
             self.assertEqual(observed["state"], "uncertain")
             self.assertEqual(observed["recorded_state"], "running")
             with patch.object(broker.subprocess, "Popen", side_effect=AssertionError("replayed")):
-                duplicate = broker.accept("sample", "3"*32, state_dir=state,
+                duplicate = broker.accept("sample", "3"*32, expected_revision="a"*40, state_dir=state,
                                           resolve=resolve)
             self.assertEqual(duplicate["state"], "uncertain")
 
@@ -98,7 +98,7 @@ class AsyncDeploymentTests(unittest.TestCase):
                            "revision": "a"*40}
             resolve = lambda _: declaration
             rid = "7"*32
-            broker.accept("sample", rid, state_dir=state,
+            broker.accept("sample", rid, expected_revision="a"*40, state_dir=state,
                           resolve=resolve, spawn=lambda *a, **k: Mock())
             path = state / ("request-" + rid + ".json")
             receipt = broker.request_status("sample", rid, state_dir=state,
@@ -112,7 +112,7 @@ class AsyncDeploymentTests(unittest.TestCase):
             self.assertEqual(observed["recorded_state"], "accepted")
             with patch.object(broker.subprocess, "Popen",
                               side_effect=AssertionError("redispatch")):
-                duplicate = broker.accept("sample", rid, state_dir=state,
+                duplicate = broker.accept("sample", rid, expected_revision="a"*40, state_dir=state,
                                           resolve=resolve)
             self.assertEqual(duplicate["state"], "uncertain")
             # Original worker may still claim its durable accepted receipt.
@@ -135,7 +135,7 @@ class AsyncDeploymentTests(unittest.TestCase):
             partial.write_text("{")
             partial.chmod(0o600)
             with patch.object(broker.subprocess, "Popen", side_effect=AssertionError("redispatched")):
-                receipt = broker.accept("sample", "2"*32, state_dir=state,
+                receipt = broker.accept("sample", "2"*32, expected_revision="a"*40, state_dir=state,
                                         resolve=lambda _: declaration)
             self.assertEqual(receipt["state"], "uncertain")
 
@@ -148,13 +148,13 @@ class AsyncDeploymentTests(unittest.TestCase):
             runner.chmod(0o700)
             declaration = {"checkout": str(state), "runner": str(runner),
                            "revision": "a"*40}
-            broker.accept("sample", "1"*32, state_dir=state,
+            broker.accept("sample", "1"*32, expected_revision="a"*40, state_dir=state,
                           resolve=lambda _: declaration, spawn=lambda *a, **k: Mock())
             changed = {**declaration, "revision": "b"*40}
             with self.assertRaises(PermissionError):
                 broker.worker("sample", "1"*32, state_dir=state, resolve=lambda _: changed)
             with self.assertRaises(PermissionError):
-                broker.accept("sample", "1"*32, state_dir=state,
+                broker.accept("sample", "1"*32, expected_revision="a"*40, state_dir=state,
                               resolve=lambda _: changed, spawn=lambda *a, **k: Mock())
 
     def test_failed_spawn_does_not_retry_after_restart(self):
@@ -167,10 +167,10 @@ class AsyncDeploymentTests(unittest.TestCase):
             declaration = {"checkout": str(state), "runner": str(runner), "revision": "c"*40}
             def fail(*args, **kwargs):
                 raise OSError("unavailable")
-            first = broker.accept("sample", "d"*32, state_dir=state,
+            first = broker.accept("sample", "d"*32, expected_revision="a"*40, state_dir=state,
                                   resolve=lambda _: declaration, spawn=fail)
             self.assertEqual(first["state"], "uncertain")
-            second = broker.accept("sample", "d"*32, state_dir=state,
+            second = broker.accept("sample", "d"*32, expected_revision="a"*40, state_dir=state,
                                    resolve=lambda _: declaration, spawn=fail)
             self.assertEqual(second, first)
 
@@ -184,7 +184,7 @@ class AsyncDeploymentTests(unittest.TestCase):
             declaration = {"checkout": str(state), "runner": str(runner),
                            "revision": "a"*40}
             resolve = lambda _: declaration
-            broker.accept("sample", "e"*32, state_dir=state,
+            broker.accept("sample", "e"*32, expected_revision="a"*40, state_dir=state,
                           resolve=resolve, spawn=lambda *a, **k: Mock())
             with patch.object(broker, "run", return_value={"state": "succeeded", "exit_code": 0}) as execute:
                 receipt = broker.worker("sample", "e"*32, state_dir=state, resolve=resolve)
@@ -203,7 +203,7 @@ class AsyncDeploymentTests(unittest.TestCase):
             declaration = {"checkout": str(state), "runner": str(runner),
                            "revision": "a"*40}
             resolve = lambda _: declaration
-            broker.accept("sample", "f"*32, state_dir=state,
+            broker.accept("sample", "f"*32, expected_revision="a"*40, state_dir=state,
                           resolve=resolve, spawn=lambda *a, **k: Mock())
             with patch.object(broker, "run", side_effect=SystemExit(7)):
                 with self.assertRaises(SystemExit):
