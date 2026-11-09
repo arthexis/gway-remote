@@ -27,7 +27,6 @@
     enabled: false
     state: stopped
   when: "'gway-remote-deploy.service' in ansible_facts.services"
-  # Service inventory is collected below; an absent unit is not an error.
 
 - name: Remove obsolete dedicated deployment artifacts
   ansible.builtin.file:
