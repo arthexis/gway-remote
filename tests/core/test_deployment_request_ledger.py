@@ -16,7 +16,7 @@ class DeploymentLedgerTests(unittest.TestCase):
             os.chmod(root, 0o700)
             path = root / "requests.sqlite3"
             args = dict(request_id="a" * 32, node="gway-001", application="sample",
-                        revision="main", principal="b" * 24,
+                        revision="a"*40, principal="b" * 24,
                         host_key_sha256="c" * 64,
                         expires_at=(datetime.now(timezone.utc) + timedelta(minutes=3)).isoformat())
             ledger = RequestLedger(path)
@@ -34,7 +34,7 @@ class DeploymentLedgerTests(unittest.TestCase):
             os.chmod(root, 0o700)
             path = root / "requests.sqlite3"
             args = dict(request_id="d"*32, node="gway-001",
-                        application="sample", revision="main",
+                        application="sample", revision="a"*40,
                         principal="b"*24, host_key_sha256="c"*64,
                         expires_at=(datetime.now(timezone.utc) + timedelta(minutes=3)).isoformat())
             ledger = RequestLedger(path)
@@ -57,7 +57,7 @@ class DeploymentLedgerTests(unittest.TestCase):
             os.chmod(root, 0o700)
             path = root / "requests.sqlite3"
             args = dict(request_id="e"*32, node="gway-001",
-                        application="sample", revision="main",
+                        application="sample", revision="a"*40,
                         principal="b"*24, host_key_sha256="c"*64,
                         expires_at=(datetime.now(timezone.utc) + timedelta(minutes=3)).isoformat())
             ledger = RequestLedger(path)
