@@ -42,9 +42,11 @@ class FailureReceipts:
             self._rows = {key: value for key, value in self._rows.items()
                           if value[0] > now}
             existing = self._rows.get(request_id)
-            if existing is not None and existing[1] != principal:
+            # First receipt wins for this request ID. Retries cannot overwrite
+            # a confirmed failure with unknown or extend the original TTL.
+            if existing is not None:
                 return False
-            if len(self._rows) >= MAX_ENTRIES and request_id not in self._rows:
+            if len(self._rows) >= MAX_ENTRIES:
                 self._rows.pop(next(iter(self._rows)))
             self._rows[request_id] = (now + TTL_SECONDS, principal, stage, outcome)
         return True
