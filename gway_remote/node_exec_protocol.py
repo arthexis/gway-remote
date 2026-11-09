@@ -22,6 +22,7 @@ OPERATIONS = {
     "provider_list": frozenset({"operation", "node", "request_id"}),
     "provider_call": frozenset({"operation", "node", "request_id", "provider", "tool", "arguments", "authorized_scope"}),
     "deployment_preview": frozenset({"operation", "node", "request_id", "application"}),
+    "deployment_status": frozenset({"operation", "node", "request_id", "application"}),
 }
 
 
@@ -43,9 +44,10 @@ def serve_one(raw, *, jobs=None, hostname=None):
     if not re.fullmatch(r"gway-[0-9]+", host) or req["node"] != host:
         raise PermissionError("unapproved node")
     rid = validate_request_id(req["request_id"])
-    if op == "deployment_preview":
-        from .mcp_deployment_broker import preview
-        return {"node": host, "request_id": rid, "result": preview(req["application"])}
+    if op in ("deployment_preview", "deployment_status"):
+        from .mcp_deployment_broker import preview, status
+        operation = preview if op == "deployment_preview" else status
+        return {"node": host, "request_id": rid, "result": operation(req["application"])}
     if op in ("provider_list", "provider_call"):
         from .mcp_node_providers import dispatch_node_provider_request
         from .mcp_installed_providers import discover_installed_providers
