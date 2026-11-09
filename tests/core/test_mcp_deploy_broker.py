@@ -83,6 +83,41 @@ class BrokerTests(unittest.TestCase):
                                 self.assertEqual(result["status"], "uncertain")
                                 pinned.invoke.assert_called_once()
 
+    def test_missing_ssh_ack_is_uncertain_and_not_redispatched(self):
+        from unittest.mock import patch, Mock
+        with patch.object(self.service, "_allow", return_value=None):
+            with patch.object(self.service, "_current_eligibility", return_value=None):
+                with patch.object(self.service, "deployment_preview",
+                                  return_value={"status": "eligible"}):
+                    with patch.object(self.service, "ledger") as ledger:
+                        ledger.get.side_effect = [
+                            ValueError("request not found"),
+                            {"state": "uncertain", "node": "gway-001",
+                             "principal": "a"*24, "host_key_sha256": "c"*64,
+                             "command": 'deployment:["agentops","main"]',
+                             "command_sha256": __import__(
+                                 "gway_remote.watchtower_exec_transport",
+                                 fromlist=["_digest"])._digest(
+                                     "gway-001", 'deployment:["agentops","main"]',
+                                     "a"*24, "c"*64)}
+                        ]
+                        ledger.claim_dispatch.return_value = True
+                        pinned = Pinned()
+                        pinned.invoke = Mock(return_value=None)
+                        with patch("gway_remote.watchtower_exec_auth.pinned_transport",
+                                   return_value=pinned):
+                            result = self.service.deployment(
+                                principal="a"*24, request_id="b"*32,
+                                node="gway-001", application="agentops")
+                            self.assertEqual(result["status"], "uncertain")
+                            ledger.mark_dispatched.assert_called_once_with(
+                                "b"*32, confirmed=False)
+                            duplicate = self.service.deployment(
+                                principal="a"*24, request_id="b"*32,
+                                node="gway-001", application="agentops")
+                            self.assertEqual(duplicate["status"], "uncertain")
+                            pinned.invoke.assert_called_once()
+
     def test_unattested_node_cannot_reserve_or_dispatch(self):
         from unittest.mock import patch
         with patch.object(self.service, "_allow", return_value=None):
