@@ -17,3 +17,9 @@ The read-only entrypoint calls the same bounded JSON receiver with a fixed, call
 - Deploy acceptance **not met**: separate read key/account/sshd/sudoers/transport configuration and actual attested node installation have not been implemented or verified. The diagnostics provider has no confirmed installed root-owned manifest. No production access is authorized here.
 
 This is a defense-in-depth proposal: the legacy relay still accepts caller-supplied execute scope on its own authenticated SSH channel, so compromise of that existing credential remains a distinct risk.
+
+## Watchtower transport audit (not integrated)
+
+`ProviderTransport.invoke` currently delegates both trusted_scope=read and execute to `pinned_transport(self.execution_transport, node)`. `MultiNodeTransport` and `PinnedNode` select one enrolled transport per node; there is no separate read-only SSH key/remote_user selection or verified mapping of the read-only forced command. Consequently the dormant `node_read_protocol` is **not reachable from Fleet** as a distinct authenticated identity. Merely selecting `provider_read_call` in a payload does not prove peer-level least privilege.
+
+An eventual offline integration must inject two independently pinned transport inventories (read and execute), route `provider_list` and read `provider_call` only to the read identity, reject any fallback from read to execute, and keep execute calls on the existing authenticated relay. Negative tests must cover absent read enrollment, wrong host key, wrong SSH principal, stale attestation, wrong-node replies, request-ID replay, and denial of execute on the read transport. No such routing is claimed here; do not activate or install the read identity until reviewed.
