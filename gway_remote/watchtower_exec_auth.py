@@ -157,8 +157,17 @@ class AuthorizedExecution:
         self._current_eligibility(node)
         if status:
             row = self.ledger.get(request_id)
+            binding = row["command"]
+            try:
+                stored = json.loads(binding.removeprefix("deployment:"))
+            except (ValueError, TypeError):
+                raise PermissionError("invalid persisted deployment binding")
+            if (not binding.startswith("deployment:") or type(stored) is not list
+                    or len(stored) != 2 or stored[0] != application
+                    or type(stored[1]) is not str
+                    or not re.fullmatch(r"[0-9a-f]{40}", stored[1])):
+                raise PermissionError("invalid persisted deployment revision")
             pinned = pinned_transport(self.relay.transport, node)
-            binding = "deployment:" + json.dumps([application, revision], separators=(",", ":"))
             if (row["node"] != node or row["principal"] != principal
                     or row["host_key_sha256"] != pinned.node.host_key_sha256
                     or row["command"] != binding
@@ -175,7 +184,7 @@ class AuthorizedExecution:
             receipt = response["result"]
             if (receipt.get("application") != application or
                     receipt.get("request_id") != request_id or
-                    type(receipt.get("revision")) is not str):
+                    receipt.get("revision") != stored[1]):
                 raise PermissionError("deployment receipt binding mismatch")
             state = receipt.get("state")
             if state not in {"accepted", "running", "succeeded", "failed", "uncertain"}:
@@ -191,7 +200,10 @@ class AuthorizedExecution:
         preview = self.deployment_preview(node=node, application=application,
                                           revision=revision)
         pinned = pinned_transport(self.relay.transport, node)
-        binding = "deployment:" + json.dumps([application, revision], separators=(",", ":"))
+        pinned_revision = preview["revision"]
+        if type(pinned_revision) is not str or not re.fullmatch(r"[0-9a-f]{40}", pinned_revision):
+            raise PermissionError("invalid pinned deployment revision")
+        binding = "deployment:" + json.dumps([application, pinned_revision], separators=(",", ":"))
         digest = _digest(node, binding, principal, pinned.node.host_key_sha256)
         try:
             prior = self.ledger.get(request_id)
@@ -209,7 +221,7 @@ class AuthorizedExecution:
         expiry = (_now() + timedelta(seconds=120)).isoformat()
         self.ledger.reserve_deployment(
             request_id=request_id, node=node, application=application,
-            revision=revision, principal=principal,
+            revision=pinned_revision, principal=principal,
             host_key_sha256=pinned.node.host_key_sha256, expires_at=expiry)
         self._current_eligibility(node)
         if not self.ledger.claim_dispatch(request_id):
@@ -223,7 +235,7 @@ class AuthorizedExecution:
                     or response.get("request_id") != request_id
                     or type(result) is not dict or result.get("application") != application
                     or result.get("request_id") != request_id
-                    or type(result.get("revision")) is not str
+                    or result.get("revision") != pinned_revision
                     or result.get("state") not in {"accepted", "running", "succeeded", "failed", "uncertain"}):
                 raise PermissionError("uncorrelated deployment acknowledgement")
         except (OSError, ValueError, RuntimeError, PermissionError, subprocess.SubprocessError):
