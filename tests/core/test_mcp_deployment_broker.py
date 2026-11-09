@@ -80,6 +80,7 @@ class BrokerTests(unittest.TestCase):
             state = Path(directory)
             lock = state / broker.LOCK_NAME
             with lock.open("w") as stream:
+                lock.chmod(0o600)
                 fcntl.flock(stream.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
                 with patch.object(broker, "_eligible", return_value=DECL):
                     with self.assertRaises(BlockingIOError):
