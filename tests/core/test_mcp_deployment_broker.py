@@ -1,5 +1,6 @@
 """Offline bounded deployment broker tests: no deployment subprocesses."""
 import os
+import fcntl
 from pathlib import Path
 import tempfile
 import unittest
@@ -73,6 +74,30 @@ class BrokerTests(unittest.TestCase):
                 broker.run("agentops", state_dir=Path(directory), resolve=lambda _: DECL, invoke=invoke)
                 broker.run("agentops", state_dir=Path(directory), resolve=lambda _: DECL, invoke=invoke)
             self.assertEqual(len(calls), 2)
+
+    def test_concurrent_run_fails_closed_without_invoking_provider(self):
+        with tempfile.TemporaryDirectory() as directory:
+            state = Path(directory)
+            lock = state / broker.LOCK_NAME
+            with lock.open("w") as stream:
+                fcntl.flock(stream.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+                with patch.object(broker, "_eligible", return_value=DECL):
+                    with self.assertRaises(BlockingIOError):
+                        broker.run("agentops", state_dir=state, resolve=lambda _: DECL,
+                                   invoke=lambda *a, **k: self.fail("must not execute"))
+                fcntl.flock(stream.fileno(), fcntl.LOCK_UN)
+
+    def test_world_readable_state_directory_denied(self):
+        with tempfile.TemporaryDirectory() as directory:
+            state = Path(directory)
+            state.chmod(0o755)
+            try:
+                with patch.object(broker, "_eligible", return_value=DECL):
+                    with self.assertRaises(PermissionError):
+                        broker.run("agentops", state_dir=state, resolve=lambda _: DECL,
+                                   invoke=lambda *a, **k: self.fail("must not execute"))
+            finally:
+                state.chmod(0o700)
 
     def test_lock_symlink_denied(self):
         with tempfile.TemporaryDirectory() as directory:
