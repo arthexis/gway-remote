@@ -139,10 +139,10 @@ class AuthorizedExecution:
 
     def deployment(self, *, principal, request_id, node, application,
                    revision="main", status=False):
-        """Use the existing attested node transport for fixed Ansible services.
+        """Read node-owned receipts; deny deployment until operator delegation exists.
 
-        A caller cannot select a shell command, service path or arbitrary
-        Ansible options. Keep the original gway-remote contract intact.
+        Never infer permission to run provider-owned scripts from the ability
+        to query an installed manifest over the pinned node transport.
         """
         if type(status) is not bool:
             raise ValueError("invalid deployment status")
