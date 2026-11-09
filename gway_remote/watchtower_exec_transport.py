@@ -133,6 +133,45 @@ class RequestLedger:
             return dict(db.execute("SELECT * FROM requests WHERE request_id=?",
                                    (request_id,)).fetchone())
 
+    def reserve_deployment(self, *, request_id, node, application, revision,
+                           principal, host_key_sha256, expires_at):
+        """Bind deployment IDs in the existing ledger, without shell commands."""
+        from .mcp_deployment_resolver import _APP
+        validate_request_id(request_id)
+        if (type(application) is not str or not _APP.fullmatch(application)
+                or revision != "main"):
+            raise ValueError("invalid deployment target")
+        if type(node) is not str or not re.fullmatch(r"gway-[0-9]+", node):
+            raise ValueError("invalid deployment node")
+        if type(principal) is not str or not principal or len(principal) > 256:
+            raise ValueError("invalid principal")
+        if type(host_key_sha256) is not str or not HEX_SHA256.fullmatch(host_key_sha256):
+            raise ValueError("invalid pinned host identity")
+        binding = "deployment:" + json.dumps([application, revision], separators=(",", ":"))
+        digest = _digest(node, binding, principal, host_key_sha256)
+        with self.connection() as db:
+            db.execute("BEGIN IMMEDIATE")
+            row = db.execute("SELECT * FROM requests WHERE request_id=?", (request_id,)).fetchone()
+            if row is not None:
+                if (row["node"] != node or row["principal"] != principal
+                        or row["host_key_sha256"] != host_key_sha256
+                        or row["command_sha256"] != digest
+                        or row["command"] != binding):
+                    raise ValueError("request ID reused for different binding")
+                return dict(row)
+            _parse_expiry(expires_at)
+            if db.execute("SELECT COUNT(*) FROM requests").fetchone()[0] >= MAX_RECORDS:
+                raise RuntimeError("ledger full; fail closed rather than forget IDs")
+            now = _now()
+            db.execute("""INSERT INTO requests
+                (request_id,node,principal,host_key_sha256,command_sha256,
+                 command,expires_at,state,created_at,updated_at)
+                VALUES (?,?,?,?,?,?,?,?,?,?)""",
+                (request_id,node,principal,host_key_sha256,digest,binding,
+                 expires_at,"reserved",now,now))
+            return dict(db.execute("SELECT * FROM requests WHERE request_id=?",
+                                   (request_id,)).fetchone())
+
     def claim_dispatch(self, request_id):
         """Only the first caller wins; crashes leave an uncertain non-replayable claim."""
         validate_request_id(request_id)
