@@ -44,12 +44,7 @@ fun DeploymentsPanel(endpoint: String, token: String) {
             val state = entry.optString("release_state")
             val staged = entry.optString("staged_sha")
             val installed = entry.optString("installed_sha")
-            val description = if (name == "gway-bastion" && state == "staged" &&
-                staged.matches(Regex("[0-9a-f]{40}")) && (installed.isBlank() || installed == "null")) {
-                "Staged " + staged.take(12) + " · Not activated"
-            } else {
-                "Installed: " + installed.takeIf { it.isNotBlank() && it != "null" }?.take(12).orEmpty().ifBlank { "Unknown" }
-            }
+            val description = deploymentRevisionLabel(name, state, staged, installed)
             Text(name + " · " + description, style = MaterialTheme.typography.bodySmall)
         }
         ExposedDropdownMenuBox(expanded = expanded, onExpandedChange = { expanded = it }) {
