@@ -5,6 +5,7 @@ import secrets
 import time
 
 from .mcp_bridge_transport import call_unix
+from .watchtower_exec_failure_receipts import REQUEST_ID
 
 OPERATIONS = {
     "node_list": ("inventory.list", "gway:read"),
@@ -29,6 +30,12 @@ def dispatch_node_tool(*, socket_path, key, session_id, audience, principal,
         raise PermissionError("cross-node dispatch denied")
     if name == "node_list" and arguments != {}:
         raise ValueError("node_list takes no arguments")
+    if name == "node_exec":
+        # The execution job ID lives in signed arguments; the envelope ID is
+        # a distinct anti-replay nonce. Never substitute one for the other.
+        job_id = arguments.get("request_id")
+        if type(job_id) is not str or not REQUEST_ID.fullmatch(job_id):
+            raise ValueError("invalid execution request ID")
     now = int(time.time())
     envelope = {
         "version": 1, "request_id": secrets.token_hex(16),

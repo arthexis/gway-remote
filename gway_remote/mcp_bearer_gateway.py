@@ -20,13 +20,21 @@ ALLOWED_METHODS = frozenset({"server/discover", "initialize", "notifications/ini
 ALLOWED_TOOLS = frozenset({"github_workflow_runs", "github_workflow_status", "github_workflow_errors", "mcp_source_status",
     "node_list", "node_capabilities", "node_exec_preview",
     "node_exec", "node_result", "node_cancel", "node_deploy", "node_deploy_status",
-    "node_deploy_preview", "workspace_inspect", "mcp_catalog_inspect"})
+    "node_deploy_preview", "workspace_inspect", "mcp_catalog_inspect", "node_exec_diagnostic"})
 
-EXEC_TOOL_NAMES = frozenset({"node_exec", "node_result", "node_cancel", "node_deploy", "node_deploy_status"})
+EXEC_TOOL_NAMES = frozenset({"node_exec", "node_result", "node_cancel", "node_deploy", "node_deploy_status", "node_exec_diagnostic"})
+from .watchtower_exec_failure_receipts import FailureReceipts, ExecutionStageError
+_EXEC_FAILURES = FailureReceipts()
 EXEC_SECURITY = {"securitySchemes": [{"type": "oauth2", "scopes": ["gway:execute"]}]}
 READ_SECURITY = {"securitySchemes": [{"type": "oauth2", "scopes": ["gway:read"]}]}
 
 EXEC_TOOLS = (
+    {"name": "node_exec_diagnostic", "_meta": EXEC_SECURITY,
+     "description": "Read a short-lived sanitized receipt for your own execution request; never executes.",
+     "annotations": {"readOnlyHint": True},
+     "inputSchema": {"type": "object", "properties": {
+         "request_id": {"type": "string", "pattern": "^[0-9a-f]{32}$"}},
+         "required": ["request_id"], "additionalProperties": False}},
     {"name": "node_deploy", "_meta": EXEC_SECURITY,
      "description": "Start an allowlisted Ansible deployment on an attested node using a fixed root-owned service. No arbitrary shell, path, or options.",
      "inputSchema": {"type": "object", "properties": {
@@ -421,7 +429,11 @@ class Handler(BaseHTTPRequestHandler):
             name = params["name"]
             try:
                 principal = self.server.registry.execution_principal(token)
-                if self.server.bridge_transport is not None:
+                if name == "node_exec_diagnostic":
+                    if set(args) != {"request_id"}:
+                        raise ValueError("invalid diagnostic arguments")
+                    selected = _EXEC_FAILURES.inspect(args["request_id"], principal)
+                elif self.server.bridge_transport is not None:
                     selected = self._bridge_node_tool(name, args, token)
                 elif name == "node_exec" and {"node","command","request_id"}.issubset(args) and set(args).issubset({"node","command","request_id","wait_seconds"}):
                     selected = self.server.execution.exec(principal=principal, **args)
@@ -435,7 +447,13 @@ class Handler(BaseHTTPRequestHandler):
                 else:
                     raise ValueError("invalid tool arguments")
                 result = {"content":[{"type":"text","text":json.dumps(selected,separators=(",",":"))}]}
-            except (PermissionError, ValueError, RuntimeError, OSError, TypeError, KeyError):
+            except (PermissionError, ValueError, RuntimeError, OSError, TypeError, KeyError) as exc:
+                if name == "node_exec" and type(args) is dict:
+                    # Only typed errors from the origin prove a failure stage.
+                    # A bridge exception is opaque: never claim SSH/worker failure.
+                    if isinstance(exc, ExecutionStageError):
+                        _EXEC_FAILURES.record(args.get("request_id"), principal,
+                                              exc.stage, "failure")
                 result = {"content":[{"type":"text","text":"Execution request rejected"}],"isError":True}
             if version == "2026-07-28":
                 result = {"resultType":"complete", **result}
