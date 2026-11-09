@@ -3,6 +3,7 @@
 The caller supplies independently authenticated observations; absence is unknown.
 """
 from datetime import datetime, timezone
+import re
 
 SCHEMA = "gway-remote/fleet/v1"
 HARDWARE = "gway-remote/hardware/v1"
@@ -35,7 +36,15 @@ def project(inventory, observations=None, *, now=None):
     rows = inventory.get("nodes")
     if not isinstance(rows, list) or len(rows) > MAX_NODES:
         raise ValueError("invalid fleet inventory")
-    observations = observations or {}
+    if not isinstance(inventory.get("generated_at"), str):
+        raise ValueError("missing inventory timestamp")
+    try:
+        stamp = datetime.fromisoformat(inventory["generated_at"].replace("Z", "+00:00"))
+        if stamp.tzinfo is None or not 0 <= (now - stamp).total_seconds() <= 120:
+            raise ValueError("stale inventory")
+    except (TypeError, ValueError, OverflowError) as exc:
+        raise ValueError("invalid inventory timestamp") from exc
+    observations = observations if observations is not None else {}
     if not isinstance(observations, dict):
         raise ValueError("invalid observations")
     result = []
@@ -44,10 +53,12 @@ def project(inventory, observations=None, *, now=None):
         if not isinstance(row, dict) or not isinstance(row.get("node"), str):
             raise ValueError("invalid node")
         name = row["node"]
-        if not name or len(name) > 64 or name in seen:
+        if not re.fullmatch(r"gway-[0-9]+", name) or name in seen:
             raise ValueError("duplicate or invalid node")
         seen.add(name)
         docs = observations.get(name) or {}
+        if row.get("identity_verified") is not True:
+            docs = {}
         if not isinstance(docs, dict):
             docs = {}
         hw = _fresh(docs.get("hardware"), HARDWARE, now)
