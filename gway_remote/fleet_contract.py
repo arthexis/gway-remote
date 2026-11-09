@@ -129,8 +129,9 @@ def collect_authenticated(inventory, federation, *, now=None):
                     continue
                 for declaration in provider["tools"][:64]:
                     if (type(declaration) is dict and declaration.get("name") == key
-                            and declaration.get("annotations", {}).get("readOnlyHint") is True
-                            and declaration.get("annotations", {}).get("destructiveHint") is not True):
+                            and type(declaration.get("annotations")) is dict
+                            and declaration["annotations"].get("readOnlyHint") is True
+                            and declaration["annotations"].get("destructiveHint") is not True):
                         matches.append(provider.get("provider"))
             if len(matches) != 1 or type(matches[0]) is not str:
                 continue
