@@ -25,7 +25,7 @@ class NodeLedgerTests(unittest.TestCase):
                 info = actual_lstat(path)
                 return type("Info", (), {"st_mode": info.st_mode,
                                         "st_uid": 0})()
-            with patch.object(Path, "lstat", trusted_lstat):
+            with patch("gway_remote.repository_deploy_node.Path.lstat", trusted_lstat):
                 row = publish_installed_receipt(
                     receipt, repository="arthexis/odoo-gelectriic",
                     node="gway-001", sha=SHA, manifest_path=manifest)
