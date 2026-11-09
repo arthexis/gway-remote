@@ -127,9 +127,12 @@ class AuthorizedExecution:
                 response.get("request_id") != request_id or
                 type(response.get("result")) is not dict or
                 response["result"].get("application") != application or
-                response["result"].get("status") != "declared"):
+                response["result"].get("status") != "declared" or
+                type(response["result"].get("revision")) is not str or
+                not re.fullmatch(r"[0-9a-f]{40}", response["result"]["revision"])):
             raise PermissionError("uncorrelated deployment preview")
-        return {"node": node, "application": application, "revision": revision,
+        return {"node": node, "application": application,
+                "revision": response["result"]["revision"],
                 "status": "eligible", "execution": "node-owned-operator",
                 "note": "read-only; execution revalidates installed provider"}
 
