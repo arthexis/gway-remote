@@ -65,6 +65,30 @@ class ReadRelayTests(unittest.TestCase):
                 serve_one(self.request("provider_list"), hostname="gway-001",
                           allowed_operations=frozenset({"submit", "arbitrary"}))
 
+    def test_read_identity_rejects_oversized_and_malformed_payload(self):
+        with patch("gway_remote.node_exec_protocol.require_account"), \
+             patch("gway_remote.mcp_installed_providers.discover_installed_providers") as discover:
+            for raw in (b"{not-json", b"x" * 65537,
+                        self.request("provider_list", authorized_scope="execute")):
+                with self.subTest(length=len(raw)), self.assertRaises(ValueError):
+                    serve_one(raw, hostname="gway-001",
+                              allowed_operations=READ_ONLY_OPERATIONS)
+            discover.assert_not_called()
+
+    def test_legacy_execute_receiver_still_dispatches_for_odoo_agentops(self):
+        with patch("gway_remote.node_exec_protocol.require_account"), \
+             patch("gway_remote.mcp_installed_providers.discover_installed_providers",
+                   return_value=[]), \
+             patch("gway_remote.mcp_node_providers.dispatch_node_provider_request",
+                   return_value={"ok": True}) as dispatch:
+            for provider in ("odoo", "agentops"):
+                with self.subTest(provider=provider):
+                    response = serve_one(self.request("provider_call",
+                        provider=provider, tool="test", arguments={},
+                        authorized_scope="execute"), hostname="gway-001")
+                    self.assertEqual(response["result"], {"ok": True})
+                    self.assertEqual(dispatch.call_args.kwargs["trusted_scope"], "execute")
+
 
 if __name__ == "__main__":
     unittest.main()
