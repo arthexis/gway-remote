@@ -6,6 +6,7 @@ runner paths, arbitrary arguments, or environment variables.
 """
 import argparse
 import fcntl
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -152,6 +153,11 @@ def run(application, *, state_dir=STATE_DIR, resolve=resolve_deployment, invoke=
 _REQUEST_ID = re.compile(r"[0-9a-f]{32}")
 
 
+def _declaration_digest(declaration):
+    return hashlib.sha256(json.dumps(declaration, sort_keys=True,
+                                     separators=(",", ":")).encode("utf-8")).hexdigest()
+
+
 def _request_path(request_id, state_dir):
     if type(request_id) is not str or not _REQUEST_ID.fullmatch(request_id):
         raise ValueError("invalid deployment request ID")
@@ -204,11 +210,14 @@ def accept(application, request_id, *, state_dir=STATE_DIR,
     except FileExistsError:
         existing = request_status(application, request_id, state_dir=state_dir,
                                   resolve=resolve)
-        if existing["revision"] != declaration["revision"]:
+        if (existing["revision"] != declaration["revision"] or
+                existing.get("declaration_sha256") != _declaration_digest(declaration)):
             raise PermissionError("request bound to another deployment revision")
         return existing
     receipt = {"application": application, "request_id": request_id,
-               "revision": declaration["revision"], "state": "accepted",
+               "revision": declaration["revision"],
+               "declaration_sha256": _declaration_digest(declaration),
+               "state": "accepted",
                "started_at": datetime.now(timezone.utc).isoformat()}
     try:
         with os.fdopen(fd, "w") as stream:
@@ -256,6 +265,8 @@ def worker(application, request_id, *, state_dir=STATE_DIR,
                                  resolve=resolve)
         if receipt["state"] != "accepted":
             raise PermissionError("deployment worker already claimed")
+        if receipt.get("declaration_sha256") != _declaration_digest(_eligible(application, resolve=resolve)):
+            raise PermissionError("deployment declaration changed since acceptance")
         receipt["state"] = "running"
         _write_receipt(_request_path(request_id, state_dir), receipt)
         try:
