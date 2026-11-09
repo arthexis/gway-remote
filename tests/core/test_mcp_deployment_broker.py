@@ -52,6 +52,19 @@ class BrokerTests(unittest.TestCase):
             with self.assertRaises(PermissionError):
                 broker.status("agentops", state_dir=state, resolve=lambda _: DECL)
 
+    def test_git_metadata_symlink_denied(self):
+        with tempfile.TemporaryDirectory() as directory:
+            checkout = Path(directory) / "checkout"
+            checkout.mkdir()
+            runner = checkout / "deploy.sh"
+            runner.write_text("#!/bin/sh\\nexit 0\\n")
+            runner.chmod(0o700)
+            (checkout / ".git").symlink_to("/tmp")
+            declaration = {**DECL, "checkout": str(checkout), "runner": str(runner),
+                           "run_as": __import__("pwd").getpwuid(os.geteuid()).pw_name}
+            with self.assertRaises(PermissionError):
+                broker._eligible("agentops", resolve=lambda _: declaration)
+
     def test_lock_symlink_denied(self):
         with tempfile.TemporaryDirectory() as directory:
             state = Path(directory)
