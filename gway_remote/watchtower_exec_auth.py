@@ -118,16 +118,16 @@ class AuthorizedExecution:
         from .watchtower_exec_transport import SSHTransportFailure
         if type(node) is not str or type(application) is not str or not _APP.fullmatch(application) or revision != "main":
             raise ValueError("unsupported deployment revision or target")
-        if not self.enabled or not self.relay.enabled:
-            raise PermissionError("deployment_execution_disabled")
+        try:
+            self._allow_preview_eligibility(node)
+        except (PermissionError, ValueError, OSError):
+            if not self.enabled or not self.relay.enabled:
+                raise PermissionError("deployment_execution_disabled") from None
+            raise PermissionError("deployment_inventory_binding_denied") from None
         try:
             pinned = pinned_transport(self.relay.transport, node)
         except (PermissionError, ValueError, AttributeError):
             raise PermissionError("deployment_pinned_transport_unavailable") from None
-        try:
-            self._current_eligibility(node)
-        except (PermissionError, ValueError, OSError):
-            raise PermissionError("deployment_inventory_binding_denied") from None
         import secrets
         request_id = secrets.token_hex(16)
         try:
