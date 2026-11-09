@@ -35,6 +35,21 @@ class DeploymentSSHNegativeTests(unittest.TestCase):
                 self.transport.invoke(payload)
         self.run.assert_not_called()
 
+    def test_node_protocol_rejects_missing_or_mismatched_revision_before_accept(self):
+        from unittest.mock import patch
+        from gway_remote.node_exec_protocol import serve_one
+        request = dict(self.payload)
+        with patch("gway_remote.node_exec_protocol.require_account"):
+            with patch("gway_remote.mcp_deployment_broker.accept") as accept:
+                for candidate in ({k:v for k,v in request.items() if k != "expected_revision"},
+                                  {**request, "unexpected": "value"}):
+                    with self.subTest(candidate=candidate), self.assertRaises(ValueError):
+                        serve_one(json.dumps(candidate).encode(), hostname="gway-001")
+                accept.assert_not_called()
+                response = serve_one(json.dumps(request).encode(), hostname="gway-001")
+                accept.assert_called_once_with("sample", "a"*32, expected_revision="a"*40)
+                self.assertEqual(response["node"], "gway-001")
+
     def test_ssh_argv_never_includes_user_supplied_application(self):
         self.run.return_value = SimpleNamespace(stdout=json.dumps({
             "node": "gway-001", "request_id": "a"*32,
