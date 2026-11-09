@@ -108,7 +108,8 @@ def status(application, *, state_dir=STATE_DIR, resolve=resolve_deployment):
     return receipt
 
 
-def run(application, *, state_dir=STATE_DIR, resolve=resolve_deployment, invoke=subprocess.run):
+def run(application, *, state_dir=STATE_DIR, resolve=resolve_deployment, invoke=subprocess.run,
+        expected_revision=None, expected_declaration_sha256=None):
     declaration = _eligible(application, resolve=resolve)
     _trusted(state_dir, directory=True)
     if state_dir.stat().st_uid != os.geteuid() or state_dir.stat().st_mode & 0o077:
@@ -126,6 +127,14 @@ def run(application, *, state_dir=STATE_DIR, resolve=resolve_deployment, invoke=
         # changed the checkout or installed declaration.
         if _eligible(application, resolve=resolve) != declaration:
             raise PermissionError("deployment declaration changed")
+        if expected_revision is not None or expected_declaration_sha256 is not None:
+            if (type(expected_revision) is not str or
+                    not re.fullmatch(r"[0-9a-f]{40}", expected_revision) or
+                    type(expected_declaration_sha256) is not str or
+                    not re.fullmatch(r"[0-9a-f]{64}", expected_declaration_sha256) or
+                    declaration["revision"] != expected_revision or
+                    _declaration_digest(declaration) != expected_declaration_sha256):
+                raise PermissionError("deployment request revision or declaration changed")
         path = _receipt_path(application, state_dir)
         # A successful receipt is historical evidence, not proof that the
         # requested target is currently active. The provider deploy is idempotent.
@@ -316,7 +325,9 @@ def worker(application, request_id, *, state_dir=STATE_DIR,
         receipt["state"] = "running"
         _write_receipt(_request_path(request_id, state_dir), receipt)
         try:
-            result = run(application, state_dir=state_dir, resolve=resolve)
+            result = run(application, state_dir=state_dir, resolve=resolve,
+                         expected_revision=receipt["revision"],
+                         expected_declaration_sha256=receipt["declaration_sha256"])
             receipt["state"] = result["state"]
             receipt["exit_code"] = result["exit_code"]
         except (OSError, ValueError, PermissionError, RuntimeError, BlockingIOError):
