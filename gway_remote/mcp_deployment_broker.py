@@ -95,12 +95,19 @@ def status(application, *, state_dir=STATE_DIR, resolve=resolve_deployment):
     if not path.exists():
         return {"application": application, "state": "never_run"}
     _trusted(path)
-    return json.loads(path.read_text())
+    with path.open("r", encoding="utf-8") as stream:
+        receipt = json.load(stream)
+    if (type(receipt) is not dict or receipt.get("application") != application
+            or receipt.get("state") not in {"running", "succeeded", "failed"}):
+        raise ValueError("invalid deployment receipt")
+    return receipt
 
 
 def run(application, *, state_dir=STATE_DIR, resolve=resolve_deployment, invoke=subprocess.run):
     declaration = _eligible(application, resolve=resolve)
     _trusted(state_dir, directory=True)
+    if state_dir.stat().st_uid != os.geteuid():
+        raise PermissionError("deployment state directory must belong to operator")
     lock_path = state_dir / LOCK_NAME
     if lock_path.is_symlink():
         raise PermissionError("symlink lock denied")
@@ -114,7 +121,6 @@ def run(application, *, state_dir=STATE_DIR, resolve=resolve_deployment, invoke=
         if _eligible(application, resolve=resolve) != declaration:
             raise PermissionError("deployment declaration changed")
         path = _receipt_path(application, state_dir)
-        previous = status(application, state_dir=state_dir, resolve=resolve)
         # A successful receipt is historical evidence, not proof that the
         # requested target is currently active. The provider deploy is idempotent.
         started = datetime.now(timezone.utc).isoformat()
