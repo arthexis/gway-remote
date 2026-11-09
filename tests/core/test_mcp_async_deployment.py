@@ -51,6 +51,45 @@ class AsyncDeploymentTests(unittest.TestCase):
                                    resolve=lambda _: declaration, spawn=fail)
             self.assertEqual(second, first)
 
+    def test_worker_claim_is_terminal_and_never_reexecuted(self):
+        with tempfile.TemporaryDirectory() as root:
+            state = Path(root)
+            os.chmod(state, 0o700)
+            runner = state / "deploy.sh"
+            runner.write_text("#!/bin/sh\\nexit 0\\n")
+            runner.chmod(0o700)
+            declaration = {"checkout": str(state), "runner": str(runner),
+                           "revision": "a"*40}
+            resolve = lambda _: declaration
+            broker.accept("sample", "e"*32, state_dir=state,
+                          resolve=resolve, spawn=lambda *a, **k: Mock())
+            with patch.object(broker, "run", return_value={"state": "succeeded", "exit_code": 0}) as execute:
+                receipt = broker.worker("sample", "e"*32, state_dir=state, resolve=resolve)
+                self.assertEqual(receipt["state"], "succeeded")
+                with self.assertRaises(PermissionError):
+                    broker.worker("sample", "e"*32, state_dir=state, resolve=resolve)
+                execute.assert_called_once()
+
+    def test_unfinished_receipt_is_not_implicitly_restarted(self):
+        with tempfile.TemporaryDirectory() as root:
+            state = Path(root)
+            os.chmod(state, 0o700)
+            runner = state / "deploy.sh"
+            runner.write_text("#!/bin/sh\\nexit 0\\n")
+            runner.chmod(0o700)
+            declaration = {"checkout": str(state), "runner": str(runner),
+                           "revision": "a"*40}
+            resolve = lambda _: declaration
+            broker.accept("sample", "f"*32, state_dir=state,
+                          resolve=resolve, spawn=lambda *a, **k: Mock())
+            with patch.object(broker, "run", side_effect=SystemExit(7)):
+                with self.assertRaises(SystemExit):
+                    broker.worker("sample", "f"*32, state_dir=state, resolve=resolve)
+            self.assertEqual(broker.request_status("sample", "f"*32, state_dir=state,
+                                                    resolve=resolve)["state"], "running")
+            with self.assertRaises(PermissionError):
+                broker.worker("sample", "f"*32, state_dir=state, resolve=resolve)
+
 
 if __name__ == "__main__":
     unittest.main()
