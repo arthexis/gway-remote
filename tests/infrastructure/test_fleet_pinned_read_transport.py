@@ -97,6 +97,32 @@ class PinnedReadTests(unittest.TestCase):
                             trusted_scope="read")
         self.assertEqual(calls, ["read"])
 
+    def test_strict_read_rejects_different_pinned_endpoint(self):
+        read_node = self.node("gway-001", "gway-read", suffix="read")
+        exec_node = self.node("gway-001", "gway-relay", suffix="exec")
+        from dataclasses import replace
+        cases = [
+            replace(read_node, wireguard_address="10.90.0.3"),
+            replace(read_node, ssh_host_alias="other-node"),
+        ]
+        for altered in cases:
+            with self.subTest(altered=altered), self.assertRaises(PermissionError):
+                ProviderTransport(SSHTransport(exec_node),
+                    read_transport=SSHTransport(altered),
+                    require_read_identity=True).invoke("gway-001",
+                        {"operation": "provider_list"}, trusted_scope="read")
+
+    def test_strict_read_denies_unenrolled_node_without_execute_fallback(self):
+        read_node = self.node("gway-001", "gway-read", suffix="read")
+        exec_node = self.node("gway-001", "gway-relay", suffix="exec")
+        execute = MultiNodeTransport({"gway-001": SSHTransport(exec_node)})
+        read = MultiNodeTransport({"gway-001": SSHTransport(read_node)})
+        provider = ProviderTransport(execute, read_transport=read,
+                                     require_read_identity=True)
+        with self.assertRaises(PermissionError):
+            provider.invoke("gway-002", {"operation": "provider_list"},
+                            trusted_scope="read")
+
 
 if __name__ == "__main__":
     unittest.main()
