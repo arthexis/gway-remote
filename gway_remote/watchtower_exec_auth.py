@@ -222,9 +222,13 @@ class AuthorizedExecution:
                     or result.get("state") not in {"accepted", "running", "succeeded", "failed", "uncertain"}):
                 raise PermissionError("uncorrelated deployment acknowledgement")
         except (OSError, ValueError, RuntimeError, PermissionError):
-            # Never retry a potentially delivered request after a transport error.
+            # The request might have reached the node; never retry the claim.
+            self.ledger.mark_dispatched(request_id, confirmed=False)
             return {"node": node, "request_id": request_id, "application": application,
                     "status": "uncertain"}
+        self.ledger.mark_dispatched(request_id, confirmed=True)
+        if result["state"] in {"succeeded", "failed"}:
+            self.ledger.record_result_state(request_id, result["state"])
         return {"node": node, "request_id": request_id, "application": application,
                 "status": result["state"], "result": result}
 
