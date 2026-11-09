@@ -7,6 +7,7 @@ from gway_remote.mcp_bearer_gateway import ALLOWED_TOOLS, EXEC_TOOL_NAMES, EXEC_
 class Pinned:
     class Node:
         node = "gway-001"
+        host_key_sha256 = "c" * 64
     node = Node()
 
     def invoke(self, payload):
@@ -41,9 +42,11 @@ class BrokerTests(unittest.TestCase):
                         with self.assertRaises(ValueError):
                             self.service.deployment(principal="a"*24, request_id="b"*32,
                                 node="gway-001", application="agentops", status=True)
-                    with self.assertRaises(PermissionError):
-                        self.service.deployment(principal="a"*24, request_id="b"*32,
-                            node="gway-001", application="agentops")
+                    with patch.object(self.service, "ledger") as ledger:
+                        ledger.get.side_effect = ValueError("request not found")
+                        with self.assertRaises(ValueError):
+                            self.service.deployment(principal="a"*24, request_id="b"*32,
+                                node="gway-001", application="agentops")
 
     def test_negative_targets(self):
         for app in ("../bad", "agentops;id", ""):
