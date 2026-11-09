@@ -232,7 +232,8 @@ class AuthorizedExecution:
                     "status": self.ledger.get(request_id)["state"]}
         try:
             response = pinned.invoke({"operation": "deployment_run", "node": node,
-                                      "request_id": request_id, "application": application})
+                                      "request_id": request_id, "application": application,
+                                      "expected_revision": pinned_revision})
             result = response.get("result") if type(response) is dict else None
             if (type(response) is not dict or response.get("node") != node
                     or response.get("request_id") != request_id
