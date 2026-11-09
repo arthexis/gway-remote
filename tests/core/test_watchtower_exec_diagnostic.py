@@ -36,7 +36,7 @@ class ReadinessTests(unittest.TestCase):
 
     def test_unknown_is_not_success(self):
         result = diagnose("gway-005", inventory=self.inventory)
-        self.assertEqual(result["stages"]["current_eligibility"], "denied")
+        self.assertEqual(result["stages"]["current_eligibility"], "failure")
         self.assertEqual(result["stages"]["bridge_dispatch"], "blocked")
         self.assertEqual(result["stages"]["worker_readiness"], "blocked")
 
