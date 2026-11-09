@@ -113,7 +113,7 @@ def collect_authenticated(inventory, federation, *, now=None):
                 continue
             try:
                 result = federation.call(candidates[0], {}, authorized_scope="read")
-                if len(__import__("json").dumps(result)) > 65536:
+                if len(__import__("json").dumps(result).encode("utf-8")) > 65536:
                     continue
                 if _fresh(result, HARDWARE if key == "hardware" else STATUS,
                           now or datetime.now(timezone.utc)):
