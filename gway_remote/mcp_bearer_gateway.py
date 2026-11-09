@@ -23,7 +23,7 @@ ALLOWED_TOOLS = frozenset({"github_workflow_runs", "github_workflow_status", "gi
     "node_deploy_preview", "workspace_inspect", "mcp_catalog_inspect", "node_exec_diagnostic"})
 
 EXEC_TOOL_NAMES = frozenset({"node_exec", "node_result", "node_cancel", "node_deploy", "node_deploy_status", "node_exec_diagnostic"})
-from .watchtower_exec_failure_receipts import FailureReceipts
+from .watchtower_exec_failure_receipts import FailureReceipts, ExecutionStageError
 _EXEC_FAILURES = FailureReceipts()
 EXEC_SECURITY = {"securitySchemes": [{"type": "oauth2", "scopes": ["gway:execute"]}]}
 READ_SECURITY = {"securitySchemes": [{"type": "oauth2", "scopes": ["gway:read"]}]}
@@ -447,12 +447,16 @@ class Handler(BaseHTTPRequestHandler):
                 else:
                     raise ValueError("invalid tool arguments")
                 result = {"content":[{"type":"text","text":json.dumps(selected,separators=(",",":"))}]}
-            except (PermissionError, ValueError, RuntimeError, OSError, TypeError, KeyError):
+            except (PermissionError, ValueError, RuntimeError, OSError, TypeError, KeyError) as exc:
                 if name == "node_exec" and type(args) is dict:
-                    # The exception boundary cannot identify a deeper failure.
+                    # Only typed errors from the origin prove a failure stage.
+                    # A bridge exception is opaque: never claim SSH/worker failure.
+                    stage = exc.stage if isinstance(exc, ExecutionStageError) else (
+                        "bridge_dispatch" if self.server.bridge_transport is not None
+                        else "current_eligibility")
+                    outcome = "failure" if isinstance(exc, ExecutionStageError) else "unknown"
                     _EXEC_FAILURES.record(args.get("request_id"), locals().get("principal", ""),
-                                          "bridge_dispatch" if self.server.bridge_transport is not None
-                                          else "current_eligibility", "unknown")
+                                          stage, outcome)
                 result = {"content":[{"type":"text","text":"Execution request rejected"}],"isError":True}
             if version == "2026-07-28":
                 result = {"resultType":"complete", **result}
