@@ -71,6 +71,13 @@ def _eligible(application, *, resolve=resolve_deployment):
     runner = _trusted(deployment["runner"], executable=True)
     if not runner.is_relative_to(checkout):
         raise PermissionError("runner outside checkout")
+    # Reject mutable ancestors and git metadata redirects before trusting HEAD.
+    for parent in (checkout, *tuple(p for p in runner.parents if p == checkout or checkout in p.parents)):
+        _trusted(parent, directory=True)
+    git_metadata = checkout / ".git"
+    if git_metadata.is_symlink() or not git_metadata.is_dir():
+        raise PermissionError("git metadata must be a real directory")
+    _trusted(git_metadata, directory=True)
     # The installed provider declares an immutable source revision. Never
     # silently pull or modify an operator checkout in the broker.
     revision = subprocess.run(
