@@ -208,8 +208,14 @@ def accept(application, request_id, *, state_dir=STATE_DIR,
     try:
         fd = os.open(path, os.O_CREAT | os.O_EXCL | os.O_WRONLY | os.O_NOFOLLOW, 0o600)
     except FileExistsError:
-        existing = request_status(application, request_id, state_dir=state_dir,
-                                  resolve=resolve)
+        try:
+            existing = request_status(application, request_id, state_dir=state_dir,
+                                      resolve=resolve)
+        except (ValueError, json.JSONDecodeError):
+            # Another process may still be fsyncing its initial receipt.
+            # Never interpret an incomplete durable claim as permission to retry.
+            return {"application": application, "request_id": request_id,
+                    "state": "uncertain"}
         if (existing["revision"] != declaration["revision"] or
                 existing.get("declaration_sha256") != _declaration_digest(declaration)):
             raise PermissionError("request bound to another deployment revision")
