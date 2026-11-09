@@ -451,12 +451,9 @@ class Handler(BaseHTTPRequestHandler):
                 if name == "node_exec" and type(args) is dict:
                     # Only typed errors from the origin prove a failure stage.
                     # A bridge exception is opaque: never claim SSH/worker failure.
-                    stage = exc.stage if isinstance(exc, ExecutionStageError) else (
-                        "bridge_dispatch" if self.server.bridge_transport is not None
-                        else "current_eligibility")
-                    outcome = "failure" if isinstance(exc, ExecutionStageError) else "unknown"
-                    _EXEC_FAILURES.record(args.get("request_id"), locals().get("principal", ""),
-                                          stage, outcome)
+                    if isinstance(exc, ExecutionStageError):
+                        _EXEC_FAILURES.record(args.get("request_id"), principal,
+                                              exc.stage, "failure")
                 result = {"content":[{"type":"text","text":"Execution request rejected"}],"isError":True}
             if version == "2026-07-28":
                 result = {"resultType":"complete", **result}
