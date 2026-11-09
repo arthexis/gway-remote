@@ -17,6 +17,11 @@ class FailureReceiptsTests(unittest.TestCase):
                           "stage": "bridge_dispatch"})
         self.assertEqual(self.receipts.inspect(self.request, "other")["status"], "unknown")
 
+    def test_other_principal_cannot_overwrite_receipt(self):
+        self.receipts.record(self.request, "owner", "pinned_transport")
+        self.assertFalse(self.receipts.record(self.request, "other", "ssh_transport"))
+        self.assertEqual(self.receipts.inspect(self.request, "owner")["stage"], "pinned_transport")
+
     def test_expiry_is_unknown_not_success(self):
         self.receipts.record(self.request, "owner", "ssh_transport")
         self.now[0] += 301
