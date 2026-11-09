@@ -16,5 +16,31 @@
     group: "{{ gway_remote_exec_user | default(gway_remote_runner_user) }}"
     mode: "0700"
 
-# Existing legacy unit and sudoers may still be installed. They are deliberately
-# not activated or modified here; removal requires a separate verified migration.
+# Retire only the obsolete deployment-specific privilege path. This does not
+# touch the existing SSH executor, any other sudo policy or active services.
+- name: Inspect installed services before retiring dedicated deployment unit
+  ansible.builtin.service_facts:
+
+- name: Disable obsolete dedicated deployment unit if installed
+  ansible.builtin.systemd:
+    name: gway-remote-deploy.service
+    enabled: false
+    state: stopped
+  when: "'gway-remote-deploy.service' in ansible_facts.services"
+  # Service inventory is collected below; an absent unit is not an error.
+
+- name: Remove obsolete dedicated deployment artifacts
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: absent
+  loop:
+    - /etc/sudoers.d/gway-remote-mcp-deploy
+    - /etc/systemd/system/gway-remote-deploy.service
+    - /usr/local/libexec/gway-remote-deploy
+    - /usr/local/libexec/gway-remote-deploy-receipt.py
+  register: gway_legacy_deploy_removed
+
+- name: Reload systemd only when obsolete unit files changed
+  ansible.builtin.systemd:
+    daemon_reload: true
+  when: gway_legacy_deploy_removed.changed
