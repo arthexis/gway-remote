@@ -297,7 +297,7 @@ class SSHTransport:
                   "provider_call":{"operation","node","request_id","provider","tool","arguments","authorized_scope"},
                   "deployment_preview":{"operation","node","request_id","application"},
                   "deployment_status":{"operation","node","request_id","application"},
-                  "deployment_run":{"operation","node","request_id","application"}}
+                  "deployment_run":{"operation","node","request_id","application","expected_revision"}}
         if set(payload) != fields[payload["operation"]]:
             raise ValueError("unexpected transport arguments")
         if payload.get("node") != self.node.node:
