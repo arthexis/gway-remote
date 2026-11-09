@@ -241,22 +241,35 @@ def accept(application, request_id, *, state_dir=STATE_DIR,
 def worker(application, request_id, *, state_dir=STATE_DIR,
            resolve=resolve_deployment):
     """Detached worker; never re-launches another request."""
-    receipt = request_status(application, request_id, state_dir=state_dir,
-                             resolve=resolve)
-    if receipt["state"] != "accepted":
-        raise PermissionError("deployment worker already claimed")
-    receipt["state"] = "running"
-    _write_receipt(_request_path(request_id, state_dir), receipt)
+    _private_state(state_dir)
+    lock_path = state_dir / (".request-lock-" + _request_path(request_id, state_dir).stem)
+    if lock_path.is_symlink():
+        raise PermissionError("symlink worker lock denied")
+    fd = os.open(lock_path, os.O_CREAT | os.O_RDWR | os.O_NOFOLLOW, 0o600)
     try:
-        result = run(application, state_dir=state_dir, resolve=resolve)
-        receipt["state"] = result["state"]
-        receipt["exit_code"] = result["exit_code"]
-    except (OSError, ValueError, PermissionError, RuntimeError, BlockingIOError):
-        receipt["state"] = "failed"
-        receipt["exit_code"] = None
-    receipt["finished_at"] = datetime.now(timezone.utc).isoformat()
-    _write_receipt(_request_path(request_id, state_dir), receipt)
-    return receipt
+        info = os.fstat(fd)
+        if (not stat.S_ISREG(info.st_mode) or info.st_uid != os.geteuid()
+                or info.st_mode & 0o077):
+            raise PermissionError("untrusted worker lock")
+        fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        receipt = request_status(application, request_id, state_dir=state_dir,
+                                 resolve=resolve)
+        if receipt["state"] != "accepted":
+            raise PermissionError("deployment worker already claimed")
+        receipt["state"] = "running"
+        _write_receipt(_request_path(request_id, state_dir), receipt)
+        try:
+            result = run(application, state_dir=state_dir, resolve=resolve)
+            receipt["state"] = result["state"]
+            receipt["exit_code"] = result["exit_code"]
+        except (OSError, ValueError, PermissionError, RuntimeError, BlockingIOError):
+            receipt["state"] = "failed"
+            receipt["exit_code"] = None
+        receipt["finished_at"] = datetime.now(timezone.utc).isoformat()
+        _write_receipt(_request_path(request_id, state_dir), receipt)
+        return receipt
+    finally:
+        os.close(fd)
 
 
 def main(argv=None):
