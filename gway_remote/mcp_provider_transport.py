@@ -31,6 +31,7 @@ class ProviderTransport:
                 payload["authorized_scope"] = trusted_scope
         transport = pinned_transport(self.execution_transport, node)
         response = transport.invoke(payload)
-        if type(response) is not dict or "result" not in response:
+        if (type(response) is not dict or set(response) != {"node", "request_id", "result"}
+                or response["node"] != node or response["request_id"] != payload["request_id"]):
             raise ValueError("invalid provider response")
         return response["result"]
