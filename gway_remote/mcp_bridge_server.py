@@ -12,7 +12,7 @@ from .mcp_bridge_transport import AuthenticatedBridge, BridgeUnixServer
 
 def bind_gateway_session(*, key, audience, verifier, session_token,
                          allowed_node, read_principal, execution=None,
-                         inventory=None):
+                         inventory=None, read_transport=None):
     """Create an authenticated bridge with a single trusted OAuth session.
 
     Re-check the credential on every request (including after revocation).
@@ -31,7 +31,8 @@ def bind_gateway_session(*, key, audience, verifier, session_token,
     dispatch = SessionBridgeDispatch(
         verifier=verifier, session_token=session_token,
         allowed_node=allowed_node, read_principal=read_principal,
-        execution=execution, inventory=inventory)
+        execution=execution, inventory=inventory,
+        read_transport=read_transport)
     return AuthenticatedBridge(key, audience=audience, dispatch=dispatch)
 
 
