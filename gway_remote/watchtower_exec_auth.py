@@ -175,7 +175,48 @@ class AuthorizedExecution:
             return {"node": node, "request_id": request_id,
                     "application": application, "ledger_state": row["state"],
                     "result": response["result"]}
-        raise PermissionError("deployment asynchronous dispatch not provisioned")
+        preview = self.deployment_preview(node=node, application=application,
+                                          revision=revision)
+        pinned = pinned_transport(self.relay.transport, node)
+        binding = "deployment:" + json.dumps([application, revision], separators=(",", ":"))
+        digest = _digest(node, binding, principal, pinned.node.host_key_sha256)
+        try:
+            prior = self.ledger.get(request_id)
+        except ValueError as exc:
+            if str(exc) != "request not found":
+                raise
+            prior = None
+        if prior is not None:
+            if (prior["node"] != node or prior["principal"] != principal
+                    or prior["host_key_sha256"] != pinned.node.host_key_sha256
+                    or prior["command"] != binding or prior["command_sha256"] != digest):
+                raise PermissionError("deployment request ID binding mismatch")
+            return {"node": node, "request_id": request_id, "application": application,
+                    "status": prior["state"]}
+        expiry = (_now() + timedelta(seconds=120)).isoformat()
+        self.ledger.reserve_deployment(
+            request_id=request_id, node=node, application=application,
+            revision=revision, principal=principal,
+            host_key_sha256=pinned.node.host_key_sha256, expires_at=expiry)
+        self._current_eligibility(node)
+        if not self.ledger.claim_dispatch(request_id):
+            return {"node": node, "request_id": request_id, "application": application,
+                    "status": self.ledger.get(request_id)["state"]}
+        try:
+            response = pinned.invoke({"operation": "deployment_run", "node": node,
+                                      "request_id": request_id, "application": application})
+            result = response.get("result") if type(response) is dict else None
+            if (response.get("node") != node or response.get("request_id") != request_id
+                    or type(result) is not dict or result.get("application") != application
+                    or result.get("request_id") != request_id
+                    or result.get("state") not in {"accepted", "running", "succeeded", "failed", "uncertain"}):
+                raise PermissionError("uncorrelated deployment acknowledgement")
+        except (OSError, ValueError, RuntimeError, PermissionError):
+            # Never retry a potentially delivered request after a transport error.
+            return {"node": node, "request_id": request_id, "application": application,
+                    "status": "uncertain"}
+        return {"node": node, "request_id": request_id, "application": application,
+                "status": result["state"], "result": result}
 
     def _owned(self, principal, request_id):
         self._allow(principal)
