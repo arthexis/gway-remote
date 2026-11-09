@@ -42,7 +42,7 @@ class ProviderWireTests(unittest.TestCase):
             def __init__(self): self.calls = []
             def invoke(self, payload):
                 self.calls.append(payload)
-                return {"result": {"ok": True}}
+                return {"node": payload["node"], "request_id": payload["request_id"], "result": {"ok": True}}
         pinned = Pinned()
         provider = ProviderTransport(pinned)
         self.assertEqual(provider.invoke("gway-001", {
@@ -50,6 +50,22 @@ class ProviderWireTests(unittest.TestCase):
             "tool": "hardware", "arguments": {}}, trusted_scope="read"), {"ok": True})
         self.assertEqual(pinned.calls[0]["operation"], "provider_read_call")
         self.assertNotIn("authorized_scope", pinned.calls[0])
+        class WrongReply(Pinned):
+            def invoke(self, payload):
+                return {"node": "gway-002", "request_id": payload["request_id"],
+                        "result": {"ok": True}}
+        with self.assertRaises(ValueError):
+            ProviderTransport(WrongReply()).invoke("gway-001", {
+                "operation": "provider_call", "provider": "diagnostics",
+                "tool": "hardware", "arguments": {}}, trusted_scope="read")
+        class ReplayReply(Pinned):
+            def invoke(self, payload):
+                return {"node": payload["node"], "request_id": "0" * 32,
+                        "result": {"ok": True}}
+        with self.assertRaises(ValueError):
+            ProviderTransport(ReplayReply()).invoke("gway-001", {
+                "operation": "provider_call", "provider": "diagnostics",
+                "tool": "hardware", "arguments": {}}, trusted_scope="read")
 
     def test_watchtower_uses_node_transport(self):
         from tests.helpers.mcp_provider import InvocationSpy
