@@ -87,6 +87,41 @@ class AsyncDeploymentTests(unittest.TestCase):
                                           resolve=resolve)
             self.assertEqual(duplicate["state"], "uncertain")
 
+    def test_orphan_accepted_after_restart_is_uncertain_without_redispatch(self):
+        with tempfile.TemporaryDirectory() as root:
+            state = Path(root)
+            os.chmod(state, 0o700)
+            runner = state / "deploy.sh"
+            runner.write_text("#!/bin/sh\\nexit 0\\n")
+            runner.chmod(0o700)
+            declaration = {"checkout": str(state), "runner": str(runner),
+                           "revision": "a"*40}
+            resolve = lambda _: declaration
+            rid = "7"*32
+            broker.accept("sample", rid, state_dir=state,
+                          resolve=resolve, spawn=lambda *a, **k: Mock())
+            path = state / ("request-" + rid + ".json")
+            receipt = broker.request_status("sample", rid, state_dir=state,
+                                            resolve=resolve)
+            self.assertEqual(receipt["state"], "accepted")
+            receipt["started_at"] = "2020-01-01T00:00:00+00:00"
+            broker._write_receipt(path, receipt)
+            observed = broker.request_status("sample", rid, state_dir=state,
+                                             resolve=resolve)
+            self.assertEqual(observed["state"], "uncertain")
+            self.assertEqual(observed["recorded_state"], "accepted")
+            with patch.object(broker.subprocess, "Popen",
+                              side_effect=AssertionError("redispatch")):
+                duplicate = broker.accept("sample", rid, state_dir=state,
+                                          resolve=resolve)
+            self.assertEqual(duplicate["state"], "uncertain")
+            # Original worker may still claim its durable accepted receipt.
+            with patch.object(broker, "run",
+                              return_value={"state": "succeeded", "exit_code": 0}) as run:
+                self.assertEqual(broker.worker("sample", rid, state_dir=state,
+                                               resolve=resolve)["state"], "succeeded")
+                run.assert_called_once()
+
     def test_partial_claim_is_never_replayed(self):
         with tempfile.TemporaryDirectory() as root:
             state = Path(root)
