@@ -109,6 +109,41 @@ class IntegrationTests(unittest.TestCase):
         self.assertFalse(row["hardware"]["available"])
         self.assertEqual(len(transport.calls), 1)
 
+    def test_invalid_and_stale_mcp_payloads_fail_closed(self):
+        class Transport:
+            def __init__(self, response):
+                self.response = response
+                self.calls = []
+            def invoke(self, node, request, *, trusted_scope):
+                self.calls.append((request, trusted_scope))
+                if request["operation"] == "provider_list":
+                    return {"node": node, "providers": [{"node": node,
+                        "provider": "diagnostics", "revision": "test",
+                        "status": "available", "tools": [
+                            {"name": "hardware", "annotations": {"readOnlyHint": True}}]}]}
+                return self.response
+        inventory = {"source": "watchtower-enrollment-ledger",
+                     "generated_at": NOW.isoformat(),
+                     "nodes": [{"node": "gway-001", "identity_verified": True}]}
+        cases = [
+            {"schema": "wrong", "checked_at": NOW.isoformat(), "host": {}},
+            {"schema": "gway-remote/hardware/v1",
+             "checked_at": (NOW - timedelta(minutes=6)).isoformat(), "host": {}},
+            {"schema": "gway-remote/hardware/v1",
+             "checked_at": NOW.isoformat(), "host": {"model": "界" * 30000}},
+            {"content": [{"type": "text", "text": "not-json"}]},
+            {"content": [{"type": "text", "text": json.dumps({
+                "schema": "gway-remote/hardware/v1",
+                "checked_at": NOW.isoformat(), "host": {"model": "界" * 30000}})}]},
+        ]
+        for response in cases:
+            with self.subTest(response_type=str(response)[:50]):
+                transport = Transport(response)
+                row = collect_authenticated(inventory, type(
+                    "Federation", (), {"transport": transport})(), now=NOW)["nodes"][0]
+                self.assertFalse(row["hardware"]["available"])
+                self.assertTrue(all(scope == "read" for _, scope in transport.calls))
+
 
 if __name__ == "__main__":
     unittest.main()
