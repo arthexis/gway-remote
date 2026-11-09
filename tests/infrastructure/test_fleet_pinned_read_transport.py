@@ -52,7 +52,8 @@ class PinnedReadTests(unittest.TestCase):
             executes[name] = SSHTransport(exec_node, run=runner)
         transport = ProviderTransport(MultiNodeTransport(executes),
                                       read_transport=MultiNodeTransport(reads),
-                                      require_read_identity=True)
+                                      require_read_identity=True,
+                                      require_pinned_ssh=True)
         request = {"operation": "provider_call", "provider": "diagnostics",
                    "tool": "hardware", "arguments": {}}
         for name in reads:
@@ -121,6 +122,15 @@ class PinnedReadTests(unittest.TestCase):
         with self.assertRaises(PermissionError):
             provider.invoke("gway-002", {"operation": "provider_list"},
                             trusted_scope="read")
+
+    def test_production_boundary_rejects_test_doubles(self):
+        fake = SimpleNamespace(node=SimpleNamespace(node="gway-001"))
+        with self.assertRaises(TypeError):
+            ProviderTransport(fake, read_transport=fake,
+                              require_read_identity=True, require_pinned_ssh=True)
+        with self.assertRaises(ValueError):
+            ProviderTransport(fake, require_pinned_ssh=True)
+
 
 
 if __name__ == "__main__":
