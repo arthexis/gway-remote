@@ -142,6 +142,59 @@ class BrokerTests(unittest.TestCase):
                                 "b"*32, confirmed=False)
                             pinned.invoke.assert_called_once()
 
+    def test_status_rejects_wrong_revision_without_terminal_reconciliation(self):
+        from unittest.mock import patch, Mock
+        from gway_remote.watchtower_exec_transport import _digest
+        principal, rid, node, app = "a"*24, "b"*32, "gway-001", "agentops"
+        binding = 'deployment:["agentops","' + "a"*40 + '"]'
+        row = {"node": node, "principal": principal,
+               "host_key_sha256": "c"*64, "command": binding,
+               "command_sha256": _digest(node, binding, principal, "c"*64),
+               "state": "dispatched"}
+        pinned = Pinned()
+        pinned.invoke = Mock(return_value={
+            "node": node, "request_id": rid,
+            "result": {"application": app, "request_id": rid,
+                       "revision": "f"*40, "state": "succeeded"}})
+        with patch.object(self.service, "_allow", return_value=None):
+            with patch.object(self.service, "_current_eligibility", return_value=None):
+                with patch.object(self.service, "ledger") as ledger:
+                    ledger.get.return_value = row
+                    with patch("gway_remote.watchtower_exec_auth.pinned_transport",
+                               return_value=pinned):
+                        with self.assertRaises(PermissionError):
+                            self.service.deployment(
+                                principal=principal, request_id=rid, node=node,
+                                application=app, status=True)
+                    ledger.record_result_state.assert_not_called()
+
+    def test_manifest_revision_change_rejects_duplicate_without_dispatch(self):
+        from unittest.mock import patch, Mock
+        from gway_remote.watchtower_exec_transport import _digest
+        principal, rid, node, app = "a"*24, "b"*32, "gway-001", "agentops"
+        binding = 'deployment:["agentops","' + "a"*40 + '"]'
+        row = {"node": node, "principal": principal,
+               "host_key_sha256": "c"*64, "command": binding,
+               "command_sha256": _digest(node, binding, principal, "c"*64),
+               "state": "uncertain"}
+        pinned = Pinned()
+        pinned.invoke = Mock()
+        with patch.object(self.service, "_allow", return_value=None):
+            with patch.object(self.service, "_current_eligibility", return_value=None):
+                with patch.object(self.service, "deployment_preview",
+                                  return_value={"status": "eligible", "revision": "f"*40}):
+                    with patch.object(self.service, "ledger") as ledger:
+                        ledger.get.return_value = row
+                        with patch("gway_remote.watchtower_exec_auth.pinned_transport",
+                                   return_value=pinned):
+                            with self.assertRaises(PermissionError):
+                                self.service.deployment(
+                                    principal=principal, request_id=rid, node=node,
+                                    application=app)
+                        ledger.reserve_deployment.assert_not_called()
+                        ledger.claim_dispatch.assert_not_called()
+                        pinned.invoke.assert_not_called()
+
     def test_unattested_node_cannot_reserve_or_dispatch(self):
         from unittest.mock import patch
         with patch.object(self.service, "_allow", return_value=None):
