@@ -1,6 +1,8 @@
 """Regression tests for the fixed recipe boundary; no remote execution."""
 import unittest
 from types import SimpleNamespace
+from unittest.mock import patch
+import stat
 
 from gway_remote.manual_deploy_recipe import recipe_argv, execute_recipe, repository_installer_argv, repository_installer_preview
 
@@ -8,21 +10,33 @@ SHA = "a" * 40
 
 
 class RecipeTests(unittest.TestCase):
-    def test_repository_owned_installer_is_dormant_and_fixed(self):
-        with self.assertRaises(PermissionError):
-            repository_installer_argv("arthexis/odoo-gelectriic", "gway-001", SHA)
-        self.assertEqual(
-            repository_installer_argv("arthexis/odoo-gelectriic", "gway-001",
-                                      SHA, installed=True),
-            ["/usr/local/libexec/gway-repository-deploy-odoo-gelectriic", SHA])
-        for repo, node, revision in (
-            ("arthexis/unknown", "gway-001", SHA),
-            ("arthexis/odoo-gelectriic", "gway-002", SHA),
-            ("arthexis/odoo-gelectriic", "gway-001", "main"),
-            ("arthexis/odoo-gelectriic", "gway-001", SHA + ";sh"),
-        ):
-            with self.assertRaises((ValueError, PermissionError)):
-                repository_installer_argv(repo, node, revision, installed=True)
+    def test_repository_owned_installer_requires_protected_registry(self):
+        repo, node = "arthexis/odoo-gelectriic", "gway-001"
+        with self.assertRaises((PermissionError, FileNotFoundError)):
+            repository_installer_argv(repo, node, SHA, registry="/nonexistent/registry")
+        row = {"repository": repo, "node": node,
+               "entrypoint": "/usr/local/libexec/gway-repository-deploy-odoo-gelectriic",
+               "enabled": True}
+        trusted = SimpleNamespace(st_mode=stat.S_IFREG | 0o755, st_uid=0)
+        directory = SimpleNamespace(st_mode=stat.S_IFDIR | 0o755, st_uid=0)
+        def fake_lstat(path):
+            return trusted if str(path) == row["entrypoint"] else directory
+        with (patch("gway_remote.manual_deploy_recipe._trusted_registry", return_value=[row]),
+              patch("gway_remote.manual_deploy_recipe.Path.lstat", autospec=True,
+                    side_effect=fake_lstat)):
+            self.assertEqual(repository_installer_argv(repo, node, SHA),
+                             [row["entrypoint"], SHA])
+            for invalid_repo, invalid_node, revision in (
+                ("arthexis/unknown", node, SHA),
+                (repo, "gway-002", SHA),
+                (repo, node, "main"),
+                (repo, node, SHA + ";sh"),
+            ):
+                with self.assertRaises((ValueError, PermissionError)):
+                    repository_installer_argv(invalid_repo, invalid_node, revision)
+        with patch("gway_remote.manual_deploy_recipe._trusted_registry", return_value=[{**row, "enabled": False}]):
+            with self.assertRaises(PermissionError):
+                repository_installer_argv(repo, node, SHA)
 
     def test_allowlisted_fixed_recipe(self):
         argv = recipe_argv("arthexis/ocpp-reports", "gway-001", SHA)
