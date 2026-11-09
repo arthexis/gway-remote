@@ -228,14 +228,18 @@ def request_status(application, request_id, *, state_dir=STATE_DIR,
     return result
 
 
-def accept(application, request_id, *, state_dir=STATE_DIR,
+def accept(application, request_id, *, expected_revision, state_dir=STATE_DIR,
            resolve=resolve_deployment, spawn=subprocess.Popen):
     """Durably claim a request before launching a detached, unprivileged worker.
 
     No retry of an existing ID ever starts another process. An interrupted
     accepted/running request remains uncertain, not implicitly successful.
     """
+    if type(expected_revision) is not str or not re.fullmatch(r"[0-9a-f]{40}", expected_revision):
+        raise ValueError("invalid expected deployment revision")
     declaration = _eligible(application, resolve=resolve)
+    if declaration["revision"] != expected_revision:
+        raise PermissionError("deployment revision changed since preview")
     _private_state(state_dir)
     path = _request_path(request_id, state_dir)
     if path.is_symlink():
