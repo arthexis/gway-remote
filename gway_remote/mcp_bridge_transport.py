@@ -244,7 +244,8 @@ def call_unix(path, key, envelope, *, timeout=5, session_id=None, require_signed
         raise ValueError("invalid bridge response")
     if require_signed_reply:
         if set(response) not in ({"ok", "result", "reply_signature"},
-                                 {"ok", "error", "reply_signature"}):
+                                 {"ok", "error", "reply_signature"},
+                                 {"ok", "error", "code", "reply_signature"}):
             raise ValueError("invalid signed response")
         signature = response.get("reply_signature")
         body = {k: v for k, v in response.items() if k != "reply_signature"}
