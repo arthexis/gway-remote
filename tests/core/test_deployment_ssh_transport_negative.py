@@ -28,6 +28,8 @@ class DeploymentSSHNegativeTests(unittest.TestCase):
             {**self.payload, "request_id": "invalid"},
             {**self.payload, "operation": "shell"},
             {k:v for k,v in self.payload.items() if k != "expected_revision"},
+            {**self.payload, "expected_revision": "main"},
+            {**self.payload, "expected_revision": "f"*40, "runner": "/tmp/evil"},
         ):
             with self.subTest(payload=payload), self.assertRaises(ValueError):
                 self.transport.invoke(payload)
