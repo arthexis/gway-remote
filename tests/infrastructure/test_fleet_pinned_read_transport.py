@@ -132,6 +132,29 @@ class PinnedReadTests(unittest.TestCase):
             ProviderTransport(fake, require_pinned_ssh=True)
 
 
+    def test_pinned_ssh_boundary_rejects_untrusted_multinode_member(self):
+        valid = SSHTransport(self.node("gway-001", "gway-relay", suffix="exec"))
+        read = SSHTransport(self.node("gway-001", "gway-read", suffix="read"))
+        fake = SimpleNamespace(node=SimpleNamespace(node="gway-002"))
+        with self.assertRaises(TypeError):
+            ProviderTransport(MultiNodeTransport({"gway-001": valid, "gway-002": fake}),
+                              read_transport=MultiNodeTransport({"gway-001": read}),
+                              require_read_identity=True, require_pinned_ssh=True)
+
+    def test_strict_scope_rejects_untrusted_scope_before_ssh(self):
+        execute = SSHTransport(self.node("gway-001", "gway-relay", suffix="exec"))
+        read = SSHTransport(self.node("gway-001", "gway-read", suffix="read"))
+        provider = ProviderTransport(execute, read_transport=read,
+                                     require_read_identity=True, require_pinned_ssh=True)
+        with self.assertRaises(PermissionError):
+            provider.invoke("gway-001", {"operation": "provider_list"},
+                            trusted_scope="gway:execute")
+        with self.assertRaises(ValueError):
+            provider.invoke("gway-001", {"operation": "provider_call",
+                            "provider": "odoo", "tool": "write",
+                            "arguments": {}, "authorized_scope": "execute"},
+                            trusted_scope="read")
+
 
 if __name__ == "__main__":
     unittest.main()
