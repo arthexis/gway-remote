@@ -19,6 +19,7 @@ OPERATIONS = {
     "result": frozenset({"operation", "node", "request_id", "cursor"}),
     "cancel": frozenset({"operation", "node", "request_id"}),
     "limits": frozenset({"operation", "node", "request_id"}),
+    "repository_deploy": frozenset({"operation", "node", "request_id", "repository", "sha"}),
     "provider_list": frozenset({"operation", "node", "request_id"}),
     "provider_call": frozenset({"operation", "node", "request_id", "provider", "tool", "arguments", "authorized_scope"}),
 }
@@ -42,6 +43,12 @@ def serve_one(raw, *, jobs=None, hostname=None):
     if not re.fullmatch(r"gway-[0-9]+", host) or req["node"] != host:
         raise PermissionError("unapproved node")
     rid = validate_request_id(req["request_id"])
+    if op == "repository_deploy":
+        # Execution is deliberately dormant until an independently audited,
+        # node-owned idempotent wrapper and receipt are provisioned.
+        from .manual_deploy_recipe import repository_installer_argv
+        repository_installer_argv(req["repository"], host, req["sha"])
+        raise PermissionError("node repository deployment not activated")
     if op in ("provider_list", "provider_call"):
         from .mcp_node_providers import dispatch_node_provider_request
         from .mcp_installed_providers import discover_installed_providers
