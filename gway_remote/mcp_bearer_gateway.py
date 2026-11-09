@@ -446,6 +446,17 @@ class Handler(BaseHTTPRequestHandler):
                     selected = self.server.execution.cancel(principal=principal, **args)
                 else:
                     raise ValueError("invalid tool arguments")
+                if (name == "node_exec" and type(selected) is dict
+                        and type(args) is dict
+                        and selected.get("request_id") == args.get("request_id")
+                        and selected.get("node") == args.get("node")
+                        and selected.get("status") == "uncertain"
+                        and selected.get("failure_stage") in (
+                            "ssh_transport", "worker_readiness")):
+                    _EXEC_FAILURES.record(args["request_id"], principal,
+                                          selected["failure_stage"], "failure")
+                    selected = {key: value for key, value in selected.items()
+                                if key != "failure_stage"}
                 result = {"content":[{"type":"text","text":json.dumps(selected,separators=(",",":"))}]}
             except (PermissionError, ValueError, RuntimeError, OSError, TypeError, KeyError) as exc:
                 if name == "node_exec" and type(args) is dict:

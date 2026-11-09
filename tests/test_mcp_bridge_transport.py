@@ -5,7 +5,7 @@ from pathlib import Path
 
 from gway_remote.mcp_bridge_contract import InvalidBridgeRequest
 from gway_remote.mcp_bridge_transport import (
-    AuthenticatedBridge, BridgeUnixServer, call_unix, canonical, sign,
+    AuthenticatedBridge, BridgeUnixServer, call_unix, canonical, sign, sign_reply,
 )
 
 
@@ -58,6 +58,69 @@ class BridgeTransportTests(unittest.TestCase):
                     server.shutdown()
                     thread.join(timeout=3)
 
+
+    def test_signed_reply_round_trip_and_replay_rejection(self):
+        import time
+        self.envelope["issued_at"] = int(time.time())
+        self.envelope["expires_at"] = self.envelope["issued_at"] + 30
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "bridge.sock"
+            with BridgeUnixServer(path, self.bridge) as server:
+                thread = threading.Thread(target=server.serve_forever, daemon=True)
+                thread.start()
+                try:
+                    self.assertEqual(call_unix(path, self.key, self.envelope,
+                                               require_signed_reply=True),
+                                     {"operation": "inventory.list"})
+                    with self.assertRaises(PermissionError):
+                        call_unix(path, self.key, self.envelope,
+                                  require_signed_reply=True)
+                finally:
+                    server.shutdown()
+                    thread.join(timeout=3)
+
+    def test_signed_reply_binds_request_and_body(self):
+        request = sign(self.key, self.envelope)
+        body = {"ok": True, "result": {"status": "unknown"}}
+        signature = sign_reply(self.key, request, body)
+        self.assertNotEqual(signature, sign_reply(self.key, "a" * 64, body))
+        self.assertNotEqual(signature, sign_reply(self.key, request,
+                                                  {"ok": True, "result": {"status": "failure"}}))
+
+    def test_unsigned_and_wrongly_bound_reply_rejected(self):
+        import json
+        from unittest.mock import patch
+        from unittest.mock import MagicMock
+        from gway_remote.mcp_bridge_transport import sign_reply
+
+        for mode in ("valid", "unsigned", "wrong_request", "tampered", "extra"):
+            with self.subTest(mode=mode):
+                body = {"ok": True, "result": {"status": "unknown"}}
+                request_signature = sign(self.key, self.envelope)
+                reply = dict(body)
+                if mode != "unsigned":
+                    reply["reply_signature"] = sign_reply(
+                        self.key, "f" * 64 if mode == "wrong_request" else request_signature,
+                        body)
+                if mode == "tampered":
+                    reply["result"] = {"status": "failure"}
+                if mode == "extra":
+                    reply["unexpected"] = "field"
+                stream = MagicMock()
+                stream.readline.return_value = canonical(reply) + b"\n"
+                sock = MagicMock()
+                sock.__enter__.return_value = sock
+                sock.makefile.return_value.__enter__.return_value = stream
+                with patch("gway_remote.mcp_bridge_transport.socket.socket", return_value=sock):
+                    if mode == "valid":
+                        self.assertEqual(
+                            call_unix("/unused", self.key, self.envelope,
+                                      require_signed_reply=True),
+                            body["result"])
+                    else:
+                        with self.assertRaises((PermissionError, ValueError)):
+                            call_unix("/unused", self.key, self.envelope,
+                                      require_signed_reply=True)
 
     def test_stale_socket_recovers_after_abrupt_process_exit(self):
         import multiprocessing

@@ -35,6 +35,12 @@ def sign(key, envelope):
     return hmac.new(key, canonical(envelope), hashlib.sha256).hexdigest()
 
 
+def sign_reply(key, request_signature, body):
+    """Domain-separated MAC binds a reply to one authenticated request."""
+    return sign(key, {"domain": "gway-bridge-reply-v1",
+                      "request_signature": request_signature, "body": body})
+
+
 class AuthenticatedBridge:
     def __init__(self, key, *, audience, dispatch, sessions=None):
         if not isinstance(key, bytes) or len(key) < 32:
@@ -84,16 +90,33 @@ class _Handler(socketserver.StreamRequestHandler):
         raw = self.rfile.readline(MAX_WIRE + 2)
         if not raw.endswith(b"\n") or len(raw) > MAX_WIRE + 1:
             return
+        request_signature = None
+        try:
+            parsed = json.loads(raw)
+            if type(parsed) is dict and type(parsed.get("signature")) is str:
+                signed = ({"envelope": parsed.get("envelope"),
+                           "session_id": parsed.get("session_id")}
+                          if self.server.bridge.sessions is not None
+                          else parsed.get("envelope"))
+                candidate = parsed["signature"]
+                if len(candidate) == 64 and hmac.compare_digest(
+                        sign(self.server.bridge.key, signed), candidate):
+                    request_signature = candidate
+        except (ValueError, UnicodeError, TypeError):
+            pass
         try:
             result = self.server.bridge.process(raw.strip())
             response = {"ok": True, "result": result}
-            encoded = canonical(response)
-            if len(encoded) > MAX_REPLY:
+            if len(canonical(response)) > MAX_REPLY - 256:
                 raise ValueError("response too large")
         except (InvalidBridgeRequest, ValueError, TypeError, KeyError):
-            encoded = b'{"ok":false,"error":"request_rejected"}'
+            response = {"ok": False, "error": "request_rejected"}
         except Exception:
-            encoded = b'{"ok":false,"error":"bridge_unavailable"}'
+            response = {"ok": False, "error": "bridge_unavailable"}
+        if request_signature is not None and len(request_signature) == 64:
+            response["reply_signature"] = sign_reply(
+                self.server.bridge.key, request_signature, response)
+        encoded = canonical(response)
         self.wfile.write(encoded + b"\n")
 
 
@@ -177,7 +200,7 @@ class BridgeUnixServer(socketserver.ThreadingMixIn, socketserver.UnixStreamServe
                 self._lock_fd = None
 
 
-def call_unix(path, key, envelope, *, timeout=5, session_id=None):
+def call_unix(path, key, envelope, *, timeout=5, session_id=None, require_signed_reply=False):
     if session_id is None:
         payload = canonical({"envelope": envelope, "signature": sign(key, envelope)})
     else:
@@ -194,6 +217,17 @@ def call_unix(path, key, envelope, *, timeout=5, session_id=None):
     if not reply.endswith(b"\n") or len(reply) > MAX_REPLY + 1:
         raise ValueError("invalid bridge response")
     response = json.loads(reply)
-    if type(response) is not dict or response.get("ok") is not True:
+    if type(response) is not dict:
+        raise ValueError("invalid bridge response")
+    if require_signed_reply:
+        if set(response) not in ({"ok", "result", "reply_signature"},
+                                 {"ok", "error", "reply_signature"}):
+            raise ValueError("invalid signed response")
+        signature = response.get("reply_signature")
+        body = {k: v for k, v in response.items() if k != "reply_signature"}
+        expected = sign_reply(key, json.loads(payload)["signature"], body)
+        if type(signature) is not str or not hmac.compare_digest(signature, expected):
+            raise PermissionError("unauthenticated bridge response")
+    if response.get("ok") is not True:
         raise PermissionError("bridge request denied")
     return response["result"]

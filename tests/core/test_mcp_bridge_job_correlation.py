@@ -8,7 +8,8 @@ from gway_remote.mcp_bridge_gateway_dispatch import dispatch_node_tool
 class BridgeJobCorrelationTests(unittest.TestCase):
     def call(self, arguments):
         with patch("gway_remote.mcp_bridge_gateway_dispatch.call_unix") as send:
-            send.return_value = {"status": "unknown"}
+            send.return_value = {"status": "unknown", "node": "gway-002",
+                                 "request_id": arguments["request_id"]}
             result = dispatch_node_tool(
                 socket_path="/unused", key=b"k" * 32, session_id="s" * 48,
                 audience="gway-002", principal="p" * 24,

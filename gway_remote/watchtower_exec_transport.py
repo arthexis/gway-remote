@@ -234,6 +234,12 @@ class PinnedNode:
             raise ValueError("host key fingerprint mismatch")
 
 
+class SSHTransportFailure(OSError):
+    """Typed transport failure; delivery of a submit remains uncertain."""
+
+    stage = "ssh_transport"
+
+
 class SSHTransport:
     """No shell command from clients is included in SSH argv or host selection."""
 
@@ -268,7 +274,11 @@ class SSHTransport:
                 "-i",str(self.node.identity_file),
                 "-l",self.node.remote_user,
                 self.node.wireguard_address, "gway-exec-protocol-v1"]
-        completed = self._run(argv,input=raw,capture_output=True,timeout=15,check=True)
+        try:
+            completed = self._run(argv,input=raw,capture_output=True,timeout=15,check=True)
+        except OSError:
+            # Local SSH invocation failed; never classify a remote exit code.
+            raise SSHTransportFailure("ssh transport unavailable") from None
         if len(completed.stdout) > 131072:
             raise ValueError("node response exceeds limit")
         result = json.loads(completed.stdout)
@@ -331,9 +341,18 @@ class DormantRelay:
         try:
             response = self.transport.invoke({"operation":"submit","node":row["node"],
                                                "request_id":request_id,"command":row["command"]})
+        except SSHTransportFailure:
+            self.ledger.mark_dispatched(request_id, confirmed=False)
+            return {"status": "uncertain", "failure_stage": "ssh_transport"}
         except (OSError, ValueError, subprocess.SubprocessError):
             self.ledger.mark_dispatched(request_id, confirmed=False)
             return "uncertain"
+        if (type(response) is dict and response.get("node") == row["node"]
+                and response.get("request_id") == request_id
+                and response.get("status") == "rejected"
+                and response.get("failure_stage") == "worker_readiness"):
+            self.ledger.mark_dispatched(request_id, confirmed=False)
+            return {"status": "uncertain", "failure_stage": "worker_readiness"}
         if response.get("status") not in {"accepted","queued","running","succeeded"}:
             self.ledger.mark_dispatched(request_id, confirmed=False)
             return "uncertain"

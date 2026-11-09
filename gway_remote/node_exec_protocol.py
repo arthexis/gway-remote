@@ -63,7 +63,15 @@ def serve_one(raw, *, jobs=None, hostname=None):
         jobs = Jobs()
     if op == "submit":
         validate_command(host, req["command"])
-        jobs.submit(host, req["command"], request_id=rid)
+        try:
+            jobs.submit(host, req["command"], request_id=rid)
+        except RuntimeError as exc:
+            # Only an exact, locally proven worker-readiness condition is typed.
+            # Never send exception text, commands or host configuration.
+            if str(exc) == "executor user manager unavailable":
+                return {"node": host, "request_id": rid, "status": "rejected",
+                        "failure_stage": "worker_readiness"}
+            raise
         return {"node": host, "request_id": rid, "status": "accepted"}
     if op == "result":
         cursor = req["cursor"]
