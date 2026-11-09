@@ -7,6 +7,7 @@ import json
 import re
 import secrets
 import sqlite3
+import subprocess
 
 from .node_exec_contract import validate_command
 from .node_exec_worker import validate_request_id
