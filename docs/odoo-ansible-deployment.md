@@ -81,3 +81,24 @@ A deployment is not eligible merely because the Watchtower registry exists.
 The node must independently validate its protected registration, fixed
 entrypoint, node identity and installed release. The old Odoo systemd
 unit must not be restored. PR #538 remains independent and read-only.
+
+
+### Actual Odoo deploy.sh contract audited (PR #539)
+
+Odoo `deploy.sh` **takes zero arguments**, refuses UID 0, requires
+`ansible-playbook`, uses a per-operator flock and insists on a clean
+`main` checkout for the healthy fast path. It invokes
+`ansible/deploy.yml` as the invoking operator; that playbook owns the
+privileged release installation. The release installer is
+`scripts/deploy-cli.py`; its `is-installed --revision SHA` checks active
+release integrity, not merely the checkout revision. A generic root
+wrapper passing SHA to `deploy.sh` would be incorrect.
+
+`scripts/gway-repository-deploy-odoo-gelectriic.py` is an **uninstalled**
+non-root adapter. It checks exact checkout SHA, clean main and fixed
+`deploy.sh`, invokes it without arguments, then requires
+`deploy-cli.py is-installed --revision SHA`. The checkout path in this
+pilot is a design placeholder; no production path is asserted. Ansible
+provisioning and authenticated operator binding are not yet approved.
+This adapter does not publish an installed receipt or authorize a remote
+request. Its output is not a substitute for independent release proof.
