@@ -496,7 +496,8 @@ class Handler(BaseHTTPRequestHandler):
                 # Do not return exception messages: they can contain paths or credentials.
                 # WorkspaceUnavailable is a trusted local error with a fixed code.
                 from .mcp_workspace_inspect import WorkspaceUnavailable
-                code = (exc.code if isinstance(exc, WorkspaceUnavailable)
+                from .mcp_bridge_transport import BridgeReadUnavailable
+                code = (exc.code if isinstance(exc, (WorkspaceUnavailable, BridgeReadUnavailable))
                         else "deployment_preview_unavailable" if payload["params"]["name"] == "node_deploy_preview"
                         else "workspace_inspection_unavailable" if payload["params"]["name"] == "workspace_inspect"
                         else "node_inventory_unavailable")
