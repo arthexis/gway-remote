@@ -1,18 +1,40 @@
 """Offline node deployment ledger tests: no SSH or installer execution."""
 import json
+import hashlib
+import stat
 import os
 import tempfile
 import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from gway_remote.repository_deploy_node import NodeDeploymentLedger
+from gway_remote.repository_deploy_node import NodeDeploymentLedger, publish_installed_receipt
 
 SHA = "a" * 40
 RID = "b" * 32
 
 
 class NodeLedgerTests(unittest.TestCase):
+    def test_atomic_receipt_and_digest(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            manifest = Path(tmp) / "manifest.json"
+            receipt = Path(tmp) / "installed.json"
+            manifest.write_text('{"release":"verified"}')
+            actual_lstat = Path.lstat
+            def trusted_lstat(path):
+                info = actual_lstat(path)
+                return type("Info", (), {"st_mode": info.st_mode,
+                                        "st_uid": 0})()
+            with patch.object(Path, "lstat", trusted_lstat):
+                row = publish_installed_receipt(
+                    receipt, repository="arthexis/odoo-gelectriic",
+                    node="gway-001", sha=SHA, manifest_path=manifest)
+            self.assertEqual(row["manifest_sha256"],
+                             hashlib.sha256(manifest.read_bytes()).hexdigest())
+            self.assertEqual(json.loads(receipt.read_text()), row)
+            self.assertEqual(stat.S_IMODE(receipt.stat().st_mode), 0o600)
+            self.assertFalse(list(Path(tmp).glob(".installed-*")))
+
     def test_idempotent_reservation_and_no_rebinding(self):
         with tempfile.TemporaryDirectory() as tmp:
             os.chmod(tmp, 0o700)
