@@ -83,6 +83,18 @@ class BrokerTests(unittest.TestCase):
                                 self.assertEqual(result["status"], "uncertain")
                                 pinned.invoke.assert_called_once()
 
+    def test_unattested_node_cannot_reserve_or_dispatch(self):
+        from unittest.mock import patch
+        with patch.object(self.service, "_allow", return_value=None):
+            with patch.object(self.service, "_current_eligibility",
+                              side_effect=PermissionError("identity not attested")):
+                with patch.object(self.service, "ledger") as ledger:
+                    with self.assertRaises(PermissionError):
+                        self.service.deployment(principal="a"*24, request_id="b"*32,
+                                                node="gway-001", application="agentops")
+                    ledger.reserve_deployment.assert_not_called()
+                    ledger.claim_dispatch.assert_not_called()
+
     def test_negative_targets(self):
         for app in ("../bad", "agentops;id", ""):
             with self.assertRaises(ValueError):
