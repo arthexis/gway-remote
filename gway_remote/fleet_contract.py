@@ -104,6 +104,8 @@ def collect_authenticated(inventory, federation, *, now=None):
         raise ValueError("invalid inventory")
     if len(inventory["nodes"]) > MAX_NODES:
         raise ValueError("too many nodes")
+    # Validate the authoritative inventory before any network dispatch.
+    project(inventory, now=now)
     for row in inventory["nodes"]:
         if type(row) is not dict or row.get("identity_verified") is not True:
             continue
