@@ -31,6 +31,13 @@ class FailureReceiptsTests(unittest.TestCase):
         self.assertFalse(self.receipts.record(self.request, "owner", "password=secret"))
         self.assertEqual(self.receipts.inspect(self.request, "owner")["status"], "unknown")
 
+    def test_bounded_storage_evicts_oldest_receipt(self):
+        for n in range(513):
+            self.assertTrue(self.receipts.record(f"{n:032x}", "owner", "bridge_dispatch"))
+        self.assertEqual(len(self.receipts._rows), 512)
+        self.assertEqual(self.receipts.inspect(f"{0:032x}", "owner")["status"], "unknown")
+        self.assertEqual(self.receipts.inspect(f"{512:032x}", "owner")["status"], "failure")
+
     def test_stage_marker_only_accepts_known_origin(self):
         self.assertEqual(ExecutionStageError("pinned_transport").stage, "pinned_transport")
         with self.assertRaises(ValueError):
