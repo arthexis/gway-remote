@@ -3,7 +3,7 @@ import pytest
 from gway_remote.fleet_contract import project
 
 NOW = datetime(2026, 11, 9, tzinfo=timezone.utc)
-INV = {"source": "watchtower-enrollment-ledger", "nodes": [
+INV = {"source": "watchtower-enrollment-ledger", "generated_at": NOW.isoformat(), "nodes": [
     {"node": "gway-001", "identity_verified": True, "reachable": "unknown"}]}
 
 
