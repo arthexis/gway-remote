@@ -106,6 +106,42 @@ class ExecuteScopeChallengeTests(unittest.TestCase):
                     gateway.shutdown()
                     thread.join(timeout=3)
 
+    def test_opaque_bridge_failure_does_not_poison_diagnostic(self):
+        with tempfile.TemporaryDirectory() as home:
+            registry = BearerRegistry(Path(home) / "tokens.db")
+            token = registry.issue(scope="gway:execute", operator_approved=True)
+            executor = Mock()
+            executor.exec.side_effect = PermissionError("opaque backend")
+            with make_server(("127.0.0.1", 0), BearerVerifier(registry.path),
+                             "http://127.0.0.1:19011/mcp", "backend-secret",
+                             execution=executor) as gateway:
+                thread = threading.Thread(target=gateway.serve_forever, daemon=True)
+                thread.start()
+                try:
+                    endpoint = "http://127.0.0.1:%d/mcp" % gateway.server_port
+
+                    def call(tool, args):
+                        body = json.dumps({"jsonrpc": "2.0", "id": 1,
+                            "method": "tools/call", "params": {
+                                "name": tool, "arguments": args}}).encode()
+                        req = Request(endpoint, body, {
+                            "Authorization": "Bearer " + token,
+                            "Content-Type": "application/json"}, method="POST")
+                        with urlopen(req, timeout=3) as response:
+                            return json.loads(response.read())["result"]
+
+                    rid = "c" * 32
+                    self.assertTrue(call("node_exec", {
+                        "node": "gway-001", "command": "hostname",
+                        "request_id": rid})["isError"])
+                    receipt = call("node_exec_diagnostic", {"request_id": rid})
+                    self.assertEqual(json.loads(receipt["content"][0]["text"]),
+                                     {"request_id": rid, "status": "unknown"})
+                    executor.exec.assert_called_once()
+                finally:
+                    gateway.shutdown()
+                    thread.join(timeout=3)
+
     def test_read_bearer_receives_execute_scope_challenge_without_dispatch(self):
         with tempfile.TemporaryDirectory() as home:
             registry = BearerRegistry(Path(home) / "tokens.db")
