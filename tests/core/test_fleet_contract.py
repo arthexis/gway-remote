@@ -61,6 +61,26 @@ class TestFleetContract(unittest.TestCase):
         row = collect_authenticated(inventory, Federation(), now=NOW)["nodes"][0]
         self.assertFalse(row["hardware"]["available"])
 
+    def test_oversized_utf8_and_wrong_schema_are_unavailable(self):
+        class Federation:
+            def discover(self):
+                return [], {
+                    "diagnostics__hardware": ("gway-001", "diagnostics", "hardware", "read"),
+                    "diagnostics__status": ("gway-001", "diagnostics", "status", "read")}
+            def call(self, name, arguments, *, authorized_scope):
+                self.assertion = (arguments == {} and authorized_scope == "read")
+                if name.endswith("hardware"):
+                    return {"schema": "gway-remote/hardware/v1",
+                            "checked_at": NOW.isoformat(),
+                            "host": {"model": "界" * 30000}}
+                return {"schema": "untrusted/status", "checked_at": NOW.isoformat(),
+                        "components": [{"name": "fake", "health": "healthy"}]}
+        federation = Federation()
+        row = collect_authenticated(INV, federation, now=NOW)["nodes"][0]
+        self.assertTrue(federation.assertion)
+        self.assertFalse(row["hardware"]["available"])
+        self.assertFalse(row["services"]["available"])
+
     def test_unattested_observations_are_denied(self):
         inventory = {**INV, "nodes": [{**INV["nodes"][0], "identity_verified": False}]}
         result = project(inventory, {"gway-001": {"hardware": {"schema": "gway-remote/hardware/v1", "checked_at": NOW.isoformat(), "host": {"cpu_temperature_c": 52}}}}, now=NOW)
