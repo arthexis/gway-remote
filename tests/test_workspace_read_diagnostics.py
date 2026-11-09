@@ -21,7 +21,7 @@ class WorkspaceReadDiagnosticsTests(unittest.TestCase):
         fake_stream.readline.return_value = (
             json.dumps({"ok": False, "error": "read_unavailable",
                         "code": "workspace_not_configured",
-                        "reply_signature": "0" * 64}).encode() + b"\\n"
+                        "reply_signature": "0" * 64}).encode() + b"\n"
         )
         fake_socket.makefile.return_value = fake_stream
         with patch("gway_remote.mcp_bridge_transport.socket.socket",
