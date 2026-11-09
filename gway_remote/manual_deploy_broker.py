@@ -122,3 +122,24 @@ class DeploymentReceipts:
             if row is None or row["principal"] != principal:
                 raise PermissionError("deployment receipt not accessible")
             return dict(row)
+
+
+def prepare_repository_owned_deploy(*, repository, node, revision, request_id,
+                                    principal, inventory, resolve_sha, receipts,
+                                    registry=None):
+    """Authorize, bind and reserve a deployment without executing it.
+
+    The caller must supply a trusted enrolled-node inventory and SHA resolver.
+    The local registry is checked only as a *preview*; a node-side dispatcher
+    must independently revalidate the installed recipe before any execution.
+    """
+    from .manual_deploy_recipe import repository_installer_preview, REGISTRY
+    approved = authorize_deploy(repository, node, revision,
+                                inventory=inventory, resolve_sha=resolve_sha)
+    preview = repository_installer_preview(
+        repository, node, approved["sha"],
+        registry=REGISTRY if registry is None else registry)
+    record = receipts.reserve(request_id, principal, approved)
+    return {"request_id": request_id, "node": node, "repository": repository,
+            "sha": approved["sha"], "status": record["state"],
+            "recipe": preview["entrypoint"], "dispatched": False}
