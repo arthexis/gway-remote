@@ -6,7 +6,9 @@ and use this ledger before calling the fixed repository installer.
 from __future__ import annotations
 
 import json
+import hashlib
 import os
+import tempfile
 from pathlib import Path
 import re
 import sqlite3
@@ -106,4 +108,49 @@ def verify_installed_receipt(path, *, repository, node, sha, digest):
         raise PermissionError("installed receipt mismatch")
     if not re.fullmatch(r"[0-9a-f]{64}\Z", digest):
         raise ValueError("invalid manifest digest")
+    return record
+
+
+def publish_installed_receipt(path, *, repository, node, sha, manifest_path):
+    """Atomically publish a release receipt only after reading its manifest.
+
+    This is a local helper, NOT proof of the active release symlink.
+    The caller must separately verify active release identity and that the
+    manifest is produced by the repository-owned installer.
+    """
+    path = Path(path)
+    manifest_path = Path(manifest_path)
+    if type(sha) is not str or not _SHA.fullmatch(sha):
+        raise ValueError("immutable SHA required")
+    if repository != "arthexis/odoo-gelectriic" or node != "gway-001":
+        raise PermissionError("unapproved installed receipt target")
+    for candidate in (path.parent, manifest_path, *manifest_path.parents):
+        info = candidate.lstat()
+        if info.st_uid != 0 or info.st_mode & 0o022 or stat.S_ISLNK(info.st_mode):
+            raise PermissionError("unsafe receipt or manifest location")
+    if not stat.S_ISREG(manifest_path.lstat().st_mode):
+        raise PermissionError("manifest is not a regular file")
+    digest = hashlib.sha256(manifest_path.read_bytes()).hexdigest()
+    record = {"repository": repository, "node": node, "sha": sha,
+              "manifest_sha256": digest}
+    encoded = (json.dumps(record, sort_keys=True, separators=(",", ":")) + "\n").encode()
+    temp = None
+    try:
+        fd, name = tempfile.mkstemp(prefix=".installed-", dir=path.parent)
+        temp = Path(name)
+        with os.fdopen(fd, "wb") as stream:
+            stream.write(encoded)
+            stream.flush()
+            os.fsync(stream.fileno())
+        os.chmod(temp, 0o600)
+        os.replace(temp, path)
+        temp = None
+        directory_fd = os.open(path.parent, os.O_RDONLY | os.O_DIRECTORY)
+        try:
+            os.fsync(directory_fd)
+        finally:
+            os.close(directory_fd)
+    finally:
+        if temp is not None:
+            temp.unlink(missing_ok=True)
     return record
