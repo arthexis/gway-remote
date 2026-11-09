@@ -34,6 +34,21 @@ class AsyncDeploymentTests(unittest.TestCase):
                 broker.request_status("other", "b" * 32, state_dir=state,
                                       resolve=lambda _: declaration)
 
+    def test_partial_claim_is_never_replayed(self):
+        with tempfile.TemporaryDirectory() as root:
+            state = Path(root)
+            os.chmod(state, 0o700)
+            runner = state / "deploy.sh"
+            runner.write_text("#!/bin/sh\\nexit 0\\n")
+            runner.chmod(0o700)
+            declaration = {"checkout": str(state), "runner": str(runner),
+                           "revision": "a"*40}
+            (state / ("request-" + "2"*32 + ".json")).write_text("{")
+            with patch.object(broker.subprocess, "Popen", side_effect=AssertionError("redispatched")):
+                receipt = broker.accept("sample", "2"*32, state_dir=state,
+                                        resolve=lambda _: declaration)
+            self.assertEqual(receipt["state"], "uncertain")
+
     def test_manifest_change_after_acceptance_fails_closed(self):
         with tempfile.TemporaryDirectory() as root:
             state = Path(root)
