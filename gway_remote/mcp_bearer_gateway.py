@@ -499,7 +499,11 @@ class Handler(BaseHTTPRequestHandler):
                     else:
                         from . import node_registry_inventory
                         inventory = node_registry_inventory.public_nodes(execution_enabled=False)
-                    selected = project(inventory)
+                    if self.server.federation is not None:
+                        from .fleet_contract import collect_authenticated
+                        selected = collect_authenticated(inventory, self.server.federation)
+                    else:
+                        selected = project(inventory)
                 elif self.server.bridge_transport is not None:
                     selected = self._bridge_node_tool(
                         payload["params"]["name"], arguments, token)
