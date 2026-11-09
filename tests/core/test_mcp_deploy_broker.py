@@ -118,6 +118,30 @@ class BrokerTests(unittest.TestCase):
                             self.assertEqual(duplicate["status"], "uncertain")
                             pinned.invoke.assert_called_once()
 
+    def test_wrong_pinned_revision_ack_is_uncertain(self):
+        from unittest.mock import patch, Mock
+        with patch.object(self.service, "_allow", return_value=None):
+            with patch.object(self.service, "_current_eligibility", return_value=None):
+                with patch.object(self.service, "deployment_preview",
+                                  return_value={"status": "eligible", "revision": "a"*40}):
+                    with patch.object(self.service, "ledger") as ledger:
+                        ledger.get.side_effect = ValueError("request not found")
+                        ledger.claim_dispatch.return_value = True
+                        pinned = Pinned()
+                        pinned.invoke = Mock(return_value={
+                            "node": "gway-001", "request_id": "b"*32,
+                            "result": {"application": "agentops", "request_id": "b"*32,
+                                       "revision": "f"*40, "state": "accepted"}})
+                        with patch("gway_remote.watchtower_exec_auth.pinned_transport",
+                                   return_value=pinned):
+                            result = self.service.deployment(
+                                principal="a"*24, request_id="b"*32,
+                                node="gway-001", application="agentops")
+                            self.assertEqual(result["status"], "uncertain")
+                            ledger.mark_dispatched.assert_called_once_with(
+                                "b"*32, confirmed=False)
+                            pinned.invoke.assert_called_once()
+
     def test_unattested_node_cannot_reserve_or_dispatch(self):
         from unittest.mock import patch
         with patch.object(self.service, "_allow", return_value=None):
