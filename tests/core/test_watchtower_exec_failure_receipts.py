@@ -1,5 +1,6 @@
 """Execution failure receipts are bounded, principal-scoped and sanitized."""
 import unittest
+from concurrent.futures import ThreadPoolExecutor
 
 from gway_remote.watchtower_exec_failure_receipts import FailureReceipts, ExecutionStageError
 
@@ -29,6 +30,16 @@ class FailureReceiptsTests(unittest.TestCase):
         self.assertEqual(self.receipts.inspect(self.request, "owner")["stage"], "pinned_transport")
         self.now[0] += 51
         self.assertEqual(self.receipts.inspect(self.request, "owner")["status"], "unknown")
+
+    def test_concurrent_writers_cannot_replace_first_receipt(self):
+        def attempt(index):
+            return self.receipts.record(self.request, "owner",
+                                        "pinned_transport" if index % 2 else "current_eligibility")
+        with ThreadPoolExecutor(max_workers=16) as pool:
+            outcomes = list(pool.map(attempt, range(64)))
+        self.assertEqual(sum(outcomes), 1)
+        self.assertEqual(len(self.receipts._rows), 1)
+        self.assertEqual(self.receipts.inspect(self.request, "owner")["status"], "failure")
 
     def test_expiry_is_unknown_not_success(self):
         self.receipts.record(self.request, "owner", "ssh_transport")
