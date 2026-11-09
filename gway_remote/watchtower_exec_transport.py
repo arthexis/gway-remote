@@ -300,6 +300,8 @@ class SSHTransport:
                   "deployment_run":{"operation","node","request_id","application","expected_revision"}}
         if set(payload) != fields[payload["operation"]]:
             raise ValueError("unexpected transport arguments")
+        if payload["operation"] == "deployment_run" and (type(payload["expected_revision"]) is not str or not re.fullmatch(r"[0-9a-f]{40}", payload["expected_revision"])):
+            raise ValueError("invalid expected deployment revision")
         if payload.get("node") != self.node.node:
             raise ValueError("wrong pinned node")
         validate_request_id(payload.get("request_id"))
