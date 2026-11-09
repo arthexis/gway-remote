@@ -19,6 +19,7 @@ OPERATIONS = {
     "result": frozenset({"operation", "node", "request_id", "cursor"}),
     "cancel": frozenset({"operation", "node", "request_id"}),
     "limits": frozenset({"operation", "node", "request_id"}),
+    "workspace_inspect": frozenset({"operation", "node", "request_id", "repository"}),
     "provider_list": frozenset({"operation", "node", "request_id"}),
     "provider_call": frozenset({"operation", "node", "request_id", "provider", "tool", "arguments", "authorized_scope"}),
 }
@@ -42,6 +43,12 @@ def serve_one(raw, *, jobs=None, hostname=None):
     if not re.fullmatch(r"gway-[0-9]+", host) or req["node"] != host:
         raise PermissionError("unapproved node")
     rid = validate_request_id(req["request_id"])
+    if op == "workspace_inspect":
+        # The trusted node's local, operator-configured allowlist is the only
+        # authority for checkout paths. Requesters cannot pass a filesystem path.
+        from .mcp_workspace_inspect import inspect_authorized
+        result = inspect_authorized({"node": host, "repository": req["repository"]})
+        return {"node": host, "request_id": rid, "result": result}
     if op in ("provider_list", "provider_call"):
         from .mcp_node_providers import dispatch_node_provider_request
         from .mcp_installed_providers import discover_installed_providers
