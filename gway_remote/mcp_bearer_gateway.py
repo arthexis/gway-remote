@@ -492,9 +492,17 @@ class Handler(BaseHTTPRequestHandler):
                 else:
                     selected = local_node_result(payload["params"]["name"], arguments, execution=self.server.execution)
                 result = {"content": [{"type": "text", "text": json.dumps(selected, separators=(",", ":"))}]}
-            except (OSError, ValueError, PermissionError, KeyError, TypeError, json.JSONDecodeError):
-                result = {"content": [{"type": "text", "text": "Node inventory or deployment preview unavailable"}],
-                          "isError": True}
+            except (OSError, ValueError, PermissionError, KeyError, TypeError, json.JSONDecodeError) as exc:
+                # Do not return exception messages: they can contain paths or credentials.
+                # WorkspaceUnavailable is a trusted local error with a fixed code.
+                from .mcp_workspace_inspect import WorkspaceUnavailable
+                code = (exc.code if isinstance(exc, WorkspaceUnavailable)
+                        else "deployment_preview_unavailable" if payload["params"]["name"] == "node_deploy_preview"
+                        else "workspace_inspection_unavailable" if payload["params"]["name"] == "workspace_inspect"
+                        else "node_inventory_unavailable")
+                result = {"content": [{"type": "text", "text": json.dumps({
+                    "error": "Node inventory or deployment preview unavailable",
+                    "code": code}, separators=(",", ":"))}], "isError": True}
             if version == "2026-07-28":
                 result = {"resultType": "complete", **result}
             body = json.dumps({"jsonrpc": "2.0", "id": payload.get("id"), "result": result},
