@@ -1,7 +1,7 @@
 """Execution failure receipts are bounded, principal-scoped and sanitized."""
 import unittest
 
-from gway_remote.watchtower_exec_failure_receipts import FailureReceipts
+from gway_remote.watchtower_exec_failure_receipts import FailureReceipts, ExecutionStageError
 
 
 class FailureReceiptsTests(unittest.TestCase):
@@ -25,6 +25,11 @@ class FailureReceiptsTests(unittest.TestCase):
     def test_no_arbitrary_stage_or_secret_payload(self):
         self.assertFalse(self.receipts.record(self.request, "owner", "password=secret"))
         self.assertEqual(self.receipts.inspect(self.request, "owner")["status"], "unknown")
+
+    def test_stage_marker_only_accepts_known_origin(self):
+        self.assertEqual(ExecutionStageError("pinned_transport").stage, "pinned_transport")
+        with self.assertRaises(ValueError):
+            ExecutionStageError("ssh_password")
 
     def test_invalid_request_id_fails_closed(self):
         with self.assertRaises(ValueError):
