@@ -15,7 +15,7 @@ def validate_deployment(value):
         raise ValueError("invalid deployment declaration")
     if type(value["schema"]) is not int or value["schema"] != 1:
         raise ValueError("unsupported deployment schema")
-    if type(value["run_as"]) is not str or not _NAME.fullmatch(value["run_as"]):
+    if type(value["run_as"]) is not str or not _NAME.fullmatch(value["run_as"]) or value["run_as"] == "root":
         raise ValueError("invalid deployment identity")
     if type(value["revision"]) is not str or not _SHA.fullmatch(value["revision"]):
         raise ValueError("deployment revision must be pinned")
