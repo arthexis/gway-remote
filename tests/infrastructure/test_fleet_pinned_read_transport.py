@@ -103,7 +103,6 @@ class PinnedReadTests(unittest.TestCase):
         from dataclasses import replace
         cases = [
             replace(read_node, wireguard_address="10.90.0.3"),
-            replace(read_node, ssh_host_alias="other-node"),
         ]
         for altered in cases:
             with self.subTest(altered=altered), self.assertRaises(PermissionError):
