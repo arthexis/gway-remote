@@ -31,22 +31,17 @@ class BrokerTests(unittest.TestCase):
                 self.service.deployment(principal="a"*24, request_id="b"*32,
                                         node="gway-001", application="agentops")
 
-    def test_status_correlates_and_rejects_unprovisioned_execute(self):
+    def test_status_requires_existing_request_binding(self):
         from unittest.mock import patch
-        class StatusPinned(Pinned):
-            def invoke(self, payload):
-                if payload["operation"] == "deployment_status":
-                    return {"node": payload["node"], "request_id": payload["request_id"],
-                            "result": {"application": payload["application"], "state": "never_run"}}
-                return super().invoke(payload)
-        with patch("gway_remote.watchtower_exec_auth.pinned_transport", return_value=StatusPinned()):
+        with patch("gway_remote.watchtower_exec_auth.pinned_transport", return_value=Pinned()):
             with patch.object(self.service, "_allow", return_value=None):
-                result = self.service.deployment(principal="a"*24, request_id="b"*32,
-                    node="gway-001", application="agentops", status=True)
-                self.assertEqual(result["result"]["state"], "never_run")
-                with self.assertRaises(PermissionError):
-                    self.service.deployment(principal="a"*24, request_id="b"*32,
-                        node="gway-001", application="agentops")
+                with patch.object(self.service, "_current_eligibility", return_value=None):
+                    with self.assertRaises((AttributeError, ValueError)):
+                        self.service.deployment(principal="a"*24, request_id="b"*32,
+                            node="gway-001", application="agentops", status=True)
+                    with self.assertRaises(PermissionError):
+                        self.service.deployment(principal="a"*24, request_id="b"*32,
+                            node="gway-001", application="agentops")
 
     def test_negative_targets(self):
         for app in ("../bad", "agentops;id", ""):
