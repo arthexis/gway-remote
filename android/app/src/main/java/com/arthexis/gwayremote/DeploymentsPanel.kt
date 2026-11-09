@@ -37,6 +37,21 @@ fun DeploymentsPanel(endpoint: String, token: String) {
         Text("GWAY Remote server (automatic)", style = MaterialTheme.typography.labelLarge)
         Text("Updated: " + (controller?.optString("last_successful_update")?.takeIf { it.isNotBlank() && it != "null" } ?: "Unknown"))
         Text("Revision: " + (controller?.optString("installed_sha")?.takeIf { it.isNotBlank() && it != "null" }?.take(12) ?: "Unknown"))
+        val entries = overview?.optJSONArray("targets")
+        if (entries != null) for (index in 0 until entries.length()) {
+            val entry = entries.optJSONObject(index) ?: continue
+            val name = entry.optString("name")
+            val state = entry.optString("release_state")
+            val staged = entry.optString("staged_sha")
+            val installed = entry.optString("installed_sha")
+            val description = if (name == "gway-bastion" && state == "staged" &&
+                staged.matches(Regex("[0-9a-f]{40}")) && (installed.isBlank() || installed == "null")) {
+                "Staged " + staged.take(12) + " · Not activated"
+            } else {
+                "Installed: " + installed.takeIf { it.isNotBlank() && it != "null" }?.take(12).orEmpty().ifBlank { "Unknown" }
+            }
+            Text(name + " · " + description, style = MaterialTheme.typography.bodySmall)
+        }
         ExposedDropdownMenuBox(expanded = expanded, onExpandedChange = { expanded = it }) {
             OutlinedTextField(value = selected, onValueChange = {}, readOnly = true,
                 label = { Text("Repository") }, trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded) },
