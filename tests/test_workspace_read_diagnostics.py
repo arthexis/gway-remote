@@ -6,7 +6,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 from gway_remote.mcp_workspace_inspect import WorkspaceUnavailable, inspect_authorized
-from gway_remote.mcp_bridge_transport import BridgeReadUnavailable, AuthenticatedBridge, sign_reply
+from gway_remote.mcp_bridge_transport import BridgeReadUnavailable
 
 
 class WorkspaceReadDiagnosticsTests(unittest.TestCase):
