@@ -270,8 +270,7 @@ def accept(application, request_id, *, state_dir=STATE_DIR,
               stderr=subprocess.DEVNULL, close_fds=True,
               start_new_session=True,
               env={"PATH": "/usr/local/bin:/usr/bin:/bin",
-                   "HOME": pwd.getpwuid(os.geteuid()).pw_dir,
-                   "PYTHONPATH": os.environ.get("PYTHONPATH", "")})
+                   "HOME": pwd.getpwuid(os.geteuid()).pw_dir})
     except OSError:
         receipt["state"] = "uncertain"
         _write_receipt(path, receipt)
