@@ -10,6 +10,8 @@ import json
 import os
 from pathlib import Path
 import pwd
+import sys
+import re
 import stat
 import subprocess
 import tempfile
@@ -146,12 +148,129 @@ def run(application, *, state_dir=STATE_DIR, resolve=resolve_deployment, invoke=
         os.close(fd)
 
 
+
+_REQUEST_ID = re.compile(r"[0-9a-f]{32}")
+
+
+def _request_path(request_id, state_dir):
+    if type(request_id) is not str or not _REQUEST_ID.fullmatch(request_id):
+        raise ValueError("invalid deployment request ID")
+    return state_dir / ("request-" + request_id + ".json")
+
+
+def _private_state(state_dir):
+    _trusted(state_dir, directory=True)
+    info = state_dir.stat()
+    if info.st_uid != os.geteuid() or info.st_mode & 0o077:
+        raise PermissionError("deployment state directory must be private")
+
+
+def request_status(application, request_id, *, state_dir=STATE_DIR,
+                   resolve=resolve_deployment):
+    resolve(application)
+    _private_state(state_dir)
+    path = _request_path(request_id, state_dir)
+    if path.is_symlink():
+        raise PermissionError("symlink request receipt denied")
+    if not path.exists():
+        raise ValueError("deployment request not found")
+    _trusted(path)
+    if path.stat().st_uid != os.geteuid() or path.stat().st_mode & 0o077:
+        raise PermissionError("untrusted request receipt")
+    with path.open(encoding="utf-8") as stream:
+        result = json.load(stream)
+    if (type(result) is not dict or result.get("application") != application
+            or result.get("request_id") != request_id
+            or result.get("state") not in
+            {"accepted", "running", "succeeded", "failed", "uncertain"}):
+        raise PermissionError("deployment request binding mismatch")
+    return result
+
+
+def accept(application, request_id, *, state_dir=STATE_DIR,
+           resolve=resolve_deployment, spawn=subprocess.Popen):
+    """Durably claim a request before launching a detached, unprivileged worker.
+
+    No retry of an existing ID ever starts another process. An interrupted
+    accepted/running request remains uncertain, not implicitly successful.
+    """
+    declaration = _eligible(application, resolve=resolve)
+    _private_state(state_dir)
+    path = _request_path(request_id, state_dir)
+    if path.is_symlink():
+        raise PermissionError("symlink request receipt denied")
+    try:
+        fd = os.open(path, os.O_CREAT | os.O_EXCL | os.O_WRONLY | os.O_NOFOLLOW, 0o600)
+    except FileExistsError:
+        existing = request_status(application, request_id, state_dir=state_dir,
+                                  resolve=resolve)
+        if existing["revision"] != declaration["revision"]:
+            raise PermissionError("request bound to another deployment revision")
+        return existing
+    receipt = {"application": application, "request_id": request_id,
+               "revision": declaration["revision"], "state": "accepted",
+               "started_at": datetime.now(timezone.utc).isoformat()}
+    try:
+        with os.fdopen(fd, "w") as stream:
+            json.dump(receipt, stream, sort_keys=True)
+            stream.flush()
+            os.fsync(stream.fileno())
+        dirfd = os.open(state_dir, os.O_RDONLY | os.O_DIRECTORY)
+        try:
+            os.fsync(dirfd)
+        finally:
+            os.close(dirfd)
+    except BaseException:
+        # Fail closed: the claimed ID is never automatically dispatched again.
+        raise
+    try:
+        spawn([sys.executable, "-m", "gway_remote.mcp_deployment_broker",
+               "worker", application, request_id],
+              stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+              stderr=subprocess.DEVNULL, close_fds=True,
+              start_new_session=True,
+              env={"PATH": "/usr/local/bin:/usr/bin:/bin",
+                   "HOME": pwd.getpwuid(os.geteuid()).pw_dir,
+                   "PYTHONPATH": os.environ.get("PYTHONPATH", "")})
+    except OSError:
+        receipt["state"] = "uncertain"
+        _write_receipt(path, receipt)
+    return receipt
+
+
+def worker(application, request_id, *, state_dir=STATE_DIR,
+           resolve=resolve_deployment):
+    """Detached worker; never re-launches another request."""
+    receipt = request_status(application, request_id, state_dir=state_dir,
+                             resolve=resolve)
+    if receipt["state"] != "accepted":
+        raise PermissionError("deployment worker already claimed")
+    receipt["state"] = "running"
+    _write_receipt(_request_path(request_id, state_dir), receipt)
+    try:
+        result = run(application, state_dir=state_dir, resolve=resolve)
+        receipt["state"] = result["state"]
+        receipt["exit_code"] = result["exit_code"]
+    except (OSError, ValueError, PermissionError, RuntimeError, BlockingIOError):
+        receipt["state"] = "failed"
+        receipt["exit_code"] = None
+    receipt["finished_at"] = datetime.now(timezone.utc).isoformat()
+    _write_receipt(_request_path(request_id, state_dir), receipt)
+    return receipt
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser()
-    parser.add_argument("action", choices=("preview", "status", "run"))
+    parser.add_argument("action", choices=("preview", "status", "run", "worker"))
     parser.add_argument("application")
+    parser.add_argument("request_id", nargs="?")
     args = parser.parse_args(argv)
-    result = {"preview": preview, "status": status, "run": run}[args.action](args.application)
+    if args.action == "worker":
+        if args.request_id is None:
+            parser.error("worker requires request_id")
+        result = worker(args.application, args.request_id)
+    else:
+        result = {"preview": preview, "status": status, "run": run}[args.action](args.application)
     print(json.dumps(result, sort_keys=True))
     return 0
 
