@@ -25,7 +25,7 @@ OPERATIONS = {
 }
 
 
-def serve_one(raw, *, jobs=None, hostname=None):
+def serve_one(raw, *, jobs=None, hostname=None, allowed_operations=None):
     """One message per process, no interactive shell or arbitrary Python calls."""
     require_account()
     if type(raw) is not bytes or len(raw) > MAX_REQUEST_BYTES:
@@ -37,6 +37,11 @@ def serve_one(raw, *, jobs=None, hostname=None):
     if type(req) is not dict or req.get("operation") not in OPERATIONS:
         raise ValueError("invalid operation")
     op = req["operation"]
+    if allowed_operations is not None:
+        if type(allowed_operations) is not frozenset or not allowed_operations <= frozenset(OPERATIONS):
+            raise ValueError("invalid authenticated operation policy")
+        if op not in allowed_operations:
+            raise PermissionError("operation forbidden by authenticated relay identity")
     if set(req) != OPERATIONS[op]:
         raise ValueError("invalid request fields")
     host = hostname if hostname is not None else socket.gethostname()
@@ -92,12 +97,16 @@ def serve_one(raw, *, jobs=None, hostname=None):
     return {"node":host, "request_id":rid, "status":jobs.cancel(rid)}
 
 
-def main():
+READ_ONLY_OPERATIONS = frozenset({"provider_list", "provider_read_call"})
+
+
+def main(*, read_only=False):
     # SSH dispatch is not enabled by installing this module. When connected to
     # SSH, the operator must independently bind a fixed, dedicated key to this
     # module and restrict forwarding, PTY and environment.
     try:
-        result = serve_one(sys.stdin.buffer.read(MAX_REQUEST_BYTES + 1))
+        result = serve_one(sys.stdin.buffer.read(MAX_REQUEST_BYTES + 1),
+                           allowed_operations=READ_ONLY_OPERATIONS if read_only else None)
         print(json.dumps(result, separators=(",", ":")))
         return 0
     except (ValueError, PermissionError, RuntimeError, OSError):
