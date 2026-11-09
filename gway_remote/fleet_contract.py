@@ -87,3 +87,40 @@ def project(inventory, observations=None, *, now=None):
         })
     return {"schema": SCHEMA, "source": "watchtower-enrollment-ledger",
             "generated_at": now.isoformat(), "nodes": result}
+
+
+def collect_authenticated(inventory, federation, *, now=None):
+    """Bounded optional diagnostics through authenticated read-only provider_call.
+
+    Provider tools must be explicitly named hardware/status, declared read-only,
+    and originate from the same attested node. Missing or ambiguous providers
+    remain unknown. The transport is responsible for pinned SSH identity.
+    """
+    import subprocess
+    observations = {}
+    _, routes = federation.discover()
+    if len(routes) > 3200:
+        raise ValueError("oversized federated catalog")
+    for row in inventory.get("nodes", []):
+        if row.get("identity_verified") is not True:
+            continue
+        node = row["node"]
+        docs = {}
+        for key, tool in (("hardware", "hardware"), ("status", "status")):
+            candidates = [name for name, route in routes.items()
+                          if route[0] == node and route[2] == tool and route[3] == "read"]
+            if len(candidates) != 1:
+                continue
+            try:
+                result = federation.call(candidates[0], {}, authorized_scope="read")
+                if len(__import__("json").dumps(result)) > 65536:
+                    continue
+                if _fresh(result, HARDWARE if key == "hardware" else STATUS,
+                          now or datetime.now(timezone.utc)):
+                    docs[key] = result
+            except (OSError, TimeoutError, ConnectionError, subprocess.SubprocessError,
+                    RuntimeError, ValueError, PermissionError, TypeError):
+                continue
+        if docs:
+            observations[node] = docs
+    return project(inventory, observations, now=now)
