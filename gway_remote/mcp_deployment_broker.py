@@ -16,7 +16,7 @@ import re
 import stat
 import subprocess
 import tempfile
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 
 from .mcp_deployment_resolver import resolve_deployment
 
@@ -193,7 +193,17 @@ def request_status(application, request_id, *, state_dir=STATE_DIR,
     # A running receipt is historical state. The worker holds its dedicated
     # flock until it writes a terminal receipt; without that lock we have no
     # proof it is still alive (including after a host restart).
-    if result["state"] in {"accepted", "running"} and not (worker_claim and result["state"] == "accepted"):
+    # A newly accepted request may legitimately be waiting for the spawned worker.
+    # After the bounded startup grace period, absence of the lock is uncertain.
+    accepted_stale = False
+    if result["state"] == "accepted" and not worker_claim:
+        try:
+            started = datetime.fromisoformat(result["started_at"])
+            accepted_stale = (started.tzinfo is not None and
+                              datetime.now(timezone.utc) - started > timedelta(seconds=30))
+        except (KeyError, TypeError, ValueError):
+            accepted_stale = True
+    if result["state"] == "running" or accepted_stale:
         lock_path = state_dir / (".request-lock-" + path.stem)
         if lock_path.is_symlink():
             raise PermissionError("symlink worker lock denied")
