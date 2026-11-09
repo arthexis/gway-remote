@@ -10,7 +10,7 @@ from gway_remote import mcp_deployment_broker as broker
 
 SHA = "a" * 40
 DECL = {"schema": 1, "checkout": "/tmp/managed-provider",
-        "runner": "/tmp/managed-provider/deploy.sh", "run_as": "arthe",
+        "runner": "/tmp/managed-provider/deploy.sh",
         "revision": SHA}
 
 
