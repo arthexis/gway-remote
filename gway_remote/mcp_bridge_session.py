@@ -9,11 +9,13 @@ from __future__ import annotations
 from .mcp_bridge_contract import InvalidBridgeRequest
 from .mcp_bearer import BearerVerifier
 from . import node_registry_inventory
+import secrets
+from .watchtower_exec_transport import pinned_transport
 
 
 class SessionBridgeDispatch:
     def __init__(self, *, verifier, session_token, allowed_node, read_principal, execution=None,
-                 inventory=None):
+                 inventory=None, read_transport=None):
         if not isinstance(session_token, str) or not session_token:
             raise ValueError("trusted session token required")
         if not callable(allowed_node) or not callable(read_principal):
@@ -24,6 +26,7 @@ class SessionBridgeDispatch:
         self.read_principal = read_principal
         self.execution = execution
         self.inventory = inventory or node_registry_inventory
+        self.read_transport = read_transport
 
     def __call__(self, envelope):
         token = self.session_token
@@ -50,8 +53,20 @@ class SessionBridgeDispatch:
             if envelope["principal"] != self.read_principal(token):
                 raise PermissionError("principal mismatch")
         if operation == "workspace.inspect" and set(args) == {"node", "repository"}:
-            from .mcp_workspace_inspect import inspect_authorized
-            return inspect_authorized(args)
+            if self.read_transport is None:
+                raise PermissionError("attested workspace transport unavailable")
+            transport = pinned_transport(self.read_transport, audience)
+            rid = secrets.token_hex(16)
+            response = transport.invoke({"operation": "workspace_inspect",
+                                         "node": audience, "request_id": rid,
+                                         "repository": args["repository"]})
+            if (type(response) is not dict or response.get("node") != audience
+                    or response.get("request_id") != rid
+                    or type(response.get("result")) is not dict
+                    or response["result"].get("node") != audience
+                    or response["result"].get("repository") != args["repository"]):
+                raise PermissionError("uncorrelated workspace inspection")
+            return response["result"]
         if operation == "inventory.list" and args == {}:
             return self.inventory.public_nodes(execution_enabled=self.execution is not None)
         if operation == "inventory.capabilities" and set(args) == {"node"}:
