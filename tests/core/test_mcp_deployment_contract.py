@@ -8,7 +8,7 @@ SHA = "a" * 40
 VALID = {
     "schema": 1, "checkout": "/opt/managed/agentops",
     "runner": "/opt/managed/agentops/deploy.sh",
-    "run_as": "arthe", "revision": SHA,
+    "revision": SHA,
 }
 
 
