@@ -113,26 +113,43 @@ class AuthorizedExecution:
             time.sleep(min(0.2, remaining))
 
     def deployment_preview(self, *, node, application, revision="main"):
-        """Query the installed provider on the pinned node, never a Watchtower allowlist."""
+        """Read-only pinned preview with sanitized stage-specific failures."""
         from .mcp_deployment_resolver import _APP
+        from .watchtower_exec_transport import SSHTransportFailure
         if type(node) is not str or type(application) is not str or not _APP.fullmatch(application) or revision != "main":
             raise ValueError("unsupported deployment revision or target")
-        self._allow_preview_eligibility(node)
+        if not self.enabled or not self.relay.enabled:
+            raise PermissionError("deployment_execution_disabled")
+        try:
+            pinned = pinned_transport(self.relay.transport, node)
+        except (PermissionError, ValueError, AttributeError):
+            raise PermissionError("deployment_pinned_transport_unavailable") from None
+        try:
+            self._current_eligibility(node)
+        except (PermissionError, ValueError, OSError):
+            raise PermissionError("deployment_inventory_binding_denied") from None
         import secrets
         request_id = secrets.token_hex(16)
-        response = pinned_transport(self.relay.transport, node).invoke({
-            "operation": "deployment_preview", "node": node,
-            "request_id": request_id, "application": application})
+        try:
+            response = pinned.invoke({
+                "operation": "deployment_preview", "node": node,
+                "request_id": request_id, "application": application})
+        except (SSHTransportFailure, OSError, subprocess.SubprocessError):
+            raise PermissionError("deployment_ssh_unverified") from None
+        except (ValueError, KeyError, TypeError):
+            raise PermissionError("deployment_node_protocol_unavailable") from None
         if (type(response) is not dict or response.get("node") != node or
                 response.get("request_id") != request_id or
-                type(response.get("result")) is not dict or
-                response["result"].get("application") != application or
-                response["result"].get("status") != "declared" or
-                type(response["result"].get("revision")) is not str or
-                not re.fullmatch(r"[0-9a-f]{40}", response["result"]["revision"])):
-            raise PermissionError("uncorrelated deployment preview")
+                type(response.get("result")) is not dict):
+            raise PermissionError("deployment_node_protocol_unavailable")
+        result = response["result"]
+        if (result.get("application") != application or
+                result.get("status") != "declared" or
+                type(result.get("revision")) is not str or
+                not re.fullmatch(r"[0-9a-f]{40}", result["revision"])):
+            raise PermissionError("deployment_declaration_unavailable")
         return {"node": node, "application": application,
-                "revision": response["result"]["revision"],
+                "revision": result["revision"],
                 "status": "eligible", "execution": "node-owned-operator",
                 "note": "read-only; execution revalidates installed provider"}
 
