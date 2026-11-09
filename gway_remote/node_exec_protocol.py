@@ -21,6 +21,7 @@ OPERATIONS = {
     "limits": frozenset({"operation", "node", "request_id"}),
     "provider_list": frozenset({"operation", "node", "request_id"}),
     "provider_call": frozenset({"operation", "node", "request_id", "provider", "tool", "arguments", "authorized_scope"}),
+    "provider_read_call": frozenset({"operation", "node", "request_id", "provider", "tool", "arguments"}),
 }
 
 
@@ -42,12 +43,16 @@ def serve_one(raw, *, jobs=None, hostname=None):
     if not re.fullmatch(r"gway-[0-9]+", host) or req["node"] != host:
         raise PermissionError("unapproved node")
     rid = validate_request_id(req["request_id"])
-    if op in ("provider_list", "provider_call"):
+    if op in ("provider_list", "provider_call", "provider_read_call"):
         from .mcp_node_providers import dispatch_node_provider_request
         from .mcp_installed_providers import discover_installed_providers
         registrations = discover_installed_providers()
         if op == "provider_list":
             request, scope = {"operation": "provider_list"}, "read"
+        elif op == "provider_read_call":
+            scope = "read"  # Node-enforced: request cannot supply or elevate scope.
+            request = {key: req[key] for key in ("provider", "tool", "arguments")}
+            request["operation"] = "provider_call"
         else:
             scope = req["authorized_scope"]
             if scope not in ("read", "execute"):
