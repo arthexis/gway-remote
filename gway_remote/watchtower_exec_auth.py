@@ -163,9 +163,12 @@ class AuthorizedExecution:
                 raise PermissionError("uncorrelated deployment status")
             return {"node": node, "request_id": request_id,
                     "application": application, "result": response["result"]}
-        # gway-exec is deliberately not the provider operator. Do not dispatch
-        # deployment under this identity or silently elevate through sudo.
-        raise PermissionError("provider operator deployment execution not provisioned")
+        # The forced SSH command may already run as the root-selected operator
+        # (arthe on gway-001); never assume that from the node name alone.
+        # The node-local broker must verify its effective UID against run_as.
+        # Dispatch remains disabled until request-ID ledger and safe execution
+        # lifecycle are connected to that already-selected identity.
+        raise PermissionError("deployment ledger and operator execution not provisioned")
 
     def _owned(self, principal, request_id):
         self._allow(principal)
