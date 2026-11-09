@@ -28,56 +28,56 @@ class TestFleetContract(unittest.TestCase):
         result = project(INV, {"gway-001": {"hardware": {"schema": "gway-remote/hardware/v1", "checked_at": NOW.isoformat(), "host": {"cpu_temperature_c": 52}}}}, now=NOW)
         self.assertEqual(result["nodes"][0]["hardware"]["data"]["cpu_temperature_c"], 52)
 
-    def test_authenticated_read_only_partial_provider_collection(self):
-        class Federation:
+    def test_multinode_read_only_partial_collection(self):
+        class Transport:
             def __init__(self):
                 self.calls = []
-            def discover(self):
-                return [], {
-                    "diagnostics__hardware": ("gway-001", "diagnostics", "hardware", "read"),
-                    "diagnostics__status": ("gway-001", "diagnostics", "status", "read"),
-                    "danger__exec": ("gway-001", "danger", "exec", "execute")}
-            def call(self, name, arguments, *, authorized_scope):
-                self.calls.append((name, arguments, authorized_scope))
-                if name.endswith("status"):
+            def invoke(self, node, request, *, trusted_scope):
+                self.calls.append((node, request, trusted_scope))
+                if request["operation"] == "provider_list":
+                    return {"node": node, "providers": [{"provider": "diagnostics",
+                        "node": node, "status": "available", "tools": [
+                            {"name": "hardware", "annotations": {"readOnlyHint": True}},
+                            {"name": "status", "annotations": {"readOnlyHint": True}},
+                            {"name": "exec", "annotations": {}}]}]}
+                if request["tool"] == "status":
                     raise OSError("offline")
-                return {"schema": "gway-remote/hardware/v1", "checked_at": NOW.isoformat(),
-                        "host": {"cpu_temperature_c": 51}}
-        federation = Federation()
-        row = collect_authenticated(INV, federation, now=NOW)["nodes"][0]
-        self.assertTrue(row["hardware"]["available"])
-        self.assertFalse(row["services"]["available"])
-        self.assertEqual(federation.calls, [
-            ("diagnostics__hardware", {}, "read"),
-            ("diagnostics__status", {}, "read")])
+                return {"content": [{"type": "text", "text": __import__("json").dumps({
+                    "schema": "gway-remote/hardware/v1", "checked_at": NOW.isoformat(),
+                    "host": {"cpu_temperature_c": 51}})}]}
+        transport = Transport()
+        federation = type("Federation", (), {"transport": transport})()
+        inventory = {**INV, "nodes": [INV["nodes"][0], {
+            "node": "gway-002", "identity_verified": True, "reachable": "unknown"}]}
+        rows = collect_authenticated(inventory, federation, now=NOW)["nodes"]
+        self.assertEqual(len(rows), 2)
+        self.assertTrue(all(row["hardware"]["available"] for row in rows))
+        self.assertTrue(all(not row["services"]["available"] for row in rows))
+        self.assertTrue(all(scope == "read" for _, _, scope in transport.calls))
+        self.assertFalse(any(req.get("tool") == "exec" for _, req, _ in transport.calls))
 
     def test_unattested_node_never_dispatches_provider_call(self):
-        class Federation:
-            def discover(self):
-                return [], {"diagnostics__hardware": ("gway-001", "diagnostics", "hardware", "read")}
-            def call(self, *args, **kwargs):
+        class Transport:
+            def invoke(self, *args, **kwargs):
                 raise AssertionError("unauthorized dispatch")
         inventory = {**INV, "nodes": [{**INV["nodes"][0], "identity_verified": False}]}
-        row = collect_authenticated(inventory, Federation(), now=NOW)["nodes"][0]
+        row = collect_authenticated(inventory, type("Federation", (), {"transport": Transport()})(), now=NOW)["nodes"][0]
         self.assertFalse(row["hardware"]["available"])
 
     def test_oversized_utf8_and_wrong_schema_are_unavailable(self):
-        class Federation:
-            def discover(self):
-                return [], {
-                    "diagnostics__hardware": ("gway-001", "diagnostics", "hardware", "read"),
-                    "diagnostics__status": ("gway-001", "diagnostics", "status", "read")}
-            def call(self, name, arguments, *, authorized_scope):
-                self.assertion = (arguments == {} and authorized_scope == "read")
-                if name.endswith("hardware"):
-                    return {"schema": "gway-remote/hardware/v1",
-                            "checked_at": NOW.isoformat(),
+        class Transport:
+            def invoke(self, node, request, *, trusted_scope):
+                if request["operation"] == "provider_list":
+                    return {"node": node, "providers": [{"provider": "diagnostics",
+                        "node": node, "status": "available", "tools": [
+                            {"name": "hardware", "annotations": {"readOnlyHint": True}},
+                            {"name": "status", "annotations": {"readOnlyHint": True}}]}]}
+                if request["tool"] == "hardware":
+                    return {"schema": "gway-remote/hardware/v1", "checked_at": NOW.isoformat(),
                             "host": {"model": "界" * 30000}}
                 return {"schema": "untrusted/status", "checked_at": NOW.isoformat(),
-                        "components": [{"name": "fake", "health": "healthy"}]}
-        federation = Federation()
-        row = collect_authenticated(INV, federation, now=NOW)["nodes"][0]
-        self.assertTrue(federation.assertion)
+                        "components": [{"name": "fake"}]}
+        row = collect_authenticated(INV, type("Federation", (), {"transport": Transport()})(), now=NOW)["nodes"][0]
         self.assertFalse(row["hardware"]["available"])
         self.assertFalse(row["services"]["available"])
 
