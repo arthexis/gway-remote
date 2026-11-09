@@ -9,8 +9,10 @@ from .watchtower_exec_transport import pinned_transport
 
 
 class ProviderTransport:
-    def __init__(self, execution_transport):
+    def __init__(self, execution_transport, *, read_transport=None, require_read_identity=False):
         self.execution_transport = execution_transport
+        self.read_transport = read_transport
+        self.require_read_identity = require_read_identity
 
     def invoke(self, node, request, *, trusted_scope):
         if trusted_scope not in ("read", "execute"):
@@ -29,7 +31,17 @@ class ProviderTransport:
             payload.update({key: request[key] for key in ("provider", "tool", "arguments")})
             if trusted_scope == "execute":
                 payload["authorized_scope"] = trusted_scope
-        transport = pinned_transport(self.execution_transport, node)
+        if trusted_scope == "read":
+            if self.read_transport is None and self.require_read_identity:
+                raise PermissionError("node has no pinned read identity")
+            selected = self.read_transport if self.read_transport is not None else self.execution_transport
+        else:
+            selected = self.execution_transport
+        transport = pinned_transport(selected, node)
+        if trusted_scope == "read" and self.read_transport is not None:
+            if transport.node.remote_user == pinned_transport(self.execution_transport, node).node.remote_user or \
+                    transport.node.identity_file == pinned_transport(self.execution_transport, node).node.identity_file:
+                raise PermissionError("read identity must be separate from execute identity")
         response = transport.invoke(payload)
         if (type(response) is not dict or set(response) != {"node", "request_id", "result"}
                 or response["node"] != node or response["request_id"] != payload["request_id"]):
