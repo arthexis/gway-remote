@@ -186,10 +186,10 @@ class AsyncDeploymentTests(unittest.TestCase):
             declaration = {"checkout": str(state), "runner": str(runner), "revision": "c"*40}
             def fail(*args, **kwargs):
                 raise OSError("unavailable")
-            first = broker.accept("sample", "d"*32, expected_revision="a"*40, state_dir=state,
+            first = broker.accept("sample", "d"*32, expected_revision="c"*40, state_dir=state,
                                   resolve=lambda _: declaration, spawn=fail)
             self.assertEqual(first["state"], "uncertain")
-            second = broker.accept("sample", "d"*32, expected_revision="a"*40, state_dir=state,
+            second = broker.accept("sample", "d"*32, expected_revision="c"*40, state_dir=state,
                                    resolve=lambda _: declaration, spawn=fail)
             self.assertEqual(second, first)
 
