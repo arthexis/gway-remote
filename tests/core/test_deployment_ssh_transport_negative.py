@@ -19,7 +19,7 @@ class DeploymentSSHNegativeTests(unittest.TestCase):
         self.run = Mock()
         self.transport = SSHTransport(self.node, run=self.run)
         self.payload = {"operation": "deployment_run", "node": "gway-001",
-                        "request_id": "a"*32, "application": "sample"}
+                        "request_id": "a"*32, "application": "sample", "expected_revision": "a"*40}
 
     def test_exact_fields_and_pinned_node_before_ssh(self):
         for payload in (
@@ -27,6 +27,7 @@ class DeploymentSSHNegativeTests(unittest.TestCase):
             {**self.payload, "runner": "/tmp/evil"},
             {**self.payload, "request_id": "invalid"},
             {**self.payload, "operation": "shell"},
+            {k:v for k,v in self.payload.items() if k != "expected_revision"},
         ):
             with self.subTest(payload=payload), self.assertRaises(ValueError):
                 self.transport.invoke(payload)
