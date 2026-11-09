@@ -6,11 +6,31 @@ from pathlib import Path
 from unittest.mock import patch
 
 from gway_remote.mcp_workspace_inspect import WorkspaceUnavailable, inspect_authorized
-from gway_remote.mcp_bridge_transport import BridgeReadUnavailable
+from gway_remote.mcp_bridge_transport import BridgeReadUnavailable, call_unix
 from gway_remote.mcp_bridge_gateway_dispatch import dispatch_node_tool
 
 
 class WorkspaceReadDiagnosticsTests(unittest.TestCase):
+    def test_tampered_hmac_read_reply_rejected(self):
+        """A forged signed-looking diagnostic must not cross the bridge."""
+        from unittest.mock import MagicMock
+        fake_socket = MagicMock()
+        fake_socket.__enter__.return_value = fake_socket
+        fake_stream = MagicMock()
+        fake_stream.__enter__.return_value = fake_stream
+        fake_stream.readline.return_value = (
+            json.dumps({"ok": False, "error": "read_unavailable",
+                        "code": "workspace_not_configured",
+                        "reply_signature": "0" * 64}).encode() + b"\\n"
+        )
+        fake_socket.makefile.return_value = fake_stream
+        with patch("gway_remote.mcp_bridge_transport.socket.socket",
+                   return_value=fake_socket):
+            with self.assertRaisesRegex(PermissionError, "unauthenticated bridge response"):
+                call_unix("/private/socket", b"x" * 32,
+                          {"version": 1, "operation": "workspace.inspect"},
+                          session_id="a" * 48, require_signed_reply=True)
+
     def test_bridge_codes_are_allowlisted(self):
         self.assertEqual(BridgeReadUnavailable("workspace_not_configured").code,
                          "workspace_not_configured")
