@@ -23,7 +23,7 @@ def validate_deployment(value):
         path = value[field]
         if type(path) is not str or not path.startswith("/") or "\x00" in path:
             raise ValueError("invalid deployment path")
-        if any(ch in path for ch in ";|&$\x60\\n\\r\\t"):
+        if any(ch in path for ch in ";|&$\x60\n\r\t"):
             raise ValueError("unsafe deployment path characters")
         if str(PurePosixPath(path)) != path or ".." in path.split("/") or path == "/":
             raise ValueError("unsafe deployment path")
