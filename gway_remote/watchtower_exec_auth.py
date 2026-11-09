@@ -148,6 +148,8 @@ class AuthorizedExecution:
             raise ValueError("invalid deployment status")
         preview = self.deployment_preview(node=node, application=application,
                                           revision=revision)
+        if "recipe" not in preview:
+            raise PermissionError("generic deployment execution not yet enabled on node")
         unit = preview["recipe"]
         if status:
             receipt = ("status.json" if application == "gway-remote"
