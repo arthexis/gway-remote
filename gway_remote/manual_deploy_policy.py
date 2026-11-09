@@ -14,7 +14,7 @@ REVISION_RE = re.compile(r"(?:[0-9a-f]{40}|main)\Z")
 
 # First pilot only. The broker must enforce this independently of node_exec.
 MANUAL_DEPLOY_TARGETS = {
-    "gway-001": frozenset({"arthexis/ocpp-reports"}),
+    "gway-001": frozenset({"arthexis/ocpp-reports", "arthexis/odoo-gelectriic"}),
     "ocpp-abb-1": frozenset({"arthexis/ocpp-reports"}),
 }
 
