@@ -34,6 +34,24 @@ class AsyncDeploymentTests(unittest.TestCase):
                 broker.request_status("other", "b" * 32, state_dir=state,
                                       resolve=lambda _: declaration)
 
+    def test_manifest_change_after_acceptance_fails_closed(self):
+        with tempfile.TemporaryDirectory() as root:
+            state = Path(root)
+            os.chmod(state, 0o700)
+            runner = state / "deploy.sh"
+            runner.write_text("#!/bin/sh\\nexit 0\\n")
+            runner.chmod(0o700)
+            declaration = {"checkout": str(state), "runner": str(runner),
+                           "revision": "a"*40}
+            broker.accept("sample", "1"*32, state_dir=state,
+                          resolve=lambda _: declaration, spawn=lambda *a, **k: Mock())
+            changed = {**declaration, "revision": "b"*40}
+            with self.assertRaises(PermissionError):
+                broker.worker("sample", "1"*32, state_dir=state, resolve=lambda _: changed)
+            with self.assertRaises(PermissionError):
+                broker.accept("sample", "1"*32, state_dir=state,
+                              resolve=lambda _: changed, spawn=lambda *a, **k: Mock())
+
     def test_failed_spawn_does_not_retry_after_restart(self):
         with tempfile.TemporaryDirectory() as root:
             state = Path(root)
