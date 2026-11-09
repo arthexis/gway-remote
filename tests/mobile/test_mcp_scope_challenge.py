@@ -17,7 +17,7 @@ class ExecuteScopeChallengeTests(unittest.TestCase):
     def test_tool_schemes_annotate_read_and_execute_separately(self):
         self.assertEqual({item["name"] for item in EXEC_TOOLS},
                          {"node_exec", "node_result", "node_cancel",
-                          "node_deploy", "node_deploy_status"})
+                          "node_deploy", "node_deploy_status", "node_exec_diagnostic"})
         for tool in EXEC_TOOLS:
             self.assertEqual(scoped_tool(tool, EXEC_SECURITY)["securitySchemes"],
                              [{"type": "oauth2", "scopes": ["gway:execute"]}])
