@@ -176,6 +176,41 @@ class AsyncDeploymentTests(unittest.TestCase):
                 broker.accept("sample", "1"*32, expected_revision="a"*40, state_dir=state,
                               resolve=lambda _: changed, spawn=lambda *a, **k: Mock())
 
+    def test_manifest_changes_between_worker_check_and_run_cannot_execute(self):
+        with tempfile.TemporaryDirectory() as root:
+            state = Path(root)
+            os.chmod(state, 0o700)
+            runner = state / "deploy.sh"
+            runner.write_text("#!/bin/sh\\nexit 0\\n")
+            runner.chmod(0o700)
+            original = {"checkout": str(state), "runner": str(runner),
+                        "revision": "a"*40}
+            changed = {**original, "revision": "b"*40}
+            rid = "9"*32
+            broker.accept("sample", rid, expected_revision="a"*40, state_dir=state,
+                          resolve=lambda _: original, spawn=lambda *a, **k: Mock())
+            calls = 0
+            def resolve(_):
+                nonlocal calls
+                calls += 1
+                # request_status, then worker preflight; change only at run().
+                return original if calls <= 2 else changed
+            with patch.object(broker.subprocess, "run",
+                              side_effect=AssertionError("runner must not execute")):
+                result = broker.worker("sample", rid, state_dir=state, resolve=resolve)
+            self.assertEqual(result["state"], "failed")
+            self.assertIsNone(result["exit_code"])
+            self.assertEqual(result["revision"], "a"*40)
+            persisted = broker.request_status("sample", rid, state_dir=state,
+                                              resolve=lambda _: original)
+            self.assertEqual(persisted["state"], "failed")
+            self.assertEqual(persisted["revision"], "a"*40)
+            with patch.object(broker.subprocess, "Popen",
+                              side_effect=AssertionError("redispatch")):
+                self.assertEqual(broker.accept(
+                    "sample", rid, expected_revision="a"*40, state_dir=state,
+                    resolve=lambda _: original)["state"], "failed")
+
     def test_failed_spawn_does_not_retry_after_restart(self):
         with tempfile.TemporaryDirectory() as root:
             state = Path(root)
