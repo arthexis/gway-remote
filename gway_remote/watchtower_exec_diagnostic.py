@@ -46,12 +46,16 @@ def diagnose(node: str, *, inventory=None, config=None):
         elif not isinstance(entries, list):
             result["stages"]["pinned_transport"] = "unknown"
         else:
-            result["stages"]["pinned_transport"] = (
-                "configured" if any(isinstance(x, dict) and x.get("node") == node
-                                    for x in entries) else "missing")
+            pinned = [x for x in entries if isinstance(x, dict) and x.get("node") == node]
+            if not pinned:
+                result["stages"]["pinned_transport"] = "missing"
+            elif len(pinned) != 1 or pinned[0].get("address") != row.get("address"):
+                result["stages"]["pinned_transport"] = "failure"
+            else:
+                result["stages"]["pinned_transport"] = "configured"
     # Do not infer SSH or worker health from pinned configuration. A failed
     # prerequisite makes downstream execution blocked, not merely unknown.
-    if not eligible or result["stages"]["pinned_transport"] in ("disabled", "missing"):
+    if not eligible or result["stages"]["pinned_transport"] in ("disabled", "missing", "failure"):
         for stage in ("bridge_dispatch", "ssh_transport", "worker_readiness"):
             result["stages"][stage] = "blocked"
     return result
