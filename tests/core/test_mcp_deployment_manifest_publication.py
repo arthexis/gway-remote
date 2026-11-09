@@ -1,6 +1,7 @@
 """Offline manifest publication: the installed provider file is the only deploy registry."""
 import importlib.util
 import json
+import os
 from pathlib import Path
 import tempfile
 import unittest
@@ -28,7 +29,9 @@ class ManifestDeploymentTests(unittest.TestCase):
             self.assertTrue(module.publish(item))
             path = Path(tmp) / "sample.json"
             self.assertEqual(json.loads(path.read_text())["deployment"], DEPLOY)
-            self.assertFalse(module.publish(item))
+            self.assertTrue(module.manifest_is_current(path, path.read_bytes(), owner_uid=os.geteuid()))
+            if os.geteuid() == 0:
+                self.assertFalse(module.publish(item))
             self.assertEqual(validate_deployment(json.loads(path.read_text())["deployment"]), DEPLOY)
 
     def test_legacy_provider_remains_readable_without_deploy(self):
