@@ -1,5 +1,6 @@
 """MCP workspace inspection registration and fail-closed behavior."""
 import os
+import json
 import tempfile
 import unittest
 from pathlib import Path
@@ -9,6 +10,7 @@ from gway_remote.mcp_bearer_gateway import ALLOWED_TOOLS, NODE_TOOLS, READ_SECUR
 from gway_remote.mcp_bridge_gateway_dispatch import OPERATIONS
 from gway_remote.mcp_workspace_inspect import inspect_authorized
 from gway_remote.mcp_bridge_session import SessionBridgeDispatch
+from gway_remote.node_exec_protocol import serve_one
 
 
 class WorkspaceInspectMCPTests(unittest.TestCase):
@@ -41,6 +43,23 @@ class WorkspaceInspectMCPTests(unittest.TestCase):
                                          "GWAY_WORKSPACE_INSPECT_CONFIG": str(config)}):
                 with self.assertRaises(PermissionError):
                     inspect_authorized({"node": "gway-001", "repository": "owner/repo"})
+
+    def test_node_forced_protocol_accepts_only_fixed_read_operation(self):
+        request = {"operation": "workspace_inspect", "node": "gway-001",
+                   "request_id": "a" * 32, "repository": "arthexis/odoo-gelectriic"}
+        with (patch("gway_remote.node_exec_protocol.require_account"),
+              patch("gway_remote.mcp_workspace_inspect.inspect_authorized",
+                    return_value={"node": "gway-001", "repository": request["repository"]}) as inspect):
+            result = serve_one(json.dumps(request).encode(), hostname="gway-001")
+            self.assertEqual(result["node"], "gway-001")
+            self.assertEqual(result["request_id"], request["request_id"])
+            inspect.assert_called_once_with({"node": "gway-001",
+                                             "repository": request["repository"]})
+            for invalid in ({**request, "path": "/etc/shadow"},
+                            {**request, "node": "gway-002"},
+                            {**request, "operation": "shell"}):
+                with self.assertRaises((ValueError, PermissionError)):
+                    serve_one(json.dumps(invalid).encode(), hostname="gway-001")
 
     def test_attested_transport_only_and_fail_closed(self):
         class Verifier:
