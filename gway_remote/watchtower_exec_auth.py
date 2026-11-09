@@ -112,22 +112,23 @@ class AuthorizedExecution:
             time.sleep(min(0.2, remaining))
 
     def deployment_preview(self, *, node, application, revision="main"):
-        """Read-only preview of a fixed, policy-authorized Ansible recipe."""
-        if type(node) is not str or type(application) is not str or revision != "main":
+        """Query the installed provider on the pinned node, never a Watchtower allowlist."""
+        from .mcp_deployment_resolver import _APP
+        if type(node) is not str or type(application) is not str or not _APP.fullmatch(application) or revision != "main":
             raise ValueError("unsupported deployment revision or target")
-        recipes = {
-            ("gway-001", "gway-remote"): "gway-remote-deploy.service",
-        }
-        unit = recipes.get((node, application))
-        if unit is None:
-            if (node, application) == ("gway-001", "odoo-gelectriic"):
-                raise PermissionError("Odoo removed the legacy systemd deployment unit; deploy through the repository-owned Ansible workflow")
-            raise PermissionError("deployment target has no installed fixed recipe")
         self._allow_preview_eligibility(node)
+        import secrets
+        response = pinned_transport(self.relay.transport, node).invoke({
+            "operation": "deployment_preview", "node": node,
+            "request_id": secrets.token_hex(16), "application": application})
+        if (type(response) is not dict or response.get("node") != node or
+                type(response.get("result")) is not dict or
+                response["result"].get("application") != application or
+                response["result"].get("status") != "declared"):
+            raise PermissionError("uncorrelated deployment preview")
         return {"node": node, "application": application, "revision": revision,
-                "recipe": unit, "status": "eligible",
-                "execution": "fixed-operator-owned-systemd-ansible",
-                "note": "preview only; no command or configuration changes"}
+                "status": "eligible", "execution": "node-owned-operator",
+                "note": "read-only; execution revalidates installed provider"}
 
     def _allow_preview_eligibility(self, node):
         if not self.enabled or not self.relay.enabled:
