@@ -41,7 +41,7 @@ def dispatch_node_tool(*, socket_path, key, session_id, audience, principal,
         "arguments": arguments,
     }
     result = call_unix(socket_path, key, envelope, session_id=session_id,
-                       require_signed_reply=name == "node_exec")
+                       require_signed_reply=name in {"node_exec", "workspace_inspect", "node_deploy_preview"})
     if name == "node_exec":
         if (type(result) is not dict or
                 result.get("request_id") != arguments["request_id"] or

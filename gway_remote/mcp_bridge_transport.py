@@ -21,6 +21,23 @@ from pathlib import Path
 
 from .mcp_bridge_contract import InvalidBridgeRequest, validate_envelope
 
+
+class BridgeReadUnavailable(PermissionError):
+    """Authenticated, allowlisted read-only diagnostic code."""
+
+    CODES = frozenset({
+        "workspace_not_configured", "node_binding_mismatch",
+        "repository_not_allowlisted", "workspace_config_invalid",
+        "workspace_inspection_unavailable", "deployment_preview_unavailable",
+    })
+
+    def __init__(self, code):
+        if code not in self.CODES:
+            raise ValueError("invalid bridge diagnostic code")
+        self.code = code
+        super().__init__(code)
+
+
 MAX_WIRE = 16384
 MAX_REPLY = 16384
 
@@ -109,10 +126,16 @@ class _Handler(socketserver.StreamRequestHandler):
             response = {"ok": True, "result": result}
             if len(canonical(response)) > MAX_REPLY - 256:
                 raise ValueError("response too large")
+        except BridgeReadUnavailable as exc:
+            response = {"ok": False, "error": "read_unavailable", "code": exc.code}
         except (InvalidBridgeRequest, ValueError, TypeError, KeyError):
             response = {"ok": False, "error": "request_rejected"}
-        except Exception:
-            response = {"ok": False, "error": "bridge_unavailable"}
+        except Exception as exc:
+            from .mcp_workspace_inspect import WorkspaceUnavailable
+            if isinstance(exc, WorkspaceUnavailable):
+                response = {"ok": False, "error": "read_unavailable", "code": exc.code}
+            else:
+                response = {"ok": False, "error": "bridge_unavailable"}
         if request_signature is not None and len(request_signature) == 64:
             response["reply_signature"] = sign_reply(
                 self.server.bridge.key, request_signature, response)
@@ -221,7 +244,8 @@ def call_unix(path, key, envelope, *, timeout=5, session_id=None, require_signed
         raise ValueError("invalid bridge response")
     if require_signed_reply:
         if set(response) not in ({"ok", "result", "reply_signature"},
-                                 {"ok", "error", "reply_signature"}):
+                                 {"ok", "error", "reply_signature"},
+                                 {"ok", "error", "code", "reply_signature"}):
             raise ValueError("invalid signed response")
         signature = response.get("reply_signature")
         body = {k: v for k, v in response.items() if k != "reply_signature"}
@@ -229,5 +253,7 @@ def call_unix(path, key, envelope, *, timeout=5, session_id=None, require_signed
         if type(signature) is not str or not hmac.compare_digest(signature, expected):
             raise PermissionError("unauthenticated bridge response")
     if response.get("ok") is not True:
+        if require_signed_reply and response.get("error") == "read_unavailable":
+            raise BridgeReadUnavailable(response.get("code"))
         raise PermissionError("bridge request denied")
     return response["result"]
