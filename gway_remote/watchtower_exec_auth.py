@@ -118,10 +118,12 @@ class AuthorizedExecution:
             raise ValueError("unsupported deployment revision or target")
         self._allow_preview_eligibility(node)
         import secrets
+        request_id = secrets.token_hex(16)
         response = pinned_transport(self.relay.transport, node).invoke({
             "operation": "deployment_preview", "node": node,
-            "request_id": secrets.token_hex(16), "application": application})
+            "request_id": request_id, "application": application})
         if (type(response) is not dict or response.get("node") != node or
+                response.get("request_id") != request_id or
                 type(response.get("result")) is not dict or
                 response["result"].get("application") != application or
                 response["result"].get("status") != "declared"):
