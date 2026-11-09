@@ -54,16 +54,16 @@ class BrokerTests(unittest.TestCase):
         with patch("gway_remote.watchtower_exec_auth.pinned_transport", return_value=Pinned()):
             with patch.object(self.service, "_allow", return_value=None):
                 with patch.object(self.service, "_current_eligibility", return_value=None):
-                    with patch.object(self.service, "deployment_preview", return_value={"status": "eligible"}):
+                    with patch.object(self.service, "deployment_preview", return_value={"status": "eligible", "revision": "a"*40}):
                         with patch.object(self.service, "ledger") as ledger:
                             ledger.get.side_effect = [
                                 ValueError("request not found"),
                                 {"state": "uncertain", "node": "gway-001",
                                  "principal": "a"*24, "host_key_sha256": "c"*64,
-                                 "command": 'deployment:["agentops","main"]',
+                                 "command": 'deployment:["agentops","aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"]',
                                  "command_sha256": __import__("gway_remote.watchtower_exec_transport",
                                                               fromlist=["_digest"])._digest(
-                                     "gway-001", 'deployment:["agentops","main"]',
+                                     "gway-001", 'deployment:["agentops","aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"]',
                                      "a"*24, "c"*64)}
                             ]
                             ledger.claim_dispatch.return_value = True
@@ -88,17 +88,17 @@ class BrokerTests(unittest.TestCase):
         with patch.object(self.service, "_allow", return_value=None):
             with patch.object(self.service, "_current_eligibility", return_value=None):
                 with patch.object(self.service, "deployment_preview",
-                                  return_value={"status": "eligible"}):
+                                  return_value={"status": "eligible", "revision": "a"*40}):
                     with patch.object(self.service, "ledger") as ledger:
                         ledger.get.side_effect = [
                             ValueError("request not found"),
                             {"state": "uncertain", "node": "gway-001",
                              "principal": "a"*24, "host_key_sha256": "c"*64,
-                             "command": 'deployment:["agentops","main"]',
+                             "command": 'deployment:["agentops","aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"]',
                              "command_sha256": __import__(
                                  "gway_remote.watchtower_exec_transport",
                                  fromlist=["_digest"])._digest(
-                                     "gway-001", 'deployment:["agentops","main"]',
+                                     "gway-001", 'deployment:["agentops","aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"]',
                                      "a"*24, "c"*64)}
                         ]
                         ledger.claim_dispatch.return_value = True
