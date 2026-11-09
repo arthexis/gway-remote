@@ -248,12 +248,13 @@ class SSHTransport:
         self._run = run
 
     def invoke(self, payload):
-        if type(payload) is not dict or payload.get("operation") not in {"submit","result","cancel","limits","provider_list","provider_call"}:
+        if type(payload) is not dict or payload.get("operation") not in {"submit","result","cancel","limits","provider_list","provider_call","repository_deploy"}:
             raise ValueError("invalid node operation")
         fields = {"submit":{"operation","node","request_id","command"},
                   "result":{"operation","node","request_id","cursor"},
                   "cancel":{"operation","node","request_id"},
                    "limits":{"operation","node","request_id"},
+                  "repository_deploy":{"operation","node","request_id","repository","sha"},
                   "provider_list":{"operation","node","request_id"},
                   "provider_call":{"operation","node","request_id","provider","tool","arguments","authorized_scope"}}
         if set(payload) != fields[payload["operation"]]:
