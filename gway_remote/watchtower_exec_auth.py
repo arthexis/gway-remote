@@ -146,19 +146,26 @@ class AuthorizedExecution:
         """
         if type(status) is not bool:
             raise ValueError("invalid deployment status")
+        self._allow(principal)
+        validate_request_id(request_id)
         preview = self.deployment_preview(node=node, application=application,
                                           revision=revision)
-        if "recipe" not in preview:
-            raise PermissionError("generic deployment execution not yet enabled on node")
-        unit = preview["recipe"]
         if status:
-            receipt = ("status.json" if application == "gway-remote"
-                       else "status-" + application + ".json")
-            command = "/usr/bin/cat /var/lib/gway-mcp-deploy/" + receipt
-        else:
-            command = "/usr/bin/sudo -n /usr/bin/systemctl start --no-block " + unit
-        return self.exec(principal=principal, request_id=request_id,
-                         node=node, command=command)
+            # Read-only receipt query; the request ID is correlation only.
+            # It does not dispatch a job or claim a deployment result.
+            response = pinned_transport(self.relay.transport, node).invoke({
+                "operation": "deployment_status", "node": node,
+                "request_id": request_id, "application": application})
+            if (type(response) is not dict or response.get("node") != node or
+                    response.get("request_id") != request_id or
+                    type(response.get("result")) is not dict or
+                    response["result"].get("application") != application):
+                raise PermissionError("uncorrelated deployment status")
+            return {"node": node, "request_id": request_id,
+                    "application": application, "result": response["result"]}
+        # gway-exec is deliberately not the provider operator. Do not dispatch
+        # deployment under this identity or silently elevate through sudo.
+        raise PermissionError("provider operator deployment execution not provisioned")
 
     def _owned(self, principal, request_id):
         self._allow(principal)
