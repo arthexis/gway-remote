@@ -1,6 +1,7 @@
 """Node-local deployment broker for root-provisioned MCP providers.
 
-Only the operator-owned wrapper may invoke run; Watchtower must never supply
+The authenticated node protocol may invoke run as its existing effective user;
+Watchtower must never supply
 runner paths, arbitrary arguments, or environment variables.
 """
 import argparse
@@ -65,8 +66,6 @@ def _write_receipt(path, payload):
 
 def _eligible(application, *, resolve=resolve_deployment):
     deployment = resolve(application)
-    if pwd.getpwuid(os.geteuid()).pw_name != deployment["run_as"]:
-        raise PermissionError("deployment operator identity mismatch")
     checkout = _trusted(deployment["checkout"], directory=True)
     runner = _trusted(deployment["runner"], executable=True)
     if not runner.is_relative_to(checkout):
@@ -83,7 +82,7 @@ def _eligible(application, *, resolve=resolve_deployment):
 def preview(application, *, resolve=resolve_deployment):
     declaration = resolve(application)
     return {"application": application, "revision": declaration["revision"],
-            "status": "declared", "execution": "node-owned-operator",
+            "status": "declared", "execution": "current-node-identity",
             "note": "read-only declaration; execution revalidates node-local state"}
 
 
