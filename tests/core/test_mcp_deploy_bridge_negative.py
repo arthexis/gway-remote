@@ -84,7 +84,7 @@ class DeploymentBridgeNegativeTests(unittest.TestCase):
                 body["reply_signature"] = signature
                 if self.mode == "tamper":
                     body["result"]["request_id"] = "d"*32
-                self.reply = canonical(body) + b"\\n"
+                self.reply = canonical(body) + b"\n"
             def makefile(self, mode):
                 return io.BytesIO(self.reply)
 
