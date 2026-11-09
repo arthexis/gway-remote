@@ -11,6 +11,7 @@ from unittest.mock import Mock
 from tests.helpers.mcp_http import mcp_call, bearer_post
 from gway_remote.mcp_bearer import BearerRegistry, BearerVerifier
 from gway_remote.mcp_bearer_gateway import make_server, EXEC_TOOLS, NODE_TOOLS, scoped_tool, EXEC_SECURITY, READ_SECURITY
+from gway_remote.watchtower_exec_failure_receipts import ExecutionStageError
 
 
 class ExecuteScopeChallengeTests(unittest.TestCase):
@@ -56,6 +57,51 @@ class ExecuteScopeChallengeTests(unittest.TestCase):
                     for token in (read_token, exec_token):
                         with urlopen(send(token), timeout=3) as res:
                             self.assertEqual(res.status, 200)
+                finally:
+                    gateway.shutdown()
+                    thread.join(timeout=3)
+
+    def test_diagnostic_http_scope_and_principal_isolation(self):
+        with tempfile.TemporaryDirectory() as home:
+            registry = BearerRegistry(Path(home) / "tokens.db")
+            read_token = registry.issue()
+            owner = registry.issue(scope="gway:execute", operator_approved=True)
+            other = registry.issue(scope="gway:execute", operator_approved=True)
+            executor = Mock()
+            executor.exec.side_effect = ExecutionStageError("pinned_transport")
+            with make_server(("127.0.0.1", 0), BearerVerifier(registry.path),
+                             "http://127.0.0.1:19011/mcp", "backend-secret",
+                             execution=executor) as gateway:
+                thread = threading.Thread(target=gateway.serve_forever, daemon=True)
+                thread.start()
+                try:
+                    endpoint = "http://127.0.0.1:%d/mcp" % gateway.server_port
+
+                    def call(token, tool, arguments):
+                        body = json.dumps({"jsonrpc": "2.0", "id": 1,
+                            "method": "tools/call", "params": {
+                                "name": tool, "arguments": arguments}}).encode()
+                        req = Request(endpoint, body, {
+                            "Authorization": "Bearer " + token,
+                            "Content-Type": "application/json"}, method="POST")
+                        with urlopen(req, timeout=3) as response:
+                            return json.loads(response.read())["result"]
+
+                    rid = "b" * 32
+                    args = {"node": "gway-001", "command": "hostname", "request_id": rid}
+                    self.assertTrue(call(owner, "node_exec", args)["isError"])
+                    query = {"request_id": rid}
+                    denied = call(read_token, "node_exec_diagnostic", query)
+                    self.assertTrue(denied["isError"])
+                    self.assertIn("insufficient_scope",
+                                  denied["_meta"]["mcp/www_authenticate"][0])
+                    outsider = call(other, "node_exec_diagnostic", query)
+                    self.assertEqual(json.loads(outsider["content"][0]["text"])["status"], "unknown")
+                    own = call(owner, "node_exec_diagnostic", query)
+                    self.assertEqual(json.loads(own["content"][0]["text"]),
+                                     {"request_id": rid, "status": "failure",
+                                      "stage": "pinned_transport"})
+                    self.assertEqual(executor.exec.call_count, 1)
                 finally:
                     gateway.shutdown()
                     thread.join(timeout=3)
