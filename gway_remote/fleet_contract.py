@@ -115,6 +115,14 @@ def collect_authenticated(inventory, federation, *, now=None):
                 result = federation.call(candidates[0], {}, authorized_scope="read")
                 if len(__import__("json").dumps(result).encode("utf-8")) > 65536:
                     continue
+                if type(result) is dict and "content" in result:
+                    parts = result["content"]
+                    if type(parts) is not list or len(parts) != 1 or type(parts[0]) is not dict or parts[0].get("type") != "text":
+                        continue
+                    raw = parts[0].get("text")
+                    if type(raw) is not str or len(raw.encode("utf-8")) > 65536:
+                        continue
+                    result = __import__("json").loads(raw)
                 if _fresh(result, HARDWARE if key == "hardware" else STATUS,
                           now or datetime.now(timezone.utc)):
                     docs[key] = result
