@@ -92,6 +92,9 @@ def status(application, *, state_dir=STATE_DIR, resolve=resolve_deployment):
     path = _receipt_path(application, state_dir)
     if path.is_symlink():
         raise PermissionError("symlink receipt denied")
+    _trusted(path.parent, directory=True)
+    if path.parent.stat().st_uid != os.geteuid() or path.parent.stat().st_mode & 0o077:
+        raise PermissionError("deployment receipt directory must be private to operator")
     if not path.exists():
         return {"application": application, "state": "never_run"}
     _trusted(path)
@@ -106,8 +109,8 @@ def status(application, *, state_dir=STATE_DIR, resolve=resolve_deployment):
 def run(application, *, state_dir=STATE_DIR, resolve=resolve_deployment, invoke=subprocess.run):
     declaration = _eligible(application, resolve=resolve)
     _trusted(state_dir, directory=True)
-    if state_dir.stat().st_uid != os.geteuid():
-        raise PermissionError("deployment state directory must belong to operator")
+    if state_dir.stat().st_uid != os.geteuid() or state_dir.stat().st_mode & 0o077:
+        raise PermissionError("deployment state directory must be private to operator")
     lock_path = state_dir / LOCK_NAME
     if lock_path.is_symlink():
         raise PermissionError("symlink lock denied")
