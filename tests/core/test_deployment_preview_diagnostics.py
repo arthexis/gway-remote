@@ -26,14 +26,15 @@ class DeploymentPreviewDiagnosticsTests(unittest.TestCase):
             transport.assert_not_called()
 
     def test_missing_pinned_transport(self):
-        with patch("gway_remote.watchtower_exec_auth.pinned_transport",
-                   side_effect=PermissionError("sensitive host path")):
+        with patch.object(self.auth, "_allow_preview_eligibility"):
+          with patch("gway_remote.watchtower_exec_auth.pinned_transport",
+                     side_effect=PermissionError("sensitive host path")):
             with self.assertRaisesRegex(PermissionError, "^deployment_pinned_transport_unavailable$"):
                 self.call()
 
     def test_inventory_binding_denied_before_ssh(self):
         with patch("gway_remote.watchtower_exec_auth.pinned_transport", return_value=self.pinned):
-            with patch.object(self.auth, "_current_eligibility",
+            with patch.object(self.auth, "_allow_preview_eligibility",
                               side_effect=PermissionError("secret address")):
                 with self.assertRaisesRegex(PermissionError, "^deployment_inventory_binding_denied$"):
                     self.call()
@@ -41,7 +42,7 @@ class DeploymentPreviewDiagnosticsTests(unittest.TestCase):
 
     def test_ssh_and_protocol_failures_are_sanitized(self):
         with patch("gway_remote.watchtower_exec_auth.pinned_transport", return_value=self.pinned):
-            with patch.object(self.auth, "_current_eligibility"):
+            with patch.object(self.auth, "_allow_preview_eligibility"):
                 for error, expected in (
                     (SSHTransportFailure("host key secret"), "deployment_ssh_unverified"),
                     (subprocess.CalledProcessError(255, ["ssh"]), "deployment_ssh_unverified"),
