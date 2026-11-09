@@ -13,6 +13,14 @@ from pathlib import Path
 from .workspace_inspect import inspect_workspace
 
 
+class WorkspaceUnavailable(PermissionError):
+    """Sanitized, stable read-only inspection failure."""
+
+    def __init__(self, code: str):
+        self.code = code
+        super().__init__(code)
+
+
 def inspect_authorized(arguments: dict) -> dict:
     if type(arguments) is not dict or set(arguments) != {"node", "repository"}:
         raise ValueError("invalid workspace inspection arguments")
@@ -21,23 +29,25 @@ def inspect_authorized(arguments: dict) -> dict:
         raise ValueError("invalid workspace selector")
     # Local provider is pinned to the node identity configured by the operator.
     if node != os.environ.get("GWAY_WORKSPACE_NODE", "") or not node:
-        raise PermissionError("workspace node unavailable")
+        raise WorkspaceUnavailable("node_binding_mismatch")
     config = os.environ.get("GWAY_WORKSPACE_INSPECT_CONFIG", "")
     if not config or not os.path.isabs(config):
-        raise PermissionError("workspace inspection not configured")
+        raise WorkspaceUnavailable("workspace_not_configured")
     path = Path(config)
     if path.is_symlink():
-        raise PermissionError("workspace configuration must not be a symlink")
+        raise WorkspaceUnavailable("workspace_config_invalid")
     stat = path.stat()
     if stat.st_mode & 0o022:
-        raise PermissionError("workspace configuration is writable by group or others")
+        raise WorkspaceUnavailable("workspace_config_invalid")
     if stat.st_size > 65536:
-        raise ValueError("workspace configuration too large")
+        raise WorkspaceUnavailable("workspace_config_invalid")
     with path.open("r", encoding="utf-8") as stream:
         roots = json.load(stream)
     if type(roots) is not dict or any(
         not isinstance(key, str) or not isinstance(value, str) or not os.path.isabs(value)
         for key, value in roots.items()
     ):
-        raise ValueError("invalid workspace configuration")
+        raise WorkspaceUnavailable("workspace_config_invalid")
+    if repository not in roots:
+        raise WorkspaceUnavailable("repository_not_allowlisted")
     return inspect_workspace(repository, roots, node=node)
