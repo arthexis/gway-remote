@@ -12,7 +12,6 @@ from .node_exec_contract import validate_command
 from .node_exec_worker import validate_request_id
 from .watchtower_exec_transport import RequestLedger, DormantRelay, HEX_SHA256, pinned_transport
 from . import node_registry_inventory
-from .watchtower_exec_failure_receipts import ExecutionStageError
 
 _KEY_ID = re.compile(r"[0-9a-f]{24}")
 
@@ -31,16 +30,13 @@ class AuthorizedExecution:
 
     def _allow(self, principal):
         if not self.enabled or not self.relay.enabled:
-            raise ExecutionStageError("current_eligibility")
+            raise PermissionError("remote execution disabled")
         if type(principal) is not str or not _KEY_ID.fullmatch(principal):
-            raise ExecutionStageError("auth_scope")
+            raise PermissionError("invalid execute principal")
 
     def _current_eligibility(self, node):
         """Fail closed against the root-published current enrollment projection."""
-        try:
-            pinned = pinned_transport(self.relay.transport, node).node
-        except PermissionError:
-            raise ExecutionStageError("pinned_transport") from None
+        pinned = pinned_transport(self.relay.transport, node).node
         inventory = node_registry_inventory.load()
         rows = [r for r in inventory["nodes"] if r["node"] == node]
         if (len(rows) != 1 or node != pinned.node or
@@ -49,7 +45,7 @@ class AuthorizedExecution:
                 rows[0]["execute_eligible"] is not True or
                 rows[0]["reachable"] != "reachable" or
                 rows[0]["address"] != pinned.wireguard_address):
-            raise ExecutionStageError("current_eligibility")
+            raise PermissionError("current enrolled execution eligibility denied")
 
     def exec(self, *, principal, request_id, node, command, wait_seconds=10):
         if type(wait_seconds) is not int or not 0 <= wait_seconds <= 10:
@@ -94,8 +90,13 @@ class AuthorizedExecution:
             return {"request_id": request_id, "node": node, "status": existing["state"]}
         self._current_eligibility(node)
         dispatched = self.relay.dispatch(request_id)
-        response = {"request_id": request_id, "node": node, "status": dispatched}
-        if dispatched != "dispatched" or wait_seconds == 0:
+        evidence = dispatched if type(dispatched) is dict else {}
+        status = evidence.get("status") if evidence else dispatched
+        response = {"request_id": request_id, "node": node, "status": status}
+        if status == "uncertain" and evidence.get("failure_stage") in (
+                "ssh_transport", "worker_readiness"):
+            response["failure_stage"] = evidence["failure_stage"]
+        if status != "dispatched" or wait_seconds == 0:
             return response
         import time
         deadline = time.monotonic() + wait_seconds
