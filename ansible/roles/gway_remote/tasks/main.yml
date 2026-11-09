@@ -141,7 +141,12 @@
 
 - name: Select node-local executor identity
   ansible.builtin.include_tasks: node-exec-select.yml
-  when: (ansible_hostname | default('')) is match('^gway-[0-9]+
+  when: (ansible_hostname | default('')) is match('^gway-[0-9]+$')
+
+- name: Provision private deployment state using selected executor identity
+  ansible.builtin.include_tasks: node-mcp-deploy.yml
+  when: (ansible_hostname | default('')) == 'gway-001'
+
 - name: Verify installed package imports as unprivileged executor
   ansible.builtin.command:
     argv:
