@@ -71,25 +71,12 @@ def _eligible(application, *, resolve=resolve_deployment):
     runner = _trusted(deployment["runner"], executable=True)
     if not runner.is_relative_to(checkout):
         raise PermissionError("runner outside checkout")
-    # Reject mutable ancestors and git metadata redirects before trusting HEAD.
-    for parent in (checkout, *tuple(p for p in runner.parents if p == checkout or checkout in p.parents)):
+    # The repository owns checkout updates, staging, Ansible and activated-SHA
+    # verification. The broker must not confuse the installed MCP revision
+    # with the target deployment revision.
+    for parent in (checkout, *tuple(p for p in runner.parents
+                                   if p == checkout or checkout in p.parents)):
         _trusted(parent, directory=True)
-    git_metadata = checkout / ".git"
-    if git_metadata.is_symlink() or not git_metadata.is_dir():
-        raise PermissionError("git metadata must be a real directory")
-    _trusted(git_metadata, directory=True)
-    # The installed provider declares an immutable source revision. Never
-    # silently pull or modify an operator checkout in the broker.
-    revision = subprocess.run(
-        ["/usr/bin/git", "-C", str(checkout), "rev-parse", "--verify", "HEAD"],
-        capture_output=True, text=True, check=True, timeout=10).stdout.strip()
-    if revision != deployment["revision"]:
-        raise PermissionError("deployment checkout revision mismatch")
-    dirty = subprocess.run(
-        ["/usr/bin/git", "-C", str(checkout), "status", "--porcelain"],
-        capture_output=True, text=True, check=True, timeout=10).stdout
-    if dirty:
-        raise PermissionError("deployment checkout is not clean")
     return deployment
 
 
@@ -128,8 +115,8 @@ def run(application, *, state_dir=STATE_DIR, resolve=resolve_deployment, invoke=
             raise PermissionError("deployment declaration changed")
         path = _receipt_path(application, state_dir)
         previous = status(application, state_dir=state_dir, resolve=resolve)
-        if previous.get("state") == "succeeded" and previous.get("revision") == declaration["revision"]:
-            return {"application": application, "state": "succeeded", "skipped": True}
+        # A successful receipt is historical evidence, not proof that the
+        # requested target is currently active. The provider deploy is idempotent.
         started = datetime.now(timezone.utc).isoformat()
         _write_receipt(path, {"application": application, "revision": declaration["revision"],
                               "state": "running", "started_at": started})
