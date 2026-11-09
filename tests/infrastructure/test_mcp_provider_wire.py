@@ -67,6 +67,23 @@ class ProviderWireTests(unittest.TestCase):
                 "operation": "provider_call", "provider": "diagnostics",
                 "tool": "hardware", "arguments": {}}, trusted_scope="read")
 
+    def test_legacy_execute_wire_is_not_peer_bound(self):
+        """Document residual risk: caller-controlled execute scope on same relay."""
+        import json
+        payload = {"operation": "provider_call", "node": "gway-001",
+                   "request_id": "0123456789abcdef0123456789abcdef",
+                   "provider": "odoo", "tool": "write", "arguments": {},
+                   "authorized_scope": "execute"}
+        with patch("gway_remote.node_exec_protocol.require_account"), \
+             patch("gway_remote.mcp_installed_providers.discover_installed_providers",
+                   return_value=[]), \
+             patch("gway_remote.mcp_node_providers.dispatch_node_provider_request",
+                   return_value={"ok": True}) as dispatch:
+            serve_one(json.dumps(payload).encode(), hostname="gway-001")
+        self.assertEqual(dispatch.call_args.kwargs["trusted_scope"], "execute")
+        # This test intentionally proves the gap, not an authorization success:
+        # SSH forced-command credentials currently do not distinguish read/exec.
+
     def test_watchtower_uses_node_transport(self):
         from tests.helpers.mcp_provider import InvocationSpy
         transport = InvocationSpy(response={"node": "gway-001", "providers": []})
