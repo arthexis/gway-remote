@@ -84,6 +84,44 @@ class ProviderWireTests(unittest.TestCase):
         # This test intentionally proves the gap, not an authorization success:
         # SSH forced-command credentials currently do not distinguish read/exec.
 
+    def test_separate_read_identity_and_no_fallback(self):
+        from types import SimpleNamespace
+        from gway_remote.mcp_provider_transport import ProviderTransport
+        class Wire:
+            def __init__(self, user, key):
+                self.node = SimpleNamespace(node="gway-001", remote_user=user,
+                                            identity_file=key)
+                self.calls = []
+            def invoke(self, payload):
+                self.calls.append(payload)
+                return {"node": payload["node"], "request_id": payload["request_id"],
+                        "result": {"ok": True}}
+        execute = Wire("gway-relay", "/keys/execute")
+        read = Wire("gway-read", "/keys/read")
+        transport = ProviderTransport(execute, read_transport=read,
+                                      require_read_identity=True)
+        req = {"operation": "provider_call", "provider": "diagnostics",
+               "tool": "hardware", "arguments": {}}
+        self.assertEqual(transport.invoke("gway-001", req, trusted_scope="read"),
+                         {"ok": True})
+        self.assertEqual(read.calls[0]["operation"], "provider_read_call")
+        self.assertFalse(execute.calls)
+        transport.invoke("gway-001", req, trusted_scope="execute")
+        self.assertEqual(execute.calls[0]["operation"], "provider_call")
+        self.assertEqual(execute.calls[0]["authorized_scope"], "execute")
+        with self.assertRaises(PermissionError):
+            ProviderTransport(execute, require_read_identity=True).invoke(
+                "gway-001", req, trusted_scope="read")
+        self.assertEqual(len(execute.calls), 1)
+        with self.assertRaises(PermissionError):
+            ProviderTransport(execute, read_transport=Wire("gway-relay", "/keys/read"),
+                              require_read_identity=True).invoke(
+                "gway-001", req, trusted_scope="read")
+        with self.assertRaises(PermissionError):
+            ProviderTransport(execute, read_transport=Wire("gway-read", "/keys/execute"),
+                              require_read_identity=True).invoke(
+                "gway-001", req, trusted_scope="read")
+
     def test_watchtower_uses_node_transport(self):
         from tests.helpers.mcp_provider import InvocationSpy
         transport = InvocationSpy(response={"node": "gway-001", "providers": []})
