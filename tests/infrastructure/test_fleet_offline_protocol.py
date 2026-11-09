@@ -75,6 +75,40 @@ class IntegrationTests(unittest.TestCase):
         self.assertFalse(row["hardware"]["available"])
         self.assertEqual(ssh.requests, [])
 
+    def test_untrusted_inventory_fails_before_transport(self):
+        ssh = OfflineSSH()
+        federation = type("Federation", (), {"transport": ProviderTransport(ssh)})()
+        base = {"source": "watchtower-enrollment-ledger", "generated_at": NOW.isoformat(),
+                "nodes": [{"node": "gway-001", "identity_verified": True}]}
+        cases = [
+            {**base, "source": "untrusted"},
+            {**base, "generated_at": (NOW - timedelta(minutes=3)).isoformat()},
+            {**base, "nodes": base["nodes"] * 2},
+            {**base, "nodes": [{"node": "gway-999;id", "identity_verified": True}]},
+        ]
+        for inventory in cases:
+            with self.subTest(inventory=inventory), self.assertRaises(ValueError):
+                collect_authenticated(inventory, federation, now=NOW)
+        self.assertEqual(ssh.requests, [])
+
+    def test_malformed_provider_catalog_never_dispatches_call(self):
+        class Transport:
+            def __init__(self):
+                self.calls = []
+            def invoke(self, node, request, *, trusted_scope):
+                self.calls.append(request)
+                return {"node": node, "providers": [{"node": node, "provider": "diagnostics",
+                    "revision": "test", "status": "available", "tools": [
+                        {"name": "hardware", "annotations": {"readOnlyHint": True}},
+                        {"name": "hardware", "annotations": {"readOnlyHint": True}}]}]}
+        transport = Transport()
+        federation = type("Federation", (), {"transport": transport})()
+        inventory = {"source": "watchtower-enrollment-ledger", "generated_at": NOW.isoformat(),
+                     "nodes": [{"node": "gway-001", "identity_verified": True}]}
+        row = collect_authenticated(inventory, federation, now=NOW)["nodes"][0]
+        self.assertFalse(row["hardware"]["available"])
+        self.assertEqual(len(transport.calls), 1)
+
 
 if __name__ == "__main__":
     unittest.main()
