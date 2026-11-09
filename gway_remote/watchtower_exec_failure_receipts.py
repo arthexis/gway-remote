@@ -16,6 +16,16 @@ TTL_SECONDS = 300
 MAX_ENTRIES = 512
 
 
+class ExecutionStageError(PermissionError):
+    """Safe stage marker; no underlying exception text is ever serialized."""
+
+    def __init__(self, stage):
+        if stage not in STAGES:
+            raise ValueError("invalid diagnostic stage")
+        super().__init__("execution denied")
+        self.stage = stage
+
+
 class FailureReceipts:
     def __init__(self, *, clock=time.monotonic):
         self._clock = clock
