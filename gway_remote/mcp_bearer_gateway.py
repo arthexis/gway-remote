@@ -18,7 +18,7 @@ MAX_RESPONSE = 262144
 UPSTREAM_TIMEOUT = 30
 ALLOWED_METHODS = frozenset({"server/discover", "initialize", "notifications/initialized", "tools/list", "tools/call"})
 ALLOWED_TOOLS = frozenset({"github_workflow_runs", "github_workflow_status", "github_workflow_errors", "mcp_source_status",
-    "node_list", "node_capabilities", "node_exec_preview",
+    "node_list", "fleet_snapshot", "node_capabilities", "node_exec_preview",
     "node_exec", "node_result", "node_cancel", "node_deploy", "node_deploy_status",
     "node_deploy_preview", "workspace_inspect", "mcp_catalog_inspect", "node_exec_diagnostic"})
 
@@ -85,6 +85,10 @@ NODE_TOOLS = (
          "revision": {"type": "string", "enum": ["main"]}},
          "required": ["node", "application"], "additionalProperties": False},
      "annotations": {"readOnlyHint": True}},
+    {"name": "fleet_snapshot", "_meta": READ_SECURITY,
+     "description": "Read-only Fleet v1 snapshot; missing per-node diagnostics remain unavailable.",
+     "inputSchema": {"type": "object", "properties": {}, "additionalProperties": False},
+     "annotations": {"readOnlyHint": True}},
     {"name": "node_list", "_meta": READ_SECURITY, "description": "List active enrolled nodes from Watchtower (read-only; reachability unknown).",
      "inputSchema": {"type": "object", "properties": {}, "additionalProperties": False},
      "annotations": {"readOnlyHint": True}},
@@ -122,6 +126,9 @@ def local_node_result(method, arguments, *, execution=None):
         if execution is None:
             raise PermissionError("deployment unavailable")
         return execution.deployment_preview(**arguments)
+    if method == "fleet_snapshot" and arguments == {}:
+        from .fleet_contract import project
+        return project(node_registry_inventory.public_nodes(execution_enabled=False))
     if method == "node_list" and arguments == {}:
         return node_registry_inventory.public_nodes(execution_enabled=execution is not None)
     if method == "node_capabilities" and type(arguments) is dict and set(arguments) == {"node"}:
@@ -478,7 +485,7 @@ class Handler(BaseHTTPRequestHandler):
             self.end_headers()
             self.wfile.write(body)
             return
-        if payload["method"] == "tools/call" and payload.get("params", {}).get("name") in {"node_list", "node_capabilities", "node_exec_preview", "node_deploy_preview", "workspace_inspect"}:
+        if payload["method"] == "tools/call" and payload.get("params", {}).get("name") in {"node_list", "fleet_snapshot", "node_capabilities", "node_exec_preview", "node_deploy_preview", "workspace_inspect"}:
             # The enrollment ledger lives on Watchtower. Never pass these tools
             # to gway-001, and never grant the gateway access to the root DB.
             arguments = payload["params"].get("arguments", {})
