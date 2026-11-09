@@ -64,7 +64,14 @@ class SessionBridgeDispatch:
                 {"node", "application"}, {"node", "application", "revision"}):
             if self.execution is None:
                 raise PermissionError("execution unavailable")
-            return self.execution.deployment_preview(**args)
+            from .mcp_bridge_transport import BridgeReadUnavailable
+            try:
+                return self.execution.deployment_preview(**args)
+            except PermissionError as exc:
+                code = str(exc)
+                if code in BridgeReadUnavailable.CODES and code.startswith("deployment_"):
+                    raise BridgeReadUnavailable(code) from None
+                raise
         if scope != "gway:execute" or self.execution is None:
             raise PermissionError("execution unavailable")
         if operation == "execution.start" and set(args) in (
