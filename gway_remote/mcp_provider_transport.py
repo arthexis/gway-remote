@@ -5,7 +5,7 @@ Watchtower before the request enters this operator-pinned channel.
 """
 import secrets
 
-from .watchtower_exec_transport import pinned_transport
+from .watchtower_exec_transport import PinnedNode, pinned_transport
 
 
 class ProviderTransport:
@@ -42,6 +42,14 @@ class ProviderTransport:
             if transport.node.remote_user == pinned_transport(self.execution_transport, node).node.remote_user or \
                     transport.node.identity_file == pinned_transport(self.execution_transport, node).node.identity_file:
                 raise PermissionError("read identity must be separate from execute identity")
+        if trusted_scope == "read" and self.require_read_identity:
+            execute_node = pinned_transport(self.execution_transport, node).node
+            read_node = transport.node
+            if isinstance(read_node, PinnedNode) and isinstance(execute_node, PinnedNode):
+                if (read_node.wireguard_address != execute_node.wireguard_address
+                        or read_node.host_key_sha256 != execute_node.host_key_sha256
+                        or read_node.ssh_host_alias != execute_node.ssh_host_alias):
+                    raise PermissionError("read and execute pin different enrolled hosts")
         response = transport.invoke(payload)
         if (type(response) is not dict or set(response) != {"node", "request_id", "result"}
                 or response["node"] != node or response["request_id"] != payload["request_id"]):
