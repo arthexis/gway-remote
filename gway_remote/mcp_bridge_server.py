@@ -38,7 +38,7 @@ def bind_gateway_session(*, key, audience, verifier, session_token,
 
 def serve_gateway_session(path, *, key, audience, verifier, session_token,
                           allowed_node, read_principal, execution=None,
-                          inventory=None):
+                          inventory=None, read_transport=None):
     """Construct a private Unix server; caller owns serve_forever and shutdown."""
     bridge = bind_gateway_session(
         key=key, audience=audience, verifier=verifier,
