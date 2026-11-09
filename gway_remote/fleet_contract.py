@@ -98,21 +98,46 @@ def collect_authenticated(inventory, federation, *, now=None):
     """
     import subprocess
     observations = {}
-    _, routes = federation.discover()
-    if len(routes) > 3200:
-        raise ValueError("oversized federated catalog")
-    for row in inventory.get("nodes", []):
-        if row.get("identity_verified") is not True:
+    # Fleet is node-scoped: never compose the global federated catalog, whose
+    # provider names are intentionally unique for existing public MCP tools.
+    if type(inventory) is not dict or type(inventory.get("nodes")) is not list:
+        raise ValueError("invalid inventory")
+    if len(inventory["nodes"]) > MAX_NODES:
+        raise ValueError("too many nodes")
+    for row in inventory["nodes"]:
+        if type(row) is not dict or row.get("identity_verified") is not True:
             continue
         node = row["node"]
         docs = {}
-        for key, tool in (("hardware", "hardware"), ("status", "status")):
-            candidates = [name for name, route in routes.items()
-                          if route[0] == node and route[2] == tool and route[3] == "read"]
-            if len(candidates) != 1:
+        try:
+            catalog = federation.transport.invoke(
+                node, {"operation": "provider_list"}, trusted_scope="read")
+            if type(catalog) is not dict or catalog.get("node") != node:
+                continue
+            providers = catalog.get("providers")
+            if type(providers) is not list or len(providers) > 32:
+                continue
+        except (OSError, TimeoutError, ConnectionError, subprocess.SubprocessError,
+                RuntimeError, ValueError, PermissionError, TypeError):
+            continue
+        for key in ("hardware", "status"):
+            matches = []
+            for provider in providers:
+                if (type(provider) is not dict or provider.get("node") != node
+                        or provider.get("status") != "available"
+                        or type(provider.get("tools")) is not list):
+                    continue
+                for declaration in provider["tools"][:64]:
+                    if (type(declaration) is dict and declaration.get("name") == key
+                            and declaration.get("annotations", {}).get("readOnlyHint") is True
+                            and declaration.get("annotations", {}).get("destructiveHint") is not True):
+                        matches.append(provider.get("provider"))
+            if len(matches) != 1 or type(matches[0]) is not str:
                 continue
             try:
-                result = federation.call(candidates[0], {}, authorized_scope="read")
+                result = federation.transport.invoke(node, {
+                    "operation": "provider_call", "provider": matches[0],
+                    "tool": key, "arguments": {}}, trusted_scope="read")
                 if len(__import__("json").dumps(result).encode("utf-8")) > 65536:
                     continue
                 if type(result) is dict and "content" in result:
