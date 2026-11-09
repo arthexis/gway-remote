@@ -169,12 +169,22 @@ class AuthorizedExecution:
                 "request_id": request_id, "application": application})
             if (type(response) is not dict or response.get("node") != node or
                     response.get("request_id") != request_id or
-                    type(response.get("result")) is not dict or
-                    response["result"].get("application") != application):
+                    type(response.get("result")) is not dict):
                 raise PermissionError("uncorrelated deployment status")
+            receipt = response["result"]
+            if (receipt.get("application") != application or
+                    receipt.get("request_id") != request_id or
+                    type(receipt.get("revision")) is not str):
+                raise PermissionError("deployment receipt binding mismatch")
+            state = receipt.get("state")
+            if state not in {"accepted", "running", "succeeded", "failed", "uncertain"}:
+                raise PermissionError("invalid deployment receipt state")
+            if state in {"succeeded", "failed"}:
+                self.ledger.record_result_state(request_id, state)
             return {"node": node, "request_id": request_id,
-                    "application": application, "ledger_state": row["state"],
-                    "result": response["result"]}
+                    "application": application,
+                    "ledger_state": self.ledger.get(request_id)["state"],
+                    "result": receipt}
         preview = self.deployment_preview(node=node, application=application,
                                           revision=revision)
         pinned = pinned_transport(self.relay.transport, node)
