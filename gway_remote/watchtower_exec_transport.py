@@ -139,7 +139,7 @@ class RequestLedger:
         from .mcp_deployment_resolver import _APP
         validate_request_id(request_id)
         if (type(application) is not str or not _APP.fullmatch(application)
-                or revision != "main"):
+                or type(revision) is not str or not re.fullmatch(r"[0-9a-f]{40}", revision)):
             raise ValueError("invalid deployment target")
         if type(node) is not str or not re.fullmatch(r"gway-[0-9]+", node):
             raise ValueError("invalid deployment node")
