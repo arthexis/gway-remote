@@ -56,3 +56,28 @@ odoo-gelectriic catalog apply --manifest /private/estimate.csv --uom-map /privat
 The existing Odoo authentication and ACLs are unchanged. No Odoo write
 occurs unless `apply` is explicitly selected. The legacy helper entrypoints
 remain installed for the Android adapter until its consumers migrate.
+
+
+## Repository-owned deployment broker (PR #539; not activated)
+
+Watchtower validates an authenticated execute principal, a current attested
+node, immutable commit SHA and a durable request ID before dispatch.
+`manual_deploy_broker.prepare_repository_owned_deploy` reserves a
+non-replayable receipt; `dispatch_prepared_repository_deploy` requires a
+pinned transport and rechecks node enrollment before sending a constrained
+`repository_deploy` envelope (repository, SHA, request ID, node only).
+Unknown delivery remains unknown; never redispatch it automatically.
+
+The node forced-command protocol currently **rejects** deployment even
+after registry validation. This is intentional: the root-owned Odoo wrapper,
+local Ansible provisioning and atomic installed-release receipt have not yet
+been implemented or installed. A future node executor must reserve the
+request ID *before* invoking the fixed wrapper and must prove installed
+revision from the Odoo release manifest and current link, not merely from
+checkout HEAD. The wrapper must use Odoo's own `deploy.sh`, never copy
+Ansible tasks into GWay Remote, and must not fetch arbitrary branches.
+
+A deployment is not eligible merely because the Watchtower registry exists.
+The node must independently validate its protected registration, fixed
+entrypoint, node identity and installed release. The old Odoo systemd
+unit must not be restored. PR #538 remains independent and read-only.
