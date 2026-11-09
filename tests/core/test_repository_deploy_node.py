@@ -23,7 +23,7 @@ class NodeLedgerTests(unittest.TestCase):
             actual_lstat = Path.lstat
             def trusted_lstat(path):
                 info = actual_lstat(path)
-                return type("Info", (), {"st_mode": info.st_mode,
+                return type("Info", (), {"st_mode": info.st_mode & ~0o022,
                                         "st_uid": 0})()
             with patch("gway_remote.repository_deploy_node.Path.lstat", trusted_lstat):
                 row = publish_installed_receipt(
