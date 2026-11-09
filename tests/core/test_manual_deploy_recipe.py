@@ -2,12 +2,28 @@
 import unittest
 from types import SimpleNamespace
 
-from gway_remote.manual_deploy_recipe import recipe_argv, execute_recipe
+from gway_remote.manual_deploy_recipe import recipe_argv, execute_recipe, repository_installer_argv, repository_installer_preview
 
 SHA = "a" * 40
 
 
 class RecipeTests(unittest.TestCase):
+    def test_repository_owned_installer_is_dormant_and_fixed(self):
+        with self.assertRaises(PermissionError):
+            repository_installer_argv("arthexis/odoo-gelectriic", "gway-001", SHA)
+        self.assertEqual(
+            repository_installer_argv("arthexis/odoo-gelectriic", "gway-001",
+                                      SHA, installed=True),
+            ["/usr/local/libexec/gway-repository-deploy-odoo-gelectriic", SHA])
+        for repo, node, revision in (
+            ("arthexis/unknown", "gway-001", SHA),
+            ("arthexis/odoo-gelectriic", "gway-002", SHA),
+            ("arthexis/odoo-gelectriic", "gway-001", "main"),
+            ("arthexis/odoo-gelectriic", "gway-001", SHA + ";sh"),
+        ):
+            with self.assertRaises((ValueError, PermissionError)):
+                repository_installer_argv(repo, node, revision, installed=True)
+
     def test_allowlisted_fixed_recipe(self):
         argv = recipe_argv("arthexis/ocpp-reports", "gway-001", SHA)
         self.assertEqual(argv[-1], SHA)
