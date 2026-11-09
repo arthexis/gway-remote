@@ -23,11 +23,12 @@ class ProviderTransport:
             raise ValueError("invalid provider request")
         if operation == "provider_call" and type(request["arguments"]) is not dict:
             raise ValueError("invalid provider arguments")
-        payload = {"operation": operation, "node": node,
+        payload = {"operation": ("provider_read_call" if operation == "provider_call" and trusted_scope == "read" else operation), "node": node,
                    "request_id": secrets.token_hex(16)}
         if operation == "provider_call":
             payload.update({key: request[key] for key in ("provider", "tool", "arguments")})
-            payload["authorized_scope"] = trusted_scope
+            if trusted_scope == "execute":
+                payload["authorized_scope"] = trusted_scope
         transport = pinned_transport(self.execution_transport, node)
         response = transport.invoke(payload)
         if type(response) is not dict or "result" not in response:
