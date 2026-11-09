@@ -59,3 +59,33 @@ separate `manual_deploy_async` broker for arbitrary SHA jobs. The
 fixed-service transport deliberately remains the authoritative, working
 boundary; do not claim multi-node or immutable-SHA deployment until the
 backend supports and tests it.
+
+## Odoo independent deployment — current contract
+
+The legacy fixed Odoo systemd deployment recipe described above has been
+removed from the current `AuthorizedExecution.deployment_preview` allowlist.
+It must **not** be re-enabled by this PR. Odoo owns its deployment through
+`arthexis/odoo-gelectriic/deploy.sh` and local Ansible on `gway-001`.
+
+The new `workspace_inspect` forced-protocol operation is strictly read-only:
+its request contains only an attested node, a server-generated request ID,
+and a repository name. The node's operator-owned
+`GWAY_WORKSPACE_INSPECT_CONFIG` maps allowlisted repositories to absolute
+checkout paths; Watchtower must not impersonate `gway-001` with a local
+workspace environment variable. The private bridge must be supplied a
+separate pinned `read_transport` by its trusted bootstrap. Absent that
+transport it denies the request. No generic SSH or local fallback is allowed.
+
+**Required installed-release receipt (not implemented here):** the Odoo
+installer should publish an atomic, root-owned record containing repository,
+40-character installed revision, release path under
+`/opt/odoo-gelectriic/releases/<sha>`, manifest digest, observed timestamp,
+and successful active-link/integrity verification. An authorized node-side
+read-only adapter must verify owner, mode, non-symlink path, expected release
+and digest on every read, and bind the response to the attested node and
+request ID. A checkout HEAD or `current` symlink alone is **not** proof of
+installed revision. Until that adapter is implemented and installed, report
+`installed_sha=unknown`, never inferred from GitHub or checkout HEAD.
+
+The current PR adds a dormant protocol path only; it does not provision
+root-owned allowlists, trusted read transport or receipts in production.
