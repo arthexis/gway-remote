@@ -69,9 +69,13 @@ class LegacyDeployRetirementTests(unittest.TestCase):
         self.assertIn("exec_relay_sudo_original.content", recovery)
         self.assertIn("exec_relay_sshd_original.content", recovery)
         self.assertEqual(recovery.count("base64.b64decode("), 3)
-        self.assertEqual(recovery.count("os.replace(tmp,p)"), 3)
-        self.assertEqual(recovery.count("os.fsync(fd)"), 3)
+        self.assertEqual(recovery.count("os.replace(tmp, p)"), 3)
+        self.assertEqual(recovery.count("os.fsync(stream.fileno())"), 3)
         self.assertEqual(recovery.count("no_log: true"), 3)
+        self.assertEqual(recovery.count("os.unlink(tmp)"), 3)
+        self.assertEqual(recovery.count("stream.write(data)"), 3)
+        self.assertIn("/usr/sbin/visudo", recovery)
+        self.assertEqual(recovery.count("subprocess.run("), 3)
 
     def test_offline_failure_compensation_restores_original_artifacts(self):
         # Pure local fixture: simulate failure after each cutover write.
