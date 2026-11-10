@@ -22,6 +22,7 @@ class SourceRegistration:
     argv: tuple[str, ...]
     run_as: str
     enabled: bool = False
+    deployment: object = None
 
     def __post_init__(self):
         if not isinstance(self.source_id, str) or not _NAME.fullmatch(self.source_id):
@@ -41,6 +42,9 @@ class SourceRegistration:
             raise ValueError("invalid service identity")
         if type(self.enabled) is not bool:
             raise ValueError("enabled must be boolean")
+        if self.deployment is not None:
+            from .mcp_deployment_contract import validate_deployment
+            validate_deployment(self.deployment)
 
 
 def compose_source_catalog(builtin_tools, registrations, source_tools):
