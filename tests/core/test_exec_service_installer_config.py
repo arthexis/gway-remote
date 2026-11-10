@@ -30,7 +30,7 @@ class ServiceIdentityTests(unittest.TestCase):
             digest = hashlib.sha256(key).hexdigest()
             known = root / "known_hosts"
             private = root / "identity"
-            known.write_text("gway-001 ssh-ed25519 " + base64.b64encode(key).decode() + "\\n")
+            known.write_text("gway-001 ssh-ed25519 " + base64.b64encode(key).decode() + "\n")
             private.write_text("offline test only")
             known.chmod(0o600)
             private.chmod(0o600)
