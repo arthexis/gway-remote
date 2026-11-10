@@ -113,8 +113,10 @@ jobs:
           ansible-playbook --syntax-check -i 'watchtower,' ansible/playbooks/watchtower-enrollment.yml
           ansible-playbook --syntax-check -i 'watchtower,' ansible/playbooks/watchtower-enrollment-production.yml
 
-      - name: Exercise isolated SSH/sudoers byte-for-byte rescue (three injected faults)
-        run: python3 -m unittest discover -s tests/deployment -p test_exec_cutover_ansible_isolated.py -v
+      - name: Exercise isolated SSH/sudoers rescue and gway-001 identity selection
+        run: |
+          python3 -m unittest discover -s tests/deployment -p test_exec_cutover_ansible_isolated.py -v
+          python3 -m unittest discover -s tests/deployment -p test_exec_001_inventory.py -v
 
   ssh-config:
     name: SSH config (Debian 12 + 13)
