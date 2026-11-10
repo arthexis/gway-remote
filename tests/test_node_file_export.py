@@ -4,7 +4,7 @@ import hashlib
 
 import pytest
 
-from gway_remote.node_file_export import MAX_FILE_BYTES, export_file
+from gway_remote.node_file_export import MAX_FILE_BYTES, export_file, export_chunk
 
 
 def test_roundtrip(tmp_path):
@@ -46,3 +46,26 @@ def test_rejects_directory(tmp_path):
 def test_accepts_exact_limit(tmp_path):
     (tmp_path / "exact").write_bytes(b"x" * MAX_FILE_BYTES)
     assert export_file("exact", export_root=str(tmp_path))["size"] == MAX_FILE_BYTES
+
+
+def test_chunk_roundtrip_and_integrity(tmp_path):
+    payload = bytes(range(256)) * 500
+    (tmp_path / "audio.opus").write_bytes(payload)
+    offset = 0
+    parts = []
+    while True:
+        part = export_chunk("audio.opus", export_root=str(tmp_path), offset=offset)
+        assert part["sha256"] == hashlib.sha256(payload).hexdigest()
+        assert part["chunk_bytes"] <= 48 * 1024
+        parts.append(base64.b64decode(part["content"]))
+        if part["next_offset"] is None:
+            break
+        offset = part["next_offset"]
+    assert b"".join(parts) == payload
+
+
+def test_rejects_invalid_chunk_offsets(tmp_path):
+    (tmp_path / "audio").write_bytes(b"hello")
+    for offset in (-1, 6, 1.5, True, MAX_FILE_BYTES + 1):
+        with pytest.raises(ValueError):
+            export_chunk("audio", export_root=str(tmp_path), offset=offset)
