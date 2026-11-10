@@ -29,8 +29,10 @@ class LegacyDeployRetirementTests(unittest.TestCase):
         self.assertIn("else 'gway-exec'", defaults)
         self.assertNotIn("gway_remote_exec_user:", defaults)
         select = SELECT.read_text()
-        self.assertIn("gway_remote_exec_run_user in ['gway-exec', 'arthe']", select)
-        self.assertIn("gway_remote_exec_run_user != 'arthe' or (ansible_hostname", select)
+        self.assertIn("gway_remote_exec_run_user == gway_remote_exec_user", select)
+        self.assertIn("gway_remote_exec_run_user == gway_remote_runner_user", select)
+        self.assertIn("gway_remote_exec_run_user != 'root'", select)
+        self.assertNotIn("gway_remote_exec_run_user in ['gway-exec', 'arthe']", select)
         self.assertIn('{"user": {{ gway_remote_exec_run_user | to_json }}}', select)
         self.assertIn("gway-relay ALL=({{ gway_remote_exec_run_user }})", select)
 
