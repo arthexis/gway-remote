@@ -249,7 +249,7 @@ class PinnedNode:
             raise ValueError("invalid host alias")
         if not HEX_SHA256.fullmatch(self.host_key_sha256):
             raise ValueError("invalid enrolled host key")
-        if type(self.installer_user) is not str or not re.fullmatch(r"[a-z_][a-z0-9_-]{0,31}", self.remote_user):
+        if type(self.installer_user) is not str or not re.fullmatch(r"[a-z_][a-z0-9_-]{0,31}", self.installer_user):
             raise ValueError("invalid SSH principal")
         for path in (self.known_hosts, self.identity_file):
             info = Path(path).lstat()
