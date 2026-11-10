@@ -5,7 +5,7 @@ import threading
 import unittest
 from pathlib import Path
 from urllib.request import Request, urlopen
-from unittest.mock import Mock
+from unittest.mock import MagicMock, Mock
 
 from gway_remote.mcp_bearer import BearerRegistry, BearerVerifier
 from gway_remote.mcp_bearer_gateway import (
@@ -76,7 +76,7 @@ class EffectiveCatalogTests(unittest.TestCase):
                             "annotations": {"readOnlyHint": True}}]
                 body = json.dumps({"jsonrpc": "2.0", "id": 1,
                                    "result": {"tools": private}}).encode()
-                response = Mock()
+                response = MagicMock()
                 response.status = 200
                 response.headers = {"Content-Type": "application/json"}
                 response.read.side_effect = lambda *args: body
