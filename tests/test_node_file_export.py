@@ -56,7 +56,7 @@ def test_chunk_roundtrip_and_integrity(tmp_path):
     while True:
         part = export_chunk("audio.opus", export_root=str(tmp_path), offset=offset)
         assert part["sha256"] == hashlib.sha256(payload).hexdigest()
-        assert part["chunk_bytes"] <= 48 * 1024
+        assert part["chunk_bytes"] <= 8 * 1024
         parts.append(base64.b64decode(part["content"]))
         if part["next_offset"] is None:
             break
