@@ -21,6 +21,10 @@ OPERATIONS = {
     "cancel": frozenset({"operation", "node", "request_id"}),
     "limits": frozenset({"operation", "node", "request_id"}),
     "file_read": frozenset({"operation", "node", "request_id", "filename", "offset"}),
+    "workspace_inspect": frozenset({"operation", "node", "request_id", "repository"}),
+    "deployment_preview": frozenset({"operation", "node", "request_id", "application"}),
+    "deployment_status": frozenset({"operation", "node", "request_id", "application"}),
+    "deployment_run": frozenset({"operation", "node", "request_id", "application", "expected_revision"}),
     "provider_list": frozenset({"operation", "node", "request_id"}),
     "provider_call": frozenset({"operation", "node", "request_id", "provider", "tool", "arguments", "authorized_scope"}),
 }
@@ -68,6 +72,21 @@ def serve_one(raw, *, jobs=None, hostname=None):
                 or type(response["result"]) is not dict):
             raise PermissionError("uncorrelated file reader response")
         return response
+    if op == "workspace_inspect":
+        # The trusted node's local, operator-configured allowlist is the only
+        # authority for checkout paths. Requesters cannot pass a filesystem path.
+        from .mcp_workspace_inspect import inspect_authorized
+        result = inspect_authorized({"node": host, "repository": req["repository"]})
+        return {"node": host, "request_id": rid, "result": result}
+    if op in ("deployment_preview", "deployment_status", "deployment_run"):
+        from .mcp_deployment_broker import preview, request_status, accept
+        if op == "deployment_preview":
+            result = preview(req["application"])
+        elif op == "deployment_status":
+            result = request_status(req["application"], rid)
+        else:
+            result = accept(req["application"], rid, expected_revision=req["expected_revision"])
+        return {"node": host, "request_id": rid, "result": result}
     if op in ("provider_list", "provider_call"):
         from .mcp_node_providers import dispatch_node_provider_request
         from .mcp_installed_providers import discover_installed_providers
