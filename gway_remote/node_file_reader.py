@@ -1,7 +1,6 @@
-"""Single-purpose, fail-closed file reader for the gway-exec identity.
+"""Single-purpose, fail-closed file reader under the protocol's own UID.
 
-Invoked only by the fixed sudoers command; no shell, arbitrary path or
-provider operation is accepted.
+No shell, arbitrary path or provider operation is accepted.
 """
 import json
 import os
@@ -15,13 +14,8 @@ MAX_INPUT = 1024
 
 
 def serve(raw, *, hostname=None):
-    import pwd
-    try:
-        expected_uid = pwd.getpwnam("gway-exec").pw_uid
-    except KeyError as exc:
-        raise PermissionError("file reader identity unavailable") from exc
-    if os.geteuid() != expected_uid:
-        raise PermissionError("file reader identity mismatch")
+    from .node_exec_worker import require_account
+    require_account()
     if type(raw) is not bytes or len(raw) > MAX_INPUT:
         raise ValueError("invalid file reader request")
     request = json.loads(raw)
