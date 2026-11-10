@@ -7,7 +7,6 @@
     that:
       - gway_remote_executor_opt_in | default(false) | bool
       - gway_remote_runner_user is defined
-      - gway_remote_runner_user == lookup('env', 'USER')
       - (lookup('pipe', 'id -u') | int) > 0
       - gway_remote_runner_user == lookup('pipe', 'id -un')
       - gway_remote_runner_user != 'root'
@@ -36,6 +35,21 @@
       - gway_remote_exec_ssh_dir.stat.pw_name == gway_remote_runner_user
       - (getent_passwd[gway_remote_runner_user][1] | int) == (gway_remote_runner_uid | int)
       - (gway_remote_exec_ssh_dir.stat.mode | int(base=8)) % 8 == 0
+
+- name: Require installed root-owned forced-command entrypoint before authorizing key
+  ansible.builtin.stat:
+    path: /usr/local/libexec/gway-remote-exec-protocol-v1
+    follow: false
+  register: gway_remote_exec_entrypoint
+
+- name: Deny SSH key installation until forced-command entrypoint is safe
+  ansible.builtin.assert:
+    that:
+      - gway_remote_exec_entrypoint.stat.isreg | default(false)
+      - not (gway_remote_exec_entrypoint.stat.islnk | default(false))
+      - gway_remote_exec_entrypoint.stat.pw_name == 'root'
+      - (gway_remote_exec_entrypoint.stat.mode | int(base=8)) % 8 == 5
+    fail_msg: Forced-command executable unavailable or unsafe
 
 # Key-specific forced command; administrative SSH keys remain untouched.
 - name: Install dedicated restricted executor key for installer
