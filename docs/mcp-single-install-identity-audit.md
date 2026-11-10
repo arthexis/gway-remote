@@ -118,3 +118,36 @@ SSH forced-command/transport together with the worker and reader, and
 only then remove the legacy identity provisioning. Never deploy an
 intermediate state that silently broadens file access or bypasses SSH
 pinning. No source review establishes a production-safe migration yet.
+
+## Follow-up review: current CI and provisioning coupling
+
+- Workflow `42856957578` for HEAD `add8af9490f5db4895f567e934edaa7c8a075c3c`
+  completed **SUCCESS**. This confirms only the current incremental changes.
+- `node-exec-prepare.yml` is included unconditionally from the role's
+  `main.yml`. It creates a dedicated executor account, changes linger and
+  installs an account-specific polkit rule. Simply deleting the file without
+  replacing the include and the associated preconditions breaks installation.
+- `node-exec-select.yml` is included from the same role and manages
+  `executor-identity.json`, the old SSH/sudoers pair, user bus, job drain
+  and rollback. `node-exec-relay.yml` is an opt-in recipe for the legacy
+  dedicated SSH login. They must be replaced as a single migration.
+- The requested same-UID SSH protocol must use a root-controlled
+  `Match User`/authorized-key forced command with the **actual installed
+  user**, and the Watchtower transport must obtain that SSH login from a
+  trusted, attested installation record. There is no safe generic SSH
+  `-l` omission if the local Watchtower service user differs from the
+  remote installer user. Do not infer the remote user from the Watchtower
+  process UID.
+- The existing export primitive validates fixed root, filename, symlinks,
+  regular-file type and size; running it as the installer UID does **not**
+  grant new Unix file privileges. However, any legacy export directory
+  owned exclusively by the old executor may become unreadable. Installation
+  must detect this explicitly; never silently chmod or chown production.
+- Changes in this Draft already remove the extra `sudo -u` transition
+  from the installer's fast-path check and `file_read`. They do **not**
+  yet remove the legacy identities from provisioning or transport.
+
+**Acceptance remains blocked** until the root-owned installed identity
+record, per-node SSH login, forced-command authorized key, same-UID worker,
+ledger continuity, Ansible rollback and all negative tests are implemented
+and validated together. Do not merge or deploy the current partial state.
