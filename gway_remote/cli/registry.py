@@ -23,6 +23,7 @@ REGISTRATION = (
     (security, ("host-key", "wireguard", "inspection-host-rotate",
                 "inspection-host-pin", "register", "watchtower")),
     (local, ("codex", "api")),
+    (operations, ("mcp",)),
 )
 
 
