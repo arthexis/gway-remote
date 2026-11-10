@@ -191,13 +191,15 @@ def federated_source_status(federation):
             "discovery": "node_federation"}
 
 
-def inspect_federated_catalog(federation, *, builtins=()):
-    """Describe the live node-owned catalog with no credentials or provider arguments."""
-    catalog, routes = federation.discover(builtins=builtins)
+def _project_catalog(catalog, routes):
+    """One classification/projection for actual tools/list and inspect output."""
     rows = []
     for tool in catalog:
         name = tool["name"]
         route = routes.get(name)
+        # Watchtower-local execute tools keep their fixed OAuth requirement,
+        # including the read-like diagnostic. Dynamic providers are classified
+        # using the *authenticated* route, never a caller-provided scope.
         scope = route[3] if route else ("execute" if name in EXEC_TOOL_NAMES else
                 required_scope(tool) if trusted_source_tool(tool) else "read")
         rows.append({"name": name, "origin": "federated" if route else "builtin",
@@ -207,6 +209,42 @@ def inspect_federated_catalog(federation, *, builtins=()):
                      "required_scope": "gway:execute" if scope == "execute" else "gway:read"})
     return {"schema": 1, "discovery": "node_federation", "tools": rows,
             "count": len(rows)}
+
+
+def inspect_federated_catalog(federation, *, builtins=()):
+    """Backward-compatible pure projection of an independently discovered catalog."""
+    return _project_catalog(*federation.discover(builtins=builtins))
+
+
+def effective_catalog(upstream_tools, *, federation=None, execution=None):
+    """Construct the *same* effective list for tools/list and mcp_catalog_inspect.
+
+    No additional tool registrations, approvals, transports or lookups. The
+    node's authenticated federation owns each dynamic tool and its scope.
+    """
+    if type(upstream_tools) is not list:
+        raise ValueError("invalid backend catalog")
+    local_names = {tool["name"] for tool in NODE_TOOLS + EXEC_TOOLS}
+    if any(type(tool) is not dict or type(tool.get("name")) is not str
+           or tool["name"] in local_names for tool in upstream_tools):
+        raise ValueError("invalid or shadowed backend tool")
+    names = [tool["name"] for tool in upstream_tools]
+    if len(names) != len(set(names)):
+        raise ValueError("duplicate backend tools")
+    private_tools = [tool for tool in upstream_tools if tool["name"] in ALLOWED_TOOLS]
+    if federation is not None:
+        selected, routes = federation.discover(
+            builtins=private_tools + list(NODE_TOOLS) + list(EXEC_TOOLS))
+        # These local declarations are appended in their original order below.
+        tools = [tool for tool in selected if tool["name"] not in local_names]
+    else:
+        tools, routes = private_tools, {}
+    tools = tools + list(NODE_TOOLS) + (list(EXEC_TOOLS) if execution is not None else [])
+    projection = _project_catalog(tools, routes)
+    scoped = [scoped_tool(tool, EXEC_SECURITY if row["required_scope"] == "gway:execute"
+                          else READ_SECURITY)
+              for tool, row in zip(tools, projection["tools"])]
+    return scoped, projection
 
 
 def trusted_source_tool(tool):
@@ -358,8 +396,8 @@ class Handler(BaseHTTPRequestHandler):
             try:
                 if payload["params"].get("arguments", {}) != {} or self.server.federation is None:
                     raise ValueError("invalid catalog request")
-                # Read the same private backend builtins as tools/list, then
-                # apply the same allowlist before composing the live federation.
+                # Read the same private backend list as tools/list, then reuse
+                # the *same* trusted catalog composer and scope projection.
                 probe = json.dumps({"jsonrpc": "2.0", "id": 0,
                                     "method": "tools/list", "params": {}}).encode()
                 headers = {"Authorization": "Bearer " + self.server.backend_token,
@@ -368,32 +406,13 @@ class Handler(BaseHTTPRequestHandler):
                            "MCP-Protocol-Version": "2025-03-26"}
                 with self.server.opener.open(Request(self.server.upstream, probe,
                                                      headers), timeout=UPSTREAM_TIMEOUT) as upstream:
-                    backend_tools = json.loads(upstream.read())["result"]["tools"]
-                if type(backend_tools) is not list:
-                    raise ValueError("invalid backend catalog")
-                builtin_names = {tool["name"] for tool in NODE_TOOLS + EXEC_TOOLS}
-                if any(type(tool) is not dict or type(tool.get("name")) is not str
-                       or tool["name"] in builtin_names for tool in backend_tools):
-                    raise ValueError("invalid backend tools")
-                backend_tools = [tool for tool in backend_tools
-                                 if tool["name"] in ALLOWED_TOOLS]
-                selected = inspect_federated_catalog(
-                    self.server.federation,
-                    builtins=backend_tools + list(NODE_TOOLS) + list(EXEC_TOOLS))
-                # Match tools/list's exact ordering: upstream/federated
-                # followed by Watchtower-local read and enabled exec tools.
-                local_names = {tool["name"] for tool in NODE_TOOLS + EXEC_TOOLS}
-                remote_rows = [row for row in selected["tools"]
-                               if row["name"] not in local_names]
-                local_rows = [row for tool in NODE_TOOLS
-                              for row in selected["tools"]
-                              if row["name"] == tool["name"]]
-                if self.server.execution is not None:
-                    local_rows += [row for tool in EXEC_TOOLS
-                                   for row in selected["tools"]
-                                   if row["name"] == tool["name"]]
-                selected["tools"] = remote_rows + local_rows
-                selected["count"] = len(selected["tools"])
+                    backend_reply = upstream.read(MAX_RESPONSE + 1)
+                if len(backend_reply) > MAX_RESPONSE:
+                    raise ValueError("oversized backend catalog")
+                backend_tools = json.loads(backend_reply)["result"]["tools"]
+                _, selected = effective_catalog(
+                    backend_tools, federation=self.server.federation,
+                    execution=self.server.execution)
                 result = {"content": [{"type": "text",
                                       "text": json.dumps(selected, separators=(",", ":"))}]}
                 if version == "2026-07-28":
@@ -637,31 +656,9 @@ class Handler(BaseHTTPRequestHandler):
             try:
                 upstream_payload = json.loads(body)
                 result = upstream_payload["result"]
-                tools = result["tools"]
-                if (type(tools) is not list or
-                        any(type(tool) is not dict or tool.get("name") in
-                            ({"node_list", "node_capabilities", "node_file_download", "node_exec_preview", "node_deploy_preview"} | EXEC_TOOL_NAMES) for tool in tools)):
-                    raise ValueError("upstream tool collision")
-                # Source admission is authoritative on the trusted backend.
-                # Watchtower does not maintain a second per-tool allowlist.
-                names = [tool.get("name") for tool in tools]
-                if any(type(name) is not str for name in names) or len(names) != len(set(names)):
-                    raise ValueError("invalid upstream tool names")
-                tools = [tool for tool in tools if tool["name"] in ALLOWED_TOOLS]
-                if self.server.federation is not None:
-                    remote_tools, _ = self.server.federation.discover(builtins=tools + list(NODE_TOOLS) + list(EXEC_TOOLS))
-                    # Node registrations are authoritative; no Watchtower
-                    # per-provider allowlist or static tool approval.
-                    builtin_names = {tool["name"] for tool in NODE_TOOLS + EXEC_TOOLS}
-                    tools = [tool for tool in remote_tools if tool["name"] not in builtin_names]
-                scoped_tools = [scoped_tool(tool, EXEC_SECURITY if (trusted_source_tool(tool) and not (
-                                 type(tool.get("annotations")) is dict and
-                                 tool["annotations"].get("readOnlyHint") is True and
-                                 tool["annotations"].get("destructiveHint") is not True)) else READ_SECURITY) for tool in tools]
-                node_tools = [scoped_tool(tool, READ_SECURITY) for tool in NODE_TOOLS]
-                exec_tools = [scoped_tool(tool, EXEC_SECURITY) for tool in EXEC_TOOLS]
-                result["tools"] = (scoped_tools + node_tools +
-                                   (exec_tools if self.server.execution is not None else []))
+                result["tools"], _ = effective_catalog(
+                    result["tools"], federation=self.server.federation,
+                    execution=self.server.execution)
                 body = json.dumps(upstream_payload, separators=(",", ":")).encode()
             except (ValueError, TypeError, KeyError, UnicodeError, OSError, RuntimeError, TimeoutError):
                 return self.reject(502)

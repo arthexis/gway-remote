@@ -16,12 +16,40 @@ def register(subparsers, targets, names):
     if "network" in names:
         network_parser = subparsers.add_parser("network", help="Read-only eth0/wlan0/wlan1 network snapshot")
         network_parser.add_argument("--json", action="store_true")
+    if "mcp" in names:
+        mcp = subparsers.add_parser("mcp", help="Read-only node-owned MCP diagnostics")
+        sections = mcp.add_subparsers(dest="mcp_section", required=True)
+        provider = sections.add_parser("provider", help="Inspect an installed provider")
+        actions = provider.add_subparsers(dest="mcp_action", required=True)
+        check = actions.add_parser("check", help="Check the trusted manifest and live catalog")
+        check.add_argument("source_id")
+        check.add_argument("--watchtower-catalog", metavar="JSON_FILE",
+                           help="Optional sanitized mcp_catalog_inspect JSON snapshot; never fetches OAuth")
+        check.add_argument("--json", action="store_true")
     if "logs" in names:
         logs_parser = subparsers.add_parser("logs", help="Inspect local installation logs")
         logs_parser.add_argument("component", nargs="?", choices=tuple(name for name, _ in targets))
         logs_parser.add_argument("--lines", type=int, default=None)
 
 def dispatch(args, parser):
+    if args.command == "mcp":
+        if args.mcp_section != "provider" or args.mcp_action != "check":
+            parser.exit(2, "gway-remote: unsupported MCP diagnosis\n")
+        from ..mcp_provider_diagnostics import (
+            check_provider, format_provider_check, load_watchtower_catalog,
+        )
+        try:
+            snapshot = (load_watchtower_catalog(args.watchtower_catalog)
+                        if args.watchtower_catalog is not None else None)
+            report = check_provider(args.source_id, watchtower_catalog=snapshot)
+        except (OSError, ValueError, TypeError):
+            # No paths, exception text, tokens, provider arguments or stderr.
+            parser.exit(2, "gway-remote: invalid MCP diagnostic input\n")
+        print(json.dumps(report, indent=2, sort_keys=True) if args.json
+              else format_provider_check(report))
+        if report["state"] != "available" or report["watchtower"]["state"] == "differs_snapshot":
+            parser.exit(1)
+        return True
     if args.command == "network":
         from ..network_diagnostics import inspect, format_network
         result = inspect()

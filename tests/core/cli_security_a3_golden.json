@@ -1,7 +1,7 @@
 {
   "--help": {
     "code": 0,
-    "stdout_sha256": "16c0930095c1f122092bb57d124f5cae7925a7110032f17125331e0feff6bb55",
+    "stdout_sha256": "594fc52e8f6e1e1235cf7d04b6de2f9ea71c5fc7997821b1431db13c596e8763",
     "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
   },
   "bearer --help": {

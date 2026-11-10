@@ -31,7 +31,7 @@ class CliRegistryA5Tests(unittest.TestCase):
                    isinstance(action.choices, dict)]
         self.assertEqual(len(actions), 1)
         commands = actions[0].choices
-        self.assertEqual(len(commands), 27)
+        self.assertEqual(len(commands), 28)
         self.assertIs(commands['codex'], commands['codex-worker'])
 
     def test_no_entrypoint_import_or_circular_dependency(self):
