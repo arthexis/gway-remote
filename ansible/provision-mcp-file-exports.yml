@@ -1,0 +1,41 @@
+---
+# Explicit operator invocation only. Inventory must contain gway-001.
+# No dynamic hosts, no broad fleet group, no deployment from MCP reads.
+- name: Provision isolated MCP file reader on gway-001
+  hosts: gway-001
+  become: true
+  gather_facts: false
+  tasks:
+    - name: Verify the explicitly targeted node
+      ansible.builtin.assert:
+        that:
+          - inventory_hostname == 'gway-001'
+
+    - name: Verify dedicated executor account exists
+      ansible.builtin.getent:
+        database: passwd
+        key: gway-exec
+
+    - name: Verify operator executor account exists
+      ansible.builtin.getent:
+        database: passwd
+        key: arthe
+
+    - name: Create private export root
+      ansible.builtin.file:
+        path: /var/lib/gway-mcp-exports
+        state: directory
+        owner: gway-exec
+        group: gway-exec
+        mode: "0700"
+        follow: false
+
+    - name: Permit only the fixed file reader as gway-exec
+      ansible.builtin.copy:
+        dest: /etc/sudoers.d/gway-mcp-file-reader
+        owner: root
+        group: root
+        mode: "0440"
+        content: |
+          arthe ALL=(gway-exec) NOPASSWD: /usr/bin/env PYTHONPATH=/opt/gway-remote /usr/bin/python3 -m gway_remote.node_file_reader
+        validate: /usr/sbin/visudo -cf %s

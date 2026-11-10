@@ -15,6 +15,7 @@ NODE = re.compile(r"gway-[0-9]{3}", re.ASCII)
 REQUEST = re.compile(r"[0-9a-f]{32}", re.ASCII)
 OPERATIONS = frozenset({
     "inventory.list", "inventory.capabilities", "execution.preview",
+    "file.read",
     "execution.start", "execution.result", "execution.cancel",
     "deployment.preview", "deployment.start", "deployment.status",
 })
@@ -49,6 +50,8 @@ def validate_envelope(data, *, audience, now=None):
     scope = data["scope"]
     if scope not in ("gway:read", "gway:execute"):
         raise InvalidBridgeRequest("invalid scope")
+    if operation == "file.read" and scope != "gway:read":
+        raise InvalidBridgeRequest("insufficient read scope")
     if operation in EXECUTE_OPERATIONS and scope != "gway:execute":
         raise InvalidBridgeRequest("insufficient scope")
     issued, expires = data["issued_at"], data["expires_at"]
