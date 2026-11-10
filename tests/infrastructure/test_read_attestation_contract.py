@@ -1,9 +1,10 @@
 """Offline verification; no installed keys, credentials, SSH or Watchtower."""
 import hashlib
 import hmac
+import json
 import unittest
 
-from gway_remote.read_attestation_contract import canonical_payload, verify_read_receipt
+from gway_remote.read_attestation_contract import canonical_payload, verify_read_receipt, parse_read_receipt, MAX_RECEIPT_BYTES
 
 KEY = b"offline-test-only-secret-never-deploy!"
 
@@ -96,6 +97,36 @@ class ReadReceiptTests(unittest.TestCase):
         expected = dict(self.claims, node=True)
         with self.assertRaises(PermissionError):
             self.verify(expected=expected)
+
+    def test_strict_json_parser_accepts_signed_receipt(self):
+        raw = json.dumps(self.receipt, sort_keys=True).encode()
+        self.assertEqual(parse_read_receipt(raw), self.receipt)
+        self.assertEqual(verify_read_receipt(parse_read_receipt(raw),
+            trusted_keys={("offline-test", "test-1"): KEY},
+            revoked_serials=set(), expected=self.claims, now=150), self.claims)
+
+    def test_strict_json_parser_rejects_duplicate_keys(self):
+        raw = json.dumps(self.receipt).encode()
+        raw = raw[:-1] + b', "node": "gway-002"}'
+        with self.assertRaises(ValueError):
+            parse_read_receipt(raw)
+
+    def test_strict_json_parser_rejects_invalid_input(self):
+        good = json.dumps(self.receipt).encode()
+        cases = (b"", b"[]", b"null", b"true", b"{", b"\\xff",
+                 good + b" " * MAX_RECEIPT_BYTES, b'{"x": NaN}',
+                 good.replace(b'"issued_at": 100', b'"issued_at": true'),
+                 good.replace(b'"issued_at": 100', b'"issued_at": 100.0'))
+        for raw in cases:
+            with self.subTest(raw=raw[:60]), self.assertRaises(ValueError):
+                parse_read_receipt(raw)
+
+    def test_stateless_verifier_cannot_detect_replay(self):
+        # Documents an explicit production blocker, not a replay guarantee.
+        first = self.verify()
+        self.assertEqual(self.verify(), first)
+        with self.assertRaises(PermissionError):
+            self.verify(revoked_serials={"receipt-001"})
 
 
 if __name__ == "__main__":
