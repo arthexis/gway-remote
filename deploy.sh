@@ -140,7 +140,8 @@ if [ "$#" -eq 0 ] &&
   exit 0
 fi
 ansible-playbook "$ROOT/ansible/playbook.yml" -i 'gway_remote,' -c local \
-  -e "gway_remote_runner_user=$(id -un)" "$@"
+  -e "gway_remote_runner_user=$(id -un)" \
+  -e "gway_remote_runner_uid=$(id -u)" "$@"
 # Only the ordinary managed deployment can certify the default installation.
 if [ "$#" -eq 0 ]; then
   mkdir -p "$(dirname "$marker")"
