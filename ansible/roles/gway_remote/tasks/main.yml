@@ -84,6 +84,14 @@
     gway_agent_mcp_executable: "{{ (lookup('file', playbook_dir ~ '/inventory/deployment.yml') | from_yaml).all.children.controller.hosts['gway-001'].gway_agent_mcp_executable }}"
   when: (ansible_hostname | default('')) == 'gway-001'
 
+# deploy.sh uses a transient localhost inventory, not the canonical hostvars.
+# Select the pilot identity explicitly from the committed inventory before the
+# existing, guarded node-exec-select cutover. Other nodes retain gway-exec.
+- name: Select gway-001 executor from canonical inventory
+  ansible.builtin.set_fact:
+    gway_remote_exec_run_user: "{{ (lookup('file', playbook_dir ~ '/inventory/deployment.yml') | from_yaml).all.children.controller.hosts['gway-001'].gway_remote_exec_run_user }}"
+  when: (ansible_hostname | default('')) == 'gway-001'
+
 # Node-owned AgentOps issue trust policy; independent of provider registration.
 - name: Validate AgentOps repository policy
   ansible.builtin.assert:
