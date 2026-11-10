@@ -193,7 +193,7 @@
     - name: Restore previous restricted relay sudoers
       ansible.builtin.copy:
         dest: /etc/sudoers.d/gway-exec-relay
-        content: |-
+        content: |
           {{ exec_relay_sudo_original.content | b64decode }}
         owner: root
         group: root
@@ -204,7 +204,7 @@
     - name: Restore original forced-command SSH configuration
       ansible.builtin.copy:
         dest: /etc/ssh/sshd_config.d/40-gway-exec-relay.conf
-        content: |-
+        content: |
           {{ exec_relay_sshd_original.content | b64decode }}
         owner: root
         group: root
@@ -214,7 +214,7 @@
     - name: Restore previous executor identity configuration
       ansible.builtin.copy:
         dest: /etc/gway-remote/executor-identity.json
-        content: |-
+        content: |
           {{ exec_identity_original.content | b64decode }}
         owner: root
         group: root
