@@ -29,12 +29,22 @@ class LegacyDeployRetirementTests(unittest.TestCase):
         self.assertIn("else 'gway-exec'", defaults)
         self.assertNotIn("gway_remote_exec_user:", defaults)
         select = SELECT.read_text()
-        self.assertIn("gway_remote_exec_run_user == gway_remote_exec_user", select)
+        self.assertIn("gway_remote_exec_run_user == (gway_remote_exec_user | default(\'gway-exec\'))", select)
         self.assertIn("gway_remote_exec_run_user == gway_remote_runner_user", select)
         self.assertIn("gway_remote_exec_run_user != 'root'", select)
         self.assertNotIn("gway_remote_exec_run_user in ['gway-exec', 'arthe']", select)
         self.assertIn('{"user": {{ gway_remote_exec_run_user | to_json }}}', select)
         self.assertIn("gway-relay ALL=({{ gway_remote_exec_run_user }})", select)
+
+    def test_relay_force_command_accepts_configured_unix_account(self):
+        import re
+        select = SELECT.read_text()
+        self.assertIn("[a-z_][a-z0-9_-]*", select)
+        pattern = r"(?<=-u )[a-z_][a-z0-9_-]*(?= /usr/bin/env PYTHONPATH=)"
+        for old in ("arthe", "gway-exec", "custom_operator_7"):
+            command = f"sudo -n -u {old} /usr/bin/env PYTHONPATH=/opt/gway-remote python3 -m worker"
+            self.assertIn("-u selected_user /usr/bin/env", re.sub(pattern, "selected_user", command))
+        self.assertEqual("sudo -u root /bin/true", re.sub(pattern, "selected_user", "sudo -u root /bin/true"))
 
     def test_executor_cutover_has_ordered_rollback_for_relay_and_policy(self):
         select = SELECT.read_text()
