@@ -10,12 +10,11 @@ from .mcp_bridge_contract import InvalidBridgeRequest
 from .mcp_bearer import BearerVerifier
 from . import node_registry_inventory
 import secrets
-from .watchtower_exec_transport import pinned_transport
 
 
 class SessionBridgeDispatch:
     def __init__(self, *, verifier, session_token, allowed_node, read_principal, execution=None,
-                 inventory=None, read_transport=None):
+                 inventory=None):
         if not isinstance(session_token, str) or not session_token:
             raise ValueError("trusted session token required")
         if not callable(allowed_node) or not callable(read_principal):
@@ -26,14 +25,6 @@ class SessionBridgeDispatch:
         self.read_principal = read_principal
         self.execution = execution
         self.inventory = inventory or node_registry_inventory
-        # Read inspection requires its own pinned SSH identity. Never alias the
-        # existing execute relay, even when a trusted caller misconfigures it.
-        if read_transport is not None and execution is not None:
-            execute_transport = getattr(getattr(execution, "relay", None),
-                                        "transport", None)
-            if read_transport is execute_transport:
-                raise ValueError("read transport must not reuse execution transport")
-        self.read_transport = read_transport
 
     def __call__(self, envelope):
         token = self.session_token
@@ -74,13 +65,15 @@ class SessionBridgeDispatch:
                 raise PermissionError("uncorrelated file response")
             return response["result"]
         if operation == "workspace.inspect" and set(args) == {"node", "repository"}:
-            if self.read_transport is None:
-                raise PermissionError("attested workspace transport unavailable")
-            transport = pinned_transport(self.read_transport, audience)
+            # Reuse the already authenticated, pinned node transport, exactly
+            # as file.read and federated provider reads do. Scope is enforced
+            # by the OAuth bridge, never by switching SSH identities.
+            if scope != "gway:read" or self.execution is None:
+                raise PermissionError("workspace inspection unavailable")
             rid = secrets.token_hex(16)
-            response = transport.invoke({"operation": "workspace_inspect",
-                                         "node": audience, "request_id": rid,
-                                         "repository": args["repository"]})
+            response = self.execution.relay.transport.invoke({
+                "operation": "workspace_inspect", "node": audience,
+                "request_id": rid, "repository": args["repository"]})
             if (type(response) is not dict or response.get("node") != audience
                     or response.get("request_id") != rid
                     or type(response.get("result")) is not dict
