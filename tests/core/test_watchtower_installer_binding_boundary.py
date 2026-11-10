@@ -51,6 +51,17 @@ class InstallerBindingBoundaryTests(unittest.TestCase):
             with self.subTest(change=change), self.assertRaises(PermissionError):
                 self.load(inventory={"nodes": [{**self.inventory["nodes"][0], **change}]})
 
+    def test_unbound_or_forged_installer_denied(self):
+        base = self.inventory["nodes"][0]
+        for binding in (
+            {"source": "caller", "node": "gway-001", "host_public_key": "a" * 64, "user": "installer", "state": "active"},
+            {"source": "enrollment-ledger", "node": "gway-002", "host_public_key": "a" * 64, "user": "installer", "state": "active"},
+            {"source": "enrollment-ledger", "node": "gway-001", "host_public_key": "b" * 64, "user": "installer", "state": "active"},
+            {"source": "enrollment-ledger", "node": "gway-001", "host_public_key": "a" * 64, "user": "installer", "state": "revoked"},
+        ):
+            with self.subTest(binding=binding), self.assertRaises(PermissionError):
+                self.load(inventory={"nodes": [{**base, "installer_binding": binding}]})
+
     def test_invalid_inventory_installer_denied(self):
         for user in ("root", "a;id", "", 3):
             with self.subTest(user=user), self.assertRaises(PermissionError):
