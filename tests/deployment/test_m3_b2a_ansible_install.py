@@ -58,7 +58,8 @@ class ExecutorPreparationTests(unittest.TestCase):
         # The default account retains its established directory, while the
         # explicitly configured operator uses separate private job storage.
         self.assertIn('"--working-directory=" +', worker)
-        self.assertIn('"/var/lib/gway-exec" if selected_user() == DEFAULT_USER', worker)
+        self.assertIn('str(self.path.parent)', worker)
+        self.assertNotIn('selected_user() == DEFAULT_USER', worker)
         self.assertIn('str(self.path.parent)', worker)
         self.assertIn('"/bin/sh", "-c", row["command"]', worker)
 
