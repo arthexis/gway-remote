@@ -78,7 +78,9 @@ assert_untouched
 # Reusing an existing unrestricted administrative key for the executor must
 # fail rather than converting that key to a forced-command-only login.
 admin_pub=$(awk '{print $1 " " $2}' "$work/admin.pub")
-assert_rejected admin_key_collision -e "gway_remote_exec_public_key=$admin_pub"
+printf '{ "gway_remote_exec_public_key": "%s" }\n' "$admin_pub" > "$work/collision.json"
+chmod 0644 "$work/collision.json"
+assert_rejected admin_key_collision -e "@$work/collision.json"
 assert_untouched
 printf '{"user":"other"}\n' >/etc/gway-remote/executor-identity.json
 cp /etc/gway-remote/executor-identity.json "$work/conflicting-policy"
