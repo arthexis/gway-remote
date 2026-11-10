@@ -55,6 +55,60 @@ class PinnedTransportIntegrationTests(unittest.TestCase):
         self.assertNotIn("/bin/sh", argv)
         self.assertEqual(json.loads(kwargs["input"])["operation"], "limits")
 
+    def test_transport_to_forced_command_to_protocol_offline(self):
+        """Exercise the actual request bytes through the fixed entrypoint, no SSH or jobs."""
+        import runpy
+        from unittest.mock import patch
+        from gway_remote import node_exec_protocol
+
+        entrypoint = Path(__file__).resolve().parents[2] / "scripts/node-exec-forced-command.py"
+        calls = []
+
+        class ProtocolReached(Exception):
+            pass
+
+        def fake_execve(executable, argv, env):
+            self.assertEqual(argv, ["/usr/bin/python3", "-m", "gway_remote.node_exec_protocol"])
+            self.assertEqual(env["USER"], "installer")
+            self.assertNotIn("SSH_AUTH_SOCK", env)
+            raise ProtocolReached
+
+        def fake_ssh(argv, **kwargs):
+            self.assertEqual(argv[-1], "gway-exec-protocol-v1")
+            self.assertIn("-T", argv)
+            self.assertIn("ClearAllForwardings=yes", argv)
+            calls.append(argv)
+            with patch.dict(os.environ, {
+                "SSH_ORIGINAL_COMMAND": argv[-1],
+                "SSH_CONNECTION": "192.0.2.1 12345 192.0.2.2 22",
+                "SSH_AUTH_SOCK": "/tmp/untrusted",
+            }, clear=True), patch("os.getuid", return_value=1001), \
+                 patch("os.geteuid", return_value=1001), \
+                 patch("pwd.getpwuid", return_value=SimpleNamespace(pw_dir="/home/installer", pw_name="installer")), \
+                 patch("os.execve", side_effect=fake_execve):
+                with self.assertRaises(ProtocolReached):
+                    runpy.run_path(str(entrypoint), run_name="__main__")
+            with patch.object(node_exec_protocol, "require_account"), \
+                 patch.object(node_exec_protocol, "configured_max_active", return_value=1):
+                response = node_exec_protocol.serve_one(kwargs["input"], hostname="gway-001")
+            return SimpleNamespace(stdout=json.dumps(response).encode())
+
+        request = {"operation": "limits", "node": "gway-001", "request_id": RID}
+        result = SSHTransport(self.node(), run=fake_ssh).invoke(request)
+        self.assertEqual(result["concurrent_jobs_per_node"], 1)
+        self.assertEqual(len(calls), 1)
+
+        for bad in ("id", "gway-exec-protocol-v1; id"):
+            with self.subTest(command=bad), \
+                 patch.dict(os.environ, {"SSH_ORIGINAL_COMMAND": bad, "SSH_CONNECTION": "x"}, clear=True), \
+                 patch("os.getuid", return_value=1001), \
+                 patch("os.geteuid", return_value=1001), \
+                 patch("os.execve") as execve:
+                with self.assertRaises(SystemExit) as rejected:
+                    runpy.run_path(str(entrypoint), run_name="__main__")
+                self.assertEqual(rejected.exception.code, 1)
+                execve.assert_not_called()
+
     def test_host_key_rotation_and_unsafe_permissions_fail_closed(self):
         with self.assertRaises(ValueError):
             self.node(host_key_sha256="b" * 64)
