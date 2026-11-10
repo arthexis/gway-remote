@@ -56,9 +56,13 @@ class ReadAuthorityContractTests(unittest.TestCase):
 
     def test_duplicate_json_rejected_before_authority(self):
         raw = json.dumps(self.receipt).encode()[:-1] + b', "serial": "serial-2"}'
+        class NeverCalled(ReadReceiptAuthority):
+            def consume(self, **kwargs):
+                raise AssertionError("duplicate JSON reached authority")
+
         with self.assertRaises(ValueError):
             authorize_read_receipt(raw, trusted_keys={("offline", "test"): KEY},
-                expected=self.expected, authority=ReadReceiptAuthority(), now=150)
+                expected=self.expected, authority=NeverCalled(), now=150)
 
 
 if __name__ == "__main__":
