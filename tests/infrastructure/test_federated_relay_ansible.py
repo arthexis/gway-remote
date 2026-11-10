@@ -24,7 +24,8 @@ class FederatedRelayAnsibleTests(unittest.TestCase):
 
     def test_relay_opt_in_supports_enrolled_nodes(self):
         self.assertIn("is match('^gway-[0-9]+$')", MAIN.read_text())
-        self.assertIn("gway_exec_transport_prepare | default(false) | bool", MAIN.read_text())
+        self.assertNotIn("include_tasks: node-exec-relay.yml", MAIN.read_text())
+        self.assertNotIn("include_tasks: node-exec-prepare.yml", MAIN.read_text())
 
     def test_receiver_rejects_spoofed_node_identity(self):
         payload = {"operation": "provider_list", "node": "gway-002",
