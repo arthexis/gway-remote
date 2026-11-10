@@ -8,7 +8,6 @@ import subprocess
 import tempfile
 import unittest
 
-import yaml
 
 ROOT = Path(__file__).resolve().parents[2]
 SELECT = ROOT / "ansible/roles/gway_remote/tasks/node-exec-select.yml"
@@ -17,6 +16,7 @@ SELECT = ROOT / "ansible/roles/gway_remote/tasks/node-exec-select.yml"
 class IsolatedCutoverTests(unittest.TestCase):
     @unittest.skipUnless(shutil.which("ansible-playbook"), "ansible-core unavailable")
     def test_failure_compensation(self):
+        import yaml
         source = yaml.safe_load(SELECT.read_text())
         blocks = [t for t in source if t.get("name") == "Activate selected execution identity and update only existing relay"]
         self.assertEqual(len(blocks), 1)
