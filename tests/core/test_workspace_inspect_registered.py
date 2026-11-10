@@ -73,6 +73,52 @@ class RegisteredWorkspaceInspection(unittest.TestCase):
         self.assertEqual(result["git"]["clean_tracked"]["value"], True)
         self.assertEqual(checkout.name, "example")
 
+    def test_existing_active_release_without_checkout_is_independent_evidence(self):
+        sha = "a" * 40
+        args = {"node": "gway-001", "repository": "arthexis/ocpp-reports"}
+        with patch("gway_remote.status.installed_revision", return_value=sha) as read:
+            result = self.inspect(args=args)
+        read.assert_called_once_with("ocpp-reports")
+        self.assertEqual(result["git"]["head"]["state"], "unknown")
+        self.assertEqual(result["git"]["clean_tracked"]["state"], "unknown")
+        self.assertEqual(result["deployment"]["state"], "observed")
+        self.assertEqual(result["deployment"]["installed_sha"], sha)
+        self.assertEqual(result["deployment"]["source"], "deployment_evidence")
+        self.assertEqual(result["deployment"]["runtime_state"], "unknown")
+        self.assertEqual(result["ci"]["state"], "unknown")
+
+    def test_short_revision_does_not_become_invented_full_sha(self):
+        args = {"node": "gway-001", "repository": "arthexis/ocpp-csms"}
+        with patch("gway_remote.status.installed_revision", return_value="b" * 12):
+            result = self.inspect(args=args)
+        self.assertEqual(result["git"]["head"]["state"], "unknown")
+        self.assertEqual(result["deployment"]["state"], "unknown")
+        self.assertNotIn("installed_sha", result["deployment"])
+
+    def test_unverified_revision_file_or_staged_bastion_never_certifies_activation(self):
+        for repository in ("arthexis/gway-ap-kiosk", "arthexis/gway-bastion"):
+            with self.subTest(repository=repository):
+                with patch("gway_remote.status.installed_revision",
+                           side_effect=AssertionError("unverified source must not be read")):
+                    result = self.inspect(args={"node": "gway-001",
+                                               "repository": repository})
+                self.assertEqual(result["deployment"]["state"], "unknown")
+
+    def test_unknown_repository_never_probes_installed_releases(self):
+        with patch("gway_remote.status.installed_revision",
+                   side_effect=AssertionError("unknown target must not be read")):
+            result = self.inspect(args={"node": "gway-001",
+                                        "repository": "arthexis/unregistered"})
+        self.assertEqual(result["deployment"]["state"], "unknown")
+
+    def test_failed_installed_revision_observation_stays_unknown(self):
+        args = {"node": "gway-001", "repository": "arthexis/ocpp-reports"}
+        with patch("gway_remote.status.installed_revision",
+                   side_effect=PermissionError("protected operator home")):
+            result = self.inspect(args=args)
+        self.assertEqual(result["deployment"]["state"], "unknown")
+        self.assertNotIn("protected operator home", str(result))
+
     def test_unregistered_repository_is_unknown_and_does_not_scan(self):
         runner = Mock(return_value=())
         with patch("gway_remote.mcp_workspace_inspect.subprocess.run") as subprocess_run:
