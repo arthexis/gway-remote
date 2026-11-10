@@ -41,6 +41,8 @@ jobs:
         run: ansible-playbook --syntax-check -i 'localhost,' ansible/playbooks/test-mcp-provider-lifecycle.yml
       - name: Test install, update, rollback and changed=0
         run: python -m pytest tests/deployment/test_mcp_provider_lifecycle_ansible.py -v
+      - name: Test executor identity cutover rescue on isolated files
+        run: python -m pytest tests/deployment/test_exec_cutover_ansible_isolated.py -v
 
   webauthn-python310:
     name: WebAuthn B2 / Watchtower Python 3.10
