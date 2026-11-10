@@ -6,6 +6,7 @@ from unittest.mock import Mock
 import pytest
 
 from gway_remote.mcp_bridge_gateway_dispatch import OPERATIONS, dispatch_node_tool
+from gway_remote.mcp_bridge_contract import validate_envelope, InvalidBridgeRequest
 from gway_remote.mcp_bridge_session import SessionBridgeDispatch
 from gway_remote.mcp_bearer_gateway import NODE_TOOLS
 from gway_remote.node_file_export import CHUNK_BYTES, MAX_FILE_BYTES, export_chunk
@@ -83,3 +84,18 @@ def test_session_rejects_mismatched_ssh_receipt():
         session({"audience": "gway-001", "scope": "gway:read",
                  "principal": "reader", "operation": "file.read",
                  "arguments": {"node": "gway-001", "filename": "audio.opus", "offset": 0}})
+
+
+def test_signed_bridge_envelope_read_only():
+    envelope = {
+        "version": 1, "request_id": "a" * 32, "principal": "reader",
+        "audience": "gway-001", "operation": "file.read",
+        "scope": "gway:read", "issued_at": 100, "expires_at": 130,
+        "arguments": {"node": "gway-001", "filename": "audio.opus", "offset": 0}}
+    assert validate_envelope(envelope, audience="gway-001", now=101) == envelope
+    with pytest.raises(InvalidBridgeRequest):
+        validate_envelope({**envelope, "scope": "gway:execute"},
+                          audience="gway-001", now=101)
+    with pytest.raises(InvalidBridgeRequest):
+        validate_envelope({**envelope, "audience": "gway-002"},
+                          audience="gway-001", now=101)
