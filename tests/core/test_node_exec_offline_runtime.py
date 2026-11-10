@@ -40,6 +40,40 @@ class WorkerOfflineTests(unittest.TestCase):
             with self.assertRaises(PermissionError):
                 worker.Jobs(path, max_active=1)
 
+    def test_sqlite_restart_preserves_records_and_rejects_unsafe_reopen(self):
+        """Simulate a worker restart by reopening durable state, never dispatch jobs."""
+        with tempfile.TemporaryDirectory() as tmp:
+            directory = Path(tmp) / "private"
+            directory.mkdir(mode=0o700)
+            path = directory / "jobs.sqlite3"
+            first = worker.Jobs(path, max_active=1)
+            with first.connection() as db:
+                db.execute(
+                    "INSERT INTO jobs (id,node,command,status,created_at) VALUES (?,?,?,?,?)",
+                    ("a" * 32, "gway-001", "true", "queued", "2026-01-01T00:00:00+00:00"))
+            restarted = worker.Jobs(path, max_active=1)
+            self.assertEqual(restarted.row("a" * 32)["status"], "queued")
+            with restarted.connection() as db:
+                self.assertEqual(db.execute("SELECT count(*) FROM jobs").fetchone()[0], 1)
+            path.chmod(0o666)
+            with self.assertRaises(PermissionError):
+                with restarted.connection():
+                    pass
+
+    def test_effective_uid_mismatch_denied_before_worker(self):
+        from gway_remote import node_exec_identity
+        from types import SimpleNamespace
+        with patch.object(worker, "selected_user", return_value="installer"), \
+             patch.object(worker.pwd, "getpwnam", return_value=SimpleNamespace(pw_uid=1001)), \
+             patch.object(worker.os, "geteuid", return_value=1002):
+            with self.assertRaisesRegex(PermissionError, "effective user mismatch"):
+                worker.require_account()
+        with patch.object(node_exec_identity, "selected_user", return_value="installer"), \
+             patch.object(node_exec_identity.pwd, "getpwnam", return_value=SimpleNamespace(pw_uid=1001)), \
+             patch.object(node_exec_identity.os, "geteuid", return_value=1002):
+            with self.assertRaises(PermissionError):
+                node_exec_identity.command_environment()
+
     def test_user_manager_fails_closed_without_runtime(self):
         with patch.object(worker, "require_account"), \
              patch.object(worker.os, "geteuid", return_value=os.geteuid()), \
