@@ -37,10 +37,12 @@ def listed(registrations, *, node_id):
 
 
 def snapshot(*, scope="gway:execute", node="gway-001"):
-    return {"schema": 1, "count": 2, "tools": [
-        {"name": "fixture__lookup", "node": node, "source": "fixture",
+    return {"schema": 1, "discovery": "node_federation", "count": 2, "tools": [
+        {"name": "fixture__lookup", "origin": "federated",
+         "node": node, "source": "fixture", "classification": "read",
          "required_scope": "gway:read"},
-        {"name": "fixture__update", "node": node, "source": "fixture",
+        {"name": "fixture__update", "origin": "federated",
+         "node": node, "source": "fixture", "classification": "execute",
          "required_scope": scope},
     ]}
 
@@ -137,12 +139,42 @@ class ProviderDoctorTests(unittest.TestCase):
             symlink.symlink_to(path)
             with self.assertRaisesRegex(ValueError, "invalid_catalog_file"):
                 load_watchtower_catalog(symlink)
-            for bad in ({"schema": 1, "count": 1, "tools": []},
-                        {"schema": True, "count": 0, "tools": []},
-                        {"schema": 1, "count": True, "tools": [{}]}):
-                path.write_text(json.dumps(bad))
-                with self.assertRaisesRegex(ValueError, "invalid_catalog_schema"):
-                    load_watchtower_catalog(path)
+            bad_rows = []
+            missing_discovery = snapshot()
+            del missing_discovery["discovery"]
+            bad_rows.append(missing_discovery)
+            wrong_discovery = snapshot()
+            wrong_discovery["discovery"] = "static_allowlist"
+            bad_rows.append(wrong_discovery)
+            wrong_schema = snapshot()
+            wrong_schema["schema"] = True
+            bad_rows.append(wrong_schema)
+            wrong_count = snapshot()
+            wrong_count["count"] = True
+            bad_rows.append(wrong_count)
+            incorrect_count = snapshot()
+            incorrect_count["count"] = 1
+            bad_rows.append(incorrect_count)
+            missing_origin = snapshot()
+            del missing_origin["tools"][0]["origin"]
+            bad_rows.append(missing_origin)
+            spoofed_origin = snapshot()
+            spoofed_origin["tools"][0]["origin"] = "builtin"
+            bad_rows.append(spoofed_origin)
+            contradictory_scope = snapshot()
+            contradictory_scope["tools"][0]["classification"] = "execute"
+            bad_rows.append(contradictory_scope)
+            repeated_name = snapshot()
+            repeated_name["tools"][1]["name"] = "fixture__lookup"
+            bad_rows.append(repeated_name)
+            extra_arguments = snapshot()
+            extra_arguments["tools"][0]["inputSchema"] = {"private": "do not accept"}
+            bad_rows.append(extra_arguments)
+            for bad in bad_rows:
+                with self.subTest(bad=bad):
+                    path.write_text(json.dumps(bad))
+                    with self.assertRaisesRegex(ValueError, "invalid_catalog_schema"):
+                        load_watchtower_catalog(path)
             fifo = Path(temp) / "catalog.fifo"
             os.mkfifo(fifo)
             with self.assertRaisesRegex(ValueError, "invalid_catalog_file"):
