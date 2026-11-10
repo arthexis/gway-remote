@@ -39,15 +39,27 @@ class ReadAuthorityContractTests(unittest.TestCase):
             self.authorize(object())
 
         class Deny(ReadReceiptAuthority):
-            def consume(self, **kwargs):
+            def validate_attestation(self, **kwargs):
                 return False
 
         with self.assertRaises(ReadReceiptAuthorityUnavailable):
             self.authorize(Deny())
 
+    def test_same_valid_receipt_can_be_revalidated(self):
+        class Allow(ReadReceiptAuthority):
+            def validate_attestation(self, **kwargs):
+                self.last = kwargs
+                return True
+
+        authority = Allow()
+        first = self.authorize(authority)
+        digest = authority.last["receipt_digest"]
+        self.assertEqual(self.authorize(authority), first)
+        self.assertEqual(authority.last["receipt_digest"], digest)
+
     def test_signature_and_identity_verified_before_authority(self):
         class NeverCalled(ReadReceiptAuthority):
-            def consume(self, **kwargs):
+            def validate_attestation(self, **kwargs):
                 raise AssertionError("unverified receipt reached authority")
 
         modified = dict(self.receipt, node="gway-002")
@@ -57,7 +69,7 @@ class ReadAuthorityContractTests(unittest.TestCase):
     def test_duplicate_json_rejected_before_authority(self):
         raw = json.dumps(self.receipt).encode()[:-1] + b', "serial": "serial-2"}'
         class NeverCalled(ReadReceiptAuthority):
-            def consume(self, **kwargs):
+            def validate_attestation(self, **kwargs):
                 raise AssertionError("duplicate JSON reached authority")
 
         with self.assertRaises(ValueError):
