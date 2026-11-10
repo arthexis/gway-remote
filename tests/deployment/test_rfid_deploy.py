@@ -16,7 +16,7 @@ class RfidDeploymentTests(unittest.TestCase):
     def test_registry_consistency(self):
         names = [name for name, _ in TARGETS]
         self.assertIn("gway-rfid", names)
-        self.assertEqual(("all", *names), DISPATCH_TARGETS)
+        self.assertEqual(("all", *(name for name in names if name != "ocpp-reports")), DISPATCH_TARGETS)
         self.assertEqual(set(names), set(INSTALLERS))
         self.assertEqual(INSTALLERS["gway-rfid"], "deploy_rfid")
         cli.validate("rfid-deploy", "arthexis/gway-rfid", SHA)

@@ -2,6 +2,7 @@
 import unittest
 import re
 from gway_remote.reconcile import TARGETS
+from gway_remote.deploy_dispatch import TARGETS as MANAGED_DEPLOYMENT_TARGETS
 from pathlib import Path
 
 WORKFLOWS = Path(__file__).resolve().parents[2] / ".github" / "workflows"
@@ -22,12 +23,15 @@ class ApplianceWorkflowTests(unittest.TestCase):
         self.assertIn("workflow_dispatch:", deploy)
         self.assertNotIn("schedule:", deploy)
         self.assertIn("github.actor == 'arthexis'", deploy)
-        for name, _ in TARGETS:
+        self.assertNotIn("ocpp-reports", MANAGED_DEPLOYMENT_TARGETS)
+        self.assertNotIn("ocpp_reports:", deploy)
+        self.assertNotIn("          - ocpp-reports", deploy)
+        for name in MANAGED_DEPLOYMENT_TARGETS[1:]:
             with self.subTest(repository=name):
                 self.assertIn(f"deploy-batch --all --target {name}", deploy)
                 self.assertIn(f"name: Deploy {name}", deploy)
         self.assertIn("report-bundle", deploy)
-        self.assertEqual(len(TARGETS), deploy.count("python3 -m gway_remote deploy-batch --all --target"))
+        self.assertEqual(len(MANAGED_DEPLOYMENT_TARGETS) - 1, deploy.count("python3 -m gway_remote deploy-batch --all --target"))
 
     def test_two_independent_serialized_tracks(self):
         deploy = (WORKFLOWS / "appliance-deploy.yml").read_text()
@@ -36,7 +40,7 @@ class ApplianceWorkflowTests(unittest.TestCase):
         jobs = dict(zip(blocks[1::2], blocks[2::2]))
 
         tracks = (
-            ("ocpp_csms", "ocpp_reports"),
+            ("ocpp_csms",),
             ("gway_lcd_sound", "gway_agent_ops", "gway_ap_kiosk",
              "gway_rfid", "gway_bastion"),
         )
@@ -52,7 +56,7 @@ class ApplianceWorkflowTests(unittest.TestCase):
                     self.assertIn("deploy-batch --all --target", jobs[job])
 
         self.assertIn("always()", jobs["report"])
-        self.assertIn("needs: [admission, " + ", ".join(name.replace("-", "_") for name, _ in TARGETS) + "]",
+        self.assertIn("needs: [admission, " + ", ".join(name.replace("-", "_") for name in MANAGED_DEPLOYMENT_TARGETS[1:]) + "]",
                       jobs["report"])
         self.assertIn("JOB_RESULTS: ${{ toJSON(needs) }}", jobs["report"])
         self.assertIn("Summarize independent deployment outcomes", jobs["report"])

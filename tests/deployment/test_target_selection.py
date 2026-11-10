@@ -18,7 +18,8 @@ class TargetSelectionTests(unittest.TestCase):
         notifications.start()
         self.addCleanup(notifications.stop)
         # Test the deployment planner separately from the host admission boundary.
-        admission = patch("gway_remote.deployment_policy.require_local_deployment", return_value=())
+        admission = patch("gway_remote.deployment_policy.require_local_deployment",
+                          return_value=tuple(name for name, _ in TARGETS))
         admission.start()
         self.addCleanup(admission.stop)
 
@@ -76,3 +77,30 @@ class TargetSelectionTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "requires explicit"):
                 execute(object(), None, {}, directory=Path(directory),
                         target="ocpp-csms")
+
+    def test_partial_full_batch_skips_reports_even_with_green_ci(self):
+        calls = []
+        names = [name for name, _ in TARGETS]
+        approved = tuple(name for name in names if name != "ocpp-reports")
+        installers = {name: lambda sha, name=name: calls.append(name) for name in names}
+        with tempfile.TemporaryDirectory() as directory, \
+             patch("gway_remote.deployment_policy.require_local_deployment",
+                   return_value=approved), \
+             patch("gway_remote.best_effort.main_head", return_value=SHA), \
+             patch("gway_remote.best_effort.ci_for_head", return_value="success"):
+            result = execute(object(), None, installers, directory=Path(directory),
+                             deploy_all=True)
+        self.assertEqual(result["decision"], "completed")
+        self.assertNotIn("ocpp-reports", calls)
+        self.assertEqual(calls, list(approved))
+        self.assertNotIn("ocpp-reports", [x["name"] for x in result["results"]])
+
+    def test_explicit_reports_target_is_denied_before_main_lookup(self):
+        with tempfile.TemporaryDirectory() as directory, \
+             patch("gway_remote.deployment_policy.require_local_deployment",
+                   side_effect=RuntimeError("Repository is not approved for Remote management on this host")), \
+             patch("gway_remote.best_effort.main_head") as head:
+            with self.assertRaisesRegex(RuntimeError, "not approved"):
+                execute(object(), None, {}, directory=Path(directory),
+                        deploy_all=True, target="ocpp-reports")
+            head.assert_not_called()

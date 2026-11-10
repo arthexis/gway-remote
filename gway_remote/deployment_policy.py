@@ -33,9 +33,10 @@ def require_local_deployment(repository=None, *, hostname=None, inventory=INVENT
         raise RuntimeError("No approved Remote repositories for this host")
     if repository is not None and repository not in approved:
         raise RuntimeError("Repository is not approved for Remote management on this host")
-    # A full batch is only allowed if every registered installer is approved.
+    # A batch is scoped to approved registered installers, not every known
+    # component. Reject inventories that authorize no deployable component.
     if repository is None:
         from .best_effort import INSTALLERS
-        if not set(INSTALLERS).issubset(approved):
-            raise RuntimeError("Full appliance batch exceeds approved repository allowlist")
+        if not set(INSTALLERS).intersection(approved):
+            raise RuntimeError("No approved appliance deployment targets for this host")
     return tuple(approved)

@@ -23,8 +23,8 @@ class DeploymentPolicyTests(unittest.TestCase):
             self.assertEqual(require_local_deployment("ocpp-csms", hostname="gway-001"), ("ocpp-csms",))
             with self.assertRaisesRegex(RuntimeError, "not approved"):
                 require_local_deployment("ocpp-reports", hostname="gway-001")
-            with self.assertRaisesRegex(RuntimeError, "exceeds"):
-                require_local_deployment(hostname="gway-001")
+            # Full batches now operate only on the approved subset.
+            self.assertEqual(require_local_deployment(hostname="gway-001"), ("ocpp-csms",))
 
     def test_missing_inventory_fails_closed(self):
         with patch("gway_remote.deployment_policy.subprocess.run", side_effect=FileNotFoundError):
