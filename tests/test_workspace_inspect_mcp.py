@@ -48,7 +48,7 @@ class WorkspaceInspectMCPTests(unittest.TestCase):
                 now=1001,
             )
 
-    def test_signed_bridge_routes_read_to_independent_pinned_transport(self):
+    def test_signed_bridge_reuses_existing_node_transport(self):
         from types import SimpleNamespace
         from gway_remote.mcp_bridge_transport import AuthenticatedBridge, canonical, sign
         from gway_remote.mcp_bridge_contract import InvalidBridgeRequest
@@ -70,11 +70,12 @@ class WorkspaceInspectMCPTests(unittest.TestCase):
                 }
 
         read_transport = ReadTransport()
+        execution = SimpleNamespace(relay=SimpleNamespace(transport=read_transport))
         handler = SessionBridgeDispatch(
             verifier=Verifier(), session_token="trusted",
             allowed_node=lambda token, node: node == "gway-002",
             read_principal=lambda token: "reader",
-            execution=None, read_transport=read_transport,
+            execution=execution,
         )
         key = b"k" * 32
         bridge = AuthenticatedBridge(key, audience="gway-002", dispatch=handler)
@@ -139,25 +140,34 @@ class WorkspaceInspectMCPTests(unittest.TestCase):
             "workspace_inspection_unavailable",
         )
 
-    def test_read_transport_must_not_alias_execute_relay(self):
+    def test_workspace_uses_same_node_transport_as_provider_reads(self):
         from types import SimpleNamespace
-        transport = object()
+        class Verifier:
+            def verify(self, token, required_scope):
+                return token == "valid" and required_scope == "gway:read"
+        class Transport:
+            def invoke(self, request):
+                self.request = request
+                return {"node": request["node"], "request_id": request["request_id"],
+                        "result": {"node": request["node"],
+                                   "repository": request["repository"]}}
+        transport = Transport()
         execution = SimpleNamespace(relay=SimpleNamespace(transport=transport))
-        with self.assertRaisesRegex(ValueError, "must not reuse"):
-            SessionBridgeDispatch(
-                verifier=object(), session_token="trusted",
-                allowed_node=lambda token, node: True,
+        def make(exec_service):
+            return SessionBridgeDispatch(
+                verifier=Verifier(), session_token="valid",
+                allowed_node=lambda token, node: node == "gway-001",
                 read_principal=lambda token: "reader",
-                execution=execution, read_transport=transport,
-            )
-        # No read transport must stay fail-closed, not inherit the relay.
-        handler = SessionBridgeDispatch(
-            verifier=object(), session_token="trusted",
-            allowed_node=lambda token, node: True,
-            read_principal=lambda token: "reader",
-            execution=execution, read_transport=None,
-        )
-        self.assertIsNone(handler.read_transport)
+                execution=exec_service)
+        envelope = {"audience": "gway-001", "scope": "gway:read",
+                    "operation": "workspace.inspect", "principal": "reader",
+                    "arguments": {"node": "gway-001", "repository": "owner/repo"}}
+        self.assertEqual(make(execution)(envelope)["repository"], "owner/repo")
+        self.assertEqual(transport.request["operation"], "workspace_inspect")
+        with self.assertRaises(PermissionError):
+            make(None)(envelope)
+        with self.assertRaises(PermissionError):
+            make(execution)({**envelope, "scope": "gway:execute"})
 
     def test_catalog_is_read_only(self):
         self.assertIn("workspace_inspect", ALLOWED_TOOLS)
@@ -223,10 +233,13 @@ class WorkspaceInspectMCPTests(unittest.TestCase):
                     "operation": "workspace.inspect", "principal": "reader",
                     "arguments": {"node": "gway-001", "repository": "arthexis/odoo-gelectriic"}}
         def make(transport):
+            from types import SimpleNamespace
+            execution = (SimpleNamespace(relay=SimpleNamespace(transport=transport))
+                         if transport is not None else None)
             return SessionBridgeDispatch(
                 verifier=Verifier(), session_token="valid",
                 allowed_node=lambda token, node: node == "gway-001",
-                read_principal=lambda token: "reader", read_transport=transport)
+                read_principal=lambda token: "reader", execution=execution)
         with self.assertRaises(PermissionError):
             make(None)(envelope)
         self.assertEqual(make(Pinned())(envelope)["git"]["head"]["value"], "b" * 40)
