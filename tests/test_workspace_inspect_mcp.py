@@ -99,6 +99,46 @@ class WorkspaceInspectMCPTests(unittest.TestCase):
                     "envelope": changed, "signature": sign(key, changed),
                 }), now=1001)
 
+    def test_http_gateway_has_no_local_inspect_fallback(self):
+        # Exercise the real MCP handler without opening a listener or SSH.
+        import io
+        from email.message import Message
+        from types import SimpleNamespace
+        from gway_remote.mcp_bearer_gateway import Handler
+
+        payload = {
+            "jsonrpc": "2.0", "id": 1, "method": "tools/call",
+            "params": {"name": "workspace_inspect",
+                       "arguments": {"node": "gway-002", "repository": "owner/repo"}},
+        }
+        data = json.dumps(payload).encode("utf-8")
+        handler = Handler.__new__(Handler)
+        handler.server = SimpleNamespace(
+            approved_sources={}, federation=None, bridge_transport=None,
+            execution=None,
+        )
+        handler.headers = Message()
+        handler.headers["Content-Type"] = "application/json"
+        handler.headers["Content-Length"] = str(len(data))
+        handler.rfile = io.BytesIO(data)
+        handler.wfile = io.BytesIO()
+        statuses = []
+        handler.send_response = statuses.append
+        handler.send_header = lambda *args: None
+        handler.end_headers = lambda: None
+        with patch("gway_remote.mcp_workspace_inspect.inspect_authorized",
+                   side_effect=AssertionError("local workspace inspection forbidden")) as local:
+            handler._process_authenticated("trusted", True, False)
+            local.assert_not_called()
+        self.assertEqual(statuses, [200])
+        reply = json.loads(handler.wfile.getvalue())
+        result = reply["result"]
+        self.assertTrue(result["isError"])
+        self.assertEqual(
+            json.loads(result["content"][0]["text"])["code"],
+            "workspace_inspection_unavailable",
+        )
+
     def test_catalog_is_read_only(self):
         self.assertIn("workspace_inspect", ALLOWED_TOOLS)
         tool = next(tool for tool in NODE_TOOLS if tool["name"] == "workspace_inspect")
