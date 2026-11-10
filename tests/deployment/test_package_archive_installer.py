@@ -88,6 +88,7 @@ class ArchiveInstallerTests(unittest.TestCase):
         self.assertIn("gway_remote_exec_run_user == gway_remote_runner_user", selection)
         self.assertIn("gway_remote_exec_run_user != 'root'", selection)
         self.assertNotIn("ansible_hostname", selection)
+        self.assertNotIn("getent_passwd[\'arthe\'][4]", tasks)
         self.assertNotIn("in ['gway-exec', 'arthe']", selection)
 
     def test_fast_path_uses_root_owned_identity_and_no_hardcoded_exec_user(self):
