@@ -1,7 +1,7 @@
 """Local-only M3 B2a job runner. NO network or MCP execution endpoint.
 
-Invoke as dedicated unprivileged gway-exec user, with a working systemd --user
-manager. Future Watchtower B2b transport must authenticate separately.
+Invoke as the unprivileged Unix account that ran deploy.sh, with a working
+systemd --user manager. Watchtower transport authenticates the node separately.
 """
 from __future__ import annotations
 
