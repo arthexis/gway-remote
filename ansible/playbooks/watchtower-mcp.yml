@@ -9,6 +9,9 @@
     mcp_source: "{{ playbook_dir }}/../.."
     mcp_root: /opt/gway-mcp
     mcp_unit: gway-mcp-link.service
+    # #432: bridge is internal to the already authenticated gateway, not a new SSH path.
+    # An existing root-provisioned private key is mandatory; never bootstrap one here.
+    gway_mcp_bridge_enable: true
   tasks:
     - name: Resolve reviewed repository commit
       ansible.builtin.command:
@@ -287,7 +290,11 @@
           ansible.builtin.systemd:
             name: gway-mcp-gateway.service
             state: restarted
-          when: mcp_gateway_activation_needed | bool or mcp_exec_gateway_unit.changed
+          when: >-
+            mcp_gateway_activation_needed | bool or
+            mcp_exec_gateway_unit.changed or
+            bridge_gateway_env.changed | default(false) or
+            bridge_gateway_dropin.changed | default(false)
 
         - name: Verify gateway is reachable only on its existing loopback listener
           ansible.builtin.uri:
