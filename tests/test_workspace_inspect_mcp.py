@@ -48,6 +48,57 @@ class WorkspaceInspectMCPTests(unittest.TestCase):
                 now=1001,
             )
 
+    def test_signed_bridge_routes_read_to_independent_pinned_transport(self):
+        from types import SimpleNamespace
+        from gway_remote.mcp_bridge_transport import AuthenticatedBridge, canonical, sign
+        from gway_remote.mcp_bridge_contract import InvalidBridgeRequest
+
+        class Verifier:
+            def verify(self, token, required_scope):
+                return token == "trusted" and required_scope == "gway:read"
+
+        class ReadTransport:
+            node = SimpleNamespace(node="gway-002", host_key_sha256="a" * 64)
+
+            def invoke(self, request):
+                self.last_request = request
+                return {
+                    "node": request["node"],
+                    "request_id": request["request_id"],
+                    "result": {"node": request["node"], "repository": request["repository"],
+                               "git": {"head": {"state": "observed", "value": "b" * 40}}},
+                }
+
+        read_transport = ReadTransport()
+        handler = SessionBridgeDispatch(
+            verifier=Verifier(), session_token="trusted",
+            allowed_node=lambda token, node: node == "gway-002",
+            read_principal=lambda token: "reader",
+            execution=None, read_transport=read_transport,
+        )
+        key = b"k" * 32
+        bridge = AuthenticatedBridge(key, audience="gway-002", dispatch=handler)
+        envelope = {
+            "version": 1, "request_id": "a" * 32, "principal": "reader",
+            "audience": "gway-002", "operation": "workspace.inspect",
+            "scope": "gway:read", "issued_at": 1000, "expires_at": 1030,
+            "arguments": {"node": "gway-002", "repository": "owner/repo"},
+        }
+        signed = canonical({"envelope": envelope, "signature": sign(key, envelope)})
+        result = bridge.process(signed, now=1001)
+        self.assertEqual(result["git"]["head"]["value"], "b" * 40)
+        self.assertEqual(read_transport.last_request["operation"], "workspace_inspect")
+        self.assertEqual(read_transport.last_request["node"], "gway-002")
+        for change in (
+            {"request_id": "c" * 32, "scope": "gway:execute"},
+            {"request_id": "d" * 32, "audience": "gway-003"},
+        ):
+            changed = {**envelope, **change}
+            with self.subTest(change=change), self.assertRaises(InvalidBridgeRequest):
+                bridge.process(canonical({
+                    "envelope": changed, "signature": sign(key, changed),
+                }), now=1001)
+
     def test_catalog_is_read_only(self):
         self.assertIn("workspace_inspect", ALLOWED_TOOLS)
         tool = next(tool for tool in NODE_TOOLS if tool["name"] == "workspace_inspect")
