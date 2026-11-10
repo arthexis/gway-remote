@@ -19,6 +19,7 @@ OPERATIONS = {
     "result": frozenset({"operation", "node", "request_id", "cursor"}),
     "cancel": frozenset({"operation", "node", "request_id"}),
     "limits": frozenset({"operation", "node", "request_id"}),
+    "file_read": frozenset({"operation", "node", "request_id", "filename", "offset"}),
     "provider_list": frozenset({"operation", "node", "request_id"}),
     "provider_call": frozenset({"operation", "node", "request_id", "provider", "tool", "arguments", "authorized_scope"}),
 }
@@ -42,6 +43,13 @@ def serve_one(raw, *, jobs=None, hostname=None):
     if not re.fullmatch(r"gway-[0-9]+", host) or req["node"] != host:
         raise PermissionError("unapproved node")
     rid = validate_request_id(req["request_id"])
+    if op == "file_read":
+        from .node_file_export import export_chunk
+        # The directory is a fixed operator-provisioned location, never RPC input.
+        result = export_chunk(req["filename"],
+                              export_root="/var/lib/gway-mcp-exports",
+                              offset=req["offset"])
+        return {"node": host, "request_id": rid, "result": result}
     if op in ("provider_list", "provider_call"):
         from .mcp_node_providers import dispatch_node_provider_request
         from .mcp_installed_providers import discover_installed_providers
