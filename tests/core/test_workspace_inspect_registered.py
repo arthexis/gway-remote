@@ -144,6 +144,31 @@ class RegisteredWorkspaceInspection(unittest.TestCase):
                          "registered_workspace_unavailable")
         self.assertEqual(result["deployment"]["state"], "unknown")
 
+    def test_local_git_worktree_redirect_is_not_observed(self):
+        checkout = make_checkout(self.root)
+        outside = self.root / "outside"
+        outside.mkdir()
+        git("-C", checkout, "config", "core.worktree", outside)
+        # Without a root check, Git status inspects 'outside' rather than
+        # this registered checkout.
+        result = self.inspect(registrations=[declared_checkout(checkout)])
+        self.assertEqual(result["git"]["head"]["state"], "unknown")
+        self.assertEqual(result["git"]["head"]["reason"],
+                         "repository_not_registered")
+
+    def test_registry_git_checks_have_aggregate_time_budget(self):
+        # The SSH transport has a 15s timeout; exhausted node-side metadata
+        # checks must return unknown rather than probing further providers.
+        checkout = make_checkout(self.root)
+        with patch("gway_remote.mcp_workspace_inspect.time.monotonic",
+                   side_effect=[10.0, 16.0]):
+            with patch("gway_remote.mcp_workspace_inspect._git_origin",
+                       side_effect=AssertionError("must not run")):
+                result = self.inspect(registrations=[declared_checkout(checkout)])
+        self.assertEqual(result["git"]["head"]["state"], "unknown")
+        self.assertEqual(result["git"]["head"]["reason"],
+                         "workspace_inspection_budget_exceeded")
+
     def test_git_fsmonitor_command_does_not_execute(self):
         checkout = make_checkout(self.root)
         marker = self.root / "must-not-run"
