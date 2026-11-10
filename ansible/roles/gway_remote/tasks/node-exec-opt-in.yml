@@ -102,6 +102,60 @@
       - ((gway_remote_exec_ssh_dir.stat.mode | int(base=8)) % 8) == 0
       - (((gway_remote_exec_ssh_dir.stat.mode | int(base=8)) // 8) % 8) == 0
 
+# Never repurpose an existing administrative SSH public key for executor login.
+# A nonexclusive authorized_key update can otherwise rewrite its options.
+- name: Inspect existing installer authorized keys before adding executor key
+  ansible.builtin.stat:
+    path: "{{ getent_passwd[gway_remote_runner_user][4] }}/.ssh/authorized_keys"
+    follow: false
+  register: gway_remote_exec_existing_keys
+
+- name: Refuse missing ownership or unsafe authorized_keys metadata
+  ansible.builtin.assert:
+    that:
+      - not (gway_remote_exec_existing_keys.stat.islnk | default(false))
+      - not (gway_remote_exec_existing_keys.stat.exists | default(false)) or (gway_remote_exec_existing_keys.stat.isreg | default(false))
+      - not (gway_remote_exec_existing_keys.stat.exists | default(false)) or gway_remote_exec_existing_keys.stat.pw_name == gway_remote_runner_user
+      - not (gway_remote_exec_existing_keys.stat.exists | default(false)) or ((gway_remote_exec_existing_keys.stat.mode | int(base=8)) % 8) not in [2, 3, 6, 7]
+      - not (gway_remote_exec_existing_keys.stat.exists | default(false)) or (((gway_remote_exec_existing_keys.stat.mode | int(base=8)) // 8) % 8) not in [2, 3, 6, 7]
+    fail_msg: Existing installer authorized_keys is not safe for a dedicated executor key
+
+- name: Reject executor public key collision with any unrestricted existing key
+  ansible.builtin.command:
+    argv:
+      - /usr/bin/python3
+      - -c
+      - |
+        import os
+        import sys
+        from pathlib import Path
+
+        path, supplied = sys.argv[1:3]
+        key_parts = supplied.split()
+        if len(key_parts) != 2 or key_parts[0] != "ssh-ed25519":
+            sys.exit(2)
+        # Root Ansible needs read access only; fail closed on symlinks or
+        # unusual encodings. We do not rewrite an administrator's key.
+        try:
+            fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW)
+        except FileNotFoundError:
+            sys.exit(0)
+        expected = 'restrict,command="/usr/local/libexec/gway-remote-exec-protocol-v1"'
+        with os.fdopen(fd, "r", encoding="ascii") as authorized:
+            for line in authorized:
+                fields = line.strip().split()
+                if not fields or fields[0].startswith("#"):
+                    continue
+                for index, field in enumerate(fields):
+                    if field != "ssh-ed25519" or index + 1 >= len(fields):
+                        continue
+                    if fields[index + 1] == key_parts[1]:
+                        if " ".join(fields[:index]) != expected:
+                            sys.exit(1)
+                        break
+  changed_when: false
+  no_log: true
+
 - name: Ensure root-owned libexec directory exists before installing forced command
   ansible.builtin.file:
     path: /usr/local/libexec
