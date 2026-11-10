@@ -69,3 +69,27 @@ def test_rejects_invalid_chunk_offsets(tmp_path):
     for offset in (-1, 6, 1.5, True, MAX_FILE_BYTES + 1):
         with pytest.raises(ValueError):
             export_chunk("audio", export_root=str(tmp_path), offset=offset)
+
+
+def test_rejects_symlink_export_root(tmp_path):
+    real = tmp_path / "real"
+    real.mkdir()
+    (real / "audio.opus").write_bytes(b"abc")
+    alias = tmp_path / "alias"
+    alias.symlink_to(real, target_is_directory=True)
+    with pytest.raises(OSError):
+        export_chunk("audio.opus", export_root=str(alias))
+
+
+def test_rejects_nonregular_fifo(tmp_path):
+    import os
+    os.mkfifo(tmp_path / "pipe")
+    with pytest.raises(ValueError):
+        export_chunk("pipe", export_root=str(tmp_path))
+
+
+def test_rejects_oversize_limit_override(tmp_path):
+    (tmp_path / "audio.opus").write_bytes(b"abc")
+    with pytest.raises(ValueError):
+        export_chunk("audio.opus", export_root=str(tmp_path),
+                     max_bytes=MAX_FILE_BYTES + 1)
