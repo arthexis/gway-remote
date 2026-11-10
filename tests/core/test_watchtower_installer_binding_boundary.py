@@ -38,7 +38,7 @@ class InstallerBindingBoundaryTests(unittest.TestCase):
             return service.load_service(self.config)
 
     def test_missing_attested_installer_denied(self):
-        with self.assertRaisesRegex(PermissionError, "attested installer"):
+        with self.assertRaisesRegex(PermissionError, "authenticated installer binding"):
             self.load()
 
     def test_config_cannot_select_installer(self):
