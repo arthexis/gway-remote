@@ -9,6 +9,7 @@ from .node_exec_worker import validate_request_id
 
 OPERATIONS = {
     "node_list": ("inventory.list", "gway:read"),
+    "node_file_download": ("file.read", "gway:read"),
     "workspace_inspect": ("workspace.inspect", "gway:read"),
     "node_capabilities": ("inventory.capabilities", "gway:read"),
     "node_exec_preview": ("execution.preview", "gway:read"),
@@ -28,6 +29,14 @@ def dispatch_node_tool(*, socket_path, key, session_id, audience, principal,
     operation, scope = OPERATIONS[name]
     if "node" in arguments and arguments["node"] != audience:
         raise PermissionError("cross-node dispatch denied")
+    if name == "node_file_download":
+        if (set(arguments) != {"node", "filename", "offset"}
+                or type(arguments["filename"]) is not str
+                or not arguments["filename"] or len(arguments["filename"]) > 255
+                or "/" in arguments["filename"] or arguments["filename"] in {".", ".."}
+                or type(arguments["offset"]) is not int
+                or not 0 <= arguments["offset"] <= 1024 * 1024):
+            raise ValueError("invalid file download arguments")
     if name == "node_list" and arguments != {}:
         raise ValueError("node_list takes no arguments")
     if name == "node_exec":
@@ -41,7 +50,7 @@ def dispatch_node_tool(*, socket_path, key, session_id, audience, principal,
         "arguments": arguments,
     }
     result = call_unix(socket_path, key, envelope, session_id=session_id,
-                       require_signed_reply=name in {"node_exec", "workspace_inspect", "node_deploy_preview"})
+                       require_signed_reply=name in {"node_exec", "workspace_inspect", "node_deploy_preview", "node_file_download"})
     if name == "node_exec":
         if (type(result) is not dict or
                 result.get("request_id") != arguments["request_id"] or
