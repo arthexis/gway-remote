@@ -14,6 +14,40 @@ from gway_remote.node_exec_protocol import serve_one
 
 
 class WorkspaceInspectMCPTests(unittest.TestCase):
+    def test_bridge_envelope_contract_rejects_execute_scope(self):
+        # Exercise the actual authenticated bridge validator, not only
+        # SessionBridgeDispatch called directly.
+        from gway_remote.mcp_bridge_contract import (
+            InvalidBridgeRequest, validate_envelope,
+        )
+        envelope = {
+            "version": 1,
+            "request_id": "a" * 32,
+            "principal": "read-principal",
+            "audience": "gway-002",
+            "operation": "workspace.inspect",
+            "scope": "gway:read",
+            "issued_at": 1000,
+            "expires_at": 1030,
+            "arguments": {"node": "gway-002", "repository": "owner/repo"},
+        }
+        self.assertEqual(
+            validate_envelope(envelope, audience="gway-002", now=1001),
+            envelope,
+        )
+        with self.assertRaises(InvalidBridgeRequest):
+            validate_envelope(
+                {**envelope, "scope": "gway:execute"},
+                audience="gway-002",
+                now=1001,
+            )
+        with self.assertRaises(InvalidBridgeRequest):
+            validate_envelope(
+                {**envelope, "audience": "gway-003"},
+                audience="gway-002",
+                now=1001,
+            )
+
     def test_catalog_is_read_only(self):
         self.assertIn("workspace_inspect", ALLOWED_TOOLS)
         tool = next(tool for tool in NODE_TOOLS if tool["name"] == "workspace_inspect")
