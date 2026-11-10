@@ -26,9 +26,6 @@ work=$(mktemp -d /tmp/gway-optin.XXXXXX)
 chmod 0755 "$work"
 mkdir -p "$work/ansible/roles/gway_remote/tasks" "$work/scripts"
 cp /repo/ansible/roles/gway_remote/tasks/node-exec-opt-in.yml "$work/ansible/roles/gway_remote/tasks/"
-# Debug only the copied fixture: all keys and identities here are synthetic.
-# Production task keeps no_log: true; no real key material can be exposed.
-sed -i 's/^  no_log: true$/  no_log: false/' "$work/ansible/roles/gway_remote/tasks/node-exec-opt-in.yml"
 cp /repo/scripts/node-exec-forced-command.py "$work/scripts/"
 cat >"$work/ansible/fixture.yml" <<'YAML'
 - name: Exercise only the SSH opt-in recipe in the disposable container
