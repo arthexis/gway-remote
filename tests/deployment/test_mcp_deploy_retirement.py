@@ -113,6 +113,12 @@ class LegacyDeployRetirementTests(unittest.TestCase):
         self.assertNotIn("NOPASSWD:", role)
         self.assertNotIn("state: started", role)
 
+    def test_runner_paths_use_passwd_home_not_name_concatenation(self):
+        main = MAIN.read_text()
+        self.assertIn("register: gway_remote_runner_passwd", main)
+        self.assertIn("gway_remote_runner_passwd.ansible_facts.getent_passwd[gway_remote_runner_user][4]", main)
+        self.assertNotIn("/home/{{ gway_remote_runner_user }}", main)
+
     def test_executor_selected_before_private_receipts(self):
         text = MAIN.read_text()
         self.assertLess(text.index("node-exec-select.yml"), text.index("node-mcp-deploy.yml"))
