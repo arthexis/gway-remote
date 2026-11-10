@@ -36,6 +36,14 @@
       - (getent_passwd[gway_remote_runner_user][1] | int) == (gway_remote_runner_uid | int)
       - (gway_remote_exec_ssh_dir.stat.mode | int(base=8)) % 8 == 0
 
+- name: Install reviewed fixed-command entrypoint only during explicit opt-in
+  ansible.builtin.copy:
+    src: "{{ playbook_dir }}/../scripts/node-exec-forced-command.py"
+    dest: /usr/local/libexec/gway-remote-exec-protocol-v1
+    owner: root
+    group: root
+    mode: '0755'
+
 - name: Require installed root-owned forced-command entrypoint before authorizing key
   ansible.builtin.stat:
     path: /usr/local/libexec/gway-remote-exec-protocol-v1
