@@ -40,6 +40,12 @@ class ServiceIdentityTests(unittest.TestCase):
                          identity_file=str(private), host_key_sha256=digest,
                          installer_user="installer")
             config.write_text(json.dumps(dict(enabled=True, nodes=[entry])))
+            original_lstat = Path.lstat
+            def root_config_lstat(path):
+                info = original_lstat(path)
+                if Path(path) == config:
+                    return SimpleNamespace(st_mode=info.st_mode, st_uid=0, st_size=info.st_size)
+                return info
             inventory = {"nodes": [dict(node="gway-001", registered=True,
                                         identity_verified=True, address="10.42.0.2",
                                         execute_eligible=True, reachable="reachable",
@@ -47,7 +53,8 @@ class ServiceIdentityTests(unittest.TestCase):
             class CaptureRelay:
                 def __init__(self, ledger, transport, *, enabled):
                     self.transport = transport
-            with patch.object(service.node_registry_inventory, "load", return_value=inventory), \
+            with patch.object(Path, "lstat", root_config_lstat), \
+                 patch.object(service.node_registry_inventory, "load", return_value=inventory), \
                  patch.object(service, "RequestLedger", return_value=object()), \
                  patch.object(service, "DormantRelay", CaptureRelay), \
                  patch.object(service, "AuthorizedExecution", side_effect=lambda ledger, unused, relay, **kw: relay):
@@ -57,7 +64,8 @@ class ServiceIdentityTests(unittest.TestCase):
             self.assertEqual(pinned.host_key_sha256, digest)
             entry["installer_user"] = "root"
             config.write_text(json.dumps(dict(enabled=True, nodes=[entry])))
-            with patch.object(service.node_registry_inventory, "load", return_value=inventory):
+            with patch.object(Path, "lstat", root_config_lstat), \
+                 patch.object(service.node_registry_inventory, "load", return_value=inventory):
                 with self.assertRaises(PermissionError):
                     service.load_service(config)
 
