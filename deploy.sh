@@ -128,10 +128,6 @@ if [ "$#" -eq 0 ] &&
    [ "$(cat "$marker" 2>/dev/null || true)" = "$revision" ] &&
    [ -x /usr/local/bin/gway-remote ] &&
    /usr/local/bin/gway-remote status --json | /usr/bin/python3 -c 'import json,sys; assert json.load(sys.stdin)["schema"] == "gway-remote/status/v1"' 2>/dev/null &&
-   [ -f /etc/systemd/system/gway-remote-watch.service ] &&
-   [ -f /etc/systemd/system/gway-remote-watch.timer ] &&
-   systemctl is-enabled --quiet gway-remote-watch.timer &&
-   systemctl is-active --quiet gway-remote-watch.timer &&
    verify_node_worker_import; then
   if [ -n "${GWAY_REMOTE_DEPLOY_NOOP_FILE:-}" ]; then
     printf 'skipped\n' > "$GWAY_REMOTE_DEPLOY_NOOP_FILE"

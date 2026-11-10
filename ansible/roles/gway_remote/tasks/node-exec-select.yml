@@ -117,6 +117,35 @@
   changed_when: false
   when: exec_relay_files.results[0].stat.exists | default(false)
 
+# The standalone file-export playbook may not have been run on this pilot.
+# Preserve the isolated file_read boundary during the automatic identity switch.
+- name: Inspect existing isolated file reader sudoers
+  ansible.builtin.stat:
+    path: /etc/sudoers.d/gway-mcp-file-reader
+    follow: false
+  register: exec_file_reader_old
+  when:
+    - (ansible_hostname | default('')) == 'gway-001'
+    - gway_remote_exec_run_user == 'arthe'
+
+- name: Reject unsafe pre-existing file reader policy
+  ansible.builtin.assert:
+    that:
+      - not (exec_file_reader_old.stat.islnk | default(false))
+      - not (exec_file_reader_old.stat.exists | default(false)) or (exec_file_reader_old.stat.isreg and exec_file_reader_old.stat.pw_name == 'root' and exec_file_reader_old.stat.mode == '0440')
+  when:
+    - (ansible_hostname | default('')) == 'gway-001'
+    - gway_remote_exec_run_user == 'arthe'
+
+- name: Capture previous isolated file reader policy for rollback
+  ansible.builtin.slurp:
+    src: /etc/sudoers.d/gway-mcp-file-reader
+  register: exec_file_reader_original
+  when:
+    - (ansible_hostname | default('')) == 'gway-001'
+    - gway_remote_exec_run_user == 'arthe'
+    - exec_file_reader_old.stat.exists | default(false)
+
 - name: Activate selected execution identity and update only existing relay
   block:
     - name: Install root-controlled selected executor identity
@@ -127,6 +156,19 @@
         mode: '0644'
         content: |
           {"user": {{ gway_remote_exec_run_user | to_json }}}
+
+    - name: Permit only the isolated file reader as gway-exec
+      ansible.builtin.copy:
+        dest: /etc/sudoers.d/gway-mcp-file-reader
+        owner: root
+        group: root
+        mode: '0440'
+        validate: /usr/sbin/visudo -cf %s
+        content: |
+          arthe ALL=(gway-exec) NOPASSWD: /usr/bin/env PYTHONPATH=/opt/gway-remote /usr/bin/python3 -m gway_remote.node_file_reader
+      when:
+        - (ansible_hostname | default('')) == 'gway-001'
+        - gway_remote_exec_run_user == 'arthe'
 
     - name: Update narrowly permitted relay protocol target account
       ansible.builtin.copy:
@@ -190,6 +232,28 @@
       changed_when: false
 
   rescue:
+    - name: Restore previous isolated file reader policy
+      ansible.builtin.copy:
+        dest: /etc/sudoers.d/gway-mcp-file-reader
+        owner: root
+        group: root
+        mode: '0440'
+        validate: /usr/sbin/visudo -cf %s
+        content: "{{ exec_file_reader_original.content | b64decode }}"
+      when:
+        - (ansible_hostname | default('')) == 'gway-001'
+        - gway_remote_exec_run_user == 'arthe'
+        - exec_file_reader_old.stat.exists | default(false)
+
+    - name: Remove newly installed isolated file reader policy after failure
+      ansible.builtin.file:
+        path: /etc/sudoers.d/gway-mcp-file-reader
+        state: absent
+      when:
+        - (ansible_hostname | default('')) == 'gway-001'
+        - gway_remote_exec_run_user == 'arthe'
+        - not (exec_file_reader_old.stat.exists | default(false))
+
     - name: Restore previous restricted relay sudoers
       ansible.builtin.command:
         argv:
