@@ -7,8 +7,12 @@
     that:
       - gway_remote_executor_opt_in | default(false) | bool
       - gway_remote_runner_user is defined
-      - gway_remote_runner_user == ansible_env.SUDO_USER | default(gway_remote_runner_user)
+      - gway_remote_runner_user == lookup('env', 'USER')
+      - (lookup('pipe', 'id -u') | int) > 0
+      - gway_remote_runner_user == lookup('pipe', 'id -un')
       - gway_remote_runner_user != 'root'
+      - gway_remote_runner_uid is defined
+      - (gway_remote_runner_uid | int) == (lookup('pipe', 'id -u') | int)
       - gway_remote_exec_public_key is defined
       - gway_remote_exec_public_key is match('^ssh-ed25519 [A-Za-z0-9+/]+={0,2}$')
     fail_msg: Remote executor opt-in requires the installing account and dedicated SSH public key
@@ -30,6 +34,7 @@
       - gway_remote_exec_ssh_dir.stat.isdir | default(false)
       - not (gway_remote_exec_ssh_dir.stat.islnk | default(false))
       - gway_remote_exec_ssh_dir.stat.pw_name == gway_remote_runner_user
+      - (getent_passwd[gway_remote_runner_user][1] | int) == (gway_remote_runner_uid | int)
       - (gway_remote_exec_ssh_dir.stat.mode | int(base=8)) % 8 == 0
 
 # Key-specific forced command; administrative SSH keys remain untouched.
