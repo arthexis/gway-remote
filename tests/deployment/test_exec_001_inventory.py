@@ -59,7 +59,7 @@ class PilotExecutorSelectionTests(unittest.TestCase):
         self.assertLess(select.index("Permit only the isolated file reader as gway-exec"),
                         select.index("Update restricted SSH ForceCommand"))
         grant = select.split("    - name: Permit only the isolated file reader as gway-exec", 1)[1]
-        grant = grant.split("\\n    - name:", 1)[0]
+        grant = grant.split("\n    - name:", 1)[0]
         self.assertIn("(ansible_hostname | default('')) == 'gway-001'", grant)
         self.assertIn("gway_remote_exec_run_user == 'arthe'", grant)
 
