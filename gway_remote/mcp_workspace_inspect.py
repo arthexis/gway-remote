@@ -11,6 +11,7 @@ from pathlib import Path
 import re
 import stat
 import subprocess
+import time
 from datetime import datetime, timezone
 
 from .mcp_installed_providers import discover_installed_providers
@@ -86,23 +87,37 @@ def _safe_checkout(path):
         return False
 
 
-def _git_origin(path, repository):
-    """Check only local Git metadata; never contact remotes or invoke a shell."""
-    try:
-        result = subprocess.run(
-            ["git", "-C", str(path), "-c", "core.fsmonitor=false",
-             "config", "--local", "--get", "remote.origin.url"],
-            check=False, capture_output=True, text=True, timeout=1,
-            env={"PATH": "/usr/bin:/bin", "GIT_CONFIG_NOSYSTEM": "1",
-                 "GIT_CONFIG_GLOBAL": "/dev/null", "GIT_OPTIONAL_LOCKS": "0",
-                 "GIT_TERMINAL_PROMPT": "0"},
-        )
-    except (OSError, subprocess.TimeoutExpired):
-        return False
-    if result.returncode or len(result.stdout) > 512:
-        return False
-    match = _ORIGIN.fullmatch(result.stdout.strip())
-    return match is not None and match.group(1).lower() == repository.lower()
+def _git_origin(path, repository, *, deadline):
+    """Reject a Git root outside the declared checkout before reading metadata."""
+    env = {"PATH": "/usr/bin:/bin", "GIT_CONFIG_NOSYSTEM": "1",
+           "GIT_CONFIG_GLOBAL": "/dev/null", "GIT_CONFIG_COUNT": "0",
+           "GIT_OPTIONAL_LOCKS": "0", "GIT_TERMINAL_PROMPT": "0"}
+    prefix = ["git", "-C", str(path), "-c", "core.fsmonitor=false"]
+    for argv, expected_root in (
+        (["rev-parse", "--show-toplevel"], True),
+        (["config", "--local", "--get", "remote.origin.url"], False),
+    ):
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            raise WorkspaceUnavailable("workspace_inspection_budget_exceeded")
+        try:
+            result = subprocess.run(
+                [*prefix, *argv], check=False, capture_output=True, text=True,
+                timeout=min(1.0, remaining), env=env)
+        except (OSError, subprocess.TimeoutExpired):
+            return False
+        if result.returncode or len(result.stdout) > 512:
+            return False
+        value = result.stdout.strip()
+        if expected_root:
+            # A local core.worktree override could otherwise make 'git status'
+            # inspect an unrelated filesystem path.
+            if Path(value) != path:
+                return False
+        else:
+            match = _ORIGIN.fullmatch(value)
+            return match is not None and match.group(1).lower() == repository.lower()
+    return False
 
 
 def _unknown(repository, node, reason):
@@ -146,11 +161,16 @@ def inspect_authorized(arguments: dict, *, trusted_node: str,
         # Only paths supplied by already installed records are ever consulted.
         checked = set()
         matches = []
+        # The pinned SSH hop has a 15-second deadline. Bound aggregate local
+        # Git metadata checks rather than allowing up to 32 provider timeouts.
+        deadline = time.monotonic() + 6.0
         for path in candidates:
+            if time.monotonic() >= deadline:
+                return _unknown(repository, node, "workspace_inspection_budget_exceeded")
             if path in checked:
                 continue
             checked.add(path)
-            if _safe_checkout(path) and _git_origin(path, repository):
+            if _safe_checkout(path) and _git_origin(path, repository, deadline=deadline):
                 matches.append(path)
         if len(matches) != 1:
             reason = ("ambiguous_registered_checkout" if matches else
