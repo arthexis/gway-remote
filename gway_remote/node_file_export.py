@@ -12,6 +12,7 @@ import stat
 from pathlib import Path
 
 MAX_FILE_BYTES = 3 * 1024 * 1024
+CHUNK_BYTES = 48 * 1024
 
 
 def export_file(path: str, *, export_root: str, max_bytes: int = MAX_FILE_BYTES) -> dict:
@@ -51,4 +52,28 @@ def export_file(path: str, *, export_root: str, max_bytes: int = MAX_FILE_BYTES)
         "sha256": hashlib.sha256(payload).hexdigest(),
         "encoding": "base64",
         "content": base64.b64encode(payload).decode("ascii"),
+    }
+
+
+
+def export_chunk(path: str, *, export_root: str, offset: int = 0,
+                 max_bytes: int = MAX_FILE_BYTES) -> dict:
+    """Return a bounded chunk; keep the MCP response below its normal limit.
+
+    No client-supplied root or chunk size. Every call revalidates the file.
+    Callers must compare the sha256 across chunks and reject changed files.
+    """
+    if type(offset) is not int or offset < 0 or offset > max_bytes:
+        raise ValueError("invalid chunk offset")
+    exported = export_file(path, export_root=export_root, max_bytes=max_bytes)
+    raw = base64.b64decode(exported.pop("content"), validate=True)
+    if offset > len(raw):
+        raise ValueError("offset past end of file")
+    chunk = raw[offset:offset + CHUNK_BYTES]
+    return {
+        **exported,
+        "offset": offset,
+        "next_offset": offset + len(chunk) if offset + len(chunk) < len(raw) else None,
+        "chunk_bytes": len(chunk),
+        "content": base64.b64encode(chunk).decode("ascii"),
     }
