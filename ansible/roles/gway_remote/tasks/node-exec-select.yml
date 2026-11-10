@@ -7,7 +7,8 @@
       - gway_remote_exec_run_user is string
       - gway_remote_exec_run_user | length > 0
       - gway_remote_exec_run_user != 'root'
-      - "gway_remote_exec_run_user is match('^[a-z_][a-z0-9_-]*      - gway_remote_exec_run_user == (gway_remote_exec_user | default('gway-exec')) or gway_remote_exec_run_user == gway_remote_runner_user
+      - "gway_remote_exec_run_user is match('^[a-z_][a-z0-9_-]*$')"
+      - gway_remote_exec_run_user == (gway_remote_exec_user | default('gway-exec')) or gway_remote_exec_run_user == gway_remote_runner_user
     fail_msg: Executor must be the existing isolated executor or the installing operator, never root.
 
 - name: Look up selected existing executor account
