@@ -1,6 +1,7 @@
 """Exercise the production Ansible cutover block/rescue on disposable files (#533)."""
 import base64
 import copy
+from itertools import product
 import os
 from pathlib import Path
 import shutil
@@ -25,8 +26,8 @@ class IsolatedCutoverTests(unittest.TestCase):
         self.assertEqual(len(blocks), 1)
         self.assertEqual(len(blocks[0]["block"]), 8)
         self.assertEqual(len(blocks[0]["rescue"]), 10)
-        for fault in ("Validate full sshd configuration", "Reload SSH with", "Verify selected executor can import"):
-            with self.subTest(fault=fault), tempfile.TemporaryDirectory(prefix="gway533-", dir="/tmp") as tmp:
+        for fault, reader_existed in product(("Validate full sshd configuration", "Reload SSH with", "Verify selected executor can import"), (True, False)):
+            with self.subTest(fault=fault, reader_existed=reader_existed), tempfile.TemporaryDirectory(prefix="gway533-", dir="/tmp") as tmp:
                 root = Path(tmp)
                 names = ("executor-identity.json", "gway-exec-relay", "40-gway-exec-relay.conf", "gway-mcp-file-reader")
                 originals = (
@@ -36,6 +37,8 @@ class IsolatedCutoverTests(unittest.TestCase):
                     b'arthe ALL=(gway-exec) NOPASSWD: /usr/bin/true\n',
                 )
                 for name, data in zip(names, originals):
+                    if name == "gway-mcp-file-reader" and not reader_existed:
+                        continue
                     (root / name).write_bytes(data)
                 cutover = copy.deepcopy(blocks[0])
                 injected = 0
@@ -68,7 +71,7 @@ class IsolatedCutoverTests(unittest.TestCase):
                 variables = {
                     "gway_remote_exec_run_user": "arthe",
                     "ansible_hostname": "gway-001",
-                    "exec_file_reader_old": present,
+                    "exec_file_reader_old": present if reader_existed else {"stat": {"exists": False}},
                     "exec_file_reader_original": {"content": base64.b64encode(originals[3]).decode()},
                     "gway_remote_install_root": "/opt/gway-remote",
                     "exec_relay_files": {"results": [present, present]},
@@ -92,7 +95,10 @@ class IsolatedCutoverTests(unittest.TestCase):
                 self.assertIn("Refuse partially switched executor identity", result.stdout)
                 self.assertIn("Executor identity change failed", result.stdout)
                 for name, original in zip(names, originals):
-                    self.assertEqual((root / name).read_bytes(), original, name + result.stdout + result.stderr)
+                    if name == "gway-mcp-file-reader" and not reader_existed:
+                        self.assertFalse((root / name).exists(), result.stdout + result.stderr)
+                    else:
+                        self.assertEqual((root / name).read_bytes(), original, name + result.stdout + result.stderr)
 
 
 if __name__ == "__main__":
