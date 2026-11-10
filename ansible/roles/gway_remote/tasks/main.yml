@@ -7,7 +7,8 @@
 - name: Verify runner user exists
   ansible.builtin.getent:
     database: passwd
-    key: "{{ gway_remote_runner_user }}"\n  register: gway_remote_runner_passwd
+    key: "{{ gway_remote_runner_user }}"
+  register: gway_remote_runner_passwd
 
 - name: Inspect existing CLI
   ansible.builtin.stat:
