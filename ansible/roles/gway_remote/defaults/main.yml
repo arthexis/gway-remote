@@ -3,7 +3,7 @@ gway_remote_install_root: /opt/gway-remote
 gway_remote_runner_user: arthe  # Explicit playbook runs may override; deploy.sh passes the invoking operator
 
 # B2a: executor prerequisites on managed node hosts; authorization stays at Watchtower.
-gway_remote_exec_user: gway-exec
+# gway_remote_exec_run_user is the sole effective node execution identity.
 gway_remote_exec_state_dir: /var/lib/gway-exec
 
 # Explicit pilot selection. All other managed nodes retain the locked default.
