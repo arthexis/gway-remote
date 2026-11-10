@@ -54,11 +54,13 @@ class SessionBridgeDispatch:
                     or set(args) != {"node", "filename", "offset"}):
                 raise PermissionError("file read unavailable")
             import secrets
+            request_id = secrets.token_hex(16)
             response = self.execution.relay.transport.invoke({
                 "operation": "file_read", "node": audience,
-                "request_id": secrets.token_hex(16),
+                "request_id": request_id,
                 "filename": args["filename"], "offset": args["offset"]})
             if (type(response) is not dict or response.get("node") != audience
+                    or response.get("request_id") != request_id
                     or type(response.get("result")) is not dict):
                 raise PermissionError("uncorrelated file response")
             return response["result"]
