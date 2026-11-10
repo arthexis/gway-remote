@@ -120,8 +120,37 @@ def _git_origin(path, repository, *, deadline):
     return False
 
 
-def _unknown(repository, node, reason):
-    """Keep the v1 response shape without inventing checkout or installed SHA."""
+_FULL_SHA = re.compile(r"[0-9a-fA-F]{40}\\Z")
+
+
+def _existing_installation_receipt(repository):
+    """Reuse only independently observed active release links for managed targets.
+
+    The legacy deployers clone temporary Git trees, so the installed revision
+    is never evidence of a persistent checkout or of git status. Kiosk revision
+    files and Bastion staged releases require separate activation checks.
+    """
+    from .reconcile import TARGETS
+    from .status import installed_revision
+    from .deployment_evidence import adapt_component
+
+    matches = [name for name, source in TARGETS if source == repository]
+    if len(matches) != 1 or matches[0] in {"gway-ap-kiosk", "gway-bastion"}:
+        return None
+    try:
+        revision = installed_revision(matches[0])
+    except (OSError, ValueError, TypeError, RuntimeError):
+        return None
+    if type(revision) is not str or not _FULL_SHA.fullmatch(revision):
+        # 12-character appliance pointers are not a verified full source SHA.
+        return None
+    return adapt_component({"name": matches[0], "installed_sha": revision,
+                            "health": "unknown"}, observed_at=None, depth="quick")
+
+
+def _unknown(repository, node, reason, *, receipt=None):
+    """Git may be unknown independently of a verified installed release."""
+    from .workspace_inspect import deployment_evidence
     missing = {"state": "unknown", "reason": reason, "value": None}
     return {
         "schema": SCHEMA, "checked_at": datetime.now(timezone.utc).isoformat(),
@@ -129,7 +158,7 @@ def _unknown(repository, node, reason):
         "git": {"head": dict(missing), "branch": dict(missing),
                 "clean_tracked": dict(missing)},
         "ci": {"state": "unknown", "reason": "GitHub evidence not supplied"},
-        "deployment": {"state": "unknown", "reason": "deployment evidence not supplied"},
+        "deployment": deployment_evidence(repository, receipt),
     }
 
 
@@ -146,6 +175,11 @@ def inspect_authorized(arguments: dict, *, trusted_node: str,
         raise WorkspaceUnavailable("node_binding_mismatch")
     if type(repository) is not str or not _REPOSITORY.fullmatch(repository):
         raise ValueError("invalid repository")
+
+    # Installation evidence is independent of whether an ephemeral Git checkout
+    # survived the legacy appliance installer.
+    receipt = (deployment_receipt if deployment_receipt is not None
+               else _existing_installation_receipt(repository))
 
     try:
         candidates = []
@@ -166,7 +200,7 @@ def inspect_authorized(arguments: dict, *, trusted_node: str,
         deadline = time.monotonic() + 6.0
         for path in candidates:
             if time.monotonic() >= deadline:
-                return _unknown(repository, node, "workspace_inspection_budget_exceeded")
+                return _unknown(repository, node, "workspace_inspection_budget_exceeded", receipt=receipt)
             if path in checked:
                 continue
             checked.add(path)
@@ -176,10 +210,10 @@ def inspect_authorized(arguments: dict, *, trusted_node: str,
             reason = ("ambiguous_registered_checkout" if matches else
                       "registered_workspace_unavailable" if candidate is not None
                       else "repository_not_registered")
-            return _unknown(repository, node, reason)
+            return _unknown(repository, node, reason, receipt=receipt)
         return inspect_workspace(repository, {repository: str(matches[0])},
-                                 node=node, deployment_receipt=deployment_receipt)
+                                 node=node, deployment_receipt=receipt)
     except WorkspaceUnavailable as exc:
-        return _unknown(repository, node, exc.code)
+        return _unknown(repository, node, exc.code, receipt=receipt)
     except (OSError, ValueError, TypeError, KeyError, json.JSONDecodeError):
-        return _unknown(repository, node, "workspace_registry_unavailable")
+        return _unknown(repository, node, "workspace_registry_unavailable", receipt=receipt)
