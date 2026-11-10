@@ -31,6 +31,9 @@ def publish(item):
     if not re.fullmatch(r"[a-z][a-z0-9_]{1,39}", name):
         raise ValueError("invalid provider name")
     manifest = {key: item[key] for key in ("source_id", "revision", "executable", "argv")}
+    if "deployment" in item:
+        from gway_remote.mcp_deployment_contract import validate_deployment
+        manifest["deployment"] = validate_deployment(item["deployment"])
     path = DEST / (name + ".json")
     payload = (json.dumps(manifest, sort_keys=True) + "\n").encode("utf-8")
     # Do not replace a trusted, identical manifest: preserve inode and mtime.
