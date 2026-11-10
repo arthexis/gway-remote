@@ -1,97 +1,45 @@
 ---
-# Dedicated deployment broker: gway-exec may start one root-owned
-# systemd unit. It never gains general sudo or Ansible authority.
-- name: Validate deployment operator identity
-  ansible.builtin.assert:
-    that:
-      - gway_remote_runner_user not in ['root', 'gway-exec']
-      - (getent_passwd[gway_remote_runner_user][4] | length) > 1
+# The installed provider manifest is the only deployment registry.
+# The authenticated node worker invokes the provider-owned deploy.sh as its
+# existing effective UID; that script owns Ansible escalation via become.
+# Do not install a second deployment service, sudo grant or root helper.
+- name: Inspect existing node execution account
+  ansible.builtin.getent:
+    database: passwd
+    key: "{{ gway_remote_exec_run_user }}"
 
-# GitHub Actions checks out detached HEAD in a transient runner workspace.
-# The broker must always use a persistent, operator-owned main checkout.
-# Operators may override this explicitly for nonstandard installations.
-- name: Set persistent operator checkout
-  ansible.builtin.set_fact:
-    gway_remote_deploy_checkout: "{{ gway_remote_deploy_checkout_override | default(getent_passwd[gway_remote_runner_user][4] ~ '/Repos/gway-remote', true) }}"
-
-- name: Inspect deployment checkout without following symlinks
-  ansible.builtin.stat:
-    path: "{{ gway_remote_deploy_checkout }}"
-    follow: false
-  register: gway_mcp_checkout
-
-- name: Reject missing or symlinked deployment checkout
-  ansible.builtin.assert:
-    that:
-      - gway_mcp_checkout.stat.isdir | default(false)
-      - not (gway_mcp_checkout.stat.islnk | default(true))
-      - gway_remote_deploy_checkout.startswith('/')
-
-- name: Verify deployment operator can access the Git checkout
-  ansible.builtin.command:
-    argv:
-      - /usr/bin/git
-      - -C
-      - "{{ gway_remote_deploy_checkout }}"
-      - rev-parse
-      - --show-toplevel
-  become: true
-  become_user: "{{ gway_remote_runner_user }}"
-  changed_when: false
-
-- name: Create deployment receipt directory readable by restricted executor
+- name: Provision private node-local deployment receipt directory
   ansible.builtin.file:
     path: /var/lib/gway-mcp-deploy
     state: directory
-    owner: "{{ gway_remote_runner_user }}"
-    group: gway-exec
-    mode: "2750"
+    owner: "{{ gway_remote_exec_run_user }}"
+    group: "{{ gway_remote_exec_run_user }}"
+    mode: "0700"
 
-- name: Ensure root-owned deployment helper directory exists
+# Retire only the obsolete deployment-specific privilege path. This does not
+# touch the existing SSH executor, any other sudo policy or active services.
+- name: Inspect installed services before retiring dedicated deployment unit
+  ansible.builtin.service_facts:
+
+- name: Disable obsolete dedicated deployment unit if installed
+  ansible.builtin.systemd:
+    name: gway-remote-deploy.service
+    enabled: false
+    state: stopped
+  when: "'gway-remote-deploy.service' in ansible_facts.services"
+
+- name: Remove obsolete dedicated deployment artifacts
   ansible.builtin.file:
-    path: /usr/local/libexec
-    state: directory
-    owner: root
-    group: root
-    mode: "0755"
+    path: "{{ item }}"
+    state: absent
+  loop:
+    - /etc/sudoers.d/gway-remote-mcp-deploy
+    - /etc/systemd/system/gway-remote-deploy.service
+    - /usr/local/libexec/gway-remote-deploy
+    - /usr/local/libexec/gway-remote-deploy-receipt.py
+  register: gway_legacy_deploy_removed
 
-- name: Install fixed operator-owned deployment script
-  ansible.builtin.copy:
-    src: "{{ playbook_dir }}/../scripts/gway-remote-deploy"
-    dest: /usr/local/libexec/gway-remote-deploy
-    owner: root
-    group: root
-    mode: "0755"
-
-- name: Install deployment receipt writer
-  ansible.builtin.copy:
-    src: "{{ playbook_dir }}/../scripts/gway-remote-deploy-receipt.py"
-    dest: /usr/local/libexec/gway-remote-deploy-receipt.py
-    owner: root
-    group: root
-    mode: "0755"
-
-- name: Install dedicated deployment unit
-  ansible.builtin.copy:
-    dest: /etc/systemd/system/gway-remote-deploy.service
-    owner: root
-    group: root
-    mode: "0644"
-    content: "{{ lookup('file', playbook_dir ~ '/../deploy/systemd/gway-remote-deploy.service') | replace('__RUNNER__', gway_remote_runner_user) | replace('__HOME__', getent_passwd[gway_remote_runner_user][4]) | replace('__CHECKOUT__', gway_remote_deploy_checkout) }}"
-  register: gway_mcp_deploy_unit
-
-- name: Allow executor to start only the dedicated deployment unit
-  ansible.builtin.copy:
-    dest: /etc/sudoers.d/gway-remote-mcp-deploy
-    owner: root
-    group: root
-    mode: "0440"
-    validate: /usr/sbin/visudo -cf %s
-    content: |
-      # One exact action, never an arbitrary shell, unit or systemctl flag.
-      gway-exec ALL=(root) NOPASSWD: /usr/bin/systemctl start --no-block gway-remote-deploy.service
-
-- name: Reload systemd after changing deployment unit
+- name: Reload systemd only when obsolete unit files changed
   ansible.builtin.systemd:
     daemon_reload: true
-  when: gway_mcp_deploy_unit.changed
+  when: gway_legacy_deploy_removed.changed
