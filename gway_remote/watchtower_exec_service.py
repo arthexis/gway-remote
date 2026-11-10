@@ -23,7 +23,7 @@ def load_service(path=CONFIG):
     if type(config) is not dict or config.get("enabled") is not True:
         raise ValueError("execution not enabled by operator configuration")
     fields = {"node", "address", "ssh_host_alias", "known_hosts",
-              "identity_file", "host_key_sha256"}
+              "identity_file", "host_key_sha256", "installer_user"}
     if set(config) == fields | {"enabled"}:
         entries = [{key: config[key] for key in fields}]
     elif set(config) == {"enabled", "nodes"} and type(config["nodes"]) is list:
@@ -48,20 +48,13 @@ def load_service(path=CONFIG):
                    and n["reachable"] == "reachable"]
         if len(matches) != 1:
             raise PermissionError("node is not currently attested at pinned address")
-        # No caller/config-selected Unix account. Until enrollment attests an
-        # installer identity, remote execution must fail closed.
-        # A bare installer_user in the inventory is not authenticated evidence.
-        # Require a ledger-derived binding to this exact attested host key.
-        binding = matches[0].get("installer_binding")
-        if (type(binding) is not dict or binding.get("source") != "enrollment-ledger"
-                or binding.get("node") != name
-                or binding.get("host_public_key") != entry["host_key_sha256"]
-                or binding.get("state") != "active"):
-            raise PermissionError("authenticated installer binding unavailable")
-        installer = binding.get("user")
+        # SSH login comes exclusively from root-owned operator configuration,
+        # never the enrollment inventory or an MCP request. Enrollment remains
+        # authoritative only for node identity, address and eligibility.
+        installer = entry["installer_user"]
         if (type(installer) is not str or not re.fullmatch(r"[a-z_][a-z0-9_-]{0,31}", installer)
                 or installer == "root"):
-            raise PermissionError("attested installer identity unavailable")
+            raise PermissionError("invalid configured installer identity")
         node = PinnedNode(node=name, wireguard_address=entry["address"],
                           ssh_host_alias=entry["ssh_host_alias"],
                           known_hosts=Path(entry["known_hosts"]),
