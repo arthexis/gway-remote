@@ -34,7 +34,7 @@ def register(subparsers, targets, names):
 def dispatch(args, parser):
     if args.command == "mcp":
         if args.mcp_section != "provider" or args.mcp_action != "check":
-            parser.exit(2, "gway-remote: unsupported MCP diagnosis\\n")
+            parser.exit(2, "gway-remote: unsupported MCP diagnosis\n")
         from ..mcp_provider_diagnostics import (
             check_provider, format_provider_check, load_watchtower_catalog,
         )
@@ -44,7 +44,7 @@ def dispatch(args, parser):
             report = check_provider(args.source_id, watchtower_catalog=snapshot)
         except (OSError, ValueError, TypeError):
             # No paths, exception text, tokens, provider arguments or stderr.
-            parser.exit(2, "gway-remote: invalid MCP diagnostic input\\n")
+            parser.exit(2, "gway-remote: invalid MCP diagnostic input\n")
         print(json.dumps(report, indent=2, sort_keys=True) if args.json
               else format_provider_check(report))
         if report["state"] != "available" or report["watchtower"]["state"] == "differs_snapshot":
