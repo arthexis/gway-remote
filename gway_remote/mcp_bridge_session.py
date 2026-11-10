@@ -49,6 +49,19 @@ class SessionBridgeDispatch:
             # callback, not by any claim in the request body.
             if envelope["principal"] != self.read_principal(token):
                 raise PermissionError("principal mismatch")
+        if operation == "file.read":
+            if (scope != "gway:read" or self.execution is None
+                    or set(args) != {"node", "filename", "offset"}):
+                raise PermissionError("file read unavailable")
+            import secrets
+            response = self.execution.relay.transport.invoke({
+                "operation": "file_read", "node": audience,
+                "request_id": secrets.token_hex(16),
+                "filename": args["filename"], "offset": args["offset"]})
+            if (type(response) is not dict or response.get("node") != audience
+                    or type(response.get("result")) is not dict):
+                raise PermissionError("uncorrelated file response")
+            return response["result"]
         if operation == "workspace.inspect" and set(args) == {"node", "repository"}:
             from .mcp_workspace_inspect import inspect_authorized
             return inspect_authorized(args)
