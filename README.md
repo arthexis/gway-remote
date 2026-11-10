@@ -291,3 +291,7 @@ integers from 0 through 10. If still running at the deadline, the call returns
 `request_id` and `dispatched`; use `node_result` later. Result-read failure
 never retries execution. Execute scope, node eligibility, request ownership,
 output bounds and durable request IDs remain unchanged.
+
+## Pending PR integration (draft only)
+
+The `integration/pending-prs` branch is a staging branch based on `main`, not a deployable release. Its integration PR tracks #534, #535, #536, #537, #538, #539, #506, #459, #427 and #405 individually. Changes are admitted one at a time only after their source HEAD, exact patches, overlap, tests and security implications are checked. In particular, #506 enables scheduled production convergence and must not be activated by an integration merge without separate approval. Preserve source PRs as Draft where applicable; never assume CI from their earlier HEADs applies to the integrated tree. No deploy, automatic merge or production activation is authorized by this document.
