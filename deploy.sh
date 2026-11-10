@@ -114,11 +114,11 @@ try:
 except (OSError, ValueError, TypeError, KeyError):
     sys.exit(1)
 ' "$node_name") || return 1
-  if [ "$selected" = "$(id -un)" ]; then
-    env PYTHONPATH=/opt/gway-remote /usr/bin/python3 -c 'import gway_remote.node_exec_worker' >/dev/null 2>&1
-  else
-    sudo -n -u "$selected" env PYTHONPATH=/opt/gway-remote /usr/bin/python3 -c 'import gway_remote.node_exec_worker' >/dev/null 2>&1
-  fi
+  # The installer must never validate a worker by switching to another
+  # Unix account. A conflicting installed identity fails closed and forces
+  # the explicit migration path instead of an implicit sudo -u transition.
+  [ "$selected" = "$(id -un)" ] || return 1
+  env PYTHONPATH=/opt/gway-remote /usr/bin/python3 -c 'import gway_remote.node_exec_worker' >/dev/null 2>&1
 }
 
 # This marker is only a hint: every fast-path check validates live artifacts.
