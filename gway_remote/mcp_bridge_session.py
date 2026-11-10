@@ -56,7 +56,6 @@ class SessionBridgeDispatch:
             if (scope != "gway:read" or self.execution is None
                     or set(args) != {"node", "filename", "offset"}):
                 raise PermissionError("file read unavailable")
-            import secrets
             request_id = secrets.token_hex(16)
             response = self.execution.relay.transport.invoke({
                 "operation": "file_read", "node": audience,
