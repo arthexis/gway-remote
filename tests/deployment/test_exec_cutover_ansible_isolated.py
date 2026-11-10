@@ -50,6 +50,8 @@ class IsolatedCutoverTests(unittest.TestCase):
                             args = task["ansible.builtin.file"]
                             args["path"] = str(root / Path(args["path"]).name)
                         elif section == "rescue" and name.startswith("Restore ") and "ansible.builtin.command" in task:
+                            # Only disposable fixture data is used; expose failures in isolated CI.
+                            task.pop("no_log", None)
                             args = task["ansible.builtin.command"]["argv"]
                             args[-4] = str(root / Path(args[-4]).name)
                             if args[-1] == "/usr/sbin/visudo":
