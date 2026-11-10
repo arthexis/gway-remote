@@ -13,7 +13,6 @@ all:
             - arthexis/gway-remote
           remote_managed_repositories:
             - ocpp-csms
-            - ocpp-reports
             - gway-lcd-sound
             - gway-agent-ops
             - gway-ap-kiosk

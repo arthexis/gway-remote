@@ -158,6 +158,11 @@ def check(*, apply=False, client=None, now=None):
     sources = dict(TARGETS)
     for row in report["components"]:
         name = row["name"]
+        # Inventory is authoritative for this node. Never report or deploy
+        # components explicitly removed from its management scope.
+        if not row.get("managed", False):
+            decisions.append({"name": name, "state": "unmanaged"})
+            continue
         observation = observations[name]
         category = observation["diagnosis"]
         evidence = quick_component_check(name)

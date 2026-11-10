@@ -47,13 +47,36 @@ class WatchTests(unittest.TestCase):
     def test_tick_is_dry_run_by_default(self):
         with patch("gway_remote.appliance_watch.read_attempts", return_value={}):
             with patch("gway_remote.appliance_watch.inventory", return_value={"components": [
-                {"name": "gway-rfid", "revision_status": "current"}]}):
+                {"name": "gway-rfid", "managed": True, "revision_status": "current"}]}):
                 with patch("gway_remote.appliance_watch.diagnose", return_value={"components": [
                     {"name": "gway-rfid", "diagnosis": "healthy"}]}):
                     with patch("gway_remote.appliance_watch.dispatch") as dispatch:
                         report = check(client=object(), now=self.now)
                         self.assertIsNone(report["dispatched"])
                         dispatch.assert_not_called()
+
+    def test_unmanaged_reports_never_creates_issue_or_dispatches(self):
+        rows = [
+            {"name": "ocpp-reports", "managed": False, "revision_status": "behind"},
+            {"name": "ocpp-csms", "managed": True, "revision_status": "current"},
+        ]
+        observations = [
+            {"name": "ocpp-reports", "diagnosis": "health-check-failed",
+             "diagnosis_reason": "Configured runtime probe returned failure"},
+            {"name": "ocpp-csms", "diagnosis": "healthy"},
+        ]
+        with patch("gway_remote.appliance_watch.read_attempts", return_value={}), \
+             patch("gway_remote.appliance_watch._dispatch_reservations", return_value={}), \
+             patch("gway_remote.appliance_watch.inventory", return_value={"components": rows}), \
+             patch("gway_remote.appliance_watch.diagnose", return_value={"components": observations}), \
+             patch("gway_remote.appliance_watch.quick_component_check", return_value="healthy"), \
+             patch("gway_remote.appliance_watch._issue") as issue, \
+             patch("gway_remote.appliance_watch.dispatch") as dispatch:
+            result = check(apply=True, client=object(), now=self.now)
+        self.assertIsNone(result["dispatched"])
+        self.assertEqual(result["decisions"][0], {"name": "ocpp-reports", "state": "unmanaged"})
+        issue.assert_not_called()
+        dispatch.assert_not_called()
 
     def test_issue_reuses_existing_marker_without_rewriting(self):
         from gway_remote.appliance_watch import ISSUE_MARKER

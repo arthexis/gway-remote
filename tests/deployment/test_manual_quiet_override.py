@@ -14,7 +14,8 @@ from gway_remote.attempts import mark
 class ManualBatchQuietTests(unittest.TestCase):
     def setUp(self):
         # Test the deployment planner separately from the host admission boundary.
-        admission = patch("gway_remote.deployment_policy.require_local_deployment", return_value=())
+        admission = patch("gway_remote.deployment_policy.require_local_deployment",
+                          return_value=tuple(name for name, _ in TARGETS))
         admission.start()
         self.addCleanup(admission.stop)
 
@@ -70,6 +71,15 @@ class ManualBatchQuietTests(unittest.TestCase):
                                  bypass_quiet=True, retry_failed=True)
                 self.assertEqual(result["decision"], "completed")
                 self.assertEqual(calls, [items[0].name])
+
+    def test_partial_planner_ignores_unmanaged_reports(self):
+        now = datetime.now(timezone.utc)
+        records = self.candidates(now, ci="success")
+        approved = {name for name, _ in TARGETS if name != "ocpp-reports"}
+        selected = tuple(item for item in records if item.name in approved)
+        result = plan(selected, now, bypass_quiet=True, managed=approved)
+        self.assertEqual(result.state, "ready")
+        self.assertNotIn("ocpp-reports", [name for name, _ in result.pending])
 
     def test_retry_flag_requires_manual_mode(self):
         now = datetime.now(timezone.utc)

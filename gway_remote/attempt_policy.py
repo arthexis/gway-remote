@@ -23,12 +23,14 @@ class Plan:
     reason: str
 
 
-def plan(candidates, now, *, bypass_quiet=False):
+def plan(candidates, now, *, bypass_quiet=False, managed=None):
     """An unknown attempt is eligible once; failed or interrupted attempts need explicit retry."""
     if now.tzinfo is None or now.utcoffset() is None:
         raise ValueError("now must be timezone-aware")
     by_name = {c.name: c for c in candidates}
-    names = tuple(name for name, _ in TARGETS)
+    names = tuple(name for name, _ in TARGETS if managed is None or name in managed)
+    if not names:
+        return Plan("idle", (), "no managed appliance targets")
     if len(candidates) != len(names) or set(by_name) != set(names):
         return Plan("blocked", (), "incomplete appliance snapshot")
     from .reconcile import _SHA

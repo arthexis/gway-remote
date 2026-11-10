@@ -84,7 +84,7 @@ class HostedAdmissionTests(unittest.TestCase):
         for repositories, requested, expected in (
             ([], "ocpp-csms", "No approved"),
             (["ocpp-csms"], "ocpp-reports", "not approved"),
-            (["ocpp-csms"], "all", "exceeds"),
+            (["not-an-installer"], "all", "No approved"),
         ):
             with self.subTest(repositories=repositories, requested=requested):
                 result = subprocess.CompletedProcess(
@@ -94,6 +94,15 @@ class HostedAdmissionTests(unittest.TestCase):
                 with patch("gway_remote.deployment_policy.subprocess.run", return_value=result):
                     with self.assertRaisesRegex(RuntimeError, expected):
                         self.execute(repository=requested)
+
+    def test_partial_full_batch_is_allowed_and_reports_stays_denied(self):
+        result = subprocess.CompletedProcess(
+            [], 0, json.dumps({"remote_managed_repositories": ["ocpp-csms"]}), ""
+        )
+        with patch("gway_remote.deployment_policy.subprocess.run", return_value=result):
+            self.execute(repository="all")
+            with self.assertRaisesRegex(RuntimeError, "not approved"):
+                self.execute(repository="ocpp-reports")
 
     def test_appliance_default_remains_protected(self):
         self.assertEqual(str(INVENTORY), "/etc/gway-remote/deployment.yml")

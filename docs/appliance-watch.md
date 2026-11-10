@@ -65,3 +65,15 @@ appliance deployment workflow; enabling this timer does not implicitly run
   that installer version is deployed, kiosk stays unverified.
 
 Any remaining `unknown` evidence causes a safe skip, not a guessed SHA.
+
+## gway-001 Reports retirement
+
+`ocpp-reports` is not a managed appliance target on gway-001. The checked-in
+Ansible inventory removes it from `remote_managed_repositories`, and appliance
+watch skips unmanaged components before incident creation or deployment dispatch.
+The `appliance-deploy.yml` manual workflow and CLI dispatcher do not offer
+Reports on this node. `deploy-batch --all` installs only locally approved
+components; a direct `--target ocpp-reports` is denied by the node's installed
+root-owned policy. This does **not** uninstall existing systemd units or touch
+the independent Reports Collector on ocpp-abb-1. Manual retirement of stale
+local services requires a separate, post-deployment operational task.

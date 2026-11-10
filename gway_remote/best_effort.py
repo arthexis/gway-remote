@@ -48,13 +48,13 @@ def execute(client, now, installers, directory=DEFAULT_DIR, lock_path=None, *, b
     if target is not None and not deploy_all:
         raise ValueError("target selection requires explicit --all")
     from .deployment_policy import require_local_deployment
-    require_local_deployment(target)
+    approved = set(require_local_deployment(target))
     directory = Path(directory)
     with appliance_lock(lock_path or directory / "appliance.lock"):
         if deploy_all:
             # Explicit --all bypasses the quiet period, never main-branch CI.
             snapshot = tuple((name, repo, main_head(client, repo)) for name, repo in TARGETS
-                             if target is None or name == target)
+                             if name == target or (target is None and name in approved))
             results = []
             for name, repo, sha in snapshot:
                 try:
@@ -104,14 +104,16 @@ def execute(client, now, installers, directory=DEFAULT_DIR, lock_path=None, *, b
             for name, entry in read_attempts(directory).items():
                 if entry.get('status') == 'failed':
                     attempted.pop(name, None)
-        snapshot = collect(client, attempted)
-        decision = plan(snapshot, now, bypass_quiet=bypass_quiet)
+        # Restrict planning and CI requirements to managed applications only.
+        snapshot = tuple(candidate for candidate in collect(client, attempted)
+                         if candidate.name in approved)
+        decision = plan(snapshot, now, bypass_quiet=bypass_quiet, managed=approved)
         if decision.state != "ready":
             return {"decision": decision.state, "reason": decision.reason, "results": []}
         results = []
         for name, sha in decision.pending:
-            if any(main_head(client, repo).lower() != state.sha.lower()
-                   for state, (_, repo) in zip(snapshot, TARGETS)):
+            if any(main_head(client, dict(TARGETS)[state.name]).lower() != state.sha.lower()
+                   for state in snapshot):
                 return {"decision": "stale", "reason": "main revision changed",
                         "results": results}
             filename = log_filename(name, sha)

@@ -32,14 +32,14 @@ class DeployDispatchTests(unittest.TestCase):
     @patch("gway_remote.deploy_dispatch.subprocess.run")
     def test_exact_run_id_is_displayed(self, run):
         run.return_value.stdout = '{"workflow_run_id":39106912358,"html_url":"https://github.com/arthexis/gway-remote/actions/runs/39106912358"}'
-        message = dispatch("ocpp-reports")
+        message = dispatch("ocpp-csms")
         self.assertIn("workflow run 39106912358", message)
         self.assertIn("/actions/runs/39106912358", message)
 
     @patch("gway_remote.deploy_dispatch.subprocess.run")
     def test_no_run_id_does_not_guess(self, run):
         run.return_value.stdout = ""
-        message = dispatch("ocpp-reports")
+        message = dispatch("ocpp-csms")
         self.assertIn("run ID unavailable", message)
         self.assertNotIn("/actions/runs/", message)
 
@@ -60,6 +60,12 @@ class DeployDispatchTests(unittest.TestCase):
     def test_follow_never_guesses_missing_run_id(self, run):
         with self.assertRaisesRegex(RuntimeError, "run ID"):
             follow_run("Requested deployment; run ID unavailable")
+        run.assert_not_called()
+
+    @patch("gway_remote.deploy_dispatch.subprocess.run")
+    def test_reports_cannot_be_dispatched_to_gway001(self, run):
+        with self.assertRaisesRegex(ValueError, "Unknown deployment target"):
+            dispatch("ocpp-reports")
         run.assert_not_called()
 
     def test_target_is_required(self):

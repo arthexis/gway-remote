@@ -6,15 +6,15 @@ from gway_remote.deploy_dispatch import TARGETS, resolve_targets
 
 class DeploySelectorTests(unittest.TestCase):
     def test_single_words(self):
-        self.assertEqual(resolve_targets("reports"), ("ocpp-reports",))
+        with self.assertRaises(ValueError):
+            resolve_targets("reports")
         self.assertEqual(resolve_targets("sound"), ("gway-lcd-sound",))
         self.assertEqual(resolve_targets("lcd-sound"), ("gway-lcd-sound",))
         self.assertEqual(resolve_targets("kiosk"), ("gway-ap-kiosk",))
         self.assertEqual(resolve_targets("rfid"), ("gway-rfid",))
 
     def test_multi_match(self):
-        self.assertEqual(resolve_targets("ocpp"), (
-            "ocpp-csms", "ocpp-reports"))
+        self.assertEqual(resolve_targets("ocpp"), ("ocpp-csms",))
         self.assertEqual(resolve_targets("gway"), tuple(
             name for name in TARGETS[1:] if name.startswith("gway-")))
 
