@@ -1,0 +1,66 @@
+"""Offline-only read SSH attestation receipt verification.
+
+This module neither loads a trust anchor nor enables any Watchtower transport.
+The caller must independently supply a trusted verifier key and revocation set.
+"""
+import hashlib
+import hmac
+import json
+import re
+import time
+
+_FIELDS = frozenset({"schema", "issuer", "key_id", "node", "address",
+                     "host_key_sha256", "ssh_principal", "identity_key_sha256",
+                     "force_command_sha256", "issued_at", "expires_at",
+                     "serial", "signature"})
+_HEX = re.compile(r"[0-9a-f]{64}\Z")
+_NODE = re.compile(r"[a-z][a-z0-9-]{1,62}\Z")
+
+
+def canonical_payload(receipt):
+    return json.dumps({k: receipt[k] for k in sorted(_FIELDS - {"signature"})},
+                      sort_keys=True, separators=(",", ":"), ensure_ascii=True).encode("ascii")
+
+
+def verify_read_receipt(receipt, *, trusted_keys, revoked_serials, expected,
+                        now=None):
+    """Return verified claims, or fail closed; never trust caller's attested flag.
+
+    trusted_keys maps (issuer, key_id) to independently provisioned HMAC keys.
+    This is a local test contract, NOT an installed issuer or credential loader.
+    expected binds node/address/host key/principal/identity key/ForceCommand.
+    """
+    if type(receipt) is not dict or set(receipt) != _FIELDS:
+        raise ValueError("invalid read attestation receipt schema")
+    if receipt["schema"] != "gway-read-attestation/v1":
+        raise ValueError("unsupported receipt schema")
+    for key in ("issuer", "key_id", "node", "address", "ssh_principal", "serial"):
+        if type(receipt[key]) is not str or not receipt[key] or len(receipt[key]) > 128:
+            raise ValueError("invalid read attestation identity")
+    if not _NODE.fullmatch(receipt["node"]):
+        raise ValueError("invalid attested node")
+    for key in ("host_key_sha256", "identity_key_sha256", "force_command_sha256", "signature"):
+        if type(receipt[key]) is not str or not _HEX.fullmatch(receipt[key]):
+            raise ValueError("invalid receipt digest")
+    issued, expires = receipt["issued_at"], receipt["expires_at"]
+    if type(issued) is not int or type(expires) is not int:
+        raise ValueError("invalid receipt validity")
+    current = int(time.time()) if now is None else now
+    if type(current) is not int or issued > current or expires <= current or expires - issued > 86400:
+        raise PermissionError("read attestation expired or not yet valid")
+    if type(revoked_serials) not in (set, frozenset) or receipt["serial"] in revoked_serials:
+        raise PermissionError("revoked or untrusted read receipt")
+    if type(expected) is not dict or set(expected) != {
+        "node", "address", "host_key_sha256", "ssh_principal",
+        "identity_key_sha256", "force_command_sha256"
+    }:
+        raise ValueError("incomplete expected pinned read identity")
+    if any(receipt[k] != value for k, value in expected.items()):
+        raise PermissionError("read receipt does not match pinned identity")
+    key = trusted_keys.get((receipt["issuer"], receipt["key_id"])) if type(trusted_keys) is dict else None
+    if type(key) is not bytes or len(key) < 32:
+        raise PermissionError("no independently trusted receipt issuer")
+    mac = hmac.new(key, canonical_payload(receipt), hashlib.sha256).hexdigest()
+    if not hmac.compare_digest(mac, receipt["signature"]):
+        raise PermissionError("invalid read attestation signature")
+    return {key: receipt[key] for key in expected}
