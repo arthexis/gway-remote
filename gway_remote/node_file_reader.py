@@ -16,7 +16,11 @@ MAX_INPUT = 1024
 
 def serve(raw, *, hostname=None):
     import pwd
-    if os.geteuid() != pwd.getpwnam("gway-exec").pw_uid:
+    try:
+        expected_uid = pwd.getpwnam("gway-exec").pw_uid
+    except KeyError as exc:
+        raise PermissionError("file reader identity unavailable") from exc
+    if os.geteuid() != expected_uid:
         raise PermissionError("file reader identity mismatch")
     if type(raw) is not bytes or len(raw) > MAX_INPUT:
         raise ValueError("invalid file reader request")
