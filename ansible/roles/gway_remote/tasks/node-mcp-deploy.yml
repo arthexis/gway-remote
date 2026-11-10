@@ -6,14 +6,14 @@
 - name: Inspect existing node execution account
   ansible.builtin.getent:
     database: passwd
-    key: "{{ gway_remote_exec_user | default(gway_remote_runner_user) }}"
+    key: "{{ gway_remote_exec_run_user }}"
 
 - name: Provision private node-local deployment receipt directory
   ansible.builtin.file:
     path: /var/lib/gway-mcp-deploy
     state: directory
-    owner: "{{ gway_remote_exec_user | default(gway_remote_runner_user) }}"
-    group: "{{ gway_remote_exec_user | default(gway_remote_runner_user) }}"
+    owner: "{{ gway_remote_exec_run_user }}"
+    group: "{{ gway_remote_exec_run_user }}"
     mode: "0700"
 
 # Retire only the obsolete deployment-specific privilege path. This does not
