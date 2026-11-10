@@ -10,7 +10,7 @@ def main():
         return 1
     if os.geteuid() == 0 or os.getuid() != os.geteuid():
         return 1
-    if os.environ.get("SSH_TTY") or os.environ.get("SSH_CONNECTION") is None:
+    if os.environ.get("SSH_TTY") or not os.environ.get("SSH_CONNECTION"):
         return 1
     account = pwd.getpwuid(os.geteuid())
     env = {
