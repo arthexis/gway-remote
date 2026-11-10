@@ -101,8 +101,8 @@ class ArchiveInstallerTests(unittest.TestCase):
         self.assertIn('pwd.getpwnam(user).pw_uid == 0', script)
         self.assertIn('print(user)', script)
         self.assertNotIn('sys.argv[1] == "gway-001"', script)
-        self.assertIn('if [ "$selected" = "$(id -un)" ]; then', script)
-        self.assertIn('sudo -n -u "$selected"', script)
+        self.assertIn('[ "$selected" = "$(id -un)" ] || return 1', script)
+        self.assertNotIn('sudo -n -u "$selected"', script)
         self.assertNotIn('sudo -n -u gway-exec', script)
         self.assertIn('Missing policy', script)
 
