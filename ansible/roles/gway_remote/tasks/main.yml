@@ -1,9 +1,5 @@
 ---
 # Watchtower MCP bridge provisioning is included by its dedicated Watchtower playbook.
-- name: Converge dormant executor prerequisites on managed nodes only
-  ansible.builtin.include_tasks: node-exec-prepare.yml
-  when: (ansible_hostname | default('')) is match('^gway-[0-9]+$')
-
 - name: Verify runner user exists
   ansible.builtin.getent:
     database: passwd
@@ -140,35 +136,9 @@
   ansible.builtin.include_tasks: mcp-source-provision.yml
   when: gway_mcp_sources is defined
 
-- name: Select node-local executor identity
-  ansible.builtin.include_tasks: node-exec-select.yml
-  when: (ansible_hostname | default('')) is match('^gway-[0-9]+$')
-
-- name: Provision private deployment state using selected executor identity
-  ansible.builtin.include_tasks: node-mcp-deploy.yml
-  when: (ansible_hostname | default('')) is match('^gway-[0-9]+$')
-
-- name: Verify installed package imports as unprivileged executor
-  ansible.builtin.command:
-    argv:
-      - /usr/bin/sudo
-      - -n
-      - -u
-      - "{{ gway_remote_exec_run_user }}"
-      - /usr/bin/env
-      - "PYTHONPATH={{ gway_remote_install_root }}"
-      - /usr/bin/python3
-      - -c
-      - "import gway_remote.node_exec_worker; print(gway_remote.node_exec_worker.__file__)"
-  changed_when: false
-  when: (ansible_hostname | default('')) is match('^gway-[0-9]+$')
-
-# Not enabled by default; provision only with explicit, audited key.
-- name: Prepare restricted execution SSH bridge on enrolled nodes when opted in
-  ansible.builtin.include_tasks: node-exec-relay.yml
-  when:
-    - (ansible_hostname | default('')) is match('^gway-[0-9]+$')
-    - gway_exec_transport_prepare | default(false) | bool
+# Remote execution is a new, unactivated capability. Do not provision legacy
+# gway-exec/gway-relay identities or alter SSH/sudoers during normal installs.
+# A future opt-in recipe must bind the installer to the enrolled host first.
 
 - name: Copy CLI installer
   ansible.builtin.copy:
