@@ -22,8 +22,8 @@ import sys
 import time
 
 from .node_exec_contract import DEFAULT_LIMITS, validate_command, validate_transition
-from .node_exec_identity import (DEFAULT_USER, COMMON_PATH, OPERATOR_PATH,
-                                 command_environment, selected_user, state_dir)
+from .node_exec_identity import (COMMON_PATH, command_environment,
+                                 selected_user, state_dir)
 
 ACCOUNT = None
 DEFAULT_STATE = None
