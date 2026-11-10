@@ -84,7 +84,7 @@ class ArchiveInstallerTests(unittest.TestCase):
     def test_executor_selection_uses_configured_roles_not_hostname(self):
         tasks = (ROOT / "ansible/roles/gway_remote/tasks/node-exec-select.yml").read_text()
         selection = tasks.split("- name: Look up selected existing executor account", 1)[0]
-        self.assertIn("gway_remote_exec_run_user == gway_remote_exec_user", selection)
+        self.assertIn("gway_remote_exec_run_user == (gway_remote_exec_user | default(\'gway-exec\'))", selection)
         self.assertIn("gway_remote_exec_run_user == gway_remote_runner_user", selection)
         self.assertIn("gway_remote_exec_run_user != 'root'", selection)
         self.assertNotIn("ansible_hostname", selection)
