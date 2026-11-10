@@ -23,7 +23,7 @@ def load_service(path=CONFIG):
     if type(config) is not dict or config.get("enabled") is not True:
         raise ValueError("execution not enabled by operator configuration")
     fields = {"node", "address", "ssh_host_alias", "known_hosts",
-              "identity_file", "host_key_sha256", "installer_user"}
+              "identity_file", "host_key_sha256"}
     if set(config) == fields | {"enabled"}:
         entries = [{key: config[key] for key in fields}]
     elif set(config) == {"enabled", "nodes"} and type(config["nodes"]) is list:
@@ -48,12 +48,12 @@ def load_service(path=CONFIG):
                    and n["reachable"] == "reachable"]
         if len(matches) != 1:
             raise PermissionError("node is not currently attested at pinned address")
-        node = PinnedNode(node=name, wireguard_address=entry["address"],
+        # No caller/config-selected Unix account. Until enrollment attests an\n        # installer identity, remote execution must fail closed.\n        installer = matches[0].get("installer_user")\n        if (type(installer) is not str or not re.fullmatch(r"[a-z_][a-z0-9_-]{0,31}", installer)\n                or installer == "root"):\n            raise PermissionError("attested installer identity unavailable")\n        node = PinnedNode(node=name, wireguard_address=entry["address"],
                           ssh_host_alias=entry["ssh_host_alias"],
                           known_hosts=Path(entry["known_hosts"]),
                           identity_file=Path(entry["identity_file"]),
                           host_key_sha256=entry["host_key_sha256"],
-                          installer_user=entry["installer_user"])
+                          installer_user=installer)
         if node.ssh_host_alias != name:
             raise PermissionError("SSH host alias must match enrolled node")
         transports[name] = SSHTransport(node)
