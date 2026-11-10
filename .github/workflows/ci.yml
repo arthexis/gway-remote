@@ -68,7 +68,7 @@ jobs:
       - name: Install pytest
         run: python -m pip install 'pytest>=8,<10'
       - name: Enforce test layout and discovery with timings
-        run: python -m pytest tests/support/test_architecture.py -v --durations=0 --durations-min=0
+        run: python -m pytest tests/support -v --durations=0 --durations-min=0
       - name: Validate rendered Ansible systemd units
         run: |
           python -m pip install 'PyYAML>=6,<7' 'Jinja2>=3,<4'
