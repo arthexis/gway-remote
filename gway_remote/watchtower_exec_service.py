@@ -50,7 +50,15 @@ def load_service(path=CONFIG):
             raise PermissionError("node is not currently attested at pinned address")
         # No caller/config-selected Unix account. Until enrollment attests an
         # installer identity, remote execution must fail closed.
-        installer = matches[0].get("installer_user")
+        # A bare installer_user in the inventory is not authenticated evidence.
+        # Require a ledger-derived binding to this exact attested host key.
+        binding = matches[0].get("installer_binding")
+        if (type(binding) is not dict or binding.get("source") != "enrollment-ledger"
+                or binding.get("node") != name
+                or binding.get("host_public_key") != entry["host_key_sha256"]
+                or binding.get("state") != "active"):
+            raise PermissionError("authenticated installer binding unavailable")
+        installer = binding.get("user")
         if (type(installer) is not str or not re.fullmatch(r"[a-z_][a-z0-9_-]{0,31}", installer)
                 or installer == "root"):
             raise PermissionError("attested installer identity unavailable")
