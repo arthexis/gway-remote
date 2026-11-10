@@ -11,8 +11,8 @@ import os
 import stat
 from pathlib import Path
 
-MAX_FILE_BYTES = 3 * 1024 * 1024
-CHUNK_BYTES = 48 * 1024
+MAX_FILE_BYTES = 1024 * 1024
+CHUNK_BYTES = 8 * 1024
 
 
 def export_file(path: str, *, export_root: str, max_bytes: int = MAX_FILE_BYTES) -> dict:
