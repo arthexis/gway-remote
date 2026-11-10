@@ -8,6 +8,7 @@
   ansible.builtin.getent:
     database: passwd
     key: "{{ gway_remote_runner_user }}"
+  register: gway_remote_runner_passwd
 
 - name: Inspect existing CLI
   ansible.builtin.stat:
@@ -248,7 +249,7 @@
 
 - name: Create durable watch state directory
   ansible.builtin.file:
-    path: "/home/{{ gway_remote_runner_user }}/.local/state/gway-remote"
+    path: "{{ gway_remote_runner_passwd.ansible_facts.getent_passwd[gway_remote_runner_user][4] }}/.local/state/gway-remote"
     state: directory
     owner: "{{ gway_remote_runner_user }}"
     group: "{{ gway_remote_runner_user }}"
@@ -279,7 +280,7 @@
 
 - name: Create private GitHub Health configuration directory
   ansible.builtin.file:
-    path: "/home/{{ gway_remote_runner_user }}/.config/gway-remote"
+    path: "{{ gway_remote_runner_passwd.ansible_facts.getent_passwd[gway_remote_runner_user][4] }}/.config/gway-remote"
     state: directory
     owner: "{{ gway_remote_runner_user }}"
     group: "{{ gway_remote_runner_user }}"
@@ -287,7 +288,7 @@
 
 - name: Inspect externally provisioned GitHub Health token configuration
   ansible.builtin.stat:
-    path: "/home/{{ gway_remote_runner_user }}/.config/gway-remote/github-health.env"
+    path: "{{ gway_remote_runner_passwd.ansible_facts.getent_passwd[gway_remote_runner_user][4] }}/.config/gway-remote/github-health.env"
   register: github_health_token_config
 
 - name: Validate private GitHub Health credentials
