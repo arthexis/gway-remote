@@ -65,9 +65,13 @@ class LegacyDeployRetirementTests(unittest.TestCase):
             "Reload SSH after restoring original forced-command identity",
         ):
             self.assertIn(step, recovery)
-        self.assertIn("exec_identity_original.content | b64decode", recovery)
-        self.assertIn("exec_relay_sudo_original.content | b64decode", recovery)
-        self.assertIn("exec_relay_sshd_original.content | b64decode", recovery)
+        self.assertIn("exec_identity_original.content", recovery)
+        self.assertIn("exec_relay_sudo_original.content", recovery)
+        self.assertIn("exec_relay_sshd_original.content", recovery)
+        self.assertEqual(recovery.count("base64.b64decode("), 3)
+        self.assertEqual(recovery.count("os.replace(tmp,p)"), 3)
+        self.assertEqual(recovery.count("os.fsync(fd)"), 3)
+        self.assertEqual(recovery.count("no_log: true"), 3)
 
     def test_offline_failure_compensation_restores_original_artifacts(self):
         # Pure local fixture: simulate failure after each cutover write.
