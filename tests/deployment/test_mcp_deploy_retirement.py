@@ -68,6 +68,30 @@ class LegacyDeployRetirementTests(unittest.TestCase):
         self.assertIn("exec_relay_sudo_original.content | b64decode", recovery)
         self.assertIn("exec_relay_sshd_original.content | b64decode", recovery)
 
+    def test_offline_failure_compensation_restores_original_artifacts(self):
+        # Pure local fixture: simulate failure after each cutover write.
+        import tempfile
+        with tempfile.TemporaryDirectory() as directory:
+            base = Path(directory)
+            originals = {
+                "executor-identity.json": b'{"user":"original"}\\n',
+                "gway-exec-relay": b"original sudoers\\n",
+                "40-gway-exec-relay.conf": b"original sshd\\n",
+            }
+            for failed_after in range(1, len(originals) + 1):
+                for name, data in originals.items():
+                    (base / name).write_bytes(data)
+                snapshots = {name: (base / name).read_bytes() for name in originals}
+                try:
+                    for index, name in enumerate(originals, 1):
+                        (base / name).write_bytes(b"selected new policy\\n")
+                        if index == failed_after:
+                            raise RuntimeError("injected cutover failure")
+                except RuntimeError:
+                    for name, data in snapshots.items():
+                        (base / name).write_bytes(data)
+                self.assertEqual(snapshots, {name: (base / name).read_bytes() for name in originals})
+
     def test_general_release_rollback_is_not_yet_implemented(self):
         # Document the acceptance gap, not a fictitious rollback guarantee.
         deploy = Path("deploy.sh").read_text()
