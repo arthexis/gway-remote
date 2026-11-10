@@ -53,8 +53,8 @@ class ProviderDoctorTests(unittest.TestCase):
                          ("mcp", "provider", "check", "fixture", True))
         with self.assertRaises(SystemExit):
             parser.parse_args(["mcp", "provider"])
-        with self.assertRaises(SystemExit):
-            parser.parse_args(["mcp", "provider", "check", "../secrets"])
+        with self.assertRaisesRegex(ValueError, "invalid_source_id"):
+            check_provider("../secrets")
 
     def test_read_only_local_catalog_and_unknown_remote_proof(self):
         report = check_provider("fixture", node="gway-001",
