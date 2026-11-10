@@ -75,6 +75,11 @@ assert_rejected wrong_uid -e gway_remote_runner_uid=99999
 assert_untouched
 assert_rejected wrong_user -e gway_remote_runner_user=other
 assert_untouched
+# Reusing an existing unrestricted administrative key for the executor must
+# fail rather than converting that key to a forced-command-only login.
+admin_pub=$(awk '{print $1 " " $2}' "$work/admin.pub")
+assert_rejected admin_key_collision -e "gway_remote_exec_public_key=$admin_pub"
+assert_untouched
 printf '{"user":"other"}\n' >/etc/gway-remote/executor-identity.json
 cp /etc/gway-remote/executor-identity.json "$work/conflicting-policy"
 assert_rejected conflicting_policy
