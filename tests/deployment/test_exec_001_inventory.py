@@ -63,6 +63,16 @@ class PilotExecutorSelectionTests(unittest.TestCase):
         self.assertIn("(ansible_hostname | default('')) == 'gway-001'", grant)
         self.assertIn("gway_remote_exec_run_user == 'arthe'", grant)
 
+    def test_retired_appliance_watch_cannot_be_reenabled_by_deploy(self):
+        # Deliberately retain Watchtower's separate MCP deployment workflow.
+        role = MAIN.read_text()
+        installer = DEPLOY.read_text()
+        self.assertNotIn("- name: Install appliance watch systemd units", role)
+        self.assertNotIn("- name: Enable periodic GWay Remote appliance watch", role)
+        self.assertNotIn("systemctl is-enabled --quiet gway-remote-watch.timer", installer)
+        self.assertNotIn("systemctl is-active --quiet gway-remote-watch.timer", installer)
+        self.assertIn("verify_node_worker_import; then", installer)
+
     @unittest.skipUnless(shutil.which("ansible-inventory"), "Ansible not installed")
     def test_effective_hostvars_are_limited_to_gway_001(self):
         for node in ("gway-001", "gway-002", "gway-004", "gway-005"):
