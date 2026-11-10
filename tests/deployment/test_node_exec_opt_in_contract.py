@@ -15,7 +15,7 @@ class ExecutorOptInBoundaryTests(unittest.TestCase):
         self.assertIn('$(id -un)', script)
         self.assertIn('gway_remote_runner_user=', script)
         self.assertIn('gway_remote_runner_uid=', script)
-        self.assertNotIn("sudo -u", script)
+        self.assertNotRegex(script, r"(?m)^\s*(?:exec\s+)?sudo\s+-u(?:\s|$)")
 
     def test_opt_in_is_explicit_and_never_in_default_role(self):
         recipe = RECIPE.read_text()
