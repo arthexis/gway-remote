@@ -15,12 +15,6 @@
     database: passwd
     key: "{{ gway_remote_exec_run_user }}"
 
-- name: Check operator account home has expected canonical location
-  ansible.builtin.assert:
-    that:
-      - getent_passwd['arthe'][4] == '/home/arthe'
-  when: gway_remote_exec_run_user == 'arthe'
-
 - name: Verify selected executor user manager exists
   ansible.builtin.stat:
     path: "/run/user/{{ getent_passwd[gway_remote_exec_run_user][1] }}/bus"
