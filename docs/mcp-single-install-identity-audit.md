@@ -201,3 +201,26 @@ manager and bounded worker lifecycle, and transactional rollback/migration
 coverage for the *new* opt-in path including faults after key write. These
 need separate explicit staging authorization; do not merge or deploy
 PR #545 on this offline evidence alone.
+
+### Dedicated SSH key collision: proven and fixed
+
+A separate disposable Debian/Ansible negative case demonstrated that
+`ansible.posix.authorized_key` with `exclusive: false` can still accept an
+executor key already present as an **unrestricted administrative key**;
+nonexclusive prevents unrelated key removal, but does not guarantee
+per-key option preservation. Workflow `42879373860` recorded the
+unexpected acceptance of this collision with structured extra-vars.
+
+The opt-in now checks existing `authorized_keys` ownership/type/mode
+and performs an immutable, no-follow Python read before any entrypoint
+or key mutation. A colliding key is rejected unless it is **already**
+authorized with exactly the dedicated
+`restrict,command="/usr/local/libexec/gway-remote-exec-protocol-v1"`
+option. The positive second-pass idempotence fixture still passes, and
+the negative test byte-compares the administrator key file. No private
+SSH material is read by the test outside its disposable container.
+Final CI for code HEAD `004bf457c48ef37569198eeeb626e22d49168717`,
+workflow `42880349980`, completed **SUCCESS**.
+
+This closes the identified key-reuse flaw, but it does not establish
+transactional rollback of a partially completed future migration.
