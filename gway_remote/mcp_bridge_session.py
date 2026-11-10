@@ -26,6 +26,13 @@ class SessionBridgeDispatch:
         self.read_principal = read_principal
         self.execution = execution
         self.inventory = inventory or node_registry_inventory
+        # Read inspection requires its own pinned SSH identity. Never alias the
+        # existing execute relay, even when a trusted caller misconfigures it.
+        if read_transport is not None and execution is not None:
+            execute_transport = getattr(getattr(execution, "relay", None),
+                                        "transport", None)
+            if read_transport is execute_transport:
+                raise ValueError("read transport must not reuse execution transport")
         self.read_transport = read_transport
 
     def __call__(self, envelope):
