@@ -12,7 +12,7 @@ from .mcp_bridge_transport import AuthenticatedBridge, BridgeUnixServer
 
 def bind_gateway_session(*, key, audience, verifier, session_token,
                          allowed_node, read_principal, execution=None,
-                         inventory=None, read_transport=None):
+                         inventory=None):
     """Create an authenticated bridge with a single trusted OAuth session.
 
     Re-check the credential on every request (including after revocation).
@@ -31,20 +31,19 @@ def bind_gateway_session(*, key, audience, verifier, session_token,
     dispatch = SessionBridgeDispatch(
         verifier=verifier, session_token=session_token,
         allowed_node=allowed_node, read_principal=read_principal,
-        execution=execution, inventory=inventory,
-        read_transport=read_transport)
+        execution=execution, inventory=inventory)
     return AuthenticatedBridge(key, audience=audience, dispatch=dispatch)
 
 
 def serve_gateway_session(path, *, key, audience, verifier, session_token,
                           allowed_node, read_principal, execution=None,
-                          inventory=None, read_transport=None):
+                          inventory=None):
     """Construct a private Unix server; caller owns serve_forever and shutdown."""
     bridge = bind_gateway_session(
         key=key, audience=audience, verifier=verifier,
         session_token=session_token, allowed_node=allowed_node,
         read_principal=read_principal, execution=execution,
-        inventory=inventory, read_transport=read_transport)
+        inventory=inventory)
     return BridgeUnixServer(path, bridge)
 
 def serve_managed_sessions(path, *, key, audience, sessions):
