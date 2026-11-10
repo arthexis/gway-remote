@@ -78,7 +78,7 @@
 - name: Refuse installer mismatch with existing node worker identity
   ansible.builtin.assert:
     that:
-      - (gway_remote_exec_identity_record.content | b64decode | from_json) == {'user': gway_remote_runner_user}
+      - "(gway_remote_exec_identity_record.content | b64decode | from_json) == {'user': gway_remote_runner_user}"
     fail_msg: Installed node executor identity differs from this installer; manual migration required
 
 - name: Resolve installer account without creating or switching users
