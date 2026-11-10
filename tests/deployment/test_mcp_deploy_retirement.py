@@ -60,7 +60,7 @@ class LegacyDeployRetirementTests(unittest.TestCase):
 
     def test_general_release_rollback_is_not_yet_implemented(self):
         # Document the acceptance gap, not a fictitious rollback guarantee.
-        deploy = (ROOT / "deploy.sh").read_text()
+        deploy = Path("deploy.sh").read_text()
         self.assertIn('ansible-playbook "$ROOT/ansible/playbook.yml"', deploy)
         self.assertIn('mv -f "$tmp" "$marker"', deploy)
         self.assertNotIn("rollback-release.yml", deploy)
