@@ -29,6 +29,9 @@ class BridgeReadUnavailable(PermissionError):
         "workspace_not_configured", "node_binding_mismatch",
         "repository_not_allowlisted", "workspace_config_invalid",
         "workspace_inspection_unavailable", "deployment_preview_unavailable",
+        "deployment_execution_disabled", "deployment_inventory_binding_denied",
+        "deployment_pinned_transport_unavailable", "deployment_ssh_unverified",
+        "deployment_node_protocol_unavailable", "deployment_declaration_unavailable",
     })
 
     def __init__(self, code):

@@ -1,61 +1,81 @@
-# MCP deployment: one canonical node_deploy
+# MCP node deployment and read-only workspace inspection
 
-The existing `node_deploy` and `node_deploy_status` MCP names are retained.
-`node_deploy_preview` adds a **read-only** eligibility check.
+This document describes the **integration branch** contract, not a completed
+production rollout. The existing MCP names `node_deploy_preview`,
+`node_deploy`, `node_deploy_status` and `workspace_inspect` remain stable.
 
-## Initial enabled targets
+## Deployment authorization (integration #534)
 
-- `gway-001` + `gway-remote`: existing, unchanged operator-owned systemd service.
-- `gway-001` + `odoo-gelectriic`: a second **fixed** systemd service executes the existing generic Odoo Ansible CLI installation tasks. All business and quote data are explicitly excluded.
-- All other node/application pairs: denied by default. This includes
-  `gway-002`, pending its independently pinned attestation; there is no
-  automatic trust-on-first-use.
+An enabled, independently attested node and an installed provider declaration
+are both required. The provider's trusted manifest supplies the application,
+checkout, runner and pinned 40-character revision; the MCP caller supplies
+**none** of those filesystem paths or commands.
 
-These are actual installed recipe targets, **not** a claim that all enrolled
-nodes support deployment. Additional nodes require an independently attested
-transport, root-owned audited target recipe, associated sudo authorization,
-receipt handling, and complete integration tests.
+- `node_deploy_preview` (`gway:read`): verifies current Watchtower eligibility,
+  pinned SSH node identity and a correlated node declaration. The caller's
+  optional `revision` is `main` only. The response returns the installed
+  declaration's pinned revision, not proof of a deployed application release.
+- `node_deploy` (`gway:execute`): validates the OAuth execution principal,
+  node eligibility, application and 32-character request ID; persists an
+  idempotent, principal- and host-key-bound ledger claim before dispatch. The
+  node-local executor checks the currently installed declaration/revision
+  again, creates a durable receipt, then launches only the declared runner as
+  the configured non-root identity. A missing acknowledgment is **uncertain**,
+  never an invitation to dispatch the same ID again.
+- `node_deploy_status` (`gway:execute`): reads the existing request's
+  correlated node receipt. A caller may not use another principal's ID, change
+  the application/revision, or treat an unverified response as success.
 
-## Contract
+The request carries `node`, `application`, optional `revision="main"`,
+and a server-reconciled `request_id` for start/status. It carries no shell
+arguments, sudo target, systemd unit, checkout path or arbitrary SHA. The old
+privileged `gway-remote-deploy.service` path and its dedicated sudo grant are
+**retired** in the integration. A provider without a valid installed
+declaration is ineligible even if its repository exists.
 
-```json
-{"node":"gway-001","application":"odoo-gelectriic",
- "revision":"main","request_id":"0123456789abcdef0123456789abcdef"}
-```
+The node broker uses a private operator-owned receipt directory, exact
+declaration validation, atomic receipt writes and a bounded worker. Receipt
+states and Git checkout HEAD must not be presented as proof that a particular
+application release is installed. The integration does not implement a general
+rollback of application releases; its Ansible executor identity cutover has a
+separate verified atomic SSH/sudoers/identity compensation path.
 
-`revision` is optional and currently only `main` is supported by the
-fixed-service transport. An arbitrary commit SHA is not accepted yet: the
-existing service fast-forwards the approved operator checkout on `main`.
-The request has **no** shell, path, service, or Ansible arguments.
+## Read-only workspace inspection (integration #538)
 
-- `node_deploy_preview`: `node`, `application`, optional `revision`.
-  Confirms current identity and configured fixed recipe, does not execute.
-- `node_deploy`: starts the fixed service using the existing bounded,
-  authenticated, idempotent `node_exec` transport and returns its request ID.
-- `node_deploy_status`: starts a read-only retrieval of that application's
-  durable service receipt. Follow its returned request ID through `node_result`.
+`workspace_inspect` maps to `workspace.inspect` with the existing
+`gway:read` OAuth scope and authenticated bridge envelope. Like federated
+`provider_read_call` and `file.read`, it uses the **same already configured
+Watchtower→node pinned SSH transport** (`execution.relay.transport`).
+It does not need a new SSH account, private key, bearer credential, approval,
+transport selector, or independent read session. The application operation
+determines whether a call is read-only; no SSH identity is switched by scope.
 
-The service receipt reports service-level `running/succeeded/failed`, not
-merely the exit code of `systemctl start --no-block`. A receipt can only be
-trusted for the exact application and target. There is no generic remote
-`sudo` or permission to execute an arbitrary playbook.
+The gateway verifies the existing OAuth bearer and node authorization before
+dispatch; the node protocol accepts only `node`, `repository` and a
+server-generated correlated request ID for this operation. It never accepts
+caller-provided checkout paths or arbitrary commands. The node-local
+`GWAY_WORKSPACE_INSPECT_CONFIG` allowlist independently restricts repositories
+to trusted local checkout paths. Missing transport, disabled execute-service
+transport initialization, unsafe/missing allowlist, wrong node, forged reply or
+SSH failure fails closed. This uses an *existing internal transport*, not an
+additional user approval.
 
-The Odoo deployment uses `ansible/roles/gway_remote/tasks/odoo-gelectriic.yml`
-already exercised manually on `gway-001`. It checks a clean `main`
-checkout, fast-forwards only, installs root-owned CLI binaries and validates
-help without opening any customer quote. It does **not** run catalog apply.
+The gateway must never impersonate a node by using a Watchtower-local
+workspace environment fallback. Existing `node_file_download`/`file.read`
+reader isolation, limits and correlation are unchanged.
 
-## Rollout
+## Rollout and acceptance boundary
 
-Deploy the GWay Remote Ansible role on `gway-001` to install the fixed
-Odoo unit and read-only receipt path; then roll out the Watchtower MCP
-gateway so that its tool list advertises `node_deploy`,
-`node_deploy_status` and `node_deploy_preview`. Reconnect/refresh the
-ChatGPT plugin's discovered tools. Observe the service receipt after a
-pilot and verify both the installed CLI hash and current Git revision.
+No node installation, new credential, privilege migration, Watchtower service
+restart, release activation, or application deployment is performed by merging
+this code. An already configured and attested node SSH relay can be used by
+`workspace_inspect`; live operation additionally requires the node-local
+allowlist to be present. Offline CI alone does not prove that allowlist or
+node runtime exists. Do not enable access to new nodes implicitly.
 
-This stage does **not** enable any non-attested node or integrate the
-separate `manual_deploy_async` broker for arbitrary SHA jobs. The
-fixed-service transport deliberately remains the authoritative, working
-boundary; do not claim multi-node or immutable-SHA deployment until the
-backend supports and tests it.
+For `arthexis/odoo-gelectriic`, deployment remains repository-owned and
+independent of this broker. A future trusted, root-owned installed-release
+receipt must bind repository, installed 40-character revision, release path,
+manifest digest, timestamp and successful active-link verification. Until
+that separate adapter exists, report `installed_sha=unknown`; neither Git
+HEAD nor a `current` symlink establishes the installed release.

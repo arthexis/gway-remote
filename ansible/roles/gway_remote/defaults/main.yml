@@ -6,5 +6,5 @@ gway_remote_runner_user: arthe  # Explicit playbook runs may override; deploy.sh
 gway_remote_exec_user: gway-exec
 gway_remote_exec_state_dir: /var/lib/gway-exec
 
-# Explicit pilot selection. All other managed nodes retain the locked default.
-gway_remote_exec_run_user: "{{ 'arthe' if (ansible_hostname | default('')) == 'gway-001' else 'gway-exec' }}"
+# Default to the isolated executor; an authorized inventory may select the installing operator.
+gway_remote_exec_run_user: "{{ gway_remote_exec_user }}"

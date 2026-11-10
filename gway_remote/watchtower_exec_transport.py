@@ -133,6 +133,45 @@ class RequestLedger:
             return dict(db.execute("SELECT * FROM requests WHERE request_id=?",
                                    (request_id,)).fetchone())
 
+    def reserve_deployment(self, *, request_id, node, application, revision,
+                           principal, host_key_sha256, expires_at):
+        """Bind deployment IDs in the existing ledger, without shell commands."""
+        from .mcp_deployment_resolver import _APP
+        validate_request_id(request_id)
+        if (type(application) is not str or not _APP.fullmatch(application)
+                or type(revision) is not str or not re.fullmatch(r"[0-9a-f]{40}", revision)):
+            raise ValueError("invalid deployment target")
+        if type(node) is not str or not re.fullmatch(r"gway-[0-9]+", node):
+            raise ValueError("invalid deployment node")
+        if type(principal) is not str or not principal or len(principal) > 256:
+            raise ValueError("invalid principal")
+        if type(host_key_sha256) is not str or not HEX_SHA256.fullmatch(host_key_sha256):
+            raise ValueError("invalid pinned host identity")
+        binding = "deployment:" + json.dumps([application, revision], separators=(",", ":"))
+        digest = _digest(node, binding, principal, host_key_sha256)
+        with self.connection() as db:
+            db.execute("BEGIN IMMEDIATE")
+            row = db.execute("SELECT * FROM requests WHERE request_id=?", (request_id,)).fetchone()
+            if row is not None:
+                if (row["node"] != node or row["principal"] != principal
+                        or row["host_key_sha256"] != host_key_sha256
+                        or row["command_sha256"] != digest
+                        or row["command"] != binding):
+                    raise ValueError("request ID reused for different binding")
+                return dict(row)
+            _parse_expiry(expires_at)
+            if db.execute("SELECT COUNT(*) FROM requests").fetchone()[0] >= MAX_RECORDS:
+                raise RuntimeError("ledger full; fail closed rather than forget IDs")
+            now = _now()
+            db.execute("""INSERT INTO requests
+                (request_id,node,principal,host_key_sha256,command_sha256,
+                 command,expires_at,state,created_at,updated_at)
+                VALUES (?,?,?,?,?,?,?,?,?,?)""",
+                (request_id,node,principal,host_key_sha256,digest,binding,
+                 expires_at,"reserved",now,now))
+            return dict(db.execute("SELECT * FROM requests WHERE request_id=?",
+                                   (request_id,)).fetchone())
+
     def claim_dispatch(self, request_id):
         """Only the first caller wins; crashes leave an uncertain non-replayable claim."""
         validate_request_id(request_id)
@@ -248,17 +287,23 @@ class SSHTransport:
         self._run = run
 
     def invoke(self, payload):
-        if type(payload) is not dict or payload.get("operation") not in {"submit","result","cancel","limits","provider_list","provider_call","file_read"}:
+        if type(payload) is not dict or payload.get("operation") not in {"submit","result","cancel","limits","provider_list","provider_call","file_read","deployment_preview","deployment_status","deployment_run","workspace_inspect"}:
             raise ValueError("invalid node operation")
         fields = {"submit":{"operation","node","request_id","command"},
                   "result":{"operation","node","request_id","cursor"},
                   "cancel":{"operation","node","request_id"},
                    "limits":{"operation","node","request_id"},
-                  "file_read":{"operation","node","request_id","filename","offset"},
                   "provider_list":{"operation","node","request_id"},
-                  "provider_call":{"operation","node","request_id","provider","tool","arguments","authorized_scope"}}
+                  "provider_call":{"operation","node","request_id","provider","tool","arguments","authorized_scope"},
+                  "file_read":{"operation","node","request_id","filename","offset"},
+                  "workspace_inspect":{"operation","node","request_id","repository"},
+                  "deployment_preview":{"operation","node","request_id","application"},
+                  "deployment_status":{"operation","node","request_id","application"},
+                  "deployment_run":{"operation","node","request_id","application","expected_revision"}}
         if set(payload) != fields[payload["operation"]]:
             raise ValueError("unexpected transport arguments")
+        if payload["operation"] == "deployment_run" and (type(payload["expected_revision"]) is not str or not re.fullmatch(r"[0-9a-f]{40}", payload["expected_revision"])):
+            raise ValueError("invalid expected deployment revision")
         if payload.get("node") != self.node.node:
             raise ValueError("wrong pinned node")
         validate_request_id(payload.get("request_id"))

@@ -9,6 +9,7 @@ from __future__ import annotations
 from .mcp_bridge_contract import InvalidBridgeRequest
 from .mcp_bearer import BearerVerifier
 from . import node_registry_inventory
+import secrets
 
 
 class SessionBridgeDispatch:
@@ -53,7 +54,6 @@ class SessionBridgeDispatch:
             if (scope != "gway:read" or self.execution is None
                     or set(args) != {"node", "filename", "offset"}):
                 raise PermissionError("file read unavailable")
-            import secrets
             request_id = secrets.token_hex(16)
             response = self.execution.relay.transport.invoke({
                 "operation": "file_read", "node": audience,
@@ -65,8 +65,22 @@ class SessionBridgeDispatch:
                 raise PermissionError("uncorrelated file response")
             return response["result"]
         if operation == "workspace.inspect" and set(args) == {"node", "repository"}:
-            from .mcp_workspace_inspect import inspect_authorized
-            return inspect_authorized(args)
+            # Reuse the already authenticated, pinned node transport, exactly
+            # as file.read and federated provider reads do. Scope is enforced
+            # by the OAuth bridge, never by switching SSH identities.
+            if scope != "gway:read" or self.execution is None:
+                raise PermissionError("workspace inspection unavailable")
+            rid = secrets.token_hex(16)
+            response = self.execution.relay.transport.invoke({
+                "operation": "workspace_inspect", "node": audience,
+                "request_id": rid, "repository": args["repository"]})
+            if (type(response) is not dict or response.get("node") != audience
+                    or response.get("request_id") != rid
+                    or type(response.get("result")) is not dict
+                    or response["result"].get("node") != audience
+                    or response["result"].get("repository") != args["repository"]):
+                raise PermissionError("uncorrelated workspace inspection")
+            return response["result"]
         if operation == "inventory.list" and args == {}:
             return self.inventory.public_nodes(execution_enabled=self.execution is not None)
         if operation == "inventory.capabilities" and set(args) == {"node"}:
@@ -79,7 +93,14 @@ class SessionBridgeDispatch:
                 {"node", "application"}, {"node", "application", "revision"}):
             if self.execution is None:
                 raise PermissionError("execution unavailable")
-            return self.execution.deployment_preview(**args)
+            from .mcp_bridge_transport import BridgeReadUnavailable
+            try:
+                return self.execution.deployment_preview(**args)
+            except PermissionError as exc:
+                code = str(exc)
+                if code in BridgeReadUnavailable.CODES and code.startswith("deployment_"):
+                    raise BridgeReadUnavailable(code) from None
+                raise
         if scope != "gway:execute" or self.execution is None:
             raise PermissionError("execution unavailable")
         if operation == "execution.start" and set(args) in (
