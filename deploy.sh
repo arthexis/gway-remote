@@ -82,7 +82,7 @@ verify_node_worker_import() {
     *) return 0 ;;
   esac
   selected=$(/usr/bin/python3 -c '
-import json, os, stat, sys
+import json, os, pwd, stat, sys
 p = "/etc/gway-remote/executor-identity.json"
 try:
     d = os.open("/etc/gway-remote", os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
@@ -102,15 +102,17 @@ try:
             obj = json.loads(raw)
             if type(obj) is not dict or set(obj) != {"user"}:
                 raise ValueError("invalid identity policy")
-            expected = "arthe" if sys.argv[1] == "gway-001" else "gway-exec"
-            if obj["user"] != expected:
-                raise ValueError("identity does not match node policy")
-            print(expected)
+            user = obj["user"]
+            if type(user) is not str or not user or user == "root":
+                raise ValueError("invalid executor user")
+            if pwd.getpwnam(user).pw_uid == 0:
+                raise ValueError("root executor denied")
+            print(user)
         finally:
             os.close(fd)
     finally:
         os.close(d)
-except (OSError, ValueError, TypeError):
+except (OSError, ValueError, TypeError, KeyError):
     sys.exit(1)
 ' "$node_name") || return 1
   if [ "$selected" = "$(id -un)" ]; then
