@@ -138,7 +138,7 @@
 
 # Remote execution is a new, unactivated capability. Do not provision legacy
 # gway-exec/gway-relay identities or alter SSH/sudoers during normal installs.
-# A future opt-in recipe must bind the installer to the enrolled host first.
+# The dormant opt-in recipe uses only deploy.sh's invoking Unix account.\n# Node enrollment authenticates the host independently; it never selects a user.
 
 - name: Copy CLI installer
   ansible.builtin.copy:
