@@ -140,6 +140,8 @@ class RegisteredWorkspaceInspection(unittest.TestCase):
             "workspace": str(root), "agent_executable": "/opt/agent"}))
         result = self.inspect()
         self.assertEqual(result["git"]["head"]["state"], "unknown")
+        self.assertEqual(result["git"]["head"]["reason"],
+                         "registered_workspace_unavailable")
         self.assertEqual(result["deployment"]["state"], "unknown")
 
     def test_git_fsmonitor_command_does_not_execute(self):
