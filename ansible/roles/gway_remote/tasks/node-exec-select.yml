@@ -146,7 +146,7 @@
         group: root
         mode: '0644'
         content: >-
-          {{ (exec_relay_sshd_original.content | b64decode) | regex_replace('(?<=-u )(gway-exec|arthe)(?= /usr/bin/env PYTHONPATH=)', gway_remote_exec_run_user) }}
+          {{ (exec_relay_sshd_original.content | b64decode) | regex_replace('(?<=-u )[a-z_][a-z0-9_-]*(?= /usr/bin/env PYTHONPATH=)', gway_remote_exec_run_user) }}
       register: exec_relay_sshd_changed
       when: exec_relay_files.results[0].stat.exists | default(false)
 
@@ -191,33 +191,41 @@
 
   rescue:
     - name: Restore previous restricted relay sudoers
-      ansible.builtin.copy:
-        dest: /etc/sudoers.d/gway-exec-relay
-        content: "{{ exec_relay_sudo_original.content | b64decode }}"
-        owner: root
-        group: root
-        mode: '0440'
-        validate: /usr/sbin/visudo -cf %s
+      ansible.builtin.command:
+        argv:
+          - /usr/bin/python3
+          - -c
+          - "import base64, os, pathlib, subprocess, sys, tempfile\np = pathlib.Path(sys.argv[1])\ndata = base64.b64decode(sys.argv[2], validate=True)\nfd, tmp = tempfile.mkstemp(dir=str(p.parent), prefix='.gway-restore-')\ntry:\n    with os.fdopen(fd, 'wb') as stream:\n        os.fchmod(stream.fileno(), int(sys.argv[3], 8))\n        stream.write(data)\n        stream.flush()\n        os.fsync(stream.fileno())\n    if sys.argv[4] != '-':\n        subprocess.run([sys.argv[4], '-cf', tmp], check=True)\n    os.replace(tmp, p)\nfinally:\n    if os.path.exists(tmp):\n        os.unlink(tmp)"
+          - /etc/sudoers.d/gway-exec-relay
+          - "{{ exec_relay_sudo_original.content }}"
+          - "0440"
+          - /usr/sbin/visudo
+      no_log: true
       when: exec_relay_files.results[1].stat.exists | default(false)
-
     - name: Restore original forced-command SSH configuration
-      ansible.builtin.copy:
-        dest: /etc/ssh/sshd_config.d/40-gway-exec-relay.conf
-        content: "{{ exec_relay_sshd_original.content | b64decode }}"
-        owner: root
-        group: root
-        mode: '0644'
+      ansible.builtin.command:
+        argv:
+          - /usr/bin/python3
+          - -c
+          - "import base64, os, pathlib, subprocess, sys, tempfile\np = pathlib.Path(sys.argv[1])\ndata = base64.b64decode(sys.argv[2], validate=True)\nfd, tmp = tempfile.mkstemp(dir=str(p.parent), prefix='.gway-restore-')\ntry:\n    with os.fdopen(fd, 'wb') as stream:\n        os.fchmod(stream.fileno(), int(sys.argv[3], 8))\n        stream.write(data)\n        stream.flush()\n        os.fsync(stream.fileno())\n    if sys.argv[4] != '-':\n        subprocess.run([sys.argv[4], '-cf', tmp], check=True)\n    os.replace(tmp, p)\nfinally:\n    if os.path.exists(tmp):\n        os.unlink(tmp)"
+          - /etc/ssh/sshd_config.d/40-gway-exec-relay.conf
+          - "{{ exec_relay_sshd_original.content }}"
+          - "0644"
+          - '-'
+      no_log: true
       when: exec_relay_files.results[0].stat.exists | default(false)
-
     - name: Restore previous executor identity configuration
-      ansible.builtin.copy:
-        dest: /etc/gway-remote/executor-identity.json
-        content: "{{ exec_identity_original.content | b64decode }}"
-        owner: root
-        group: root
-        mode: '0644'
+      ansible.builtin.command:
+        argv:
+          - /usr/bin/python3
+          - -c
+          - "import base64, os, pathlib, subprocess, sys, tempfile\np = pathlib.Path(sys.argv[1])\ndata = base64.b64decode(sys.argv[2], validate=True)\nfd, tmp = tempfile.mkstemp(dir=str(p.parent), prefix='.gway-restore-')\ntry:\n    with os.fdopen(fd, 'wb') as stream:\n        os.fchmod(stream.fileno(), int(sys.argv[3], 8))\n        stream.write(data)\n        stream.flush()\n        os.fsync(stream.fileno())\n    if sys.argv[4] != '-':\n        subprocess.run([sys.argv[4], '-cf', tmp], check=True)\n    os.replace(tmp, p)\nfinally:\n    if os.path.exists(tmp):\n        os.unlink(tmp)"
+          - /etc/gway-remote/executor-identity.json
+          - "{{ exec_identity_original.content }}"
+          - "0644"
+          - '-'
+      no_log: true
       when: exec_identity_old.stat.exists | default(false)
-
     - name: Remove newly created executor identity configuration on rollback
       ansible.builtin.file:
         path: /etc/gway-remote/executor-identity.json
