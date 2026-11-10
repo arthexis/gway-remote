@@ -60,13 +60,13 @@
       - gway_remote_exec_policy_dir.stat.isdir | default(false)
       - not (gway_remote_exec_policy_dir.stat.islnk | default(false))
       - gway_remote_exec_policy_dir.stat.pw_name == 'root'
-      - ((gway_remote_exec_policy_dir.stat.mode | int(base=8)) % 8) == 0
-      - (((gway_remote_exec_policy_dir.stat.mode | int(base=8)) // 8) % 8) == 0
+      - ((gway_remote_exec_policy_dir.stat.mode | int(base=8)) % 8) not in [2, 3, 6, 7]
+      - (((gway_remote_exec_policy_dir.stat.mode | int(base=8)) // 8) % 8) not in [2, 3, 6, 7]
       - gway_remote_exec_policy.stat.isreg | default(false)
       - not (gway_remote_exec_policy.stat.islnk | default(false))
       - gway_remote_exec_policy.stat.pw_name == 'root'
-      - ((gway_remote_exec_policy.stat.mode | int(base=8)) % 8) == 0
-      - (((gway_remote_exec_policy.stat.mode | int(base=8)) // 8) % 8) == 0
+      - ((gway_remote_exec_policy.stat.mode | int(base=8)) % 8) not in [2, 3, 6, 7]
+      - (((gway_remote_exec_policy.stat.mode | int(base=8)) // 8) % 8) not in [2, 3, 6, 7]
       - (gway_remote_exec_policy.stat.size | int) <= 1024
     fail_msg: Existing root-owned node executor identity is missing or unsafe
 
