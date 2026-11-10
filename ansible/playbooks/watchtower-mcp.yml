@@ -83,6 +83,34 @@
         src: /etc/systemd/system/gway-mcp-link.service
       register: mcp_original_unit
 
+    - name: Inspect existing private bridge settings for rollback
+      become: true
+      ansible.builtin.stat:
+        path: "{{ item }}"
+        follow: false
+      loop:
+        - /etc/gway-mcp/bridge/gateway.env
+        - /etc/systemd/system/gway-mcp-gateway.service.d/20-private-bridge.conf
+      register: bridge_previous_files
+
+    - name: Refuse unsafe pre-existing bridge settings
+      ansible.builtin.assert:
+        that:
+          - not item.stat.exists or (item.stat.isreg | default(false))
+          - not (item.stat.islnk | default(false))
+          - not item.stat.exists or item.stat.pw_name == 'root'
+          - not item.stat.exists or item.stat.mode in ['0640', '0644']
+      loop: "{{ bridge_previous_files.results }}"
+
+    - name: Read existing bridge settings byte-for-byte before update
+      become: true
+      ansible.builtin.slurp:
+        src: "{{ item.item }}"
+      loop: "{{ bridge_previous_files.results }}"
+      when: item.stat.exists
+      register: bridge_previous_contents
+      no_log: true
+
     - name: Detect checked-in service unit change
       ansible.builtin.stat:
         path: "{{ mcp_source }}/deploy/mcp-bearer/gway-mcp-link.service"
@@ -347,6 +375,26 @@
             executable: /bin/sh
           when: mcp_original_target.stdout is match('^releases/[0-9a-f]{40}$')
 
+        - name: Restore prior private bridge settings on failure
+          become: true
+          ansible.builtin.copy:
+            dest: "{{ item.item.item }}"
+            content: "{{ item.content | b64decode }}"
+            owner: root
+            group: "{{ 'gway-mcp-read' if item.item.item.endswith('gateway.env') else 'root' }}"
+            mode: "{{ '0640' if item.item.item.endswith('gateway.env') else '0644' }}"
+          loop: "{{ bridge_previous_contents.results }}"
+          when: item.content is defined
+          no_log: true
+
+        - name: Remove bridge settings created by failed activation
+          become: true
+          ansible.builtin.file:
+            path: "{{ item.item }}"
+            state: absent
+          loop: "{{ bridge_previous_files.results }}"
+          when: not item.stat.exists
+
         - name: Restore original OAuth service unit exactly
           become: true
           ansible.builtin.copy:
@@ -377,7 +425,11 @@
           ansible.builtin.systemd:
             name: gway-mcp-gateway.service
             state: restarted
-          when: mcp_gateway_activation_needed | bool or mcp_exec_gateway_unit.changed | default(false)
+          when: >-
+            mcp_gateway_activation_needed | bool or
+            mcp_exec_gateway_unit.changed | default(false) or
+            bridge_gateway_env.changed | default(false) or
+            bridge_gateway_dropin.changed | default(false)
 
         - name: Restart existing OAuth link after rollback
           become: true
