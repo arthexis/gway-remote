@@ -22,8 +22,16 @@ class ExecutorOptInBoundaryTests(unittest.TestCase):
         main = (RECIPE.parent / "main.yml").read_text()
         self.assertIn("gway_remote_executor_opt_in | default(false) | bool", recipe)
         self.assertNotIn("node-exec-opt-in.yml", main)
-        self.assertIn("gway_remote_runner_user == lookup('pipe', 'id -un')", recipe)
-        self.assertIn("(gway_remote_runner_uid | int) == (lookup('pipe', 'id -u') | int)", recipe)
+        self.assertNotIn("lookup('pipe'", recipe)
+        self.assertIn("gway_remote_exec_connection_user.stdout == gway_remote_runner_user", recipe)
+        self.assertIn("(gway_remote_exec_connection_uid.stdout | int) == (gway_remote_runner_uid | int)", recipe)
+        self.assertIn("argv: [/usr/bin/id, -un]", recipe)
+        self.assertIn("argv: [/usr/bin/id, -u]", recipe)
+        self.assertEqual(recipe.count("  become: false"), 2)
+        self.assertIn("executor-identity.json", recipe)
+        self.assertIn("gway_remote_exec_identity_record.content | b64decode | from_json", recipe)
+        self.assertLess(recipe.index("Refuse installer mismatch with existing node worker identity"),
+                        recipe.index("Install dedicated restricted executor key"))
         self.assertIn("gway_remote_runner_user != 'root'", recipe)
 
     def test_authorized_key_is_dedicated_restricted_and_nonexclusive(self):
