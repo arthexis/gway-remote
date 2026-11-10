@@ -41,6 +41,10 @@ class ExecutorOptInBoundaryTests(unittest.TestCase):
         recipe = RECIPE.read_text()
         self.assertIn('restrict,command="/usr/local/libexec/gway-remote-exec-protocol-v1"', recipe)
         self.assertIn("exclusive: false", recipe)
+        self.assertIn("Reject executor public key collision with any unrestricted existing key", recipe)
+        self.assertIn("os.O_NOFOLLOW", recipe)
+        self.assertLess(recipe.index("Reject executor public key collision with any unrestricted existing key"),
+                        recipe.index("Install dedicated restricted executor key for installer"))
         self.assertIn("manage_dir: false", recipe)
         self.assertIn("state: present", recipe)
         self.assertLess(recipe.index("Install reviewed fixed-command entrypoint"),
