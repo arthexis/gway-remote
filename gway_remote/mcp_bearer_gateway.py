@@ -495,8 +495,9 @@ class Handler(BaseHTTPRequestHandler):
                     selected = self._bridge_node_tool(
                         payload["params"]["name"], arguments, token)
                 elif payload["params"]["name"] == "workspace_inspect":
-                    from .mcp_workspace_inspect import inspect_authorized
-                    selected = inspect_authorized(arguments)
+                    # Only the separate authenticated node read bridge may inspect.
+                    # Never impersonate a node through Watchtower-local env/config.
+                    raise PermissionError("attested read bridge unavailable")
                 else:
                     selected = local_node_result(payload["params"]["name"], arguments, execution=self.server.execution)
                 result = {"content": [{"type": "text", "text": json.dumps(selected, separators=(",", ":"))}]}
