@@ -81,3 +81,40 @@ The migration must be an atomic, reviewed change across installer,
 systemd, SSH/forced-command, worker, file reader, transport and tests.
 Until then, this Draft is an audit artifact, not an implementation or
 an assertion of single-user compliance.
+
+## Additional implementation blockers confirmed in the source review
+
+- `node-exec-prepare.yml` creates a dedicated locked `gway-exec` user,
+  private job storage, lingering user manager, and a polkit denial rule
+  specifically for that account. Replacing it with the installer account
+  without an alternative confinement policy would remove that denial and
+  alter the security properties of jobs. Do not apply that polkit denial
+  indiscriminately to the installer account: the operator may need polkit
+  for legitimate interactive operations.
+- `tests/deployment/test_exec_relay_policy.py` currently **requires** the
+  `gway-relay ALL=(executor)` sudoers rule and tests its consistency with
+  the SSH forced command. `tests/infrastructure/test_node_file_reader_isolation.py`
+  **requires** `sudo -u gway-exec`; `tests/core/test_exec_identity_policy.py`
+  explicitly expects the `gway-exec` default and `arthe`-only pilot.
+  These are not evidence that the policy is correct: they are legacy tests
+  that must be replaced with stronger same-UID negative tests.
+- `node_exec_worker.py` uses `systemd-run --user`, a user-owned SQLite
+  ledger, and a per-user runtime directory. Migration must prove that
+  existing in-flight jobs are drained and the durable ledger is preserved
+  or safely rejected, without assuming a fixed username/home directory.
+- `node_exec_identity.py` currently uses an operator-specific SSH agent
+  socket and executable PATH. Replacing this with inherited environment
+  would be unsafe: preserve a bounded PATH and validate any agent socket
+  ownership/mode against the actual effective UID.
+
+**CI evidence:** baseline Draft #545 documentation-only HEAD
+`4519db374d2c3af7191696f7f701a9e1aea076bc`, workflow
+`42854616209`, completed SUCCESS 11/11. This is a baseline only; it
+cannot establish that the requested identity migration works.
+
+**Safe implementation order:** first add a fail-closed same-UID contract
+with isolated tests and a dry-run migration validator, then migrate the
+SSH forced-command/transport together with the worker and reader, and
+only then remove the legacy identity provisioning. Never deploy an
+intermediate state that silently broadens file access or bypasses SSH
+pinning. No source review establishes a production-safe migration yet.
