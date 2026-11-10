@@ -47,9 +47,9 @@ class ServiceIdentityTests(unittest.TestCase):
             class CaptureRelay:
                 def __init__(self, ledger, transport, *, enabled):
                     self.transport = transport
-            with patch.object(service.node_registry_inventory, "load", return_value=inventory), \\
-                 patch.object(service, "RequestLedger", return_value=object()), \\
-                 patch.object(service, "DormantRelay", CaptureRelay), \\
+            with patch.object(service.node_registry_inventory, "load", return_value=inventory), \
+                 patch.object(service, "RequestLedger", return_value=object()), \
+                 patch.object(service, "DormantRelay", CaptureRelay), \
                  patch.object(service, "AuthorizedExecution", side_effect=lambda ledger, unused, relay, **kw: relay):
                 relay = service.load_service(config)
             pinned = relay.transport.for_node("gway-001").node
