@@ -51,7 +51,9 @@ class IsolatedCutoverTests(unittest.TestCase):
                             args["path"] = str(root / Path(args["path"]).name)
                         elif section == "rescue" and name.startswith("Restore ") and "ansible.builtin.command" in task:
                             args = task["ansible.builtin.command"]["argv"]
-                            args[-3] = str(root / Path(args[-3]).name)
+                            args[-4] = str(root / Path(args[-4]).name)
+                            if args[-1] == "/usr/sbin/visudo":
+                                args[-1] = "/usr/bin/true"
                         elif "ansible.builtin.command" in task or "ansible.builtin.systemd" in task:
                             fail = section == "block" and fault in name
                             injected += int(fail)
