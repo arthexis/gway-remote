@@ -45,6 +45,16 @@ jobs:
       - name: Test install, update, rollback and changed=0
         run: python -m pytest tests/deployment/test_mcp_provider_lifecycle_ansible.py -v
 
+  node-exec-opt-in-ansible:
+    name: Node exec opt-in / disposable Ansible and SSH
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate fixture shell
+        run: sh -n scripts/test-node-exec-opt-in-docker.sh
+      - name: Exercise disposable account, Ansible opt-in and OpenSSH negatives
+        run: sh scripts/test-node-exec-opt-in-docker.sh
+
   webauthn-python310:
     name: WebAuthn B2 / Watchtower Python 3.10
     runs-on: ubuntu-22.04
@@ -137,7 +147,7 @@ jobs:
   ci:
     name: CI
     if: always()
-    needs: [unit, webauthn-python310, validation, ansible-core-2-12, ssh-config]
+    needs: [unit, webauthn-python310, validation, ansible-core-2-12, ssh-config, node-exec-opt-in-ansible]
     runs-on: ubuntu-latest
     steps:
       - name: Require all pull request checks
