@@ -1,10 +1,6 @@
 ---
 gway_remote_install_root: /opt/gway-remote
-gway_remote_runner_user: arthe  # Explicit playbook runs may override; deploy.sh passes the invoking operator
+gway_remote_runner_user: arthe  # deploy.sh passes the invoking operator
 
-# B2a: executor prerequisites on managed node hosts; authorization stays at Watchtower.
-gway_remote_exec_user: gway-exec
-gway_remote_exec_state_dir: /var/lib/gway-exec
-
-# Default to the isolated executor; an authorized inventory may select the installing operator.
-gway_remote_exec_run_user: "{{ gway_remote_exec_user }}"
+# Remote execution is not activated by the normal installation.
+# No separate executor or relay account is provisioned.
