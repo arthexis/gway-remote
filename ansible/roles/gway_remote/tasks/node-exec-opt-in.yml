@@ -2,19 +2,84 @@
 # Explicit opt-in ONLY. Never included by the default role.
 # The playbook invoking this task must run as root via normal Ansible become.
 # The SSH login remains the installer account; no auxiliary Unix identity.
-- name: Require explicit remote executor opt-in and current installer identity
+- name: Require explicit executor opt-in and declared installer identity
   ansible.builtin.assert:
     that:
       - gway_remote_executor_opt_in | default(false) | bool
       - gway_remote_runner_user is defined
-      - (lookup('pipe', 'id -u') | int) > 0
-      - gway_remote_runner_user == lookup('pipe', 'id -un')
+      - gway_remote_runner_user is match('^[a-z_][a-z0-9_-]{0,31}$')
       - gway_remote_runner_user != 'root'
       - gway_remote_runner_uid is defined
-      - (gway_remote_runner_uid | int) == (lookup('pipe', 'id -u') | int)
+      - (gway_remote_runner_uid | int) > 0
       - gway_remote_exec_public_key is defined
       - gway_remote_exec_public_key is match('^ssh-ed25519 [A-Za-z0-9+/]+={0,2}$')
-    fail_msg: Remote executor opt-in requires the installing account and dedicated SSH public key
+    fail_msg: Remote executor opt-in requires the nonroot installer identity and dedicated public key
+
+# These commands run as the remote SSH/local connection identity, not the
+# Ansible controller and not the escalated root account. A differing connection
+# login is a hard stop, even when getent finds the declared account.
+- name: Read the connecting installer's login on the managed node
+  ansible.builtin.command:
+    argv: [/usr/bin/id, -un]
+  become: false
+  changed_when: false
+  register: gway_remote_exec_connection_user
+
+- name: Read the connecting installer's UID on the managed node
+  ansible.builtin.command:
+    argv: [/usr/bin/id, -u]
+  become: false
+  changed_when: false
+  register: gway_remote_exec_connection_uid
+
+- name: Refuse a remote connection that is not the declared installer
+  ansible.builtin.assert:
+    that:
+      - gway_remote_exec_connection_user.stdout == gway_remote_runner_user
+      - (gway_remote_exec_connection_uid.stdout | int) == (gway_remote_runner_uid | int)
+      - (gway_remote_exec_connection_uid.stdout | int) > 0
+    fail_msg: Managed-node connection UID or login differs from the installer
+
+# The worker independently reads this immutable, root-controlled node policy.
+# Never create or silently switch it during SSH key opt-in.
+- name: Inspect installed node executor identity directory
+  ansible.builtin.stat:
+    path: /etc/gway-remote
+    follow: false
+  register: gway_remote_exec_policy_dir
+
+- name: Inspect installed node executor identity record
+  ansible.builtin.stat:
+    path: /etc/gway-remote/executor-identity.json
+    follow: false
+  register: gway_remote_exec_policy
+
+- name: Refuse missing or unsafe installed executor identity
+  ansible.builtin.assert:
+    that:
+      - gway_remote_exec_policy_dir.stat.isdir | default(false)
+      - not (gway_remote_exec_policy_dir.stat.islnk | default(false))
+      - gway_remote_exec_policy_dir.stat.pw_name == 'root'
+      - ((gway_remote_exec_policy_dir.stat.mode | int(base=8)) % 8) == 0
+      - (((gway_remote_exec_policy_dir.stat.mode | int(base=8)) // 8) % 8) == 0
+      - gway_remote_exec_policy.stat.isreg | default(false)
+      - not (gway_remote_exec_policy.stat.islnk | default(false))
+      - gway_remote_exec_policy.stat.pw_name == 'root'
+      - ((gway_remote_exec_policy.stat.mode | int(base=8)) % 8) == 0
+      - (((gway_remote_exec_policy.stat.mode | int(base=8)) // 8) % 8) == 0
+      - (gway_remote_exec_policy.stat.size | int) <= 1024
+    fail_msg: Existing root-owned node executor identity is missing or unsafe
+
+- name: Read existing node executor identity without changing it
+  ansible.builtin.slurp:
+    src: /etc/gway-remote/executor-identity.json
+  register: gway_remote_exec_identity_record
+
+- name: Refuse installer mismatch with existing node worker identity
+  ansible.builtin.assert:
+    that:
+      - (gway_remote_exec_identity_record.content | b64decode | from_json) == {'user': gway_remote_runner_user}
+    fail_msg: Installed node executor identity differs from this installer; manual migration required
 
 - name: Resolve installer account without creating or switching users
   ansible.builtin.getent:
