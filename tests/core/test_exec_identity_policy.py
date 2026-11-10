@@ -37,6 +37,12 @@ class InstallationIdentityTests(unittest.TestCase):
     def test_arbitrary_existing_installer_account_is_accepted(self):
         self.assertEqual(self.selected({"user": "installer"}), "installer")
 
+    def test_shell_metacharacters_and_invalid_usernames_fail_closed(self):
+        for user in ("-root", "a.b", "a/b", "a b", "a;id", "a$(id)",
+                     "AUpper", "a\\nroot", "a" * 33):
+            with self.subTest(user=user), self.assertRaises(PermissionError):
+                self.selected({"user": user})
+
     def test_missing_record_fails_closed(self):
         with self.assertRaises(FileNotFoundError):
             identity.selected_user(self.path)
