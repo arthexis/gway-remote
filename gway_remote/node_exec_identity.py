@@ -5,6 +5,7 @@ import json
 import os
 from pathlib import Path
 import pwd
+import re
 import stat
 
 IDENTITY_CONFIG = Path("/etc/gway-remote/executor-identity.json")
@@ -24,7 +25,7 @@ def selected_user(path=IDENTITY_CONFIG, *, hostname=None):
         raise ValueError("invalid installation identity record")
     user = payload["user"]
     if (type(user) is not str or not user or user == "root"
-            or len(user) > 32):
+            or len(user) > 32 or not re.fullmatch(r"[a-z_][a-z0-9_-]{0,31}", user)):
         raise PermissionError("invalid installation user")
     try:
         account = pwd.getpwnam(user)
