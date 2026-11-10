@@ -25,8 +25,8 @@ from .node_exec_contract import DEFAULT_LIMITS, validate_command, validate_trans
 from .node_exec_identity import (DEFAULT_USER, COMMON_PATH, OPERATOR_PATH,
                                  command_environment, selected_user, state_dir)
 
-ACCOUNT = DEFAULT_USER
-DEFAULT_STATE = Path("/var/lib/gway-exec/jobs.sqlite3")
+ACCOUNT = None
+DEFAULT_STATE = None
 MAX_OUTPUT = DEFAULT_LIMITS["max_output_bytes"]
 MAX_ACTIVE = DEFAULT_LIMITS["concurrent_jobs_per_node"]
 # Fixed cap protects memory on large hosts; configurable per-node below.
@@ -66,7 +66,7 @@ def user_manager_env():
             or not stat.S_ISSOCK(bus.st_mode) or bus.st_uid != uid):
         raise RuntimeError("executor user manager unavailable")
     return {
-        "PATH": OPERATOR_PATH if account.pw_name == "arthe" else COMMON_PATH,
+        "PATH": COMMON_PATH,
         "HOME": account.pw_dir,
         "USER": account.pw_name,
         "LOGNAME": account.pw_name,
@@ -126,7 +126,7 @@ def validate_request_id(request_id):
 def unit_name(job_id):
     if len(job_id) != 32 or not all(c in "0123456789abcdef" for c in job_id):
         raise ValueError("invalid job ID")
-    return "gway-exec-" + job_id + ".service"
+    return "gway-remote-" + job_id + ".service"
 
 
 class Jobs:
@@ -221,7 +221,7 @@ class Jobs:
         # context. Use the Ansible-owned package tree, never a writable job dir.
         argv = ["systemd-run", "--user", "--collect",
                 "--setenv=PYTHONPATH=/opt/gway-remote",
-                "--working-directory=" + ("/var/lib/gway-exec" if selected_user() == DEFAULT_USER else str(self.path.parent)),
+                "--working-directory=" + str(self.path.parent),
                 "--unit=" + unit_name(job_id),
                 "--property=MemoryMax=" + str(DEFAULT_LIMITS["memory_max_bytes"]),
                 "--property=TasksMax=" + str(DEFAULT_LIMITS["tasks_max"]),
