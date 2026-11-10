@@ -76,7 +76,7 @@ class ArchiveInstallerTests(unittest.TestCase):
         tasks = (ROOT / "ansible/roles/gway_remote/tasks/main.yml").read_text()
         start = tasks.index("- name: Verify installed package imports as unprivileged executor")
         task = tasks[start:].split("- name: Copy CLI installer", 1)[0]
-        self.assertIn("gway_remote_exec_user", task)
+        self.assertIn("gway_remote_exec_run_user", task)
         self.assertIn("gway_remote.node_exec_worker", task)
         self.assertIn("PYTHONPATH={{ gway_remote_install_root }}", task)
         self.assertIn("changed_when: false", task)
