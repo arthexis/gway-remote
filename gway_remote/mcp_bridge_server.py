@@ -44,7 +44,7 @@ def serve_gateway_session(path, *, key, audience, verifier, session_token,
         key=key, audience=audience, verifier=verifier,
         session_token=session_token, allowed_node=allowed_node,
         read_principal=read_principal, execution=execution,
-        inventory=inventory)
+        inventory=inventory, read_transport=read_transport)
     return BridgeUnixServer(path, bridge)
 
 def serve_managed_sessions(path, *, key, audience, sessions):
