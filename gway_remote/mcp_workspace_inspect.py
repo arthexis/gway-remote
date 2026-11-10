@@ -7,7 +7,6 @@ checkouts return explicit unknown evidence.
 from __future__ import annotations
 
 import json
-import os
 from pathlib import Path
 import re
 import stat
@@ -154,8 +153,10 @@ def inspect_authorized(arguments: dict, *, trusted_node: str,
             if _safe_checkout(path) and _git_origin(path, repository):
                 matches.append(path)
         if len(matches) != 1:
-            return _unknown(repository, node, "repository_not_registered"
-                            if not matches else "ambiguous_registered_checkout")
+            reason = ("ambiguous_registered_checkout" if matches else
+                      "registered_workspace_unavailable" if candidate is not None
+                      else "repository_not_registered")
+            return _unknown(repository, node, reason)
         return inspect_workspace(repository, {repository: str(matches[0])},
                                  node=node, deployment_receipt=deployment_receipt)
     except WorkspaceUnavailable as exc:
