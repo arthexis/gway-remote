@@ -81,6 +81,19 @@ class ArchiveInstallerTests(unittest.TestCase):
         self.assertIn("PYTHONPATH={{ gway_remote_install_root }}", task)
         self.assertIn("changed_when: false", task)
 
+    def test_fast_path_uses_root_owned_identity_and_no_hardcoded_exec_user(self):
+        script = (ROOT / "deploy.sh").read_text()
+        self.assertIn("verify_node_worker_import()", script)
+        self.assertIn('verify_node_worker_import\n', script)
+        self.assertIn('os.O_NOFOLLOW', script)
+        self.assertIn('info.st_uid != 0 or info.st_mode & 0o022', script)
+        self.assertIn('expected = "arthe" if sys.argv[1] == "gway-001" else "gway-exec"', script)
+        self.assertIn('obj["user"] != expected', script)
+        self.assertIn('if [ "$selected" = "$(id -un)" ]; then', script)
+        self.assertIn('sudo -n -u "$selected"', script)
+        self.assertNotIn('sudo -n -u gway-exec', script)
+        self.assertIn('Missing policy', script)
+
     def test_dormant_executor_installs_account_scoped_polkit_deny(self):
         tasks = (ROOT / "ansible/roles/gway_remote/tasks/node-exec-prepare.yml").read_text()
         main = (ROOT / "ansible/roles/gway_remote/tasks/main.yml").read_text()
