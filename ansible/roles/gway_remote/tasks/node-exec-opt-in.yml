@@ -1,0 +1,43 @@
+---
+# Explicit opt-in ONLY. Never included by the default role.
+# The playbook invoking this task must run as root via normal Ansible become.
+# The SSH login remains the installer account; no auxiliary Unix identity.
+- name: Require explicit remote executor opt-in and current installer identity
+  ansible.builtin.assert:
+    that:
+      - gway_remote_executor_opt_in | default(false) | bool
+      - gway_remote_runner_user is defined
+      - gway_remote_runner_user == ansible_env.SUDO_USER | default(gway_remote_runner_user)
+      - gway_remote_runner_user != 'root'
+      - gway_remote_exec_public_key is defined
+      - gway_remote_exec_public_key is match('^ssh-ed25519 [A-Za-z0-9+/]+={0,2}$')
+    fail_msg: Remote executor opt-in requires the installing account and dedicated SSH public key
+
+- name: Resolve installer account without creating or switching users
+  ansible.builtin.getent:
+    database: passwd
+    key: "{{ gway_remote_runner_user }}"
+
+- name: Require installer-owned existing SSH directory
+  ansible.builtin.stat:
+    path: "{{ getent_passwd[gway_remote_runner_user][4] }}/.ssh"
+    follow: false
+  register: gway_remote_exec_ssh_dir
+
+- name: Reject missing or unsafe SSH directory
+  ansible.builtin.assert:
+    that:
+      - gway_remote_exec_ssh_dir.stat.isdir | default(false)
+      - not (gway_remote_exec_ssh_dir.stat.islnk | default(false))
+      - gway_remote_exec_ssh_dir.stat.pw_name == gway_remote_runner_user
+      - (gway_remote_exec_ssh_dir.stat.mode | int(base=8)) % 8 == 0
+
+# Key-specific forced command; no change to sshd_config or administrative keys.
+- name: Install dedicated restricted executor key for installer
+  ansible.posix.authorized_key:
+    user: "{{ gway_remote_runner_user }}"
+    key: "{{ gway_remote_exec_public_key }}"
+    key_options: 'restrict,command="/usr/local/libexec/gway-remote-exec-protocol-v1"'
+    exclusive: false
+    manage_dir: false
+    state: present
