@@ -139,7 +139,8 @@ jobs:
   ci:
     name: CI
     if: always()
-    needs: [unit, webauthn-python310, validation, ansible-core-2-12, ssh-config]
+    # Every independent PR validation job must be required here; see tests/support/test_ci_gate.py.
+    needs: [unit, mcp-provider-lifecycle-ansible, webauthn-python310, validation, ansible-core-2-12, ssh-config]
     runs-on: ubuntu-latest
     steps:
       - name: Require all pull request checks
