@@ -153,6 +153,8 @@
                         if " ".join(fields[:index]) != expected:
                             sys.exit(1)
                         break
+      - "{{ getent_passwd[gway_remote_runner_user][4] }}/.ssh/authorized_keys"
+      - "{{ gway_remote_exec_public_key }}"
   changed_when: false
   no_log: true
 
