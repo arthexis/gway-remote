@@ -46,18 +46,36 @@ def load_watchtower_catalog(path):
         value = json.loads(raw)
     except (UnicodeError, ValueError) as exc:
         raise ValueError("invalid_catalog_json") from exc
-    if (type(value) is not dict or type(value.get("schema")) is not int or value["schema"] != 1
-            or type(value.get("count")) is not int
-            or type(value.get("tools")) is not list
+    # Validate the *actual* bounded mcp_catalog_inspect response, not a
+    # permissive subset that could accept contradictory or missing provenance.
+    if (type(value) is not dict
+            or set(value) != {"schema", "discovery", "count", "tools"}
+            or type(value["schema"]) is not int or value["schema"] != 1
+            or value["discovery"] != "node_federation"
+            or type(value["count"]) is not int
+            or type(value["tools"]) is not list
             or len(value["tools"]) > _MAX_TOOLS
-            or value.get("count") != len(value["tools"])):
+            or value["count"] != len(value["tools"])):
         raise ValueError("invalid_catalog_schema")
+    seen = set()
     for tool in value["tools"]:
         if (type(tool) is not dict
-                or type(tool.get("name")) is not str
-                or type(tool.get("node")) not in (str, type(None))
-                or type(tool.get("source")) not in (str, type(None))
-                or tool.get("required_scope") not in ("gway:read", "gway:execute")):
+                or set(tool) != {"name", "origin", "node", "source",
+                                 "classification", "required_scope"}
+                or type(tool["name"]) is not str
+                or not 0 < len(tool["name"]) <= 128
+                or tool["name"] in seen
+                or tool["origin"] not in ("builtin", "federated")
+                or tool["classification"] not in ("read", "execute")
+                or tool["required_scope"] != "gway:" + tool["classification"]):
+            raise ValueError("invalid_catalog_schema")
+        seen.add(tool["name"])
+        if tool["origin"] == "builtin":
+            if tool["node"] is not None or tool["source"] is not None:
+                raise ValueError("invalid_catalog_schema")
+        elif (type(tool["node"]) is not str or not tool["node"]
+              or type(tool["source"]) is not str or not tool["source"]
+              or not tool["name"].startswith(tool["source"] + "__")):
             raise ValueError("invalid_catalog_schema")
     return value
 
