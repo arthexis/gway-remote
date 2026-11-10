@@ -16,7 +16,7 @@ def payload(node="gway-001"):
 
 
 class FileReaderIsolationTests(unittest.TestCase):
-    def test_fixed_sudo_invocation_and_correlation(self):
+    def test_same_uid_invocation_and_correlation(self):
         with patch.object(node_exec_protocol, "require_account"), patch.object(
             node_exec_protocol.subprocess, "run"
         ) as run:
@@ -26,9 +26,7 @@ class FileReaderIsolationTests(unittest.TestCase):
             result = node_exec_protocol.serve_one(payload(), hostname="gway-001")
             self.assertEqual(result["result"]["size"], 3)
             argv = run.call_args.args[0]
-            self.assertEqual(argv, ["/usr/bin/sudo", "-n", "-u", "gway-exec",
-                                    "/usr/bin/env", "PYTHONPATH=/opt/gway-remote",
-                                    "/usr/bin/python3", "-m", "gway_remote.node_file_reader"])
+            self.assertEqual(argv, ["/usr/bin/python3", "-m", "gway_remote.node_file_reader"])
             self.assertEqual(run.call_args.kwargs["timeout"], 5)
             self.assertTrue(run.call_args.kwargs["check"])
             self.assertNotIn("shell", run.call_args.kwargs)
@@ -48,10 +46,10 @@ class FileReaderIsolationTests(unittest.TestCase):
                 with self.assertRaises(PermissionError):
                     node_exec_protocol.serve_one(payload(), hostname="gway-001")
 
-    def test_missing_sudoers_fails_closed(self):
+    def test_missing_reader_fails_closed(self):
         from subprocess import CalledProcessError
         with patch.object(node_exec_protocol, "require_account"), patch.object(
-            node_exec_protocol.subprocess, "run", side_effect=CalledProcessError(1, "sudo")
+            node_exec_protocol.subprocess, "run", side_effect=CalledProcessError(1, "reader")
         ):
             with self.assertRaisesRegex(PermissionError, "unavailable"):
                 node_exec_protocol.serve_one(payload(), hostname="gway-001")
@@ -64,15 +62,13 @@ class FileReaderIsolationTests(unittest.TestCase):
                 node_exec_protocol.serve_one(payload("gway-002"), hostname="gway-002")
             run.assert_not_called()
 
-    def test_helper_requires_gway_exec(self):
-        with patch.object(node_file_reader.os, "geteuid", return_value=-1):
+    def test_helper_requires_protocol_identity(self):
+        with patch("gway_remote.node_exec_worker.require_account", side_effect=PermissionError("mismatch")):
             with self.assertRaises(PermissionError):
                 node_file_reader.serve(b"{}", hostname="gway-001")
 
     def test_helper_rejects_extra_fields_and_wrong_node(self):
-        with patch.object(node_file_reader.os, "geteuid", return_value=990), patch(
-            "pwd.getpwnam", return_value=SimpleNamespace(pw_uid=990)
-        ), patch.object(node_file_reader, "export_chunk") as export:
+        with patch("gway_remote.node_exec_worker.require_account"), patch.object(node_file_reader, "export_chunk") as export:
             for request in [
                 {"node": "gway-001", "request_id": RID, "filename": "narracion.opus",
                  "offset": 0, "command": "id"},
@@ -84,9 +80,7 @@ class FileReaderIsolationTests(unittest.TestCase):
             export.assert_not_called()
 
     def test_helper_fixed_root_and_receipt(self):
-        with patch.object(node_file_reader.os, "geteuid", return_value=990), patch(
-            "pwd.getpwnam", return_value=SimpleNamespace(pw_uid=990)
-        ), patch.object(node_file_reader, "export_chunk", return_value={"size": 21023}) as export:
+        with patch("gway_remote.node_exec_worker.require_account"), patch.object(node_file_reader, "export_chunk", return_value={"size": 21023}) as export:
             result = node_file_reader.serve(json.dumps({
                 "node": "gway-001", "request_id": RID,
                 "filename": "narracion.opus", "offset": 8192
