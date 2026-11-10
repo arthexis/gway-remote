@@ -69,6 +69,34 @@ class ReadReceiptTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             self.verify(expected=expected)
 
+    def test_reject_noncanonical_or_public_endpoint(self):
+        for field, value in (("issuer", "issuer\\u00e9"), ("serial", "a b"),
+                             ("address", "8.8.8.8"), ("address", "not-an-ip"),
+                             ("ssh_principal", "root;id")):
+            original = self.receipt[field]
+            self.receipt[field] = value
+            self.sign()
+            with self.subTest(field=field, value=value), self.assertRaises((ValueError, PermissionError)):
+                self.verify()
+            self.receipt[field] = original
+        self.sign()
+
+    def test_invalid_revocation_type_and_time_range(self):
+        with self.assertRaises(PermissionError):
+            self.verify(revoked_serials=["receipt-001"])
+        with self.assertRaises(PermissionError):
+            self.verify(revoked_serials={42})
+        for issued, expires in ((200, 100), (-1, 200), (100, 100 + 86401)):
+            self.receipt.update(issued_at=issued, expires_at=expires)
+            self.sign()
+            with self.subTest(issued=issued, expires=expires), self.assertRaises(PermissionError):
+                self.verify()
+
+    def test_expected_claims_require_string_values(self):
+        expected = dict(self.claims, node=True)
+        with self.assertRaises(PermissionError):
+            self.verify(expected=expected)
+
 
 if __name__ == "__main__":
     unittest.main()
