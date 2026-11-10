@@ -100,6 +100,54 @@ class BrokerTests(unittest.TestCase):
             finally:
                 state.chmod(0o700)
 
+    def test_runner_symlink_is_denied_before_execution(self):
+        with tempfile.TemporaryDirectory() as directory:
+            checkout = Path(directory)
+            target = checkout / "actual.sh"
+            target.write_text("#!/bin/sh\nexit 0\n")
+            target.chmod(0o700)
+            runner = checkout / "deploy.sh"
+            runner.symlink_to(target)
+            declaration = {"checkout": str(checkout), "runner": str(runner),
+                           "revision": SHA}
+            with self.assertRaises(PermissionError):
+                broker._eligible("agentops", resolve=lambda _: declaration)
+
+    def test_group_writable_runner_and_checkout_denied(self):
+        with tempfile.TemporaryDirectory() as directory:
+            checkout = Path(directory)
+            runner = checkout / "deploy.sh"
+            runner.write_text("#!/bin/sh\nexit 0\n")
+            runner.chmod(0o700)
+            declaration = {"checkout": str(checkout), "runner": str(runner),
+                           "revision": SHA}
+            try:
+                runner.chmod(0o770)
+                with self.assertRaises(PermissionError):
+                    broker._eligible("agentops", resolve=lambda _: declaration)
+                runner.chmod(0o700)
+                checkout.chmod(0o770)
+                with self.assertRaises(PermissionError):
+                    broker._eligible("agentops", resolve=lambda _: declaration)
+            finally:
+                checkout.chmod(0o700)
+
+    def test_same_uid_mutable_runner_is_currently_eligible_not_attested(self):
+        """Characterize the unresolved trust boundary; do not claim immutability."""
+        with tempfile.TemporaryDirectory() as directory:
+            checkout = Path(directory)
+            runner = checkout / "deploy.sh"
+            runner.write_text("#!/bin/sh\nexit 0\n")
+            runner.chmod(0o700)
+            declaration = {"checkout": str(checkout), "runner": str(runner),
+                           "revision": SHA}
+            self.assertEqual(broker._eligible("agentops", resolve=lambda _: declaration),
+                             declaration)
+            # Same UID can replace bytes without changing the declared SHA.
+            runner.write_text("#!/bin/sh\nexit 1\n")
+            self.assertEqual(broker._eligible("agentops", resolve=lambda _: declaration),
+                             declaration)
+
     def test_lock_symlink_denied(self):
         with tempfile.TemporaryDirectory() as directory:
             state = Path(directory)
