@@ -1,7 +1,7 @@
 {
   "--help": {
     "code": 0,
-    "stdout_sha256": "16c0930095c1f122092bb57d124f5cae7925a7110032f17125331e0feff6bb55",
+    "stdout_sha256": "594fc52e8f6e1e1235cf7d04b6de2f9ea71c5fc7997821b1431db13c596e8763",
     "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
   },
   "run --help": {
@@ -157,7 +157,7 @@
   "codex approve": {
     "code": 2,
     "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
-    "stderr_sha256": "5458e0a7b3bcad187a28c5eff700745240e601e4eb09cc6ec9e9bf40822b5eca"
+    "stderr_sha256": "1ad379d9c5b6bf686c3082220752a19200ae6703460e27c55a4f3d7e6b304686"
   },
   "api --port oops": {
     "code": 2,
