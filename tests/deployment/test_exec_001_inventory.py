@@ -66,7 +66,10 @@ class PilotExecutorSelectionTests(unittest.TestCase):
     def test_real_set_fact_is_pilot_only_and_rollback_override_works(self):
         # Render the exact deployed task in a disposable local playbook.
         # No become, SSH, service, credentials, or node files are used.
-        import yaml
+        try:
+            import yaml
+        except ImportError:
+            self.skipTest("PyYAML unavailable; exercised by the system-Ansible 2.12 CI job")
 
         role = yaml.safe_load(MAIN.read_text())
         selected = [task for task in role if task.get("name") == TASK_NAME]
