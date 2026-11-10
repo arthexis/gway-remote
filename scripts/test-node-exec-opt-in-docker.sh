@@ -62,20 +62,35 @@ assert_rejected() {
   fi
 }
 
-# Refuse invalid inputs before modifying a dedicated key or admin key.
+# Refuse invalid migration inputs without changing any existing key or
+# root-owned node policy. These are byte comparisons, not YAML/text guesses.
+cp /home/installer/.ssh/authorized_keys "$work/admin-before"
+cp /etc/gway-remote/executor-identity.json "$work/policy-before"
+assert_untouched() {
+  cmp "$work/admin-before" /home/installer/.ssh/authorized_keys
+}
 assert_rejected opt_out -e gway_remote_executor_opt_in=false
+assert_untouched
 assert_rejected wrong_uid -e gway_remote_runner_uid=99999
+assert_untouched
 assert_rejected wrong_user -e gway_remote_runner_user=other
+assert_untouched
 printf '{"user":"other"}\n' >/etc/gway-remote/executor-identity.json
+cp /etc/gway-remote/executor-identity.json "$work/conflicting-policy"
 assert_rejected conflicting_policy
-printf '{"user":"installer"}\n' >/etc/gway-remote/executor-identity.json
+assert_untouched
+cmp "$work/conflicting-policy" /etc/gway-remote/executor-identity.json
+cp "$work/policy-before" /etc/gway-remote/executor-identity.json
 chmod 0666 /etc/gway-remote/executor-identity.json
 assert_rejected writable_policy
+assert_untouched
 chmod 0644 /etc/gway-remote/executor-identity.json
 chmod 0777 /home/installer/.ssh
 assert_rejected unsafe_ssh_dir
+assert_untouched
 chmod 0700 /home/installer/.ssh
-cmp "$work/admin.pub" /home/installer/.ssh/authorized_keys
+cmp "$work/policy-before" /etc/gway-remote/executor-identity.json
+cmp "$work/admin-before" /home/installer/.ssh/authorized_keys
 
 # Genuine Ansible modules install the fake key and the fixed entrypoint,
 # then the second pass must be strictly idempotent.
@@ -87,6 +102,19 @@ grep -F 'restrict,command="/usr/local/libexec/gway-remote-exec-protocol-v1"' \
   /home/installer/.ssh/authorized_keys >/dev/null
 [ "$(wc -l </home/installer/.ssh/authorized_keys)" -eq 2 ]
 [ "$(stat -c '%U %a' /usr/local/libexec/gway-remote-exec-protocol-v1)" = 'root 755' ]
+# Simulated post-install identity migration disagreement must fail closed.
+# Snapshot the *entire* installed key file, fixed command and policy bytes.
+cp /home/installer/.ssh/authorized_keys "$work/keys-after"
+cp /usr/local/libexec/gway-remote-exec-protocol-v1 "$work/command-after"
+printf '{"user":"other"}\n' >/etc/gway-remote/executor-identity.json
+cp /etc/gway-remote/executor-identity.json "$work/drifted-policy"
+assert_rejected post_install_policy_drift
+cmp "$work/keys-after" /home/installer/.ssh/authorized_keys
+cmp "$work/command-after" /usr/local/libexec/gway-remote-exec-protocol-v1
+cmp "$work/drifted-policy" /etc/gway-remote/executor-identity.json
+# Reset disposable fixture only; never roll back or touch any real node.
+cp "$work/policy-before" /etc/gway-remote/executor-identity.json
+cmp "$work/policy-before" /etc/gway-remote/executor-identity.json
 
 # OpenSSH server-side negative checks using the fake executor key.
 # Valid protocol marker is NEVER sent; no node_exec operation is dispatched.
