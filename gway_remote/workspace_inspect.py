@@ -19,9 +19,13 @@ def _unknown(reason: str) -> dict:
 def _run_git(root: Path, *args: str) -> dict:
     try:
         result = subprocess.run(
-            ["git", "-C", str(root), *args], capture_output=True,
-            text=True, timeout=5, check=False,
-            env={**os.environ, "GIT_OPTIONAL_LOCKS": "0", "GIT_TERMINAL_PROMPT": "0"},
+            ["git", "-C", str(root), "-c", "core.fsmonitor=false",
+             "-c", "core.hooksPath=/dev/null",
+             "-c", "core.worktree=" + str(root), *args],
+            capture_output=True, text=True, timeout=2, check=False,
+            env={"PATH": "/usr/bin:/bin", "GIT_CONFIG_NOSYSTEM": "1",
+                 "GIT_CONFIG_GLOBAL": "/dev/null", "GIT_CONFIG_COUNT": "0",
+                 "GIT_OPTIONAL_LOCKS": "0", "GIT_TERMINAL_PROMPT": "0"},
         )
     except (OSError, subprocess.TimeoutExpired):
         return {"state": "unknown", "value": None}

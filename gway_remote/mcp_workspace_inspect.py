@@ -1,16 +1,29 @@
-"""Fail-closed, operator-configured local workspace inspection provider.
+"""Read-only workspace inspection through already installed node-owned records.
 
-The gateway cannot accept filesystem paths from MCP clients. An administrator
-must configure an absolute JSON file mapping repositories to local checkout
-paths. Missing configuration is never an invitation to execute a shell.
+No MCP caller-supplied paths, hostname environment variables, additional
+credentials, workspace allowlist or filesystem crawl. Unregistered/inaccessible
+checkouts return explicit unknown evidence.
 """
 from __future__ import annotations
 
 import json
-import os
 from pathlib import Path
+import re
+import stat
+import subprocess
+import time
+from datetime import datetime, timezone
 
-from .workspace_inspect import inspect_workspace
+from .mcp_installed_providers import discover_installed_providers
+from .mcp_deployment_contract import validate_deployment
+from .workspace_inspect import SCHEMA, inspect_workspace
+
+REGISTRY = Path("/etc/gway-mcp-providers")
+_REPOSITORY = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.-]*/[A-Za-z0-9][A-Za-z0-9_.-]*\Z")
+_ORIGIN = re.compile(
+    r"(?:https://github\.com/|git@github\.com:|ssh://git@github\.com/)"
+    r"([A-Za-z0-9][A-Za-z0-9_.-]*/[A-Za-z0-9][A-Za-z0-9_.-]*?)(?:\.git)?/?\Z"
+)
 
 
 class WorkspaceUnavailable(PermissionError):
@@ -21,36 +34,152 @@ class WorkspaceUnavailable(PermissionError):
         super().__init__(code)
 
 
-def inspect_authorized(arguments: dict, *, deployment_receipt: dict | None = None) -> dict:
+def _registered_file(path, *, uid):
+    """Read only exact root/operator-provisioned policy files, never symlinks."""
+    info = path.lstat()
+    if (not stat.S_ISREG(info.st_mode) or info.st_uid != uid
+            or info.st_mode & 0o022 or info.st_size > 8192):
+        raise WorkspaceUnavailable("workspace_registry_invalid")
+    return path.read_text(encoding="utf-8")
+
+
+def _agentops_checkout(repository, *, directory, uid):
+    """Existing AgentOps registry names repos and owns its workspace root."""
+    if directory.is_symlink():
+        raise WorkspaceUnavailable("workspace_registry_invalid")
+    info = directory.stat()
+    if (not stat.S_ISDIR(info.st_mode) or info.st_uid != uid
+            or info.st_mode & 0o022):
+        raise WorkspaceUnavailable("workspace_registry_invalid")
+    repo_policy = directory / "agentops.repositories"
+    runtime_policy = directory / "agentops.runtime.json"
+    if not repo_policy.exists() and not repo_policy.is_symlink():
+        return None
+    approved = _registered_file(repo_policy, uid=uid).strip().split(",")
+    if not approved or any(not _REPOSITORY.fullmatch(item) for item in approved):
+        raise WorkspaceUnavailable("workspace_registry_invalid")
+    if repository not in approved:
+        return None
+    runtime = json.loads(_registered_file(runtime_policy, uid=uid))
+    if type(runtime) is not dict or type(runtime.get("workspace")) is not str:
+        raise WorkspaceUnavailable("workspace_registry_invalid")
+    base = Path(runtime["workspace"])
+    if not base.is_absolute() or ".." in base.parts:
+        raise WorkspaceUnavailable("workspace_registry_invalid")
+    # Repository is exactly two validated components. Never list other workspaces.
+    return base.joinpath(*repository.split("/"))
+
+
+def _safe_checkout(path):
+    """Reject path traversal, symlinks and writable checkout roots."""
+    if not path.is_absolute() or ".." in path.parts:
+        return False
+    try:
+        for part in (path, *path.parents):
+            if part.is_symlink():
+                return False
+        info = path.stat()
+        dotgit = path / ".git"
+        git_info = dotgit.lstat()
+        return (stat.S_ISDIR(info.st_mode) and not info.st_mode & 0o022
+                and stat.S_ISDIR(git_info.st_mode) and not dotgit.is_symlink())
+    except OSError:
+        return False
+
+
+def _git_origin(path, repository, *, deadline):
+    """Reject a Git root outside the declared checkout before reading metadata."""
+    env = {"PATH": "/usr/bin:/bin", "GIT_CONFIG_NOSYSTEM": "1",
+           "GIT_CONFIG_GLOBAL": "/dev/null", "GIT_CONFIG_COUNT": "0",
+           "GIT_OPTIONAL_LOCKS": "0", "GIT_TERMINAL_PROMPT": "0"}
+    prefix = ["git", "-C", str(path), "-c", "core.fsmonitor=false"]
+    for argv, expected_root in (
+        (["rev-parse", "--show-toplevel"], True),
+        (["config", "--local", "--get", "remote.origin.url"], False),
+    ):
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            raise WorkspaceUnavailable("workspace_inspection_budget_exceeded")
+        try:
+            result = subprocess.run(
+                [*prefix, *argv], check=False, capture_output=True, text=True,
+                timeout=min(1.0, remaining), env=env)
+        except (OSError, subprocess.TimeoutExpired):
+            return False
+        if result.returncode or len(result.stdout) > 512:
+            return False
+        value = result.stdout.strip()
+        if expected_root:
+            # A local core.worktree override could otherwise make 'git status'
+            # inspect an unrelated filesystem path.
+            if Path(value) != path:
+                return False
+        else:
+            match = _ORIGIN.fullmatch(value)
+            return match is not None and match.group(1).lower() == repository.lower()
+    return False
+
+
+def _unknown(repository, node, reason):
+    """Keep the v1 response shape without inventing checkout or installed SHA."""
+    missing = {"state": "unknown", "reason": reason, "value": None}
+    return {
+        "schema": SCHEMA, "checked_at": datetime.now(timezone.utc).isoformat(),
+        "repository": repository, "node": node,
+        "git": {"head": dict(missing), "branch": dict(missing),
+                "clean_tracked": dict(missing)},
+        "ci": {"state": "unknown", "reason": "GitHub evidence not supplied"},
+        "deployment": {"state": "unknown", "reason": "deployment evidence not supplied"},
+    }
+
+
+def inspect_authorized(arguments: dict, *, trusted_node: str,
+                       deployment_receipt: dict | None = None,
+                       discover=discover_installed_providers,
+                       registry=REGISTRY, trusted_uid=0) -> dict:
     if type(arguments) is not dict or set(arguments) != {"node", "repository"}:
         raise ValueError("invalid workspace inspection arguments")
     node, repository = arguments["node"], arguments["repository"]
-    if not isinstance(node, str) or not isinstance(repository, str):
-        raise ValueError("invalid workspace selector")
-    # Local provider is pinned to the node identity configured by the operator.
-    if node != os.environ.get("GWAY_WORKSPACE_NODE", "") or not node:
+    # The trusted node identity is supplied by the forced protocol, not MCP.
+    if (type(trusted_node) is not str or not trusted_node
+            or node != trusted_node):
         raise WorkspaceUnavailable("node_binding_mismatch")
-    config = os.environ.get("GWAY_WORKSPACE_INSPECT_CONFIG", "")
-    if not config or not os.path.isabs(config):
-        raise WorkspaceUnavailable("workspace_not_configured")
-    path = Path(config)
-    if path.is_symlink():
-        raise WorkspaceUnavailable("workspace_config_invalid")
-    stat = path.stat()
-    if stat.st_mode & 0o022:
-        raise WorkspaceUnavailable("workspace_config_invalid")
-    if stat.st_size > 65536:
-        raise WorkspaceUnavailable("workspace_config_invalid")
-    with path.open("r", encoding="utf-8") as stream:
-        roots = json.load(stream)
-    if type(roots) is not dict or any(
-        not isinstance(key, str) or not isinstance(value, str) or not os.path.isabs(value)
-        for key, value in roots.items()
-    ):
-        raise WorkspaceUnavailable("workspace_config_invalid")
-    if repository not in roots:
-        raise WorkspaceUnavailable("repository_not_allowlisted")
-    # Only trusted server-side callers may supply a verified activation receipt.
-    # Never accept receipt data or paths from MCP request arguments.
-    return inspect_workspace(repository, roots, node=node,
-                             deployment_receipt=deployment_receipt)
+    if type(repository) is not str or not _REPOSITORY.fullmatch(repository):
+        raise ValueError("invalid repository")
+
+    try:
+        candidates = []
+        for provider in discover():
+            if not provider.enabled or provider.deployment is None:
+                continue
+            checkout = validate_deployment(provider.deployment)["checkout"]
+            candidates.append(Path(checkout))
+        candidate = _agentops_checkout(repository, directory=Path(registry),
+                                       uid=trusted_uid)
+        if candidate is not None:
+            candidates.append(candidate)
+        # Only paths supplied by already installed records are ever consulted.
+        checked = set()
+        matches = []
+        # The pinned SSH hop has a 15-second deadline. Bound aggregate local
+        # Git metadata checks rather than allowing up to 32 provider timeouts.
+        deadline = time.monotonic() + 6.0
+        for path in candidates:
+            if time.monotonic() >= deadline:
+                return _unknown(repository, node, "workspace_inspection_budget_exceeded")
+            if path in checked:
+                continue
+            checked.add(path)
+            if _safe_checkout(path) and _git_origin(path, repository, deadline=deadline):
+                matches.append(path)
+        if len(matches) != 1:
+            reason = ("ambiguous_registered_checkout" if matches else
+                      "registered_workspace_unavailable" if candidate is not None
+                      else "repository_not_registered")
+            return _unknown(repository, node, reason)
+        return inspect_workspace(repository, {repository: str(matches[0])},
+                                 node=node, deployment_receipt=deployment_receipt)
+    except WorkspaceUnavailable as exc:
+        return _unknown(repository, node, exc.code)
+    except (OSError, ValueError, TypeError, KeyError, json.JSONDecodeError):
+        return _unknown(repository, node, "workspace_registry_unavailable")

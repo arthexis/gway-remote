@@ -53,12 +53,22 @@ determines whether a call is read-only; no SSH identity is switched by scope.
 The gateway verifies the existing OAuth bearer and node authorization before
 dispatch; the node protocol accepts only `node`, `repository` and a
 server-generated correlated request ID for this operation. It never accepts
-caller-provided checkout paths or arbitrary commands. The node-local
-`GWAY_WORKSPACE_INSPECT_CONFIG` allowlist independently restricts repositories
-to trusted local checkout paths. Missing transport, disabled execute-service
-transport initialization, unsafe/missing allowlist, wrong node, forged reply or
-SSH failure fails closed. This uses an *existing internal transport*, not an
-additional user approval.
+caller-provided checkout paths or arbitrary commands. The protocol's trusted hostname is the node identity. Checkout roots are
+derived **only** from pre-existing, installed node-owned records:
+root-provisioned MCP provider manifests with a deployment checkout, or the
+existing AgentOps repository policy plus its registered workspace root. A
+local Git origin must match the requested repository and the checkout must
+be accessible, non-symlinked and non-world-writable. No new
+`GWAY_WORKSPACE_NODE` or `GWAY_WORKSPACE_INSPECT_CONFIG` variable, allowlist
+file, SSH identity, OAuth token, or additional approval is needed. No
+filesystem-wide discovery or arbitrary caller-provided paths are permitted.
+
+Unregistered, ambiguous, private/inaccessible or otherwise unsafe workspaces
+return explicit `unknown` Git evidence; CI/deployment information also
+remains `unknown` until independently verified, never inferred from local
+checkout HEAD. The node executor is **not** elevated to the operator account
+to inspect private AgentOps workspaces. Missing authenticated transport,
+wrong node, malformed registration or SSH failure remains fail-closed.
 
 The gateway must never impersonate a node by using a Watchtower-local
 workspace environment fallback. Existing `node_file_download`/`file.read`
@@ -69,9 +79,12 @@ reader isolation, limits and correlation are unchanged.
 No node installation, new credential, privilege migration, Watchtower service
 restart, release activation, or application deployment is performed by merging
 this code. An already configured and attested node SSH relay can be used by
-`workspace_inspect`; live operation additionally requires the node-local
-allowlist to be present. Offline CI alone does not prove that allowlist or
-node runtime exists. Do not enable access to new nodes implicitly.
+`workspace_inspect`; live Git observations require an already registered and
+readable checkout. In the gway-001 read-only field audit, existing provider
+manifests did not contain deployment checkouts and the operator-private
+AgentOps workspace was inaccessible to the isolated executor; therefore
+this PR does not assert a live positive Git observation. Offline CI cannot
+prove those runtime prerequisites. Do not enable access to new nodes implicitly.
 
 For `arthexis/odoo-gelectriic`, deployment remains repository-owned and
 independent of this broker. A future trusted, root-owned installed-release

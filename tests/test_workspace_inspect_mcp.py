@@ -177,27 +177,46 @@ class WorkspaceInspectMCPTests(unittest.TestCase):
         self.assertEqual(OPERATIONS["workspace_inspect"], ("workspace.inspect", "gway:read"))
         self.assertFalse(tool["inputSchema"]["additionalProperties"])
 
-    def test_rejects_unconfigured_workspace(self):
-        with patch.dict(os.environ, {}, clear=True):
-            with self.assertRaises(PermissionError):
-                inspect_authorized({"node": "gway-001", "repository": "arthexis/gway-remote"})
+    def test_unregistered_workspace_returns_explicit_unknown(self):
+        with tempfile.TemporaryDirectory() as temp:
+            registry = Path(temp)
+            result = inspect_authorized(
+                {"node": "gway-001", "repository": "arthexis/gway-remote"},
+                trusted_node="gway-001", registry=registry,
+                trusted_uid=os.geteuid(), discover=lambda: (),
+            )
+        self.assertEqual(result["git"]["head"]["state"], "unknown")
+        self.assertEqual(result["git"]["head"]["reason"],
+                         "repository_not_registered")
+        self.assertEqual(result["deployment"]["state"], "unknown")
 
     def test_rejects_cross_node_and_extra_arguments(self):
-        with patch.dict(os.environ, {"GWAY_WORKSPACE_NODE": "gway-001"}, clear=True):
-            with self.assertRaises(PermissionError):
-                inspect_authorized({"node": "gway-002", "repository": "owner/repo"})
-            with self.assertRaises(ValueError):
-                inspect_authorized({"node": "gway-001", "repository": "owner/repo", "path": "/tmp"})
+        with self.assertRaises(PermissionError):
+            inspect_authorized(
+                {"node": "gway-002", "repository": "arthexis/gway-remote"},
+                trusted_node="gway-001")
+        with self.assertRaises(ValueError):
+            inspect_authorized(
+                {"node": "gway-001", "repository": "arthexis/gway-remote",
+                 "path": "/tmp"}, trusted_node="gway-001")
+        with self.assertRaises(ValueError):
+            inspect_authorized({"node": "gway-001", "repository": "../etc"},
+                               trusted_node="gway-001")
 
-    def test_rejects_world_writable_configuration(self):
+    def test_rejects_world_writable_registered_policy(self):
         with tempfile.TemporaryDirectory() as temp:
-            config = Path(temp) / "workspaces.json"
-            config.write_text('{"owner/repo":"/tmp"}')
-            config.chmod(0o666)
-            with patch.dict(os.environ, {"GWAY_WORKSPACE_NODE": "gway-001",
-                                         "GWAY_WORKSPACE_INSPECT_CONFIG": str(config)}):
-                with self.assertRaises(PermissionError):
-                    inspect_authorized({"node": "gway-001", "repository": "owner/repo"})
+            registry = Path(temp)
+            policy = registry / "agentops.repositories"
+            policy.write_text("arthexis/gway-remote")
+            policy.chmod(0o666)
+            result = inspect_authorized(
+                {"node": "gway-001", "repository": "arthexis/gway-remote"},
+                trusted_node="gway-001", registry=registry,
+                trusted_uid=os.geteuid(), discover=lambda: (),
+            )
+        self.assertEqual(result["git"]["head"]["state"], "unknown")
+        self.assertEqual(result["git"]["head"]["reason"],
+                         "workspace_registry_invalid")
 
     def test_node_forced_protocol_accepts_only_fixed_read_operation(self):
         request = {"operation": "workspace_inspect", "node": "gway-001",
@@ -209,7 +228,8 @@ class WorkspaceInspectMCPTests(unittest.TestCase):
             self.assertEqual(result["node"], "gway-001")
             self.assertEqual(result["request_id"], request["request_id"])
             inspect.assert_called_once_with({"node": "gway-001",
-                                             "repository": request["repository"]})
+                                             "repository": request["repository"]},
+                                            trusted_node="gway-001")
             for invalid in ({**request, "path": "/etc/shadow"},
                             {**request, "node": "gway-002"},
                             {**request, "operation": "shell"}):
