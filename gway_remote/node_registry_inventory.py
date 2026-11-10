@@ -12,6 +12,7 @@ import grp
 import ipaddress
 import json
 import os
+import re
 from pathlib import Path
 import sqlite3
 import stat
@@ -71,12 +72,44 @@ def _grants(ledger):
             "SELECT device,host_public_key,enabled FROM execution_eligibility")}
 
 
+
+def _installer_bindings(ledger):
+    """Read only privileged enrollment records, never an RPC-supplied user.
+
+    No records are created here. A separate authenticated enrollment writer
+    must establish these rows before execution can become eligible.
+    """
+    path = Path(ledger)
+    with sqlite3.connect(path.resolve().as_uri() + "?mode=ro", uri=True) as db:
+        if not db.execute(
+            "SELECT 1 FROM sqlite_master WHERE type='table' "
+            "AND name='installer_identity_bindings'"
+        ).fetchone():
+            return {}
+        rows = db.execute(
+            "SELECT device,host_public_key,unix_user,state "
+            "FROM installer_identity_bindings"
+        ).fetchall()
+    result = {}
+    for node, key, user, state in rows:
+        if node in result:
+            result[node] = None  # ambiguous bindings fail closed
+        elif (type(node) is str and NODE.fullmatch(node)
+              and type(key) is str and key
+              and type(user) is str and user != "root"
+              and re.fullmatch(r"[a-z_][a-z0-9_-]{0,31}", user)
+              and state == "active"):
+            result[node] = (key, user)
+    return result
+
+
 def build(ledger=LEDGER, *, probe=False):
     """Rebuild from read-only enrollment tables; never infer reachability."""
     registry = snapshot_from_path(ledger)
     from .node_reachability import observe
     observations = observe(ledger) if probe else {}
     grants = _grants(ledger)
+    bindings = _installer_bindings(ledger)
     result = []
     for row in registry["nodes"]:
         name = row.get("node")
@@ -94,6 +127,15 @@ def build(ledger=LEDGER, *, probe=False):
         bound_key, granted = grants.get(name, ("", False))
         eligible = bool(granted and _identity(row)
                         and identity.get("host_public_key") == bound_key)
+        binding = bindings.get(name)
+        installer_binding = None
+        if (eligible and binding is not None
+                and binding[0] == identity.get("host_public_key")):
+            installer_binding = {
+                "source": "enrollment-ledger", "node": name,
+                "host_public_key": binding[0], "user": binding[1],
+                "state": "active",
+            }
         result.append({
             "node": name,
             "registered": True,
@@ -104,6 +146,7 @@ def build(ledger=LEDGER, *, probe=False):
             "observed_at": observations.get(name, {}).get("observed_at"),
             "capabilities": ["inventory"],
             "execute_eligible": eligible,
+            "installer_binding": installer_binding,
             "execute_available": False,
         })
     return {"schema": 1, "source": "watchtower-enrollment-ledger",
