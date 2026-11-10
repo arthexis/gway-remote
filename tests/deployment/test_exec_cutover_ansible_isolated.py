@@ -36,6 +36,15 @@ class IsolatedCutoverTests(unittest.TestCase):
                 )
                 for name, data in zip(names, originals):
                     (root / name).write_bytes(data)
+                # Legacy cutover must not touch the operator's SSH authorized_keys.
+                # Keep exact original bytes, including comments, options and LF.
+                authorized_keys = root / "authorized_keys"
+                original_keys = (
+                    b"# admin key must remain byte-for-byte\n"
+                    b"ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOpAdmin admin-fixture\n"
+                    b'restrict,command="/usr/bin/true" ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOpOldRelay old-relay\n'
+                )
+                authorized_keys.write_bytes(original_keys)
                 cutover = copy.deepcopy(blocks[0])
                 injected = 0
                 for section in ("block", "rescue"):
@@ -88,6 +97,8 @@ class IsolatedCutoverTests(unittest.TestCase):
                 self.assertIn("Executor identity change failed", result.stdout)
                 for name, original in zip(names, originals):
                     self.assertEqual((root / name).read_bytes(), original, name + result.stdout + result.stderr)
+                self.assertEqual(authorized_keys.read_bytes(), original_keys,
+                                 "unrelated SSH identities changed during rollback")
 
 
 if __name__ == "__main__":
