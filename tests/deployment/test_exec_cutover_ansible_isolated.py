@@ -16,7 +16,10 @@ SELECT = ROOT / "ansible/roles/gway_remote/tasks/node-exec-select.yml"
 class IsolatedCutoverTests(unittest.TestCase):
     @unittest.skipUnless(shutil.which("ansible-playbook"), "ansible-core unavailable")
     def test_failure_compensation(self):
-        import yaml
+        try:
+            import yaml
+        except ImportError:
+            self.skipTest("PyYAML is installed only in the isolated Ansible CI job")
         source = yaml.safe_load(SELECT.read_text())
         blocks = [t for t in source if t.get("name") == "Activate selected execution identity and update only existing relay"]
         self.assertEqual(len(blocks), 1)
