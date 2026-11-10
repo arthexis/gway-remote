@@ -37,8 +37,8 @@ def test_session_scope_and_binding():
     verifier = Mock()
     verifier.verify.return_value = True
     transport = Mock()
-    transport.invoke.return_value = {
-        "node": "gway-001", "request_id": "a" * 32,
+    transport.invoke.side_effect = lambda payload: {
+        "node": payload["node"], "request_id": payload["request_id"],
         "result": {"content": "YWJj", "size": 3}}
     execution = Mock()
     execution.relay.transport = transport
@@ -67,3 +67,19 @@ def test_dispatch_denies_paths_before_bridge():
     with pytest.raises(PermissionError):
         dispatch_node_tool(**kwargs, arguments={
             "node": "gway-002", "filename": "sample.opus", "offset": 0})
+
+
+def test_session_rejects_mismatched_ssh_receipt():
+    verifier = Mock()
+    verifier.verify.return_value = True
+    execution = Mock()
+    execution.relay.transport.invoke.return_value = {
+        "node": "gway-001", "request_id": "0" * 32, "result": {"size": 3}}
+    session = SessionBridgeDispatch(
+        verifier=verifier, session_token="trusted",
+        allowed_node=lambda token, node: True,
+        read_principal=lambda token: "reader", execution=execution)
+    with pytest.raises(PermissionError, match="uncorrelated"):
+        session({"audience": "gway-001", "scope": "gway:read",
+                 "principal": "reader", "operation": "file.read",
+                 "arguments": {"node": "gway-001", "filename": "audio.opus", "offset": 0}})
