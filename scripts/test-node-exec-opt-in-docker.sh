@@ -18,6 +18,8 @@ apt-get install -y -qq --no-install-recommends ansible sudo openssh-client opens
 # All account, key, root-policy, sshd and file changes happen INSIDE this
 # throwaway container. /repo is mounted read-only; no host credentials used.
 useradd -m -s /bin/sh installer
+# Unlock the fixture account for public-key SSH (password auth stays disabled).
+passwd -d installer >/dev/null
 printf 'installer ALL=(ALL) NOPASSWD: ALL\n' >/etc/sudoers.d/test-installer
 chmod 0440 /etc/sudoers.d/test-installer
 work=$(mktemp -d /tmp/gway-optin.XXXXXX)
@@ -51,25 +53,27 @@ run_playbook() {
     "$work/ansible/fixture.yml" -e "@$work/vars.json" "$@"
 }
 assert_rejected() {
+  label=$1
+  shift
   if run_playbook "$@" >"$work/negative.log" 2>&1; then
-    echo "Unexpected acceptance of negative scenario: $*" >&2
+    echo "Unexpected acceptance of negative scenario: $label" >&2
     cat "$work/negative.log" >&2
     exit 1
   fi
 }
 
 # Refuse invalid inputs before modifying a dedicated key or admin key.
-assert_rejected -e gway_remote_executor_opt_in=false
-assert_rejected -e gway_remote_runner_uid=99999
-assert_rejected -e gway_remote_runner_user=other
+assert_rejected opt_out -e gway_remote_executor_opt_in=false
+assert_rejected wrong_uid -e gway_remote_runner_uid=99999
+assert_rejected wrong_user -e gway_remote_runner_user=other
 printf '{"user":"other"}\n' >/etc/gway-remote/executor-identity.json
-assert_rejected
+assert_rejected conflicting_policy
 printf '{"user":"installer"}\n' >/etc/gway-remote/executor-identity.json
 chmod 0666 /etc/gway-remote/executor-identity.json
-assert_rejected
+assert_rejected writable_policy
 chmod 0644 /etc/gway-remote/executor-identity.json
 chmod 0777 /home/installer/.ssh
-assert_rejected
+assert_rejected unsafe_ssh_dir
 chmod 0700 /home/installer/.ssh
 cmp "$work/admin.pub" /home/installer/.ssh/authorized_keys
 
