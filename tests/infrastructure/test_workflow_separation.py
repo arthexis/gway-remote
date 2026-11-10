@@ -13,7 +13,7 @@ class WorkflowSeparationTests(unittest.TestCase):
         self.assertIn("on:\n  pull_request:\n", text)
         self.assertNotIn("  push:\n    branches: [main]", text)
         self.assertIn("name: CI", text)
-        self.assertIn("needs: [unit, webauthn-python310, validation, ansible-core-2-12, ssh-config]", text)
+        self.assertIn("needs: [unit, mcp-provider-lifecycle-ansible,", text)
         self.assertIn("webauthn-python310:", text)
         self.assertIn('result["result"] != "success"', text)
 
