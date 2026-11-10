@@ -73,10 +73,11 @@ def serve_one(raw, *, jobs=None, hostname=None):
             raise PermissionError("uncorrelated file reader response")
         return response
     if op == "workspace_inspect":
-        # The trusted node's local, operator-configured allowlist is the only
-        # authority for checkout paths. Requesters cannot pass a filesystem path.
+        # Bind to the trusted forced-command hostname; resolve paths solely
+        # from the existing node-owned provider and workspace registries.
         from .mcp_workspace_inspect import inspect_authorized
-        result = inspect_authorized({"node": host, "repository": req["repository"]})
+        result = inspect_authorized({"node": host, "repository": req["repository"]},
+                                    trusted_node=host)
         return {"node": host, "request_id": rid, "result": result}
     if op in ("deployment_preview", "deployment_status", "deployment_run"):
         from .mcp_deployment_broker import preview, request_status, accept
