@@ -32,7 +32,7 @@
       - gway_remote_exec_ssh_dir.stat.pw_name == gway_remote_runner_user
       - (gway_remote_exec_ssh_dir.stat.mode | int(base=8)) % 8 == 0
 
-# Key-specific forced command; no change to sshd_config or administrative keys.
+# Key-specific forced command; administrative SSH keys remain untouched.
 - name: Install dedicated restricted executor key for installer
   ansible.posix.authorized_key:
     user: "{{ gway_remote_runner_user }}"
