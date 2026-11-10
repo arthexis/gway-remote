@@ -211,56 +211,6 @@ def bootstrap(device, server_key, token, *, config=Path("/etc/wireguard/gway.con
     return {"device": device, "configured": True, "reused": False}
 
 
-def prepare_dormant_executor(*, run=subprocess.run,
-                              state=Path("/var/lib/gway-exec")):
-    """Standard bootstrap prerequisite; never grants remote execution access.
-
-    Uses only tools already present on Debian/Raspberry Pi OS. Watchtower's
-    enrollment ledger and future execution authorization remain separate.
-    """
-    import grp
-    import pwd
-    import stat
-
-    if os.geteuid() != 0:
-        raise PermissionError("executor preparation requires root")
-    if str(state) != "/var/lib/gway-exec":
-        raise ValueError("executor state directory is fixed")
-    name = "gway-exec"
-    try:
-        group = grp.getgrnam(name)
-    except KeyError:
-        run(["groupadd", "--system", name], check=True, timeout=15)
-        group = grp.getgrnam(name)
-    try:
-        account = pwd.getpwnam(name)
-    except KeyError:
-        run(["useradd", "--system", "--gid", name, "--no-create-home",
-             "--home-dir", str(state), "--shell", "/usr/sbin/nologin",
-             name], check=True, timeout=15)
-        account = pwd.getpwnam(name)
-    if (account.pw_gid != group.gr_gid or
-            account.pw_shell != "/usr/sbin/nologin" or
-            account.pw_dir != str(state) or
-            account.pw_uid == 0 or
-            any(name in g.gr_mem for g in grp.getgrall())):
-        raise PermissionError("executor identity has unexpected privileges")
-    # Lock local password; user systemd can still start approved local jobs.
-    run(["usermod", "--lock", name], check=True, timeout=15)
-    if state.is_symlink():
-        raise PermissionError("unsafe executor state symlink")
-    if not state.exists():
-        state.mkdir(mode=0o700)
-    info = state.lstat()
-    if not stat.S_ISDIR(info.st_mode):
-        raise PermissionError("unsafe executor state type")
-    os.chown(state, account.pw_uid, group.gr_gid)
-    os.chmod(state, 0o700)
-    if not Path("/var/lib/systemd/linger/gway-exec").exists():
-        run(["loginctl", "enable-linger", name], check=True, timeout=15)
-    return {"executor_prepared": True, "execution_enabled": False}
-
-
 def main(argv=None):
     parser = argparse.ArgumentParser(description="Standalone GWAY Remote WireGuard satellite client")
     sub = parser.add_subparsers(dest="action", required=True)
@@ -289,10 +239,7 @@ def main(argv=None):
             result = bootstrap(args.device, args.server_public_key, token,
                                url=args.url,
                                repair_host_identity=args.repair_host_identity)
-            # Fresh/reused bootstrap prepares a dormant executor, but neither
-            # this endpoint nor local account creation authorizes remote jobs.
-            if not args.repair_host_identity:
-                result.update(prepare_dormant_executor())
+            # WireGuard enrollment does not provision remote execution accounts.
             print(json.dumps(result))
     except (OSError, ValueError, RuntimeError, subprocess.CalledProcessError) as exc:
         parser.exit(1, "wire bootstrap failed: " + type(exc).__name__ + "\n")
