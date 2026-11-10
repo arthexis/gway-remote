@@ -123,7 +123,7 @@ class SSHBoundaryTests(unittest.TestCase):
         fields={"node":"gway-001","wireguard_address":"10.6.0.2",
                 "ssh_host_alias":"gway-001","known_hosts":self.known,
                 "identity_file":self.private,"host_key_sha256":self.fp,
-                "remote_user":"gway-relay"}
+                "installer_user":"installer"}
         fields.update(changes)
         return PinnedNode(**fields)
 
