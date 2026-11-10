@@ -8,6 +8,7 @@ import json
 import os
 import re
 import socket
+import subprocess
 import sys
 
 from .node_exec_worker import Jobs, configured_max_active, require_account, validate_request_id
@@ -19,6 +20,7 @@ OPERATIONS = {
     "result": frozenset({"operation", "node", "request_id", "cursor"}),
     "cancel": frozenset({"operation", "node", "request_id"}),
     "limits": frozenset({"operation", "node", "request_id"}),
+    "file_read": frozenset({"operation", "node", "request_id", "filename", "offset"}),
     "provider_list": frozenset({"operation", "node", "request_id"}),
     "provider_call": frozenset({"operation", "node", "request_id", "provider", "tool", "arguments", "authorized_scope"}),
     "deployment_preview": frozenset({"operation", "node", "request_id", "application"}),
@@ -45,6 +47,30 @@ def serve_one(raw, *, jobs=None, hostname=None):
     if not re.fullmatch(r"gway-[0-9]+", host) or req["node"] != host:
         raise PermissionError("unapproved node")
     rid = validate_request_id(req["request_id"])
+    if op == "file_read":
+        # Preserve the operator executor identity for all existing operations.
+        # Only the exact, sudoers-pinned reader crosses into gway-exec.
+        if host != "gway-001":
+            raise PermissionError("file export not provisioned for node")
+        payload = json.dumps({"node": host, "request_id": rid,
+                              "filename": req["filename"], "offset": req["offset"]},
+                             separators=(",", ":")).encode("utf-8")
+        argv = ["/usr/bin/sudo", "-n", "-u", "gway-exec",
+                "/usr/bin/env", "PYTHONPATH=/opt/gway-remote",
+                "/usr/bin/python3", "-m", "gway_remote.node_file_reader"]
+        try:
+            completed = subprocess.run(argv, input=payload, capture_output=True,
+                                       check=True, timeout=5)
+        except (OSError, subprocess.SubprocessError):
+            raise PermissionError("file reader unavailable") from None
+        if len(completed.stdout) > 16384:
+            raise PermissionError("file reader response too large")
+        response = json.loads(completed.stdout)
+        if (type(response) is not dict or set(response) != {"node", "request_id", "result"}
+                or response["node"] != host or response["request_id"] != rid
+                or type(response["result"]) is not dict):
+            raise PermissionError("uncorrelated file reader response")
+        return response
     if op in ("deployment_preview", "deployment_status", "deployment_run"):
         from .mcp_deployment_broker import preview, request_status, accept
         if op == "deployment_preview":
