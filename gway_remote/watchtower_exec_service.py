@@ -48,7 +48,13 @@ def load_service(path=CONFIG):
                    and n["reachable"] == "reachable"]
         if len(matches) != 1:
             raise PermissionError("node is not currently attested at pinned address")
-        # No caller/config-selected Unix account. Until enrollment attests an\n        # installer identity, remote execution must fail closed.\n        installer = matches[0].get("installer_user")\n        if (type(installer) is not str or not re.fullmatch(r"[a-z_][a-z0-9_-]{0,31}", installer)\n                or installer == "root"):\n            raise PermissionError("attested installer identity unavailable")\n        node = PinnedNode(node=name, wireguard_address=entry["address"],
+        # No caller/config-selected Unix account. Until enrollment attests an
+        # installer identity, remote execution must fail closed.
+        installer = matches[0].get("installer_user")
+        if (type(installer) is not str or not re.fullmatch(r"[a-z_][a-z0-9_-]{0,31}", installer)
+                or installer == "root"):
+            raise PermissionError("attested installer identity unavailable")
+        node = PinnedNode(node=name, wireguard_address=entry["address"],
                           ssh_host_alias=entry["ssh_host_alias"],
                           known_hosts=Path(entry["known_hosts"]),
                           identity_file=Path(entry["identity_file"]),
