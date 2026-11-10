@@ -72,6 +72,54 @@ if [ "${GWAY_REMOTE_SKIP_MCP:-0}" != "1" ] &&
   ansible-playbook "$ROOT/ansible/playbooks/watchtower-mcp.yml" -i localhost, -c local
 fi
 
+# Fast-path identity comes only from the root-owned installed policy, never
+# environment variables or an operator-writable checkout. Missing policy
+# disables the fast path so Ansible can provision it during bootstrap.
+verify_node_worker_import() {
+  node_name=$(hostname -s) || return 1
+  case "$node_name" in
+    gway-[0-9]*) ;;
+    *) return 0 ;;
+  esac
+  selected=$(/usr/bin/python3 -c '
+import json, os, stat, sys
+p = "/etc/gway-remote/executor-identity.json"
+try:
+    d = os.open("/etc/gway-remote", os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+    try:
+        info = os.fstat(d)
+        if info.st_uid != 0 or info.st_mode & 0o022:
+            raise ValueError("unsafe identity directory")
+        fd = os.open("executor-identity.json", os.O_RDONLY | os.O_NOFOLLOW, dir_fd=d)
+        try:
+            info = os.fstat(fd)
+            if not stat.S_ISREG(info.st_mode) or info.st_uid != 0 or info.st_mode & 0o022:
+                raise ValueError("unsafe identity policy")
+            with os.fdopen(fd, "rb", closefd=False) as stream:
+                raw = stream.read(1025)
+            if len(raw) > 1024:
+                raise ValueError("oversized identity policy")
+            obj = json.loads(raw)
+            if type(obj) is not dict or set(obj) != {"user"}:
+                raise ValueError("invalid identity policy")
+            expected = "arthe" if sys.argv[1] == "gway-001" else "gway-exec"
+            if obj["user"] != expected:
+                raise ValueError("identity does not match node policy")
+            print(expected)
+        finally:
+            os.close(fd)
+    finally:
+        os.close(d)
+except (OSError, ValueError, TypeError):
+    sys.exit(1)
+' "$node_name") || return 1
+  if [ "$selected" = "$(id -un)" ]; then
+    env PYTHONPATH=/opt/gway-remote /usr/bin/python3 -c 'import gway_remote.node_exec_worker' >/dev/null 2>&1
+  else
+    sudo -n -u "$selected" env PYTHONPATH=/opt/gway-remote /usr/bin/python3 -c 'import gway_remote.node_exec_worker' >/dev/null 2>&1
+  fi
+}
+
 # This marker is only a hint: every fast-path check validates live artifacts.
 revision=$(git -C "$ROOT" rev-parse --verify HEAD)
 marker="$HOME/.local/state/gway-remote/deployed-commit"
@@ -83,8 +131,7 @@ if [ "$#" -eq 0 ] &&
    [ -f /etc/systemd/system/gway-remote-watch.timer ] &&
    systemctl is-enabled --quiet gway-remote-watch.timer &&
    systemctl is-active --quiet gway-remote-watch.timer &&
-   { ! hostname -s | grep -Eq '^gway-[0-9]+$' ||
-     sudo -n -u gway-exec env PYTHONPATH=/opt/gway-remote /usr/bin/python3 -c 'import gway_remote.node_exec_worker' >/dev/null 2>&1; }; then
+   verify_node_worker_import; then
   if [ -n "${GWAY_REMOTE_DEPLOY_NOOP_FILE:-}" ]; then
     printf 'skipped\n' > "$GWAY_REMOTE_DEPLOY_NOOP_FILE"
   fi
