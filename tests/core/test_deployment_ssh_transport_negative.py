@@ -14,7 +14,7 @@ class DeploymentSSHNegativeTests(unittest.TestCase):
                                     known_hosts="/pinned/known_hosts",
                                     ssh_host_alias="gway-001",
                                     identity_file="/pinned/identity",
-                                    remote_user="gway-exec",
+                                    installer_user="installer",
                                     wireguard_address="10.0.0.11")
         self.run = Mock()
         self.transport = SSHTransport(self.node, run=self.run)
