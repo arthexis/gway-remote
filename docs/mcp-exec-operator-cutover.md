@@ -76,3 +76,82 @@ preflight fails, retain the evidence and do not force a second deployment.
 Field acceptance requires a recorded deployed SHA, scoped non-secret test
 receipts, an observed rollback outcome (or explicit decision to defer it),
 and a final operator decision. CI success alone is not field acceptance.
+
+
+## Minimum gway-001 identity simplification (November 2026, Draft PR)
+
+The normal deployment entrypoint `deploy.sh` invokes Ansible with a transient
+local inventory (`-i 'gway_remote,'`) and supplies the actual operator as
+`gway_remote_runner_user=$(id -un)`. The persistent
+`ansible/inventory/deployment.yml` hostvars are **not** automatically loaded
+by that invocation. Accordingly, this change declares
+`controller.hosts.gway-001.gway_remote_exec_run_user: arthe` in the canonical
+inventory and explicitly loads *only that node's* selection in the existing
+role **before** `node-exec-select.yml`. The existing node-local root-owned
+identity JSON, SSH ForceCommand, exact sudoers entry, bounded systemd user
+worker and SQLite job ledger are still the only runtime mechanisms. The MCP
+request never selects an operating-system account.
+
+This is a configuration cutover, **not** a change to OAuth permissions or a
+new service. `gway:read` and `gway:execute` keep their distinct enforcement;
+Watchtower enrollment and SSH host attestation stay authoritative.
+`gway-relay` remains the restricted SSH ingress with forced command,
+no PTY and no forwarding. `gway-exec` stays locked and provisioned for
+isolated `file_read` and rollback. The existing Deployment Broker inherits
+the chosen node executor identity; Ansible still uses `become` for privileged
+installation. Other nodes keep the original `gway-exec` default.
+
+### Privilege impact and explicit acceptance gate
+
+**The identity switch increases authority for execute-scoped callers.**
+The live operator account `arthe` is a member of `sudo`, can access its
+private home and may have access to the Bastion SSH agent. The current
+`node_exec` API already accepts bounded shell commands; running them as
+`arthe` makes all permissions available to that Unix account reachable
+through a valid `gway:execute` authorization. `gway-relay` and the
+OAuth token do **not** sandbox commands once they run as `arthe`.
+A sudo group membership alone does not establish passwordless root access;
+the actual sudo policy and SSH agent permissions must be checked in the
+field without printing credentials. The existing runtime explicitly exports
+`/run/bastion-ssh/agent.sock` if it passes owner/mode checks; never claim
+that an unset `SSH_AUTH_SOCK` eliminates the operator's underlying access.
+
+Before approving a merge or activating production, an operator must
+explicitly accept that privilege boundary, confirm no unexpected
+passwordless sudo grants, validate the Bastion exposure is intended,
+and verify the remaining node execute scope is limited to trusted
+operators. If that boundary is unacceptable, **do not deploy** this
+identity simplification: retain `gway-exec` and solve provider access with
+narrowly scoped exports instead.
+
+### CI and activation checklist
+
+- Offline: run `tests/deployment/test_exec_001_inventory.py`; its Ansible
+  fixture executes the **actual set_fact** with disposable inventories.
+  Verify `gway-001 -> arthe`, other nodes -> `gway-exec` and
+  `-e gway_remote_exec_run_user=gway-exec` remains an explicit rollback
+  override. No real SSH, `become`, services or state directories are touched.
+- Preserve and run existing tests for `node_exec_identity`, SSH/sudoers
+  forced-command negatives and byte-for-byte Ansible rescue, systemd bounded
+  workers, SQLite job idempotency/cutover, OAuth negative scopes, federated
+  provider authorization and the isolated file reader. These are exercised
+  by the repository's PR-only Python checks and Ansible CI jobs.
+- **Before field cutover**: verify the installed revision on **both**
+  Watchtower and gway-001, the `arthe` user bus as root/operator,
+  zero queued/running old jobs, exact existing relay policy, and selected
+  provider executable permissions. Do not treat a successful GitHub
+  workflow or a Watchtower catalog listing as proof of deployed SHA.
+- After a separately approved merge, use only the ordinary automatic
+  deployment. Confirm effective `id -un`, root-owned identity policy,
+  exact relay sudoers/ForceCommand, worker receipts, provider availability,
+  deployment preview, OAuth scope negatives and lack of administrative
+  SSH regression before declaring acceptance.
+- On failure, invoke the **existing** reviewed Ansible rollback with the
+  explicit `gway_remote_exec_run_user=gway-exec` override after checking
+  the new ledger for active jobs; do not delete or chown the old ledger,
+  issue an ad hoc `sudo -u` execution, or bypass SSH/visudo validation.
+
+As observed during PR preparation, Watchtower's live federated catalog did
+not advertise installed providers and the live gway-001 executor was still
+`gway-exec`. Those are **pre-cutover observations**, not evidence that the
+proposed deployment has succeeded. This Draft PR makes no production changes.
