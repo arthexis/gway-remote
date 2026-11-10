@@ -26,6 +26,9 @@ jobs:
         run: python -m pip install 'webauthn==3.0.1'
       - name: Run subsystem tests with timings
         run: python -m pytest tests/${{ matrix.group }} -v --durations=0 --durations-min=0
+      - name: Exercise root-level workspace inspect security suite
+        if: matrix.group == 'core'
+        run: python -m pytest tests/test_workspace_inspect_mcp.py -v
 
   mcp-provider-lifecycle-ansible:
     name: MCP provider lifecycle / Ansible idempotence
