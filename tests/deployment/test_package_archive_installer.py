@@ -81,6 +81,31 @@ class ArchiveInstallerTests(unittest.TestCase):
         self.assertIn("PYTHONPATH={{ gway_remote_install_root }}", task)
         self.assertIn("changed_when: false", task)
 
+    def test_executor_selection_uses_configured_roles_not_hostname(self):
+        tasks = (ROOT / "ansible/roles/gway_remote/tasks/node-exec-select.yml").read_text()
+        selection = tasks.split("- name: Look up selected existing executor account", 1)[0]
+        self.assertIn("gway_remote_exec_run_user == (gway_remote_exec_user | default(\'gway-exec\'))", selection)
+        self.assertIn("gway_remote_exec_run_user == gway_remote_runner_user", selection)
+        self.assertIn("gway_remote_exec_run_user != 'root'", selection)
+        self.assertNotIn("ansible_hostname", selection)
+        self.assertNotIn("getent_passwd[\'arthe\'][4]", tasks)
+        self.assertNotIn("in ['gway-exec', 'arthe']", selection)
+
+    def test_fast_path_uses_root_owned_identity_and_no_hardcoded_exec_user(self):
+        script = (ROOT / "deploy.sh").read_text()
+        self.assertIn("verify_node_worker_import()", script)
+        self.assertIn('verify_node_worker_import; then', script)
+        self.assertIn('os.O_NOFOLLOW', script)
+        self.assertIn('info.st_uid != 0 or info.st_mode & 0o022', script)
+        self.assertIn('user = obj["user"]', script)
+        self.assertIn('pwd.getpwnam(user).pw_uid == 0', script)
+        self.assertIn('print(user)', script)
+        self.assertNotIn('sys.argv[1] == "gway-001"', script)
+        self.assertIn('if [ "$selected" = "$(id -un)" ]; then', script)
+        self.assertIn('sudo -n -u "$selected"', script)
+        self.assertNotIn('sudo -n -u gway-exec', script)
+        self.assertIn('Missing policy', script)
+
     def test_dormant_executor_installs_account_scoped_polkit_deny(self):
         tasks = (ROOT / "ansible/roles/gway_remote/tasks/node-exec-prepare.yml").read_text()
         main = (ROOT / "ansible/roles/gway_remote/tasks/main.yml").read_text()
