@@ -21,6 +21,11 @@ class JobTests(unittest.TestCase):
         self.identity = patch.object(worker, "require_account", return_value=None)
         self.identity.start()
         self.addCleanup(self.identity.stop)
+        self.environment = patch.object(worker, "command_environment", return_value={
+            "PATH": "/usr/bin:/bin", "HOME": str(self.directory),
+            "USER": "fixture", "LOGNAME": "fixture", "LANG": "C.UTF-8"})
+        self.environment.start()
+        self.addCleanup(self.environment.stop)
 
     def submit(self, command="uptime", runner=None):
         if runner is None:
@@ -33,12 +38,11 @@ class JobTests(unittest.TestCase):
             captured.append((args, kwargs))
             return subprocess.CompletedProcess(args, 0, "", "")
         cmd = "df -h && echo 'literal'"
-        with patch.object(worker, "selected_user", return_value="gway-exec"):
-            job_id = self.submit(cmd, runner=run)
+        job_id = self.submit(cmd, runner=run)
         args, kwargs = captured[0]
         self.assertEqual(args[:3], ["systemd-run", "--user", "--collect"])
         self.assertIn("--setenv=PYTHONPATH=/opt/gway-remote", args)
-        self.assertIn("--working-directory=/var/lib/gway-exec", args)
+        self.assertIn("--working-directory=" + str(self.directory), args)
         self.assertIn("--property=KillMode=control-group", args)
         self.assertIn("--property=MemoryMax=134217728", args)
         self.assertIn("--property=TasksMax=32", args)
