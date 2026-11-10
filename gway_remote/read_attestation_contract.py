@@ -23,6 +23,43 @@ def canonical_payload(receipt):
                       sort_keys=True, separators=(",", ":"), ensure_ascii=True).encode("ascii")
 
 
+MAX_RECEIPT_BYTES = 4096
+
+
+def parse_read_receipt(raw):
+    """Strict offline JSON boundary; no trust decisions or side effects."""
+    if type(raw) is not bytes or not 2 <= len(raw) <= MAX_RECEIPT_BYTES:
+        raise ValueError("invalid receipt size or encoding")
+    try:
+        decoded = raw.decode("utf-8", errors="strict")
+    except UnicodeDecodeError as exc:
+        raise ValueError("invalid receipt UTF-8") from exc
+
+    def unique_pairs(pairs):
+        result = {}
+        for key, value in pairs:
+            if key in result:
+                raise ValueError("duplicate receipt JSON key")
+            result[key] = value
+        return result
+
+    def reject_constant(value):
+        raise ValueError("nonfinite JSON value")
+
+    try:
+        receipt = json.loads(decoded, object_pairs_hook=unique_pairs,
+                             parse_constant=reject_constant)
+    except (UnicodeError, json.JSONDecodeError, RecursionError) as exc:
+        raise ValueError("invalid receipt JSON") from exc
+    if type(receipt) is not dict or set(receipt) != _FIELDS:
+        raise ValueError("invalid receipt JSON schema")
+    if any(type(v) not in (str, int) for v in receipt.values()):
+        raise ValueError("invalid receipt JSON field type")
+    if type(receipt["issued_at"]) is not int or type(receipt["expires_at"]) is not int:
+        raise ValueError("invalid receipt timestamps")
+    return receipt
+
+
 def verify_read_receipt(receipt, *, trusted_keys, revoked_serials, expected,
                         now=None):
     """Return verified claims, or fail closed; never trust caller's attested flag.
