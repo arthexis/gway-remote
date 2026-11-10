@@ -151,3 +151,53 @@ pinning. No source review establishes a production-safe migration yet.
 record, per-node SSH login, forced-command authorized key, same-UID worker,
 ledger continuity, Ansible rollback and all negative tests are implemented
 and validated together. Do not merge or deploy the current partial state.
+
+## 2026-11-10 — additional offline acceptance on PR #545
+
+**Status remains Draft, not production-accepted.** Head
+`732f5e5638dc9de4da382d0ae43b63581896ae45`, CI workflow
+`42878863455`: **SUCCESS 12/12**. All real Ansible and OpenSSH tests run only
+inside disposable Debian containers; core tests mock the SSH command runner
+and `systemd-run`. No real `node_exec`, SSH credential changes, production
+deploy or service changes are made.
+
+**Cross-host identity fixture:** `tests/core/test_exec_cross_host_identity_offline.py`
+parses a simulated root-owned Watchtower `execute.json` with the production
+`load_service` loader, applies the enrolled host-key/address gate, constructs
+the pinned SSH login, and feeds the `limits` JSON request through a stub SSH
+transport into the node's **real** `require_account`. The node independently
+reads a simulated root-owned `executor-identity.json` and resolves the Unix
+UID. Correct login/UID succeeds; mismatched Watchtower login, changed node
+identity, drifted effective UID, unsafe config mode and untrusted enrollment
+binding are rejected. **This is a simulated cross-host boundary, not a live
+remote identity attestation**; the Watchtower config does not contain an
+independently attested node UID field.
+
+**User bus / limits / crash-safety:** `test_node_exec_offline_runtime.py`
+tests the correct user-bus owner, socket type and synthesized environment,
+and rejects missing, foreign-owned, writable or nonsocket buses. A fake
+`systemd-run` callback verifies the `--user` invocation, unit name and
+MemoryMax/TasksMax/RuntimeMaxSec/KillMode restrictions, without starting a
+unit or running a command. The SQLite ledger survives simulated restart,
+replayed request IDs are not launched again, and a missing user unit
+reconciles to `unknown` without reenqueuing. Root-owned
+`executor.json` auto/explicit concurrency and invalid/unsafe overrides
+are also exercised.
+
+**Preservation under failure:** the disposable Ansible opt-in fixture
+checks exact bytes of administrative `authorized_keys`, root-owned node
+identity, existing restricted keys and forced-command file before and
+after failing opt-in / mismatched policy checks. The legacy Ansible cutover
+`block/rescue` fixture injects three faults and compares original
+identity, sudoers and SSHD bytes, also asserting unrelated
+`authorized_keys` bytes are preserved. This is evidence of
+**fail-closed prechecks and legacy compensation**, not an assertion that
+the new opt-in has an atomic rollback after a failure *during* key
+installation.
+
+**Still required before acceptance:** establish independently trusted
+cross-host UID binding on a staged node, a positive actual `systemd --user`
+manager and bounded worker lifecycle, and transactional rollback/migration
+coverage for the *new* opt-in path including faults after key write. These
+need separate explicit staging authorization; do not merge or deploy
+PR #545 on this offline evidence alone.
