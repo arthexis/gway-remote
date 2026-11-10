@@ -1,8 +1,7 @@
 """Narrow JSON-over-stdin node protocol for a future SSH forced command.
 
-Not installed in authorized_keys and not reachable through MCP. Must run under
-the existing locked-down gway-exec identity, via an explicitly reviewed
-forced-command setup; never execute arbitrary SSH_ORIGINAL_COMMAND.
+The protocol must run as the invoking installer identity via an explicitly
+reviewed forced-command setup; never execute arbitrary SSH_ORIGINAL_COMMAND.
 """
 import json
 import os
@@ -49,16 +48,14 @@ def serve_one(raw, *, jobs=None, hostname=None):
         raise PermissionError("unapproved node")
     rid = validate_request_id(req["request_id"])
     if op == "file_read":
-        # Preserve the operator executor identity for all existing operations.
-        # Only the exact, sudoers-pinned reader crosses into gway-exec.
+        # File export retains the protocol's effective UID; the export
+        # primitive enforces fixed-root, no-symlink and bounded-file checks.
         if host != "gway-001":
             raise PermissionError("file export not provisioned for node")
         payload = json.dumps({"node": host, "request_id": rid,
                               "filename": req["filename"], "offset": req["offset"]},
                              separators=(",", ":")).encode("utf-8")
-        argv = ["/usr/bin/sudo", "-n", "-u", "gway-exec",
-                "/usr/bin/env", "PYTHONPATH=/opt/gway-remote",
-                "/usr/bin/python3", "-m", "gway_remote.node_file_reader"]
+        argv = ["/usr/bin/python3", "-m", "gway_remote.node_file_reader"]
         try:
             completed = subprocess.run(argv, input=payload, capture_output=True,
                                        check=True, timeout=5)
