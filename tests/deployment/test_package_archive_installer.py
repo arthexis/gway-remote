@@ -72,14 +72,11 @@ class ArchiveInstallerTests(unittest.TestCase):
         self.assertEqual((target / "gway_remote").stat().st_mode & 0o777, 0o755)
         self.assertFalse(self.install()["changed"])
 
-    def test_deploy_checks_real_executor_import_not_only_cli_status(self):
+    def test_normal_deploy_does_not_activate_remote_worker(self):
         tasks = (ROOT / "ansible/roles/gway_remote/tasks/main.yml").read_text()
-        start = tasks.index("- name: Verify installed package imports as unprivileged executor")
-        task = tasks[start:].split("- name: Copy CLI installer", 1)[0]
-        self.assertIn("gway_remote_exec_run_user", task)
-        self.assertIn("gway_remote.node_exec_worker", task)
-        self.assertIn("PYTHONPATH={{ gway_remote_install_root }}", task)
-        self.assertIn("changed_when: false", task)
+        self.assertNotIn("Verify installed package imports as unprivileged executor", tasks)
+        self.assertNotIn("include_tasks: node-exec-select.yml", tasks)
+        self.assertIn("scripts/install-package-archive.py", tasks)
 
     def test_executor_selection_uses_configured_roles_not_hostname(self):
         tasks = (ROOT / "ansible/roles/gway_remote/tasks/node-exec-select.yml").read_text()
@@ -106,48 +103,12 @@ class ArchiveInstallerTests(unittest.TestCase):
         self.assertNotIn('sudo -n -u gway-exec', script)
         self.assertIn('Missing policy', script)
 
-    def test_dormant_executor_installs_account_scoped_polkit_deny(self):
-        tasks = (ROOT / "ansible/roles/gway_remote/tasks/node-exec-prepare.yml").read_text()
+    def test_no_legacy_account_or_polkit_install(self):
         main = (ROOT / "ansible/roles/gway_remote/tasks/main.yml").read_text()
-        self.assertIn("include_tasks: node-exec-prepare.yml", main)
-        self.assertIn("gway-[0-9]+", main)
-        self.assertIn("/etc/polkit-1/rules.d/00-gway-exec-deny.rules", tasks)
-        self.assertIn("owner: root", tasks)
-        self.assertIn('mode: "0644"', tasks)
-        self.assertIn('subject.user === "gway-exec"', tasks)
-        self.assertIn("return polkit.Result.NO;", tasks)
-        rule = tasks.split("polkit.addRule(function(action, subject) {", 1)[1]
-        self.assertNotIn("polkit.Result.YES", rule)
-
-    def test_polkit_directory_is_not_repermissioned_when_existing(self):
-        """Regression #348: only create missing directory, never converge existing metadata."""
-        tasks = (ROOT / "ansible/roles/gway_remote/tasks/node-exec-prepare.yml").read_text()
-        inspect = tasks.split(
-            "- name: Inspect existing polkit rules directory without following symlinks", 1
-        )[1].split("- name: Reject unsafe existing polkit rules directory", 1)[0]
-        self.assertIn("follow: false", inspect)
-        self.assertIn("register: gway_exec_polkit_rules_dir", inspect)
-
-        guard = tasks.split(
-            "- name: Reject unsafe existing polkit rules directory", 1
-        )[1].split("- name: Create polkit rules directory only if missing", 1)[0]
-        self.assertIn("not (gway_exec_polkit_rules_dir.stat.islnk", guard)
-        self.assertIn("when: gway_exec_polkit_rules_dir.stat.exists", guard)
-
-        create = tasks.split(
-            "- name: Create polkit rules directory only if missing", 1
-        )[1].split("- name: Deny all privileged polkit actions", 1)[0]
-        self.assertIn("path: /etc/polkit-1/rules.d", create)
-        self.assertIn("when: not gway_exec_polkit_rules_dir.stat.exists", create)
-        self.assertIn("owner: root", create)
-        self.assertIn('mode: "0755"', create)
-
-        rule = tasks.split(
-            "- name: Deny all privileged polkit actions", 1
-        )[1]
-        self.assertIn("dest: /etc/polkit-1/rules.d/00-gway-exec-deny.rules", rule)
-        self.assertIn('mode: "0644"', rule)
-        self.assertIn('subject.user === "gway-exec"', rule)
+        bootstrap = (ROOT / "gway_remote/wireguard_satellite.py").read_text()
+        self.assertNotIn("include_tasks: node-exec-prepare.yml", main)
+        self.assertNotIn("00-gway-exec-deny.rules", main)
+        self.assertNotIn("prepare_dormant_executor", bootstrap)
 
     def test_untracked_pycache_does_not_enter_archive_or_change_digest(self):
         initial = self.install()
