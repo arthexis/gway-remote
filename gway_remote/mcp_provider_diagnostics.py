@@ -6,6 +6,7 @@ untrusted, sanitized snapshot supplied by the operator, not OAuth access.
 No shell, SSH, installation, token, filesystem write or deployment is done.
 """
 import json
+import os
 import re
 import socket
 import stat
@@ -28,10 +29,16 @@ def load_watchtower_catalog(path):
     mcp_catalog_inspect tool, not a bearer or full MCP argument payload.
     """
     file = Path(path)
-    meta = file.lstat()
-    if not stat.S_ISREG(meta.st_mode) or meta.st_size > _MAX_CATALOG or meta.st_size == 0:
-        raise ValueError("invalid_catalog_file")
-    with file.open("rb") as stream:
+    # Open without following symlinks; fstat the actual descriptor to avoid
+    # a check/open race. O_NONBLOCK prevents a swapped FIFO from hanging.
+    try:
+        fd = os.open(file, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+    except OSError as exc:
+        raise ValueError("invalid_catalog_file") from exc
+    with os.fdopen(fd, "rb") as stream:
+        meta = os.fstat(stream.fileno())
+        if not stat.S_ISREG(meta.st_mode) or not 0 < meta.st_size <= _MAX_CATALOG:
+            raise ValueError("invalid_catalog_file")
         raw = stream.read(_MAX_CATALOG + 1)
     if len(raw) > _MAX_CATALOG:
         raise ValueError("oversized_catalog_file")
@@ -39,7 +46,8 @@ def load_watchtower_catalog(path):
         value = json.loads(raw)
     except (UnicodeError, ValueError) as exc:
         raise ValueError("invalid_catalog_json") from exc
-    if (type(value) is not dict or value.get("schema") != 1
+    if (type(value) is not dict or type(value.get("schema")) is not int or value["schema"] != 1
+            or type(value.get("count")) is not int
             or type(value.get("tools")) is not list
             or len(value["tools"]) > _MAX_TOOLS
             or value.get("count") != len(value["tools"])):
