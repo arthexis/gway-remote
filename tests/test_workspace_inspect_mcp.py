@@ -139,6 +139,26 @@ class WorkspaceInspectMCPTests(unittest.TestCase):
             "workspace_inspection_unavailable",
         )
 
+    def test_read_transport_must_not_alias_execute_relay(self):
+        from types import SimpleNamespace
+        transport = object()
+        execution = SimpleNamespace(relay=SimpleNamespace(transport=transport))
+        with self.assertRaisesRegex(ValueError, "must not reuse"):
+            SessionBridgeDispatch(
+                verifier=object(), session_token="trusted",
+                allowed_node=lambda token, node: True,
+                read_principal=lambda token: "reader",
+                execution=execution, read_transport=transport,
+            )
+        # No read transport must stay fail-closed, not inherit the relay.
+        handler = SessionBridgeDispatch(
+            verifier=object(), session_token="trusted",
+            allowed_node=lambda token, node: True,
+            read_principal=lambda token: "reader",
+            execution=execution, read_transport=None,
+        )
+        self.assertIsNone(handler.read_transport)
+
     def test_catalog_is_read_only(self):
         self.assertIn("workspace_inspect", ALLOWED_TOOLS)
         tool = next(tool for tool in NODE_TOOLS if tool["name"] == "workspace_inspect")
