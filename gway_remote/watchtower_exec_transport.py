@@ -234,7 +234,7 @@ class PinnedNode:
     known_hosts: Path
     identity_file: Path
     host_key_sha256: str
-    remote_user: str
+    installer_user: str
 
     def __post_init__(self):
         validate_command(self.node, "true")
@@ -249,7 +249,7 @@ class PinnedNode:
             raise ValueError("invalid host alias")
         if not HEX_SHA256.fullmatch(self.host_key_sha256):
             raise ValueError("invalid enrolled host key")
-        if type(self.remote_user) is not str or not re.fullmatch(r"[a-z_][a-z0-9_-]{0,31}", self.remote_user):
+        if type(self.installer_user) is not str or not re.fullmatch(r"[a-z_][a-z0-9_-]{0,31}", self.remote_user):
             raise ValueError("invalid SSH principal")
         for path in (self.known_hosts, self.identity_file):
             info = Path(path).lstat()
@@ -318,7 +318,7 @@ class SSHTransport:
                 "-o","UserKnownHostsFile=" + str(self.node.known_hosts),
                 "-o","HostKeyAlias=" + self.node.ssh_host_alias,
                 "-i",str(self.node.identity_file),
-                "-l",self.node.remote_user,
+                "-l",self.node.installer_user,
                 self.node.wireguard_address, "gway-exec-protocol-v1"]
         try:
             completed = self._run(argv,input=raw,capture_output=True,timeout=15,check=True)
