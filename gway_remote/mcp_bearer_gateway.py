@@ -18,7 +18,7 @@ MAX_RESPONSE = 262144
 UPSTREAM_TIMEOUT = 30
 ALLOWED_METHODS = frozenset({"server/discover", "initialize", "notifications/initialized", "tools/list", "tools/call"})
 ALLOWED_TOOLS = frozenset({"github_workflow_runs", "github_workflow_status", "github_workflow_errors", "mcp_source_status",
-    "node_list", "node_capabilities", "node_exec_preview",
+    "node_list", "node_capabilities", "node_file_download", "node_exec_preview",
     "node_exec", "node_result", "node_cancel", "node_deploy", "node_deploy_status",
     "node_deploy_preview", "workspace_inspect", "mcp_catalog_inspect", "node_exec_diagnostic"})
 
@@ -67,6 +67,14 @@ EXEC_TOOLS = (
 )
 
 NODE_TOOLS = (
+    {"name": "node_file_download", "_meta": READ_SECURITY,
+     "description": "Read one 8 KiB Base64 chunk of a file up to 1 MiB from the operator-provisioned node export directory. Reassemble chunks using next_offset and verify sha256.",
+     "inputSchema": {"type": "object", "properties": {
+         "node": {"type": "string"},
+         "filename": {"type": "string", "minLength": 1, "maxLength": 255},
+         "offset": {"type": "integer", "minimum": 0, "maximum": 1048576}},
+         "required": ["node", "filename", "offset"], "additionalProperties": False},
+     "annotations": {"readOnlyHint": True}},
     {"name": "mcp_catalog_inspect", "_meta": READ_SECURITY,
      "description": "Inspect the live Watchtower federated MCP catalog, origin and required OAuth scope; never returns credentials or executes tools.",
      "inputSchema": {"type": "object", "properties": {}, "additionalProperties": False},
@@ -478,7 +486,7 @@ class Handler(BaseHTTPRequestHandler):
             self.end_headers()
             self.wfile.write(body)
             return
-        if payload["method"] == "tools/call" and payload.get("params", {}).get("name") in {"node_list", "node_capabilities", "node_exec_preview", "node_deploy_preview", "workspace_inspect"}:
+        if payload["method"] == "tools/call" and payload.get("params", {}).get("name") in {"node_list", "node_capabilities", "node_file_download", "node_exec_preview", "node_deploy_preview", "workspace_inspect"}:
             # The enrollment ledger lives on Watchtower. Never pass these tools
             # to gway-001, and never grant the gateway access to the root DB.
             arguments = payload["params"].get("arguments", {})
@@ -631,7 +639,7 @@ class Handler(BaseHTTPRequestHandler):
                 tools = result["tools"]
                 if (type(tools) is not list or
                         any(type(tool) is not dict or tool.get("name") in
-                            ({"node_list", "node_capabilities", "node_exec_preview", "node_deploy_preview"} | EXEC_TOOL_NAMES) for tool in tools)):
+                            ({"node_list", "node_capabilities", "node_file_download", "node_exec_preview", "node_deploy_preview"} | EXEC_TOOL_NAMES) for tool in tools)):
                     raise ValueError("upstream tool collision")
                 # Source admission is authoritative on the trusted backend.
                 # Watchtower does not maintain a second per-tool allowlist.
