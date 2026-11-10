@@ -45,6 +45,38 @@ class WatchtowerMCPDeployContract(unittest.TestCase):
         ):
             self.assertNotIn(forbidden, text)
 
+    def test_workspace_bridge_uses_preexisting_key_and_is_enabled_on_reviewed_rollout(self):
+        play = PLAYBOOK.read_text()
+        bridge = (ROOT / "ansible/roles/gway_remote/tasks/watchtower-mcp-bridge.yml").read_text()
+        dropin = (ROOT / "ansible/roles/gway_remote/tasks/watchtower-mcp-bridge-systemd.yml").read_text()
+        self.assertIn("gway_mcp_bridge_enable: true", play)
+        self.assertIn("Require pre-existing bridge key for gateway activation", bridge)
+        self.assertLess(bridge.index("Require pre-existing bridge key for gateway activation"),
+                        bridge.index("Generate private bridge key once"))
+        self.assertIn("bridge_key.stat.exists", bridge)
+        self.assertIn("when: gway_mcp_bridge_enable | default(false) | bool", bridge)
+        self.assertIn("GWAY_MCP_BRIDGE_ENABLED={{ '1' if", bridge)
+        self.assertIn("register: bridge_gateway_env", bridge)
+        self.assertIn("EnvironmentFile=/etc/gway-mcp/bridge/gateway.env", dropin)
+        self.assertIn("bridge_gateway_env.changed | default(false)", play)
+        self.assertIn("bridge_gateway_dropin.changed | default(false)", play)
+        # No new SSH identity or separate approval is introduced.
+        self.assertNotIn("ssh-keygen", play)
+        self.assertNotIn("operator_approved", bridge)
+
+    def test_failed_gateway_rollout_restores_prior_bridge_settings(self):
+        play = PLAYBOOK.read_text()
+        self.assertIn("Inspect existing private bridge settings for rollback", play)
+        self.assertIn("Read existing bridge settings byte-for-byte before update", play)
+        self.assertIn("Restore prior private bridge settings on failure", play)
+        self.assertIn("Remove bridge settings created by failed activation", play)
+        self.assertIn("bridge_previous_contents.results", play)
+        self.assertIn("no_log: true", play)
+        self.assertLess(play.index("Read existing bridge settings byte-for-byte before update"),
+                        play.index("Stage and activate only the dedicated MCP runtime"))
+        self.assertGreater(play.index("Restore prior private bridge settings on failure"),
+                           play.index("rescue:"))
+
     def test_protected_inventory_verification_uses_task_local_become(self):
         # Do not chmod the auth directory or add the operator to a group
         # that also exposes the Watchtower bearer credential registry.
