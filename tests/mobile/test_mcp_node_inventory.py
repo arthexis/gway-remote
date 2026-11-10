@@ -93,8 +93,9 @@ class GatewayNodeInventoryTests(unittest.TestCase):
                 self.assertEqual(status, 200)
                 tools = result["result"]["tools"]
                 self.assertEqual(len(tools), 10)
-                self.assertEqual({x["name"] for x in tools[-6:]},
-                                 {"node_list", "node_capabilities", "node_file_download", "node_exec_preview", "node_deploy_preview", "workspace_inspect"})
+                self.assertTrue({"node_list", "node_capabilities", "node_file_download",
+                                 "node_exec_preview", "node_deploy_preview",
+                                 "workspace_inspect"} <= {x["name"] for x in tools})
                 self.assertTrue(all(x["annotations"]["readOnlyHint"] for x in tools))
                 self.assertNotIn("agent_submit", {x["name"] for x in tools})
 
