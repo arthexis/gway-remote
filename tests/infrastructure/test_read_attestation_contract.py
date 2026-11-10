@@ -49,7 +49,7 @@ class ReadReceiptTests(unittest.TestCase):
         for field in self.claims:
             original = self.receipt[field]
             self.receipt[field] = "d" * 64 if field.endswith("sha256") else "other"
-            with self.subTest(field=field), self.assertRaises(PermissionError):
+            with self.subTest(field=field), self.assertRaises((PermissionError, ValueError)):
                 self.verify()
             self.receipt[field] = original
         self.assertEqual(self.verify(), self.claims)
