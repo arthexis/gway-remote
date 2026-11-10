@@ -7,6 +7,7 @@ import json
 import re
 import secrets
 import sqlite3
+import subprocess
 
 from .node_exec_contract import validate_command
 from .node_exec_worker import validate_request_id
@@ -112,22 +113,45 @@ class AuthorizedExecution:
             time.sleep(min(0.2, remaining))
 
     def deployment_preview(self, *, node, application, revision="main"):
-        """Read-only preview of a fixed, policy-authorized Ansible recipe."""
-        if type(node) is not str or type(application) is not str or revision != "main":
+        """Read-only pinned preview with sanitized stage-specific failures."""
+        from .mcp_deployment_resolver import _APP
+        from .watchtower_exec_transport import SSHTransportFailure
+        if type(node) is not str or type(application) is not str or not _APP.fullmatch(application) or revision != "main":
             raise ValueError("unsupported deployment revision or target")
-        recipes = {
-            ("gway-001", "gway-remote"): "gway-remote-deploy.service",
-        }
-        unit = recipes.get((node, application))
-        if unit is None:
-            if (node, application) == ("gway-001", "odoo-gelectriic"):
-                raise PermissionError("Odoo removed the legacy systemd deployment unit; deploy through the repository-owned Ansible workflow")
-            raise PermissionError("deployment target has no installed fixed recipe")
-        self._allow_preview_eligibility(node)
-        return {"node": node, "application": application, "revision": revision,
-                "recipe": unit, "status": "eligible",
-                "execution": "fixed-operator-owned-systemd-ansible",
-                "note": "preview only; no command or configuration changes"}
+        try:
+            self._allow_preview_eligibility(node)
+        except (PermissionError, ValueError, OSError):
+            if not self.enabled or not self.relay.enabled:
+                raise PermissionError("deployment_execution_disabled") from None
+            raise PermissionError("deployment_inventory_binding_denied") from None
+        try:
+            pinned = pinned_transport(self.relay.transport, node)
+        except (PermissionError, ValueError, AttributeError):
+            raise PermissionError("deployment_pinned_transport_unavailable") from None
+        import secrets
+        request_id = secrets.token_hex(16)
+        try:
+            response = pinned.invoke({
+                "operation": "deployment_preview", "node": node,
+                "request_id": request_id, "application": application})
+        except (SSHTransportFailure, OSError, subprocess.SubprocessError):
+            raise PermissionError("deployment_ssh_unverified") from None
+        except (ValueError, KeyError, TypeError):
+            raise PermissionError("deployment_node_protocol_unavailable") from None
+        if (type(response) is not dict or response.get("node") != node or
+                response.get("request_id") != request_id or
+                type(response.get("result")) is not dict):
+            raise PermissionError("deployment_node_protocol_unavailable")
+        result = response["result"]
+        if (result.get("application") != application or
+                result.get("status") != "declared" or
+                type(result.get("revision")) is not str or
+                not re.fullmatch(r"[0-9a-f]{40}", result["revision"])):
+            raise PermissionError("deployment_declaration_unavailable")
+        return {"node": node, "application": application,
+                "revision": result["revision"],
+                "status": "eligible", "execution": "node-owned-operator",
+                "note": "read-only; execution revalidates installed provider"}
 
     def _allow_preview_eligibility(self, node):
         if not self.enabled or not self.relay.enabled:
@@ -136,24 +160,115 @@ class AuthorizedExecution:
 
     def deployment(self, *, principal, request_id, node, application,
                    revision="main", status=False):
-        """Use the existing attested node transport for fixed Ansible services.
+        """Deployment status is restricted to its original authenticated request.
 
-        A caller cannot select a shell command, service path or arbitrary
-        Ansible options. Keep the original gway-remote contract intact.
+        Execution remains disabled until the node-local asynchronous runner
+        can persist a receipt before acknowledging an SSH dispatch.
         """
+        from .mcp_deployment_resolver import _APP
+        from .watchtower_exec_transport import _digest
         if type(status) is not bool:
             raise ValueError("invalid deployment status")
+        self._allow(principal)
+        validate_request_id(request_id)
+        if (type(application) is not str or not _APP.fullmatch(application)
+                or revision != "main"):
+            raise ValueError("unsupported deployment target")
+        self._current_eligibility(node)
+        if status:
+            row = self.ledger.get(request_id)
+            binding = row["command"]
+            try:
+                stored = json.loads(binding.removeprefix("deployment:"))
+            except (ValueError, TypeError):
+                raise PermissionError("invalid persisted deployment binding")
+            if (not binding.startswith("deployment:") or type(stored) is not list
+                    or len(stored) != 2 or stored[0] != application
+                    or type(stored[1]) is not str
+                    or not re.fullmatch(r"[0-9a-f]{40}", stored[1])):
+                raise PermissionError("invalid persisted deployment revision")
+            pinned = pinned_transport(self.relay.transport, node)
+            if (row["node"] != node or row["principal"] != principal
+                    or row["host_key_sha256"] != pinned.node.host_key_sha256
+                    or row["command"] != binding
+                    or row["command_sha256"] != _digest(
+                        node, binding, principal, pinned.node.host_key_sha256)):
+                raise PermissionError("deployment request binding mismatch")
+            response = pinned.invoke({
+                "operation": "deployment_status", "node": node,
+                "request_id": request_id, "application": application})
+            if (type(response) is not dict or response.get("node") != node or
+                    response.get("request_id") != request_id or
+                    type(response.get("result")) is not dict):
+                raise PermissionError("uncorrelated deployment status")
+            receipt = response["result"]
+            if (receipt.get("application") != application or
+                    receipt.get("request_id") != request_id or
+                    receipt.get("revision") != stored[1]):
+                raise PermissionError("deployment receipt binding mismatch")
+            state = receipt.get("state")
+            if state not in {"accepted", "running", "succeeded", "failed", "uncertain"}:
+                raise PermissionError("invalid deployment receipt state")
+            if state in {"succeeded", "failed"}:
+                self.ledger.record_result_state(request_id, state)
+            elif row["state"] in {"succeeded", "failed", "cancelled", "timed_out"}:
+                raise PermissionError("node receipt contradicts terminal ledger")
+            return {"node": node, "request_id": request_id,
+                    "application": application,
+                    "ledger_state": self.ledger.get(request_id)["state"],
+                    "result": receipt}
         preview = self.deployment_preview(node=node, application=application,
                                           revision=revision)
-        unit = preview["recipe"]
-        if status:
-            receipt = ("status.json" if application == "gway-remote"
-                       else "status-" + application + ".json")
-            command = "/usr/bin/cat /var/lib/gway-mcp-deploy/" + receipt
-        else:
-            command = "/usr/bin/sudo -n /usr/bin/systemctl start --no-block " + unit
-        return self.exec(principal=principal, request_id=request_id,
-                         node=node, command=command)
+        pinned = pinned_transport(self.relay.transport, node)
+        pinned_revision = preview["revision"]
+        if type(pinned_revision) is not str or not re.fullmatch(r"[0-9a-f]{40}", pinned_revision):
+            raise PermissionError("invalid pinned deployment revision")
+        binding = "deployment:" + json.dumps([application, pinned_revision], separators=(",", ":"))
+        digest = _digest(node, binding, principal, pinned.node.host_key_sha256)
+        try:
+            prior = self.ledger.get(request_id)
+        except ValueError as exc:
+            if str(exc) != "request not found":
+                raise
+            prior = None
+        if prior is not None:
+            if (prior["node"] != node or prior["principal"] != principal
+                    or prior["host_key_sha256"] != pinned.node.host_key_sha256
+                    or prior["command"] != binding or prior["command_sha256"] != digest):
+                raise PermissionError("deployment request ID binding mismatch")
+            return {"node": node, "request_id": request_id, "application": application,
+                    "status": prior["state"]}
+        expiry = (_now() + timedelta(seconds=120)).isoformat()
+        self.ledger.reserve_deployment(
+            request_id=request_id, node=node, application=application,
+            revision=pinned_revision, principal=principal,
+            host_key_sha256=pinned.node.host_key_sha256, expires_at=expiry)
+        self._current_eligibility(node)
+        if not self.ledger.claim_dispatch(request_id):
+            return {"node": node, "request_id": request_id, "application": application,
+                    "status": self.ledger.get(request_id)["state"]}
+        try:
+            response = pinned.invoke({"operation": "deployment_run", "node": node,
+                                      "request_id": request_id, "application": application,
+                                      "expected_revision": pinned_revision})
+            result = response.get("result") if type(response) is dict else None
+            if (type(response) is not dict or response.get("node") != node
+                    or response.get("request_id") != request_id
+                    or type(result) is not dict or result.get("application") != application
+                    or result.get("request_id") != request_id
+                    or result.get("revision") != pinned_revision
+                    or result.get("state") not in {"accepted", "running", "succeeded", "failed", "uncertain"}):
+                raise PermissionError("uncorrelated deployment acknowledgement")
+        except (OSError, ValueError, RuntimeError, PermissionError, subprocess.SubprocessError):
+            # The request might have reached the node; never retry the claim.
+            self.ledger.mark_dispatched(request_id, confirmed=False)
+            return {"node": node, "request_id": request_id, "application": application,
+                    "status": "uncertain"}
+        self.ledger.mark_dispatched(request_id, confirmed=True)
+        if result["state"] in {"succeeded", "failed"}:
+            self.ledger.record_result_state(request_id, result["state"])
+        return {"node": node, "request_id": request_id, "application": application,
+                "status": result["state"], "result": result}
 
     def _owned(self, principal, request_id):
         self._allow(principal)
