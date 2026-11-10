@@ -43,6 +43,8 @@ class ExecutorOptInBoundaryTests(unittest.TestCase):
         self.assertIn("exclusive: false", recipe)
         self.assertIn("Reject executor public key collision with any unrestricted existing key", recipe)
         self.assertIn("os.O_NOFOLLOW", recipe)
+        self.assertIn('- "{{ getent_passwd[gway_remote_runner_user][4] }}/.ssh/authorized_keys"', recipe)
+        self.assertIn('- "{{ gway_remote_exec_public_key }}"', recipe)
         self.assertLess(recipe.index("Reject executor public key collision with any unrestricted existing key"),
                         recipe.index("Install dedicated restricted executor key for installer"))
         self.assertIn("manage_dir: false", recipe)
