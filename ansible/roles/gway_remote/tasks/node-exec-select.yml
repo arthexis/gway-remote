@@ -211,7 +211,7 @@
           - /etc/ssh/sshd_config.d/40-gway-exec-relay.conf
           - "{{ exec_relay_sshd_original.content }}"
           - "0644"
-          - -
+          - '-'
       no_log: true
       when: exec_relay_files.results[0].stat.exists | default(false)
     - name: Restore previous executor identity configuration
@@ -223,7 +223,7 @@
           - /etc/gway-remote/executor-identity.json
           - "{{ exec_identity_original.content }}"
           - "0644"
-          - -
+          - '-'
       no_log: true
       when: exec_identity_old.stat.exists | default(false)
     - name: Remove newly created executor identity configuration on rollback
