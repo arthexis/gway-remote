@@ -8,6 +8,7 @@ import json
 import os
 import re
 import socket
+import subprocess
 import sys
 
 from .node_exec_worker import Jobs, configured_max_active, require_account, validate_request_id
@@ -44,12 +45,29 @@ def serve_one(raw, *, jobs=None, hostname=None):
         raise PermissionError("unapproved node")
     rid = validate_request_id(req["request_id"])
     if op == "file_read":
-        from .node_file_export import export_chunk
-        # The directory is a fixed operator-provisioned location, never RPC input.
-        result = export_chunk(req["filename"],
-                              export_root="/var/lib/gway-mcp-exports",
-                              offset=req["offset"])
-        return {"node": host, "request_id": rid, "result": result}
+        # Preserve the operator executor identity for all existing operations.
+        # Only the exact, sudoers-pinned reader crosses into gway-exec.
+        if host != "gway-001":
+            raise PermissionError("file export not provisioned for node")
+        payload = json.dumps({"node": host, "request_id": rid,
+                              "filename": req["filename"], "offset": req["offset"]},
+                             separators=(",", ":")).encode("utf-8")
+        argv = ["/usr/bin/sudo", "-n", "-u", "gway-exec",
+                "/usr/bin/env", "PYTHONPATH=/opt/gway-remote",
+                "/usr/bin/python3", "-m", "gway_remote.node_file_reader"]
+        try:
+            completed = subprocess.run(argv, input=payload, capture_output=True,
+                                       check=True, timeout=5)
+        except (OSError, subprocess.SubprocessError):
+            raise PermissionError("file reader unavailable") from None
+        if len(completed.stdout) > 16384:
+            raise PermissionError("file reader response too large")
+        response = json.loads(completed.stdout)
+        if (type(response) is not dict or set(response) != {"node", "request_id", "result"}
+                or response["node"] != host or response["request_id"] != rid
+                or type(response["result"]) is not dict):
+            raise PermissionError("uncorrelated file reader response")
+        return response
     if op in ("provider_list", "provider_call"):
         from .mcp_node_providers import dispatch_node_provider_request
         from .mcp_installed_providers import discover_installed_providers
