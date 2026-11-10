@@ -28,6 +28,13 @@
     fail_msg: Existing bridge key must be a gateway-owned regular 0600 file
   when: bridge_key.stat.exists
 
+- name: Require pre-existing bridge key for gateway activation
+  ansible.builtin.assert:
+    that:
+      - bridge_key.stat.exists
+    fail_msg: Existing private bridge key unavailable; refusing to create credentials or activate bridge.
+  when: gway_mcp_bridge_enable | default(false) | bool
+
 - name: Generate private bridge key once
   ansible.builtin.command:
     argv:
@@ -59,6 +66,7 @@
       GWAY_MCP_BRIDGE_ENABLED={{ '1' if gway_mcp_bridge_enable | default(false) | bool else '0' }}
       GWAY_MCP_BRIDGE_KEY_FILE=/etc/gway-mcp/bridge/key
       GWAY_MCP_BRIDGE_SOCKET=/run/gway-mcp-bridge/bridge.sock
+  register: bridge_gateway_env
 
 - name: Prepare bridge socket directory
   ansible.builtin.file:
