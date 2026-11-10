@@ -7,7 +7,7 @@ from .mcp_bridge_sessions import BridgeSessions
 from .mcp_bridge_server import serve_managed_sessions
 
 
-def start_bridge(verifier, execution=None):
+def start_bridge(verifier, execution=None, *, read_transport=None):
     if os.environ.get("GWAY_MCP_BRIDGE_ENABLED") != "1":
         return None
     key_file = Path(os.environ["GWAY_MCP_BRIDGE_KEY_FILE"])
@@ -37,7 +37,7 @@ def start_bridge(verifier, execution=None):
     sessions = BridgeSessions(
         verifier=verifier, execution=execution,
         allowed_node=lambda token, node: node == "gway-001",
-        read_principal=principal)
+        read_principal=principal, read_transport=read_transport)
     service = serve_managed_sessions(
         socket_path, key=key, audience="gway-001", sessions=sessions)
     thread = threading.Thread(target=service.serve_forever, daemon=True)
