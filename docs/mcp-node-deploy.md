@@ -42,37 +42,36 @@ separate verified atomic SSH/sudoers/identity compensation path.
 
 ## Read-only workspace inspection (integration #538)
 
-`workspace_inspect` is mapped to `workspace.inspect` with `gway:read` in
-the authenticated, signed bridge envelope. Only `node` and `repository`
-are accepted as arguments; clients cannot supply a checkout path, command or
-environment. Watchtower must use a **separate, pinned read transport**; it
-cannot silently reuse its execute transport. Request ID, node, repository and
-signed reply are checked before returning a result.
+`workspace_inspect` maps to `workspace.inspect` with the existing
+`gway:read` OAuth scope and authenticated bridge envelope. Like federated
+`provider_read_call` and `file.read`, it uses the **same already configured
+Watchtower→node pinned SSH transport** (`execution.relay.transport`).
+It does not need a new SSH account, private key, bearer credential, approval,
+transport selector, or independent read session. The application operation
+determines whether a call is read-only; no SSH identity is switched by scope.
 
-The node-side `GWAY_WORKSPACE_INSPECT_CONFIG` must independently permit the
-repository and map it to an absolute local checkout. Missing/unsafe
-configuration, missing pinned read transport, wrong node, stale/forged reply or
-SSH failure is rejected without fallback to an arbitrary local directory or
-shell. The startup interfaces accept an explicitly injected
-`read_transport`; the current gateway `main()` does **not** provision that
-transport or a separate read-only SSH credential. Therefore **workspace
-inspection remains unavailable in the default production bootstrap**.
-Acceptance of offline wiring and security tests is not evidence of a live
-read-enabled node.
+The gateway verifies the existing OAuth bearer and node authorization before
+dispatch; the node protocol accepts only `node`, `repository` and a
+server-generated correlated request ID for this operation. It never accepts
+caller-provided checkout paths or arbitrary commands. The node-local
+`GWAY_WORKSPACE_INSPECT_CONFIG` allowlist independently restricts repositories
+to trusted local checkout paths. Missing transport, disabled execute-service
+transport initialization, unsafe/missing allowlist, wrong node, forged reply or
+SSH failure fails closed. This uses an *existing internal transport*, not an
+additional user approval.
 
-The existing `node_file_download`/`file.read` contract is independent:
-its fixed reader, correlated replies and node-local sudo isolation remain
-unchanged by this integration.
+The gateway must never impersonate a node by using a Watchtower-local
+workspace environment fallback. Existing `node_file_download`/`file.read`
+reader isolation, limits and correlation are unchanged.
 
 ## Rollout and acceptance boundary
 
-No node installation, privilege migration, Watchtower configuration, release
-activation, or application deployment is performed by accepting this PR.
-Before production use, independently provision and attest the read-only SSH
-identity, configure the node allowlist, validate provider manifests and
-deployed receipts, then verify actual end-to-end results. Do not activate
-`workspace_inspect` by reusing execute SSH credentials or local workspace
-environment variables.
+No node installation, new credential, privilege migration, Watchtower service
+restart, release activation, or application deployment is performed by merging
+this code. An already configured and attested node SSH relay can be used by
+`workspace_inspect`; live operation additionally requires the node-local
+allowlist to be present. Offline CI alone does not prove that allowlist or
+node runtime exists. Do not enable access to new nodes implicitly.
 
 For `arthexis/odoo-gelectriic`, deployment remains repository-owned and
 independent of this broker. A future trusted, root-owned installed-release
