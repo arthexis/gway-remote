@@ -102,3 +102,51 @@ pilot is a design placeholder; no production path is asserted. Ansible
 provisioning and authenticated operator binding are not yet approved.
 This adapter does not publish an installed receipt or authorize a remote
 request. Its output is not a substitute for independent release proof.
+
+
+## Issue #540 — target contract and fail-closed migration gate
+
+**Status: design only; repository deployment remains disabled.** The
+existing PR #539 broker/registry/adapter still requires and transports
+a SHA; this is **not** the approved final API. Do not activate the node
+handler, advertise eligibility or deploy these components until every
+layer is migrated together and covered by negative tests.
+
+Target authenticated API: `deploy(repository, node, request_id)`.
+The principal comes from the trusted session, not a client field.
+Watchtower authorizes principal/repository/node and current node
+attestation, pins transport, reserves the request ID durably, and sends
+only repository/node/request ID. Neither GitHub SHA resolution nor a
+caller-supplied checkout path is an authorization requirement.
+
+The node independently checks the authenticated binding and root-owned
+registration, claims the same request ID durably, and invokes the
+repository-owned `deploy.sh` **without arguments** as its configured
+non-root operator. The checkout updater is a separate actor; it must
+coordinate with the deploy lock or provide an immutable snapshot.
+No remote Git operations or SHA-based cancellation are permitted inside
+the deployment path. The SHA and manifest digest are captured from
+the **verified installed release**, after completion, as evidence.
+
+Odoo's `deploy.sh` PR #47 implements up to three consecutive
+`flock -w 60` attempts, totaling up to 180 seconds waiting. The
+node adapter currently has a 900-second subprocess timeout, sufficient
+for 180 seconds of lock waiting plus up to 720 seconds of Ansible and
+verification, **but not an unconditional guarantee** if Ansible exceeds
+that remaining budget. A future synchronous dispatcher must budget
+the lock wait plus its verified maximum Ansible runtime and overhead;
+an asynchronous dispatcher may acknowledge promptly and expose durable
+status instead. The existing 15-second SSH transport timeout is for
+the current *acknowledgement* protocol, not permission to kill a running
+deployment. On ambiguous transport delivery, mark unknown and never
+redispatch automatically.
+
+Migration acceptance: remove SHA from broker reservation identity,
+registry argv, transport schema, node protocol, node ledger and fixed
+adapter together; preserve principal and request-ID non-rebinding,
+node attestation, protected registration, fail-closed operation and
+atomic installed-release verification. Test request-ID reuse, forged
+node/principal, missing recipe, malformed envelopes, uncertain
+delivery, lock contention, timeout budget, receipt authenticity and
+no-redispatch. Keep PR #538 independent. No production activation,
+credentials/ACL changes, merges or deployment as part of this design.
