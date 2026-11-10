@@ -48,6 +48,21 @@ class PilotExecutorSelectionTests(unittest.TestCase):
         self.assertIn("Restore previous restricted relay sudoers", select)
         self.assertIn("Restore previous executor identity configuration", select)
 
+    def test_file_reader_sudo_is_exact_and_only_for_pilot(self):
+        select = SELECT.read_text()
+        self.assertIn("Permit only the isolated file reader as gway-exec", select)
+        self.assertIn("arthe ALL=(gway-exec) NOPASSWD: /usr/bin/env PYTHONPATH=/opt/gway-remote /usr/bin/python3 -m gway_remote.node_file_reader", select)
+        self.assertIn("validate: /usr/sbin/visudo -cf %s", select)
+        self.assertIn("Reject unsafe pre-existing file reader policy", select)
+        self.assertIn("Restore previous isolated file reader policy", select)
+        self.assertIn("Remove newly installed isolated file reader policy after failure", select)
+        self.assertLess(select.index("Permit only the isolated file reader as gway-exec"),
+                        select.index("Update restricted SSH ForceCommand"))
+        grant = select.split("    - name: Permit only the isolated file reader as gway-exec", 1)[1]
+        grant = grant.split("\\n    - name:", 1)[0]
+        self.assertIn("(ansible_hostname | default('')) == 'gway-001'", grant)
+        self.assertIn("gway_remote_exec_run_user == 'arthe'", grant)
+
     @unittest.skipUnless(shutil.which("ansible-inventory"), "Ansible not installed")
     def test_effective_hostvars_are_limited_to_gway_001(self):
         for node in ("gway-001", "gway-002", "gway-004", "gway-005"):
