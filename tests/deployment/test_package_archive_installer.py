@@ -84,7 +84,7 @@ class ArchiveInstallerTests(unittest.TestCase):
     def test_fast_path_uses_root_owned_identity_and_no_hardcoded_exec_user(self):
         script = (ROOT / "deploy.sh").read_text()
         self.assertIn("verify_node_worker_import()", script)
-        self.assertIn('verify_node_worker_import\n', script)
+        self.assertIn('verify_node_worker_import; then', script)
         self.assertIn('os.O_NOFOLLOW', script)
         self.assertIn('info.st_uid != 0 or info.st_mode & 0o022', script)
         self.assertIn('expected = "arthe" if sys.argv[1] == "gway-001" else "gway-exec"', script)
