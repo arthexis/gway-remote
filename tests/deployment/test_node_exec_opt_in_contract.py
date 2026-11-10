@@ -29,7 +29,10 @@ class ExecutorOptInBoundaryTests(unittest.TestCase):
         self.assertIn("argv: [/usr/bin/id, -u]", recipe)
         self.assertEqual(recipe.count("  become: false"), 2)
         self.assertIn("executor-identity.json", recipe)
-        self.assertIn("gway_remote_exec_identity_record.content | b64decode | from_json", recipe)
+        self.assertIn('"(gway_remote_exec_identity_record.content | b64decode | from_json) == {\'user\': gway_remote_runner_user}"', recipe)
+        # A bare YAML list item containing the dict colon is parsed as a mapping,
+        # which Ansible assert can treat as truthy instead of evaluating equality.
+        self.assertNotIn("      - (gway_remote_exec_identity_record.content | b64decode | from_json)", recipe)
         self.assertLess(recipe.index("Refuse installer mismatch with existing node worker identity"),
                         recipe.index("Install dedicated restricted executor key"))
         self.assertIn("gway_remote_runner_user != 'root'", recipe)
