@@ -1,5 +1,6 @@
 """Phase B read-only MCP provider doctor: no new runtime authority or writes."""
 import json
+import os
 from pathlib import Path
 import tempfile
 import unittest
@@ -136,9 +137,16 @@ class ProviderDoctorTests(unittest.TestCase):
             symlink.symlink_to(path)
             with self.assertRaisesRegex(ValueError, "invalid_catalog_file"):
                 load_watchtower_catalog(symlink)
-            path.write_text(json.dumps({"schema": 1, "count": 1, "tools": []}))
-            with self.assertRaisesRegex(ValueError, "invalid_catalog_schema"):
-                load_watchtower_catalog(path)
+            for bad in ({"schema": 1, "count": 1, "tools": []},
+                        {"schema": True, "count": 0, "tools": []},
+                        {"schema": 1, "count": True, "tools": [{}]}):
+                path.write_text(json.dumps(bad))
+                with self.assertRaisesRegex(ValueError, "invalid_catalog_schema"):
+                    load_watchtower_catalog(path)
+            fifo = Path(temp) / "catalog.fifo"
+            os.mkfifo(fifo)
+            with self.assertRaisesRegex(ValueError, "invalid_catalog_file"):
+                load_watchtower_catalog(fifo)
             path.write_bytes(b"x" * 262145)
             with self.assertRaisesRegex(ValueError, "invalid_catalog_file"):
                 load_watchtower_catalog(path)
