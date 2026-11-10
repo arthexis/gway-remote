@@ -126,4 +126,38 @@ if timeout 6 ssh $ssh_opts -W 127.0.0.1:22228 installer@127.0.0.1 \
   echo "Restricted key allowed TCP forwarding" >&2; exit 1
 fi
 grep -Eiq 'administratively prohibited|open failed' "$work/forward.log"
-echo "PASS: disposable Ansible identity, authorized_keys, idempotence, SSH shell/PTY/forwarding negatives"
+# Execute only the bounded limits/read-only path and local SQLite state under
+# the same fake installer UID. Never submit a job or start systemd.
+runuser -u installer -- env PYTHONPATH=/repo /usr/bin/python3 - <<'PY'
+import json
+from pathlib import Path
+import tempfile
+from gway_remote import node_exec_protocol, node_exec_worker
+
+request = {"operation": "limits", "node": "gway-001", "request_id": "a" * 32}
+result = node_exec_protocol.serve_one(json.dumps(request).encode(), hostname="gway-001")
+assert result["node"] == "gway-001"
+assert 1 <= result["concurrent_jobs_per_node"] <= 8
+
+with tempfile.TemporaryDirectory() as temporary:
+    directory = Path(temporary) / "private"
+    directory.mkdir(mode=0o700)
+    database = directory / "jobs.sqlite3"
+    first = node_exec_worker.Jobs(database, max_active=1)
+    with first.connection() as connection:
+        connection.execute(
+            "INSERT INTO jobs (id,node,command,status,created_at) VALUES (?,?,?,?,?)",
+            ("b" * 32, "gway-001", "true", "queued", "2026-01-01T00:00:00+00:00"),
+        )
+    restarted = node_exec_worker.Jobs(database, max_active=1)
+    assert restarted.row("b" * 32)["status"] == "queued"
+    assert database.stat().st_mode & 0o077 == 0
+
+try:
+    node_exec_worker.user_manager_env()
+except RuntimeError as error:
+    assert "user manager unavailable" in str(error)
+else:
+    raise AssertionError("systemd user-bus absence must fail closed")
+PY
+echo "PASS: disposable Ansible, OpenSSH negatives, UID-bound limits, SQLite restart and absent systemd user bus"
