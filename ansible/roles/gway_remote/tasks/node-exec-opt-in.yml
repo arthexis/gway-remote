@@ -37,6 +37,14 @@
       - ((gway_remote_exec_ssh_dir.stat.mode | int(base=8)) % 8) == 0
       - (((gway_remote_exec_ssh_dir.stat.mode | int(base=8)) // 8) % 8) == 0
 
+- name: Ensure root-owned libexec directory exists before installing forced command
+  ansible.builtin.file:
+    path: /usr/local/libexec
+    state: directory
+    owner: root
+    group: root
+    mode: '0755'
+
 - name: Install reviewed fixed-command entrypoint only during explicit opt-in
   ansible.builtin.copy:
     src: "{{ playbook_dir }}/../scripts/node-exec-forced-command.py"
