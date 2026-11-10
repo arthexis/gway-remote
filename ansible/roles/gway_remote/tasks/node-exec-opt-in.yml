@@ -34,7 +34,8 @@
       - not (gway_remote_exec_ssh_dir.stat.islnk | default(false))
       - gway_remote_exec_ssh_dir.stat.pw_name == gway_remote_runner_user
       - (getent_passwd[gway_remote_runner_user][1] | int) == (gway_remote_runner_uid | int)
-      - (gway_remote_exec_ssh_dir.stat.mode | int(base=8)) % 8 == 0
+      - ((gway_remote_exec_ssh_dir.stat.mode | int(base=8)) % 8) == 0
+      - (((gway_remote_exec_ssh_dir.stat.mode | int(base=8)) // 8) % 8) == 0
 
 - name: Install reviewed fixed-command entrypoint only during explicit opt-in
   ansible.builtin.copy:
