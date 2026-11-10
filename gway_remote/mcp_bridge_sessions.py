@@ -15,7 +15,7 @@ from .mcp_bridge_session import SessionBridgeDispatch
 
 class BridgeSessions:
     def __init__(self, *, verifier, allowed_node, read_principal, execution=None,
-                 inventory=None, max_sessions=128, lifetime=300):
+                 inventory=None, read_transport=None, max_sessions=128, lifetime=300):
         if not 1 <= max_sessions <= 1024 or not 1 <= lifetime <= 3600:
             raise ValueError("invalid session limits")
         self.verifier = verifier
@@ -23,6 +23,7 @@ class BridgeSessions:
         self.read_principal = read_principal
         self.execution = execution
         self.inventory = inventory
+        self.read_transport = read_transport
         self.max_sessions = max_sessions
         self.lifetime = lifetime
         self.sessions = {}
@@ -46,7 +47,8 @@ class BridgeSessions:
             dispatch = SessionBridgeDispatch(
                 verifier=self.verifier, session_token=token,
                 allowed_node=self.allowed_node, read_principal=self.read_principal,
-                execution=self.execution, inventory=self.inventory)
+                execution=self.execution, inventory=self.inventory,
+                read_transport=self.read_transport)
             self.sessions[sid] = (now + self.lifetime, audience, dispatch)
             return sid
 
