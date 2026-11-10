@@ -36,6 +36,35 @@ class LegacyDeployRetirementTests(unittest.TestCase):
         self.assertIn('{"user": {{ gway_remote_exec_run_user | to_json }}}', select)
         self.assertIn("gway-relay ALL=({{ gway_remote_exec_run_user }})", select)
 
+    def test_executor_cutover_has_ordered_rollback_for_relay_and_policy(self):
+        select = SELECT.read_text()
+        activation = select.split("- name: Activate selected execution identity", 1)[1]
+        forward, recovery = activation.split("  rescue:", 1)
+        self.assertIn("Install root-controlled selected executor identity", forward)
+        self.assertIn("Verify both live relay policies point to the selected executor", forward)
+        self.assertIn("Validate full sshd configuration", forward)
+        self.assertIn("Verify selected executor can import the installed worker", forward)
+        for step in (
+            "Restore previous restricted relay sudoers",
+            "Restore original forced-command SSH configuration",
+            "Restore previous executor identity configuration",
+            "Remove newly created executor identity configuration on rollback",
+            "Recheck restored SSH/sudoers identity agreement after rollback",
+            "Validate SSH after rollback",
+            "Reload SSH after restoring original forced-command identity",
+        ):
+            self.assertIn(step, recovery)
+        self.assertIn("exec_identity_original.content | b64decode", recovery)
+        self.assertIn("exec_relay_sudo_original.content | b64decode", recovery)
+        self.assertIn("exec_relay_sshd_original.content | b64decode", recovery)
+
+    def test_general_release_rollback_is_not_yet_implemented(self):
+        # Document the acceptance gap, not a fictitious rollback guarantee.
+        deploy = (ROOT / "deploy.sh").read_text()
+        self.assertIn('ansible-playbook "$ROOT/ansible/playbook.yml"', deploy)
+        self.assertIn('mv -f "$tmp" "$marker"', deploy)
+        self.assertNotIn("rollback-release.yml", deploy)
+
     def test_private_receipts_and_worker_share_selected_identity(self):
         role = ROLE.read_text()
         main = MAIN.read_text()
