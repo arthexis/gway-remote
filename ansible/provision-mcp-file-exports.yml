@@ -1,0 +1,22 @@
+---
+# Operator-invoked only. Never run as part of MCP file reads.
+# This directory is intentionally private to the forced-command account.
+- name: Provision bounded MCP export directory
+  hosts: gway_nodes
+  become: true
+  gather_facts: false
+  tasks:
+    - name: Verify dedicated executor account exists
+      ansible.builtin.getent:
+        database: passwd
+        key: gway-exec
+
+    - name: Create private export root without traversable parent symlink
+      ansible.builtin.file:
+        path: /var/lib/gway-mcp-exports
+        state: directory
+        owner: gway-exec
+        group: gway-exec
+        mode: "0700"
+        follow: false
+      # The node reader also uses O_NOFOLLOW on the directory and file.
