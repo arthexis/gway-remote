@@ -48,7 +48,7 @@
       - gway_remote_exec_entrypoint.stat.isreg | default(false)
       - not (gway_remote_exec_entrypoint.stat.islnk | default(false))
       - gway_remote_exec_entrypoint.stat.pw_name == 'root'
-      - (gway_remote_exec_entrypoint.stat.mode | int(base=8)) % 8 == 5
+      - gway_remote_exec_entrypoint.stat.mode == '0755'
     fail_msg: Forced-command executable unavailable or unsafe
 
 # Key-specific forced command; administrative SSH keys remain untouched.
