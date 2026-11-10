@@ -23,7 +23,7 @@ def load_service(path=CONFIG):
     if type(config) is not dict or config.get("enabled") is not True:
         raise ValueError("execution not enabled by operator configuration")
     fields = {"node", "address", "ssh_host_alias", "known_hosts",
-              "identity_file", "host_key_sha256", "remote_user"}
+              "identity_file", "host_key_sha256", "installer_user"}
     if set(config) == fields | {"enabled"}:
         entries = [{key: config[key] for key in fields}]
     elif set(config) == {"enabled", "nodes"} and type(config["nodes"]) is list:
@@ -53,7 +53,7 @@ def load_service(path=CONFIG):
                           known_hosts=Path(entry["known_hosts"]),
                           identity_file=Path(entry["identity_file"]),
                           host_key_sha256=entry["host_key_sha256"],
-                          remote_user=entry["remote_user"])
+                          installer_user=entry["installer_user"])
         if node.ssh_host_alias != name:
             raise PermissionError("SSH host alias must match enrolled node")
         transports[name] = SSHTransport(node)
