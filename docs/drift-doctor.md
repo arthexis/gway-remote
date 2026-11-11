@@ -45,8 +45,10 @@ The standalone `doctor` command is distinct from the existing
   `/etc/gway-mcp-providers` discovery contract. Report only source names,
   declared revisions and historical deployment receipt status via the
   existing read-only broker `status`. `receipt=succeeded` is not an
-  installed revision or a fresh working node result. Unknown or inaccessible
-  manifests remain unknown; do not create a secondary provider registry.
+  installed revision or a fresh working node result. An empty or missing
+  registry is `PROVIDER_REGISTRY_EMPTY` (unknown, not validated).
+  Unknown or inaccessible manifests remain unknown; do not create a secondary
+  provider registry.
 - **systemd:** Run only fixed read-only `systemctl show` queries against
   approved service names. For gway-001, inspect the existing user MCP service
   only under the `arthe` identity; for a candidate pre-provisioned
@@ -60,8 +62,12 @@ The standalone `doctor` command is distinct from the existing
   systemd `active` result does **not** prove healthy runtime or SHA.
 - **Reactivation and missing safety rules:** Inspect only four pinned,
   checked-in Ansible YAML files from the operator-selected Git HEAD. A
-  bounded static scan flags explicit systemd tasks that start/enable known
-  retired unit names as `DRIFT_REACTIVATION_RULE`. It also verifies the
+  bounded static scan inspects the **actual systemd module target** rather
+  than the title of an Ansible task or an unrelated mention of a retired
+  unit. Explicit start/enable actions are `DRIFT_REACTIVATION_RULE`;
+  templated loop targets that may select retired units are
+  `SOURCE_RULES_UNKNOWN`, not proven drift or proof of absence.
+  It also verifies the
   reviewed GitHub Health timer install/enable/disable recipe, the retirement
   guard for `gway-remote-deploy.service`, and preprovisioned Watchtower
   MCP units. Missing fixed guards produce `MISSING_DECLARED_RULE` with a
