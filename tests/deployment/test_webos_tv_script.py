@@ -83,7 +83,7 @@ class WebOSDeployScriptTests(unittest.TestCase):
         (state / "auto-deployed-sha").write_text(SHA + "\n")  # Old misleading receipt.
         result = run(script, env)
         assert result.returncode == 0, result.stderr
-        assert "TV offline" in result.stdout
+        assert "TV power/network unavailable" in result.stdout
         assert not (state / "tv-installed-sha").exists()
         assert (tmp_path / "calls").read_text().splitlines() == [
             "node:" + SHA, "tv:scripts/auto-tv-deploy.py --require-online"]
@@ -129,7 +129,7 @@ class WebOSDeployScriptTests(unittest.TestCase):
         assert not (self.temp_path / "calls").exists()
 
     def test_timer_and_trigger_contract_are_scoped_to_gway001(self):
-        root = SOURCE.parents[2]
+        root = SOURCE.parents[1]
         service = (root / "deploy/systemd/gway-webos-auto-deploy.service").read_text()
         timer = (root / "deploy/systemd/gway-webos-auto-deploy.timer").read_text()
         workflow = (root / ".github/workflows/webos-tv-deploy.yml").read_text()
