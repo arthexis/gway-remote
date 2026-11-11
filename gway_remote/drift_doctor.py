@@ -34,6 +34,8 @@ _ORIGINS = ("https://github.com/arthexis/gway-remote",
 _MAX_INVENTORY = 65536
 _MAX_MANIFEST = 262144
 _MAX_SOURCE = 131072
+_MAX_RELEASE_FILE = 262144
+_MAX_RELEASE_TOTAL = 8 * 1024 * 1024
 _RELEASE = Path("/opt/gway-mcp")
 
 
@@ -232,9 +234,9 @@ def _missing_required_rules(sources):
 
 
 def _release_observation(root=_RELEASE, *, reader=_owned_bytes, owner=0):
-    """Observe selected MCP pointer and partial immutable manifest integrity.
+    """Check selected pointer and every bounded, manifest-listed file.
 
-    Checks selected revision + launcher hash, not service health or all files.
+    Does not prove runtime process mapping, OAuth health, or unlisted files.
     """
     unknown = {"state": "unknown", "selected_sha": None, "evidence": "not_verified"}
     root = Path(root)
@@ -257,8 +259,14 @@ def _release_observation(root=_RELEASE, *, reader=_owned_bytes, owner=0):
         if (not stat.S_ISDIR(meta.st_mode) or meta.st_uid != owner
                 or meta.st_mode & 0o022 or release.is_symlink()):
             return {"state": "invalid", "selected_sha": None, "evidence": "unsafe_release"}
+        def unique_object(pairs):
+            result = dict(pairs)
+            if len(result) != len(pairs):
+                raise ValueError("duplicate_manifest_key")
+            return result
         manifest = json.loads(reader(release / "manifest.json",
-                                     maximum=_MAX_MANIFEST, owner=owner))
+                                     maximum=_MAX_MANIFEST, owner=owner),
+                              object_pairs_hook=unique_object)
         if (type(manifest) is not dict or set(manifest) != {"revision", "sha256"}
                 or manifest["revision"] != sha
                 or type(manifest["sha256"]) is not dict
@@ -267,11 +275,40 @@ def _release_observation(root=_RELEASE, *, reader=_owned_bytes, owner=0):
                 or not all(type(k) is str and type(v) is str
                            and _HASH.fullmatch(v) for k,v in manifest["sha256"].items())):
             return {"state": "invalid", "selected_sha": None, "evidence": "invalid_manifest"}
-        run = reader(release / "run.py", maximum=65536, owner=owner)
-        if hashlib.sha256(run).hexdigest() != manifest["sha256"]["run.py"]:
-            return {"state": "invalid", "selected_sha": None, "evidence": "launcher_digest_mismatch"}
-        return {"state": "selected_partial_verified", "selected_sha": sha,
-                "evidence": "root_owned_pointer_manifest_launcher"}
+        total = 0
+        for name, digest in sorted(manifest["sha256"].items()):
+            # Fixed release layout emitted by the already-approved stager.
+            parts = Path(name).parts
+            if (not 0 < len(name) <= 240 or Path(name).is_absolute()
+                    or Path(name).as_posix() != name
+                    or any(part in (".", "..") or not re.fullmatch(
+                        r"[A-Za-z0-9_.-]+", part) for part in parts)
+                    or not (name == "run.py" or
+                            name.startswith(("gway_remote/", "deploy/mcp-bearer/")))):
+                return {"state": "invalid", "selected_sha": None,
+                        "evidence": "invalid_manifest"}
+            for level in range(1, len(parts)):
+                parent = release.joinpath(*parts[:level])
+                info = parent.lstat()
+                if (not stat.S_ISDIR(info.st_mode) or info.st_uid != owner
+                        or info.st_mode & 0o022 or parent.is_symlink()):
+                    return {"state": "invalid", "selected_sha": None,
+                            "evidence": "unsafe_release_path"}
+            try:
+                data = reader(release / name, maximum=_MAX_RELEASE_FILE, owner=owner)
+            except FileNotFoundError:
+                return {"state": "invalid", "selected_sha": None,
+                        "evidence": "manifest_file_missing"}
+            total += len(data)
+            if total > _MAX_RELEASE_TOTAL:
+                return {"state": "unknown", "selected_sha": None,
+                        "evidence": "release_size_limit"}
+            if hashlib.sha256(data).hexdigest() != digest:
+                return {"state": "invalid", "selected_sha": None,
+                        "evidence": ("launcher_digest_mismatch" if name == "run.py"
+                                     else "manifest_content_mismatch")}
+        return {"state": "selected_manifest_verified", "selected_sha": sha,
+                "evidence": "root_owned_manifest_file_digests"}
     except FileNotFoundError:
         return unknown
     except (OSError, ValueError, UnicodeError, TypeError, KeyError, PermissionError):
