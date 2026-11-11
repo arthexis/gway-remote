@@ -183,10 +183,10 @@ class DriftDoctorTests(unittest.TestCase):
             args = []
             def runner(argv, **kwargs):
                 args.append(argv)
-                if argv[-1] == "HEAD":
-                    answer = SHA + "\n"
-                elif argv[-1] == "main":
+                if "symbolic-ref" in argv:
                     answer = "main\n"
+                elif "rev-parse" in argv:
+                    answer = SHA + "\n"
                 elif argv[-1] == "origin":
                     answer = "https://github.com/arthexis/gway-remote.git\n"
                 elif argv[-1] == "HEAD:ansible/inventory/deployment.yml":
@@ -207,10 +207,10 @@ class DriftDoctorTests(unittest.TestCase):
     def test_git_untrusted_origin_or_detached_head_unknown(self):
         with tempfile.TemporaryDirectory() as temp:
             def run(argv, **kwargs):
-                if argv[-1] == "HEAD":
+                if "rev-parse" in argv:
                     answer = SHA
-                elif argv[-1] == "main":
-                    answer = "dev"
+                elif "symbolic-ref" in argv:
+                    answer = "main"
                 else:
                     answer = "https://example.com/secret-token.git"
                 return subprocess.CompletedProcess(argv, 0, answer.encode(), b"")
