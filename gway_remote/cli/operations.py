@@ -48,7 +48,7 @@ def dispatch(args, parser):
         try:
             report = doctor(checkout=args.checkout)
         except (OSError, ValueError, RuntimeError, TypeError):
-            parser.exit(2, "gway-remote: drift evidence unavailable\\n")
+            parser.exit(2, "gway-remote: drift evidence unavailable\n")
         print(json.dumps(report, indent=2, sort_keys=True)
               if args.json else format_report(report))
         if report["result"]["state"] == "drift_detected":
