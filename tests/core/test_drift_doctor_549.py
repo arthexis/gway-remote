@@ -100,6 +100,34 @@ class DriftDoctorTests(unittest.TestCase):
         self.assertNotIn("rm -", json.dumps(result))
         self.assertNotIn("systemctl disable", json.dumps(result))
 
+    def test_specific_retired_and_required_units_emit_stable_targets(self):
+        data = services(active=True)
+        data["current"]["gway-remote-mcp.service"] = unit(active="failed",
+                                                           enablement="enabled")
+        result = d.classify(source(), inventory(), release(), providers(), data)
+        self.assertEqual(result["state"], "drift_detected")
+        pairs = {(r["code"], r.get("target")) for r in result["findings"]}
+        self.assertIn(("DRIFT_RETIRED_UNIT", "gway-remote-watch.timer"), pairs)
+        self.assertIn(("DRIFT_REQUIRED_UNIT_INACTIVE", "gway-remote-mcp.service"), pairs)
+        self.assertIn("gway-remote-watch.timer", d.format_report(
+            {"source": source(), "inventory": inventory(), "release": release(),
+             "providers": providers(), "result": result}))
+        data["role"] = "watchtower_candidate"
+        data["current"] = {"gway-mcp-gateway.service": unit(active="active"),
+                           "gway-mcp-link.service": unit(active="active",
+                                                         enablement="enabled")}
+        result = d.classify(source(), inventory(), release(), providers(), data)
+        self.assertIn(("DRIFT_REQUIRED_UNIT_DISABLED", "gway-mcp-gateway.service"),
+                      {(r["code"], r.get("target")) for r in result["findings"]})
+        data["role"] = "unknown"
+        data["current"] = {}
+        result = d.classify(source(), inventory(), release(), providers(), data)
+        self.assertIn("SERVICE_UNKNOWN", {r["code"] for r in result["findings"]})
+        self.assertEqual(result["state"], "drift_detected")  # retired unit still active
+        data["retired"] = {k: unit() for k in d._RETIRED}
+        result = d.classify(source(), inventory(), release(), providers(), data)
+        self.assertEqual(result["state"], "incomplete")
+
     def test_missing_required_service_and_invalid_manifest_fail_closed(self):
         service = services()
         service["current"]["gway-remote-mcp.service"] = unit(load="not-found")
