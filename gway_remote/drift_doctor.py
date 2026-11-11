@@ -72,6 +72,7 @@ def _finding(code, *, status="unknown", evidence="not_verified", target=None):
     # Only fixed, non-sensitive unit identifiers may appear in findings.
     if target is not None:
         if target not in _RETIRED + ("gway-remote-mcp.service",
+                                     "gway-remote-health.timer",
                                      "gway-mcp-gateway.service", "gway-mcp-link.service"):
             raise ValueError("invalid_unit_target")
         row["target"] = target
