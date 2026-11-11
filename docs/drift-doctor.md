@@ -34,11 +34,12 @@ The standalone `doctor` command is distinct from the existing
   `local_checkout_only`. No automatic inventory replacement.
 - **MCP release:** The existing `/opt/gway-mcp/current` symlink must point
   exactly to `releases/<40-hex>`; the release and manifest must be trusted,
-  contain the matching revision, and the `run.py` digest must match the
-  immutable release manifest. State `selected_partial_verified` proves
-  only the selected pointer, release metadata and launcher digest; it does
-  **not** verify all release files, process code mapping, OAuth operation or
-  service health. If it differs from the **local** Git HEAD, report
+  contain the matching revision, and **each manifest-listed file** must
+  pass bounded path, ownership, size and SHA-256 checks, including `run.py`.
+  State `selected_manifest_verified` proves the selected pointer and the
+  manifest-listed bytes, **not** absence of unlisted files, process code
+  mapping, OAuth operation or service health. If it differs from the **local**
+  Git HEAD, report
   `DRIFT_RELEASE` with that evidence boundary.
 - **Provider manifests:** Reuse the sole node-owned, root-protected
   `/etc/gway-mcp-providers` discovery contract. Report only source names,
@@ -54,14 +55,20 @@ The standalone `doctor` command is distinct from the existing
   retired `gway-remote-watch.{timer,service}` and
   `gway-remote-deploy.service`; an active or enabled retired unit is
   `DRIFT_RETIRED_UNIT`. A missing unit in an identified role is
-  `MISSING_REQUIRED_UNIT`. A systemd `active` result does **not** prove
-  healthy runtime or SHA.
-- **Reactivation rules:** Inspect only four pinned, checked-in Ansible
-  YAML files from the operator-selected Git HEAD. A bounded static scan
-  flags explicit systemd tasks that start/enable known retired unit names as
-  `DRIFT_REACTIVATION_RULE`. Templated/included/dynamic tasks cannot be
-  fully proved absent by this scan; source correctness is `unknown` without
-  the operator checkout. **No Ansible task is executed.**
+  `MISSING_REQUIRED_UNIT`. A masked required unit is drift; a unit with
+  `LoadState=error` or inconclusive state stays `SERVICE_UNKNOWN`. A
+  systemd `active` result does **not** prove healthy runtime or SHA.
+- **Reactivation and missing safety rules:** Inspect only four pinned,
+  checked-in Ansible YAML files from the operator-selected Git HEAD. A
+  bounded static scan flags explicit systemd tasks that start/enable known
+  retired unit names as `DRIFT_REACTIVATION_RULE`. It also verifies the
+  reviewed GitHub Health timer install/enable/disable recipe, the retirement
+  guard for `gway-remote-deploy.service`, and preprovisioned Watchtower
+  MCP units. Missing fixed guards produce `MISSING_DECLARED_RULE` with a
+  sanitized unit name. This is **static recipe coverage**, not proof that a
+  runtime service was installed: alternate templates/dynamic includes
+  require operator review. Source correctness is `unknown` without the
+  operator checkout. **No Ansible task is executed.**
 
 ## Interpretation
 
