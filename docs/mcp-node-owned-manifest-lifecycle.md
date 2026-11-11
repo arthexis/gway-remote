@@ -24,6 +24,16 @@ silently reintroducing a stale registry. There is no replacement manifest
 writer inside Remote's deployment. The playbook continues to verify that
 the root-controlled installed provider directory is discoverable.
 
+A separate, **optional** writer also existed in
+`ansible/roles/gway_remote/tasks/mcp-source-provision.yml`: an explicit
+`gway_mcp_sources` opt-in staged `sources.json` and then used Ansible
+`copy` to publish each `<source_id>.json`. It too is now read-only with
+respect to provider manifests: compatibility policy staging and validation
+are preserved, but provider-manifest publication and directory creation
+were removed from this role. The existing `agentops.repositories` and
+`agentops.runtime.json` policy files are not provider registration
+manifests and are outside this change.
+
 The pinned legacy `sources.json` policy and its environment settings are
 retained for compatibility with older non-federated MCP backend paths;
 they are **not** an installation source of truth and **must not** recreate,
