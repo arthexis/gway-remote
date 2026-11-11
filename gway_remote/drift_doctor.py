@@ -59,6 +59,8 @@ _PROPOSALS = {
     "GIT_SOURCE_UNKNOWN": "verify_remote_main_independently",
     "INVENTORY_UNKNOWN": "inspect_local_inventory",
     "RELEASE_UNKNOWN": "inspect_local_release",
+    "PROVIDER_REGISTRY_EMPTY": "inspect_node_owned_provider_registry",
+    "DRIFT_REQUIRED_UNIT_MASKED": "review_masked_required_unit",
     "SERVICE_UNKNOWN": "check_systemd_with_existing_identity",
     "SOURCE_RULES_UNKNOWN": "review_local_git_checkout",
 }
@@ -319,6 +321,10 @@ def _providers(*, discover=discover_installed_providers, receipt=deployment_stat
     """Manifests are node authority. Receipts are historical, not active SHA."""
     try:
         regs = discover(INSTALL_DIR)
+        # The existing parser returns () both when the directory is missing
+        # and when it is empty. Neither proves provider registration complete.
+        if not regs:
+            return {"state": "empty_unverified", "providers": []}
         rows = []
         for item in regs:
             historical = "not_applicable"
@@ -420,12 +426,17 @@ def classify(source, inventory, release, providers, services):
     elif source["inventory_digest"] and source["inventory_digest"] != inventory["digest"]:
         add("DRIFT_INVENTORY", "drift", "local_checkout_only")
     if release["state"] == "invalid":
-        add("INVALID_RELEASE_EVIDENCE", "drift", release["evidence"])
-    elif release["state"] != "selected_partial_verified":
+        code = ("DRIFT_RELEASE_CONTENT" if release["evidence"] in (
+            "launcher_digest_mismatch", "manifest_content_mismatch",
+            "manifest_file_missing") else "INVALID_RELEASE_EVIDENCE")
+        add(code, "drift", release["evidence"])
+    elif release["state"] != "selected_manifest_verified":
         add("RELEASE_UNKNOWN")
     elif source["revision"] and source["revision"] != release["selected_sha"]:
         add("DRIFT_RELEASE", "drift", "local_checkout_only")
-    if providers["state"] != "manifest_validated":
+    if providers["state"] == "empty_unverified":
+        add("PROVIDER_REGISTRY_EMPTY", evidence="no_manifests_observed")
+    elif providers["state"] != "manifest_validated":
         add("INVALID_PROVIDER_REGISTRY", "unknown")
     for unit, value in services["retired"].items():
         if value["state"] == "observed" and (
@@ -443,6 +454,8 @@ def classify(source, inventory, release, providers, services):
             add("SERVICE_UNKNOWN", target=unit)
         elif value["load"] in ("not-found", "masked"):
             add("MISSING_REQUIRED_UNIT", "drift", "local_systemd_observation", unit)
+        elif value["enablement"] == "masked":
+            add("DRIFT_REQUIRED_UNIT_MASKED", "drift", "local_systemd_observation", unit)
         elif value["load"] == "error" or value["enablement"] == "bad":
             add("SERVICE_UNKNOWN", evidence="unit_state_inconclusive", target=unit)
         elif value["load"] == "loaded" and value["active"] != "active":
