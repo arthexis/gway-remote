@@ -26,12 +26,31 @@ def register(subparsers, targets, names):
         check.add_argument("--watchtower-catalog", metavar="JSON_FILE",
                            help="Optional sanitized mcp_catalog_inspect JSON snapshot; never fetches OAuth")
         check.add_argument("--json", action="store_true")
+    if "node" in names:
+        node_parser = subparsers.add_parser("node", help="Read-only Watchtower node onboarding diagnosis")
+        node_ops = node_parser.add_subparsers(dest="node_action", required=True)
+        doctor = node_ops.add_parser("doctor", help="Inspect local enrollment and pin evidence, without SSH")
+        doctor.add_argument("node", help="enrolled gway node name")
+        doctor.add_argument("--json", action="store_true")
     if "logs" in names:
         logs_parser = subparsers.add_parser("logs", help="Inspect local installation logs")
         logs_parser.add_argument("component", nargs="?", choices=tuple(name for name, _ in targets))
         logs_parser.add_argument("--lines", type=int, default=None)
 
 def dispatch(args, parser):
+    if args.command == "node":
+        from ..node_onboarding_doctor import diagnose_node, format_diagnosis
+        try:
+            report = diagnose_node(args.node)
+        except (OSError, ValueError, TypeError):
+            parser.exit(2, "gway-remote: invalid node diagnosis input\n")
+        print(json.dumps(report, indent=2, sort_keys=True)
+              if args.json else format_diagnosis(report))
+        # A report's construction alone is never proof of operational health.
+        # Exit 0 only when the node is ready for a *separate* authorized test.
+        if not report["ready_for_operator_test"]:
+            parser.exit(1)
+        return True
     if args.command == "mcp":
         if args.mcp_section != "provider" or args.mcp_action != "check":
             parser.exit(2, "gway-remote: unsupported MCP diagnosis\n")
