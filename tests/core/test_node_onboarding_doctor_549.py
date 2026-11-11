@@ -155,6 +155,41 @@ class NodeDoctorTests(unittest.TestCase):
                 required_owner=os.geteuid())
             self.assertEqual(invalid["state"], "binding_mismatch")
 
+    def test_multinode_pin_failure_prevents_false_readiness(self):
+        # load_service rejects *all* transport pins if even one node is bad.
+        # The local doctor must not declare the target pin valid in that case.
+        with tempfile.TemporaryDirectory() as temp:
+            path = Path(temp) / "execute.json"
+            def entry(node):
+                return {"node": node, "address": ADDRESS,
+                        "ssh_host_alias": node,
+                        "known_hosts": str(Path(temp) / ("hosts-" + node)),
+                        "identity_file": str(Path(temp) / ("id-" + node)),
+                        "host_key_sha256": PIN_SHA, "remote_user": "gway-relay"}
+            first, second = entry("gway-002"), entry("gway-004")
+            path.write_text(json.dumps({"enabled": True, "nodes": [first, second]}))
+            path.chmod(0o600)
+            validated = []
+            def check_pin(**kw):
+                validated.append(kw["node"])
+                if kw["node"] == "gway-004":
+                    raise PermissionError("do-not-expose-private-material")
+            state, binding = doctor._private_config(
+                "gway-002", path=path, pinned_factory=check_pin,
+                required_owner=os.geteuid())
+            self.assertEqual(validated, ["gway-002", "gway-004"])
+            self.assertEqual(state["state"], "unknown")
+            self.assertIsNone(binding)
+            self.assertNotIn("do-not-expose", json.dumps(state))
+
+            second["ssh_host_alias"] = "gway-001"
+            path.write_text(json.dumps({"enabled": True, "nodes": [first, second]}))
+            state, binding = doctor._private_config(
+                "gway-002", path=path, pinned_factory=Mock(),
+                required_owner=os.geteuid())
+            self.assertEqual(state["state"], "invalid_configuration")
+            self.assertIsNone(binding)
+
     def test_ledger_is_immutable_and_binds_success_to_host_key(self):
         with tempfile.TemporaryDirectory() as temp:
             folder = Path(temp)
