@@ -35,6 +35,12 @@ _MAX_INVENTORY = 65536
 _MAX_MANIFEST = 262144
 _MAX_SOURCE = 131072
 _RELEASE = Path("/opt/gway-mcp")
+
+
+class _UntrustedFileError(PermissionError):
+    """A checked ownership/mode violation, unlike mere read inaccessibility."""
+
+
 _PROPOSALS = {
     "DRIFT_INVENTORY": "review_inventory_with_operator",
     "DRIFT_RELEASE": "review_release_activation",
@@ -77,14 +83,14 @@ def _owned_bytes(path, *, maximum, owner=0):
         parent = os.fstat(dfd)
         if (not stat.S_ISDIR(parent.st_mode) or parent.st_uid != owner
                 or parent.st_mode & 0o022):
-            raise PermissionError("untrusted_parent")
+            raise _UntrustedFileError("untrusted_parent")
         fd = os.open(p.name, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK,
                      dir_fd=dfd)
         with os.fdopen(fd, "rb") as stream:
             info = os.fstat(stream.fileno())
             if (not stat.S_ISREG(info.st_mode) or info.st_uid != owner
                     or info.st_mode & 0o022 or not 0 < info.st_size <= maximum):
-                raise PermissionError("untrusted_file")
+                raise _UntrustedFileError("untrusted_file")
             data = stream.read(maximum + 1)
     finally:
         os.close(dfd)
@@ -98,8 +104,12 @@ def _read_inventory(path=INVENTORY, *, reader=_owned_bytes):
         data = reader(path, maximum=_MAX_INVENTORY)
     except FileNotFoundError:
         return {"state": "unknown", "digest": None, "reason": "missing"}
+    except _UntrustedFileError:
+        return {"state": "untrusted", "digest": None, "reason": "unsafe_file_metadata"}
     except (OSError, ValueError, PermissionError):
-        return {"state": "untrusted", "digest": None, "reason": "unsafe_or_inaccessible"}
+        # EACCES/ENOTDIR/timeout cannot prove the file is unsafe. Avoid a
+        # false positive drift classification when permissions prevent a read.
+        return {"state": "unknown", "digest": None, "reason": "inaccessible_or_invalid"}
     return {"state": "validated_local_file", "digest": hashlib.sha256(data).hexdigest()}
 
 
@@ -324,15 +334,20 @@ def classify(source, inventory, release, providers, services):
         if value["state"] == "observed" and (
                 value["active"] == "active" or value["enablement"] == "enabled"):
             add("DRIFT_RETIRED_UNIT", "drift", "local_systemd_observation", unit)
-        elif value["state"] != "observed":
+        elif (value["state"] != "observed" or
+              value["load"] == "error" or value["enablement"] == "bad"):
+            # A malformed/undetermined systemd unit is not evidence of
+            # successful retirement even when ActiveState=inactive.
             add("SERVICE_UNKNOWN", target=unit)
     if services.get("role") == "unknown":
         add("SERVICE_UNKNOWN", evidence="host_role_not_proven")
     for unit, value in services["current"].items():
         if value["state"] != "observed":
             add("SERVICE_UNKNOWN", target=unit)
-        elif value["load"] == "not-found":
+        elif value["load"] in ("not-found", "masked"):
             add("MISSING_REQUIRED_UNIT", "drift", "local_systemd_observation", unit)
+        elif value["load"] == "error" or value["enablement"] == "bad":
+            add("SERVICE_UNKNOWN", evidence="unit_state_inconclusive", target=unit)
         elif value["load"] == "loaded" and value["active"] != "active":
             add("DRIFT_REQUIRED_UNIT_INACTIVE", "drift", "local_systemd_observation", unit)
         elif (services.get("role") == "watchtower_candidate"
