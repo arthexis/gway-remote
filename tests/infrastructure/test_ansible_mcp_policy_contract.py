@@ -32,6 +32,21 @@ class TestAnsibleMcpPolicyContract(unittest.TestCase):
         self.assertIn("follow: false", source)
         self.assertIn("checksum_algorithm: sha256", source)
 
+    def test_opt_in_legacy_policy_never_writes_node_owned_manifests(self):
+        source = TASKS.read_text(encoding="utf-8")
+        self.assertIn("Install registration-only MCP policy", source)
+        self.assertIn("Validate installed provider discovery", source)
+        self.assertIn("discover_installed_providers", source)
+        self.assertIn("changed_when: false", source)
+        # The previous optional role used ansible.builtin.copy to overwrite
+        # /etc/gway-mcp-providers/<source_id>.json whenever gway_mcp_sources
+        # was provided. Even explicit policy staging must not own Odoo/AgentOps.
+        self.assertNotIn("Publish installed MCP provider manifests", source)
+        self.assertNotIn("Create administrative provider manifest directory", source)
+        self.assertNotIn("/etc/gway-mcp-providers/", source)
+        self.assertNotIn("item.source_id }}.json", source)
+        self.assertNotIn("converge-mcp-manifests.py", source)
+
     def test_static_import_is_checked_in_both_ansible_jobs(self):
         entry = ENTRY.read_text(encoding="utf-8")
         ci = CI.read_text(encoding="utf-8")
