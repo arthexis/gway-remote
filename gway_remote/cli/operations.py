@@ -32,12 +32,30 @@ def register(subparsers, targets, names):
         doctor = node_ops.add_parser("doctor", help="Inspect local enrollment and pin evidence, without SSH")
         doctor.add_argument("node", help="enrolled gway node name")
         doctor.add_argument("--json", action="store_true")
+    if "doctor" in names:
+        drift = subparsers.add_parser("doctor", help="Read-only local Git/inventory/runtime drift diagnosis")
+        drift.add_argument("--checkout", metavar="PATH",
+                           help="Optional local Git checkout on main (never fetches GitHub)")
+        drift.add_argument("--json", action="store_true")
     if "logs" in names:
         logs_parser = subparsers.add_parser("logs", help="Inspect local installation logs")
         logs_parser.add_argument("component", nargs="?", choices=tuple(name for name, _ in targets))
         logs_parser.add_argument("--lines", type=int, default=None)
 
 def dispatch(args, parser):
+    if args.command == "doctor":
+        from ..drift_doctor import doctor, format_report
+        try:
+            report = doctor(checkout=args.checkout)
+        except (OSError, ValueError, RuntimeError, TypeError):
+            parser.exit(2, "gway-remote: drift evidence unavailable\n")
+        print(json.dumps(report, indent=2, sort_keys=True)
+              if args.json else format_report(report))
+        if report["result"]["state"] == "drift_detected":
+            parser.exit(1)
+        if report["result"]["state"] == "incomplete":
+            parser.exit(2)
+        return True
     if args.command == "node":
         from ..node_onboarding_doctor import diagnose_node, format_diagnosis
         try:
