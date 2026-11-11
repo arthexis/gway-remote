@@ -10,7 +10,7 @@ all:
           gway_remote_exec_run_user: arthe
           # Explicit opt-in: private runtime and pinned installed AgentOps CLI.
           gway_agent_mcp_workspace: /home/arthe/.local/share/gway-agent-ops/workspaces
-          gway_agent_mcp_executable: /home/arthe/.local/share/gway-agent-ops/releases/ac1ff877ef521f0a2fde82a665f3acea207817b6/bin/agent
+          gway_agent_mcp_executable: /home/arthe/.local/share/gway-agent-ops/releases/6cadd6d220d2209c6c0877b9274f1c92c43ad7ee/bin/agent
           gway_agent_allowed_repos:
             - arthexis/gway-agent-ops
             - arthexis/gway-remote
