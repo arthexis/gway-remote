@@ -88,7 +88,7 @@ class DriftDoctorTests(unittest.TestCase):
              patch("sys.stderr", output), self.assertRaises(SystemExit) as failure:
             operations.dispatch(args, parser)
         self.assertEqual(failure.exception.code, 2)
-        self.assertEqual(output.getvalue(), "gway-remote: drift evidence unavailable\\n")
+        self.assertEqual(output.getvalue(), "gway-remote: drift evidence unavailable\n")
         self.assertNotIn("TOP_SECRET", output.getvalue())
 
     def test_pure_classifier_missing_source_never_reports_healthy(self):
