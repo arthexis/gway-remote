@@ -326,7 +326,7 @@ class DriftDoctorTests(unittest.TestCase):
         good = d._bounded_command_output(
             [sys.executable, "-I", "-B", "-c", "print('ok')"],
             maximum=4, env={})
-        self.assertEqual(good, b"ok\\n")
+        self.assertEqual(good, b"ok\n")
         with self.assertRaises(ValueError):
             d._bounded_command_output(
                 [sys.executable, "-I", "-B", "-c",
