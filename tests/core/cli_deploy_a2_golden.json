@@ -1,7 +1,7 @@
 {
   "--help": {
     "code": 0,
-    "stdout_sha256": "594fc52e8f6e1e1235cf7d04b6de2f9ea71c5fc7997821b1431db13c596e8763",
+    "stdout_sha256": "1c66da600ac255ce65b17262d47ed6ceb22e0dcfd4ea65f8c57a52a581faef97",
     "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
   },
   "deploy-targets --help": {
@@ -37,26 +37,26 @@
   "deploy --all ocpp-csms": {
     "code": 2,
     "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
-    "stderr_sha256": "f50a560f139a67e2d46ca69ba0d8ee414939dae73647580992303eb32f76845b"
+    "stderr_sha256": "c449a388f3a0a3a4798e19ec06c7d98d33e1b763d58840ec4e798689a6a09056"
   },
   "deploy": {
     "code": 2,
     "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
-    "stderr_sha256": "f50a560f139a67e2d46ca69ba0d8ee414939dae73647580992303eb32f76845b"
+    "stderr_sha256": "c449a388f3a0a3a4798e19ec06c7d98d33e1b763d58840ec4e798689a6a09056"
   },
   "retention --bad": {
     "code": 2,
     "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
-    "stderr_sha256": "87e8ca5238dbbe49cfeda37eb15dae818b45154723f995bc3a3dccf12622583e"
+    "stderr_sha256": "0849788f4b88063e95d2a8b4c3dc5390a354cf649e461e4bd45d7bd7a22d82ac"
   },
   "deployments --bad": {
     "code": 2,
     "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
-    "stderr_sha256": "87e8ca5238dbbe49cfeda37eb15dae818b45154723f995bc3a3dccf12622583e"
+    "stderr_sha256": "0849788f4b88063e95d2a8b4c3dc5390a354cf649e461e4bd45d7bd7a22d82ac"
   },
   "reconcile --bad": {
     "code": 2,
     "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
-    "stderr_sha256": "87e8ca5238dbbe49cfeda37eb15dae818b45154723f995bc3a3dccf12622583e"
+    "stderr_sha256": "0849788f4b88063e95d2a8b4c3dc5390a354cf649e461e4bd45d7bd7a22d82ac"
   }
 }
