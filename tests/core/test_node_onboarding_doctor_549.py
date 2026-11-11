@@ -55,7 +55,7 @@ class NodeDoctorTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             doctor.diagnose_node("../etc/passwd")
         with self.assertRaises(ValueError):
-            doctor.diagnose_node("not-a-node")
+            doctor.diagnose_node("bad/host")
 
     def test_eligible_with_historical_success_is_not_operational(self):
         report = inspect()
