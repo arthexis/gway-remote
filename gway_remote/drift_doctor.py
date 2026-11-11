@@ -149,9 +149,11 @@ def _git_source(checkout, *, run=subprocess.run):
         # Fetch only checked-in fixed Ansible sources. None is executed.
         files = [get("show", "HEAD:" + path, maximum=_MAX_SOURCE).decode("utf-8")
                  for path in _SOURCE_FILES]
+        rule_scan = _retired_rules(files)
         return {"state": "local_checkout", "revision": sha,
                 "inventory_digest": hashlib.sha256(inventory).hexdigest(),
-                "rules": _retired_rules(files),
+                "rules": rule_scan["matches"],
+                "rules_dynamic": rule_scan["ambiguous"],
                 "missing_rules": _missing_required_rules(files),
                 "evidence": "local_checkout_not_remote_verified"}
     except (OSError, ValueError, UnicodeError, subprocess.TimeoutExpired):
@@ -159,24 +161,50 @@ def _git_source(checkout, *, run=subprocess.run):
 
 
 def _retired_rules(sources):
-    """Conservative static scan of explicit, non-comment Ansible service tasks.
+    """Inspect literal systemd module targets, not names in task prose.
 
-    Dynamic templates/includes cannot be fully resolved and do not prove
-    absence of future reactivation rules.
+    Templated names/activation states may be runtime-dependent. When a
+    retired unit is mentioned but the target cannot be resolved statically,
+    expose unknown instead of asserting drift or absence of reactivation.
     """
     found = set()
+    ambiguous = False
     for content in sources:
         stripped = "\n".join(line for line in content.splitlines()
                               if not line.lstrip().startswith("#"))
-        for task in re.split(r"(?m)^\s*- name:\s+", stripped):
-            if not re.search(r"ansible\.builtin\.(?:systemd|systemd_service):", task):
+        for task in re.split(r"(?m)^[ \t]*- name:[ \t]+", stripped):
+            match = re.search(
+                r"(?m)^(?P<indent>[ \t]*)ansible\.builtin\.(?:systemd|systemd_service):[ \t]*$",
+                task)
+            if match is None:
                 continue
-            if not re.search(r"(?m)^\s*(?:enabled:\s*(?:true|yes)|state:\s*(?:started|restarted))\s*$", task):
-                continue
-            for unit in _RETIRED:
-                if unit in task:
-                    found.add(unit)
-    return sorted(found)
+            indent = len(match.group("indent"))
+            settings = {}
+            for line in task[match.end():].splitlines():
+                if not line.strip():
+                    continue
+                depth = len(line) - len(line.lstrip())
+                if depth <= indent:
+                    break
+                if depth == indent + 2 and ":" in line:
+                    key, value = line.strip().split(":", 1)
+                    if key in ("name", "state", "enabled"):
+                        settings[key] = value.strip().strip("'\"")
+            target = settings.get("name", "")
+            state = settings.get("state", "")
+            enabled = settings.get("enabled", "")
+            activating = state in ("started", "restarted") or enabled in ("true", "yes")
+            dynamic = any("{{" in value or "{%" in value
+                          for value in (target, state, enabled))
+            if target in _RETIRED and activating:
+                found.add(target)
+            elif target in _RETIRED and dynamic:
+                ambiguous = True
+            elif dynamic and any(unit in task for unit in _RETIRED):
+                ambiguous = True
+            elif not target and any(unit in task for unit in _RETIRED):
+                ambiguous = True
+    return {"matches": sorted(found), "ambiguous": ambiguous}
 
 
 def _missing_required_rules(sources):
@@ -417,6 +445,8 @@ def classify(source, inventory, release, providers, services):
     else:
         for target in source["rules"]:
             add("DRIFT_REACTIVATION_RULE", "drift", "local_checkout_rule", target)
+        if source.get("rules_dynamic"):
+            add("SOURCE_RULES_UNKNOWN", evidence="dynamic_systemd_rule")
         for missing in source.get("missing_rules", ()):
             add("MISSING_DECLARED_RULE", "drift", missing["evidence"], missing["target"])
     if inventory["state"] == "untrusted":
