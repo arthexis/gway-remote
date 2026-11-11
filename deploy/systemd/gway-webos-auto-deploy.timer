@@ -1,0 +1,12 @@
+[Unit]
+Description=Retry CI-gated webOS TV installation while TV is unavailable
+
+[Timer]
+OnCalendar=*-*-* *:0/5:00
+Persistent=true
+AccuracySec=30s
+RandomizedDelaySec=10s
+Unit=gway-webos-auto-deploy.service
+
+[Install]
+WantedBy=timers.target

@@ -1,5 +1,10 @@
 name: webOS TV automatic deployment
 on:
+  # Activate the new CI-gated webOS revision once the Remote backend
+  # (and its local retry timer) has successfully converged on gway-001.
+  workflow_run:
+    workflows: [Deploy GWay Remote backend]
+    types: [completed]
   schedule:
     - cron: '*/5 * * * *'
   workflow_dispatch:
@@ -10,6 +15,7 @@ concurrency:
   cancel-in-progress: false
 jobs:
   deploy:
+    if: ${{ github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success' }}
     name: Verify webOS main CI and deploy via gway-001
     runs-on: [self-hosted, Linux, ARM64, gway-001]
     timeout-minutes: 25

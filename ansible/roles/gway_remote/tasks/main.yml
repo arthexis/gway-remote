@@ -343,3 +343,42 @@
     state: stopped
   when: not github_health_token_config.stat.exists
 
+
+# The local systemd timer is deliberate: GitHub schedule runs can be delayed
+# for hours. This retries the *same* verified SHA when the TV powers back on.
+# Do not add credentials, accounts, sockets, or a second deployment algorithm.
+- name: Install gway-001 CI-gated webOS retry executable
+  ansible.builtin.copy:
+    src: "{{ playbook_dir }}/../scripts/deploy-webos-tv.sh"
+    dest: "{{ gway_remote_install_root }}/scripts/deploy-webos-tv.sh"
+    owner: root
+    group: root
+    mode: "0755"
+  when: (ansible_hostname | default('')) == 'gway-001'
+
+- name: Install gway-001 webOS retry systemd units
+  ansible.builtin.template:
+    src: "{{ playbook_dir }}/../deploy/systemd/{{ item }}"
+    dest: "/etc/systemd/system/{{ item }}"
+    owner: root
+    group: root
+    mode: "0644"
+  loop:
+    - gway-webos-auto-deploy.service
+    - gway-webos-auto-deploy.timer
+  register: gway_webos_retry_units
+  when: (ansible_hostname | default('')) == 'gway-001'
+
+- name: Reload systemd when webOS retry units change
+  ansible.builtin.systemd:
+    daemon_reload: true
+  when:
+    - (ansible_hostname | default('')) == 'gway-001'
+    - gway_webos_retry_units.changed | default(false)
+
+- name: Enable only the gway-001 webOS retry timer
+  ansible.builtin.systemd:
+    name: gway-webos-auto-deploy.timer
+    state: started
+    enabled: true
+  when: (ansible_hostname | default('')) == 'gway-001'

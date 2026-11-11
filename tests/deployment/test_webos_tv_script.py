@@ -83,7 +83,7 @@ class WebOSDeployScriptTests(unittest.TestCase):
         (state / "auto-deployed-sha").write_text(SHA + "\n")  # Old misleading receipt.
         result = run(script, env)
         assert result.returncode == 0, result.stderr
-        assert "TV offline" in result.stdout
+        assert "TV power/network unavailable" in result.stdout
         assert not (state / "tv-installed-sha").exists()
         assert (tmp_path / "calls").read_text().splitlines() == [
             "node:" + SHA, "tv:scripts/auto-tv-deploy.py --require-online"]
@@ -108,6 +108,40 @@ class WebOSDeployScriptTests(unittest.TestCase):
         assert not (state / "tv-installed-sha").exists()
     
     
+    def test_developer_access_unavailable_has_distinct_deferred_status(self):
+        script, state, env = fixture(self.temp_path)
+        env["MOCK_TV_EXIT"] = "11"
+        result = run(script, env)
+        assert result.returncode == 0, result.stderr
+        assert "Developer Mode SSH unavailable" in result.stdout
+        assert not (state / "tv-installed-sha").exists()
+        env["MOCK_TV_EXIT"] = "0"
+        assert run(script, env).returncode == 0
+        assert (state / "tv-installed-sha").read_text().strip() == SHA
+
+    def test_parallel_timer_and_workflow_invocations_share_lock(self):
+        script, state, env = fixture(self.temp_path)
+        executable(self.temp_path / "bin" / "flock", "exit 1\n")
+        result = run(script, env)
+        assert result.returncode == 0, result.stderr
+        assert "already running" in result.stdout
+        assert not (state / "tv-installed-sha").exists()
+        assert not (self.temp_path / "calls").exists()
+
+    def test_timer_and_trigger_contract_are_scoped_to_gway001(self):
+        root = SOURCE.parents[1]
+        service = (root / "deploy/systemd/gway-webos-auto-deploy.service").read_text()
+        timer = (root / "deploy/systemd/gway-webos-auto-deploy.timer").read_text()
+        workflow = (root / ".github/workflows/webos-tv-deploy.yml").read_text()
+        tasks = (root / "ansible/roles/gway_remote/tasks/main.yml").read_text()
+        assert "User={{ gway_remote_runner_user }}" in service
+        assert "ExecStart={{ gway_remote_install_root }}/scripts/deploy-webos-tv.sh" in service
+        assert "OnCalendar=*-*-* *:0/5:00" in timer
+        assert "gway-webos-auto-deploy.timer" in tasks
+        assert "ansible_hostname | default('')) == 'gway-001'" in tasks
+        assert "workflows: [Deploy GWay Remote backend]" in workflow
+        assert "github.event.workflow_run.conclusion == 'success'" in workflow
+
     def test_missing_or_failed_exact_sha_ci_never_runs_any_deployment(self):
         tmp_path = self.temp_path
         script, state, env = fixture(tmp_path)
