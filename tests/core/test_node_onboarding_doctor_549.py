@@ -129,7 +129,10 @@ class NodeDoctorTests(unittest.TestCase):
                 "gway-002", path=path, pinned_factory=validate,
                 required_owner=os.geteuid())
             self.assertEqual(result["state"], "pin_validated_offline")
-            self.assertEqual(binding, {"address": ADDRESS, "host_key_sha256": PIN_SHA})
+            self.assertEqual(binding, {
+                "address": ADDRESS, "host_key_sha256": PIN_SHA,
+                "configured_nodes": [{"node": "gway-002", "address": ADDRESS}],
+            })
             validate.assert_called_once()
             path.chmod(0o666)
             invalid, _ = doctor._private_config(
@@ -189,6 +192,51 @@ class NodeDoctorTests(unittest.TestCase):
                 required_owner=os.geteuid())
             self.assertEqual(state["state"], "invalid_configuration")
             self.assertIsNone(binding)
+
+    def test_other_configured_node_must_also_be_enrolled_and_eligible(self):
+        # load_service fails to start if *any* multi-node pin is not bound to
+        # current enrolled/attested/reachable identity, even when the target
+        # gway-002 itself is fully eligible.
+        configured = (
+            {"node": "gway-002", "address": ADDRESS},
+            {"node": "gway-004", "address": "10.0.1.4"},
+        )
+        def multi_pin(node):
+            return ({"state": "pin_validated_offline"}, {
+                "address": ADDRESS, "host_key_sha256": PIN_SHA,
+                "configured_nodes": configured,
+            })
+        def check(rows):
+            return doctor.diagnose_node(
+                "gway-002", inventory_loader=lambda: {"nodes": rows},
+                pin_inspector=multi_pin, ledger_inspector=read_ledger)
+        primary = inventory()["nodes"][0]
+        absent = check([primary])
+        self.assertFalse(absent["ready_for_operator_test"])
+        self.assertEqual(absent["pinned_ssh"]["state"], "inventory_binding_mismatch")
+        self.assertEqual(absent["terminal_result"]["state"], "unknown")
+        other = dict(primary, node="gway-004", address="10.0.1.4")
+        for key, value in (("identity_verified", False),
+                           ("execute_eligible", False),
+                           ("reachable", "unknown"),
+                           ("address", "10.0.1.99")):
+            with self.subTest(key=key):
+                report = check([primary, dict(other, **{key: value})])
+                self.assertFalse(report["ready_for_operator_test"])
+                self.assertEqual(report["operational"]["state"], "unverified")
+        healthy = check([primary, other])
+        self.assertTrue(healthy["ready_for_operator_test"])
+        self.assertEqual(healthy["operational"]["state"], "unverified")
+        self.assertNotIn("10.0.1.4", json.dumps(healthy))
+
+    def test_unsafe_private_execution_ledger_cannot_claim_test_ready(self):
+        def unsafe_ledger(node, sha):
+            return ({"state": "untrusted"},
+                    {"state": "unknown", "evidence": "no_current_result"})
+        report = inspect(ledger=unsafe_ledger)
+        self.assertFalse(report["ready_for_operator_test"])
+        self.assertEqual(report["request_ledger"]["state"], "untrusted")
+        self.assertEqual(report["operational"]["state"], "unverified")
 
     def test_ledger_is_immutable_and_binds_success_to_host_key(self):
         with tempfile.TemporaryDirectory() as temp:
