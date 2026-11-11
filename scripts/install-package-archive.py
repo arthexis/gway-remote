@@ -27,8 +27,11 @@ LEGACY = ".gway_remote.legacy-before-archive"
 def _archive(source: Path) -> bytes:
     # A committed tree is authoritative; Python caches and ignored files do
     # not enter the package. No dependency on an external tar implementation.
+    # Archiving a Git *tree* (HEAD:gway_remote) stamps the tar with the
+    # current wall clock, making the digest change on repeated deployments.
+    # Use the exact commit instead for reproducible archive timestamps.
     return subprocess.run(
-        ["git", "-C", str(source), "archive", "--format=tar", "HEAD:gway_remote"],
+        ["git", "-C", str(source), "archive", "--format=tar", "HEAD", "--", PACKAGE],
         check=True, capture_output=True, timeout=30,
     ).stdout
 
@@ -47,19 +50,27 @@ def _unpack(archive: bytes, package_dir: Path):
     paths = set()
     with tarfile.open(fileobj=io.BytesIO(archive), mode="r:") as bundle:
         for member in bundle:
-            path = PurePosixPath(member.name)
-            if (path.is_absolute() or not path.parts or
-                    any(part in ("", ".", "..") for part in path.parts)):
+            archive_path = PurePosixPath(member.name)
+            # A commit archive includes its gway_remote/ directory. Strip
+            # only that fixed prefix; reject unexpected or unsafe members.
+            if archive_path.parts == (PACKAGE,) and member.isdir():
+                continue
+            if (archive_path.is_absolute() or len(archive_path.parts) < 2
+                    or archive_path.parts[0] != PACKAGE):
                 raise ValueError("unsafe archive path")
-            # Git tree for the package is the tar root. Exclude unusual
-            # entries (symlinks, device files, hardlinks) rather than following.
+            path = PurePosixPath(*archive_path.parts[1:])
+            if (path.is_absolute() or any(part in ("", ".", "..")
+                                          for part in path.parts)):
+                raise ValueError("unsafe archive path")
+            # Exclude unusual entries (symlinks, device files, hardlinks)
+            # rather than following them.
             dest = package_dir.joinpath(*path.parts)
             if member.isdir():
                 dest.mkdir(mode=0o755, parents=True, exist_ok=True)
                 continue
-            if not member.isfile() or member.name in paths:
+            if not member.isfile() or str(path) in paths:
                 raise ValueError("unsafe archive member")
-            paths.add(member.name)
+            paths.add(str(path))
             dest.parent.mkdir(mode=0o755, parents=True, exist_ok=True)
             source = bundle.extractfile(member)
             if source is None:
