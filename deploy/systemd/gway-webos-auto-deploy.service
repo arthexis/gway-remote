@@ -1,0 +1,15 @@
+[Unit]
+Description=CI-gated webOS TV automatic installation retry
+After=network-online.target
+Wants=network-online.target
+ConditionPathExists=/home/arthe/Repos/gway-webos-tv/.git
+
+[Service]
+Type=oneshot
+User={{ gway_remote_runner_user }}
+WorkingDirectory=/home/arthe/Repos/gway-remote
+Environment=HOME=/home/arthe
+Environment=PATH=/home/arthe/.local/bin:/usr/local/bin:/usr/bin:/bin
+ExecStart={{ gway_remote_install_root }}/scripts/deploy-webos-tv.sh
+TimeoutStartSec=25min
+UMask=0077

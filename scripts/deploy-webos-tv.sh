@@ -16,7 +16,18 @@ if [[ "$ci_state" != "completed:success" ]]; then
   exit 0
 fi
 state_dir="/home/arthe/.local/state/gway-webos-tv"
+# The node-local timer and GitHub scheduled job must never install the same
+# revision concurrently. Lock the entire CI-check → node → TV transaction.
+[[ ! -L "$state_dir" ]] || { echo "Unsafe deployment state directory" >&2; exit 2; }
 mkdir -p "$state_dir"
+auto_lock="$state_dir/auto-deploy.lock"
+[[ ! -L "$auto_lock" ]] || { echo "Unsafe deployment lock" >&2; exit 2; }
+(umask 077; : >> "$auto_lock")
+exec 8<>"$auto_lock"
+if ! flock -n 8; then
+  echo "::notice::webOS deploy already running; next timer tick will retry"
+  exit 0
+fi
 # Legacy auto-deployed-sha may represent a node-only deployment while the TV
 # was offline; never reuse it as confirmation of TV installation.
 tv_marker="$state_dir/tv-installed-sha"
@@ -52,7 +63,11 @@ if ( cd "$checkout" && python3 scripts/auto-tv-deploy.py --require-online ); the
 else
   rc=$?
   if [[ "$rc" -eq 10 ]]; then
-    echo "::warning::webOS node ready at $main_sha; TV offline, installation pending and will retry"
+    echo "::warning::webOS node ready at $main_sha; TV power/network unavailable, installation deferred for automatic retry"
+    exit 0
+  fi
+  if [[ "$rc" -eq 11 ]]; then
+    echo "::warning::webOS node ready at $main_sha; TV reachable but Developer Mode SSH unavailable, installation deferred (check developer session)"
     exit 0
   fi
   echo "::error::webOS TV installation failed (exit $rc); receipt unchanged"
