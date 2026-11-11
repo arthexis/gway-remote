@@ -67,14 +67,20 @@ def _private_config(node, path=EXEC_CONFIG, *, pinned_factory=PinnedNode,
         item = matches[0]
         if item["ssh_host_alias"] != node:
             return {"state": "binding_mismatch"}, None
-        # The existing PinnedNode verifier checks authorized key fingerprint,
-        # owner/mode and address. Do not relax or reimplement its security.
-        pinned_factory(node=node, wireguard_address=item["address"],
-                       ssh_host_alias=item["ssh_host_alias"],
-                       known_hosts=Path(item["known_hosts"]),
-                       identity_file=Path(item["identity_file"]),
-                       host_key_sha256=item["host_key_sha256"],
-                       remote_user=item["remote_user"])
+        # load_service checks *every* pin before starting a multi-node relay.
+        # Checking only the requested node would report a false positive if
+        # another configured SSH pin prevents Watchtower from starting.
+        for entry in entries:
+            if entry["ssh_host_alias"] != entry["node"]:
+                return {"state": "invalid_configuration"}, None
+            # Reuse the existing fingerprint, owner/mode and address verifier.
+            # This checks metadata only; it never opens an SSH connection.
+            pinned_factory(node=entry["node"], wireguard_address=entry["address"],
+                           ssh_host_alias=entry["ssh_host_alias"],
+                           known_hosts=Path(entry["known_hosts"]),
+                           identity_file=Path(entry["identity_file"]),
+                           host_key_sha256=entry["host_key_sha256"],
+                           remote_user=entry["remote_user"])
         return {"state": "pin_validated_offline"}, {
             "address": item["address"],
             "host_key_sha256": item["host_key_sha256"],
