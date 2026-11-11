@@ -6,6 +6,7 @@ import os
 from pathlib import Path
 import stat
 import subprocess
+import sys
 import tempfile
 import unittest
 from unittest.mock import Mock, patch
@@ -318,6 +319,24 @@ class DriftDoctorTests(unittest.TestCase):
             sha_dir.chmod(0o777)
             broken = d._release_observation(root, reader=own, owner=os.geteuid())
             self.assertEqual(broken["state"], "invalid")
+
+    def test_bounded_git_read_rejects_large_output_and_timeout(self):
+        # The production Git adapter must cap output while reading, not only
+        # after subprocess.run has buffered an arbitrarily large blob.
+        good = d._bounded_command_output(
+            [sys.executable, "-I", "-B", "-c", "print('ok')"],
+            maximum=4, env={})
+        self.assertEqual(good, b"ok\\n")
+        with self.assertRaises(ValueError):
+            d._bounded_command_output(
+                [sys.executable, "-I", "-B", "-c",
+                 "import sys;sys.stdout.write('x'*1000000)"],
+                maximum=64, env={})
+        with self.assertRaises(subprocess.TimeoutExpired):
+            d._bounded_command_output(
+                [sys.executable, "-I", "-B", "-c",
+                 "import time;time.sleep(1)"],
+                maximum=64, env={}, timeout=0.08)
 
     def test_git_checkout_is_local_only_and_never_fetches(self):
         with tempfile.TemporaryDirectory() as temp:
