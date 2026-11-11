@@ -47,6 +47,7 @@ _PROPOSALS = {
     "DRIFT_RELEASE_CONTENT": "review_immutable_release",
     "DRIFT_RETIRED_UNIT": "review_retired_unit_policy",
     "DRIFT_REACTIVATION_RULE": "review_checked_in_ansible_task",
+    "MISSING_DECLARED_RULE": "review_missing_checked_in_ansible_rule",
     "DRIFT_REQUIRED_UNIT_INACTIVE": "review_inactive_required_service",
     "DRIFT_REQUIRED_UNIT_DISABLED": "review_disabled_watchtower_service",
     "MISSING_REQUIRED_UNIT": "review_preprovisioned_unit",
@@ -147,6 +148,7 @@ def _git_source(checkout, *, run=subprocess.run):
         return {"state": "local_checkout", "revision": sha,
                 "inventory_digest": hashlib.sha256(inventory).hexdigest(),
                 "rules": _retired_rules(files),
+                "missing_rules": _missing_required_rules(files),
                 "evidence": "local_checkout_not_remote_verified"}
     except (OSError, ValueError, UnicodeError, subprocess.TimeoutExpired):
         return unknown
@@ -171,6 +173,62 @@ def _retired_rules(sources):
                 if unit in task:
                     found.add(unit)
     return sorted(found)
+
+
+def _missing_required_rules(sources):
+    """Flag removal of the fixed, reviewed Ansible install/retirement guards.
+
+    This is a bounded static *source* check, not an Ansible inventory parse or
+    assertion that the installed units have converged. Any rewritten/dynamic
+    implementation requires operator review rather than an automatic repair.
+    """
+    if len(sources) != len(_SOURCE_FILES):
+        raise ValueError("incomplete_reviewed_sources")
+
+    def blocks(source):
+        return re.split(r"(?m)^\\s*- name:\\s+", "\\n".join(
+            line for line in source.splitlines()
+            if not line.lstrip().startswith("#")))
+
+    def has_task(index, module, needle, *, fields=()):
+        return any(
+            module in task and needle in task
+            and all(re.search(r"(?m)^\\s*" + re.escape(k)
+                              + r":\\s*" + re.escape(v) + r"\\s*$", task)
+                    for k, v in fields)
+            for task in blocks(sources[index])
+        )
+
+    missing = []
+    main = 0
+    provider = 1
+    watchtower = 2
+    # The GitHub Health timer must have install AND both bounded token-state
+    # branches. A removed 'disable when no token' is a real future-deploy risk.
+    if not (has_task(main, "ansible.builtin.template:", "gway-remote-health.timer")
+            and has_task(main, "ansible.builtin.template:", "gway-remote-health.service")
+            and has_task(main, "ansible.builtin.systemd:", "gway-remote-health.timer",
+                         fields=(("enabled", "true"), ("state", "started")))
+            and has_task(main, "ansible.builtin.systemd:", "gway-remote-health.timer",
+                         fields=(("enabled", "false"), ("state", "stopped")))):
+        missing.append({"target": "gway-remote-health.timer",
+                        "evidence": "health_timer_recipe_missing"})
+    # The obsolete broker service must remain explicitly stopped AND removed
+    # by the existing node-owned provider deployment tasks.
+    if not (has_task(provider, "ansible.builtin.systemd:",
+                     "gway-remote-deploy.service",
+                     fields=(("enabled", "false"), ("state", "stopped")))
+            and has_task(provider, "ansible.builtin.file:",
+                         "/etc/systemd/system/gway-remote-deploy.service",
+                         fields=(("state", "absent"),))):
+        missing.append({"target": "gway-remote-deploy.service",
+                        "evidence": "retired_service_guard_missing"})
+    for unit in ("gway-mcp-link.service", "gway-mcp-gateway.service"):
+        if not has_task(watchtower, "ansible.builtin.copy:",
+                        "/etc/systemd/system/" + unit):
+            missing.append({"target": unit,
+                            "evidence": "watchtower_unit_recipe_missing"})
+    return missing
 
 
 def _release_observation(root=_RELEASE, *, reader=_owned_bytes, owner=0):
@@ -313,9 +371,11 @@ def classify(source, inventory, release, providers, services):
     if source["state"] != "local_checkout":
         add("GIT_SOURCE_UNKNOWN")
         add("SOURCE_RULES_UNKNOWN")
-    elif source["rules"]:
+    else:
         for target in source["rules"]:
             add("DRIFT_REACTIVATION_RULE", "drift", "local_checkout_rule", target)
+        for missing in source.get("missing_rules", ()):
+            add("MISSING_DECLARED_RULE", "drift", missing["evidence"], missing["target"])
     if inventory["state"] == "untrusted":
         add("UNTRUSTED_INVENTORY", "drift", "local_file_permissions")
     elif inventory["state"] != "validated_local_file":
