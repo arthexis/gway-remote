@@ -17,11 +17,9 @@ if [[ "$ci_state" != "completed:success" ]]; then
 fi
 state_dir="/home/arthe/.local/state/gway-webos-tv"
 mkdir -p "$state_dir"
-marker="$state_dir/auto-deployed-sha"
-if [[ -f "$marker" && "$(cat "$marker")" == "$main_sha" ]]; then
-  echo "::notice::webOS main $main_sha already deployed; no-op"
-  exit 0
-fi
+# Legacy auto-deployed-sha may represent a node-only deployment while the TV
+# was offline; never reuse it as confirmation of TV installation.
+tv_marker="$state_dir/tv-installed-sha"
 git -C "$checkout" fetch --quiet origin main
 tip="$(git -C "$checkout" rev-parse refs/remotes/origin/main)"
 if [[ "$tip" != "$main_sha" ]]; then
@@ -31,14 +29,32 @@ fi
 git -C "$checkout" switch main
 git -C "$checkout" merge --ff-only "$main_sha"
 [[ "$(git -C "$checkout" rev-parse HEAD)" == "$main_sha" ]]
+# The node receipt and TV receipt are independent: an offline TV must
+# not block safe node activation or suppress a later TV installation.
 (
   cd "$checkout"
-  ./deploy.sh
-  python3 scripts/auto-tv-deploy.py
+  GWAY_WEBOS_EXPECTED_SHA="$main_sha" ./deploy.sh
 )
-# Re-check current main before marking success to avoid suppressing a newer release.
-if [[ "$(gh api repos/arthexis/gway-webos-tv/branches/main --jq '.commit.sha')" == "$main_sha" ]]; then
-  printf '%s\n' "$main_sha" > "$marker.tmp"
-  mv "$marker.tmp" "$marker"
+if [[ -f "$tv_marker" && "$(cat "$tv_marker")" == "$main_sha" ]]; then
+  echo "::notice::Node $main_sha healthy; TV installation already receipted"
+  exit 0
 fi
-echo "::notice::webOS main deployment completed: $main_sha"
+if ( cd "$checkout" && python3 scripts/auto-tv-deploy.py --require-online ); then
+  # No receipt if main advanced while the TV was being updated.
+  if [[ "$(gh api repos/arthexis/gway-webos-tv/branches/main --jq '.commit.sha')" != "$main_sha" ]]; then
+    echo "::warning::webOS main changed during TV update; not recording TV receipt"
+    exit 0
+  fi
+  temp="$state_dir/.tv-installed-sha.$$"
+  (umask 077; printf '%s\n' "$main_sha" > "$temp")
+  mv -f "$temp" "$tv_marker"
+  echo "::notice::webOS node and TV installation completed: $main_sha"
+else
+  rc=$?
+  if [[ "$rc" -eq 10 ]]; then
+    echo "::warning::webOS node ready at $main_sha; TV offline, installation pending and will retry"
+    exit 0
+  fi
+  echo "::error::webOS TV installation failed (exit $rc); receipt unchanged"
+  exit "$rc"
+fi
