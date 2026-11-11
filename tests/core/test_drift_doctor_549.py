@@ -78,6 +78,19 @@ class DriftDoctorTests(unittest.TestCase):
                         self.assertEqual(error.exception.code, code)
                 self.assertNotIn("/tmp/example", out.getvalue())
 
+    def test_cli_error_is_sanitized_and_newline_terminated(self):
+        from gway_remote.cli import operations
+        parser = build_parser(("system-health",), TARGETS)
+        args = parser.parse_args(["doctor", "--json"])
+        output = StringIO()
+        with patch("gway_remote.drift_doctor.doctor",
+                   side_effect=ValueError("TOP_SECRET=/etc/credentials")), \
+             patch("sys.stderr", output), self.assertRaises(SystemExit) as failure:
+            operations.dispatch(args, parser)
+        self.assertEqual(failure.exception.code, 2)
+        self.assertEqual(output.getvalue(), "gway-remote: drift evidence unavailable\\n")
+        self.assertNotIn("TOP_SECRET", output.getvalue())
+
     def test_pure_classifier_missing_source_never_reports_healthy(self):
         missing = source()
         missing.update(state="unknown", revision=None, inventory_digest=None,
