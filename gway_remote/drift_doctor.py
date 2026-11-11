@@ -264,7 +264,7 @@ def _missing_required_rules(sources):
             line for line in source.splitlines()
             if not line.lstrip().startswith("#")))
 
-    def has_task(index, module, needle, *, fields=()):
+    def has_task(index, module, needle, *, fields=(), when=None):
         # A task title can mention the expected unit while the actual
         # module changes a different target. Check the module's destination
         # and options, not arbitrary prose from the task.
@@ -292,6 +292,13 @@ def _missing_required_rules(sources):
                     key, value = line.strip().split(":", 1)
                     values[key] = value.strip().strip("'\"")
             if any(values.get(key) != value for key, value in fields):
+                continue
+            # Token-dependent install/retire branches must preserve the
+            # existing fixed Ansible condition. A matching unit without the
+            # condition would re-enable a retired timer on future deploy.
+            if when is not None and not re.search(
+                    r"(?m)^[ \t]*when:[ \t]*" + re.escape(when) +
+                    r"[ \t]*$", task):
                 continue
             actual = values.get(target_field)
             if actual == needle:
@@ -323,9 +330,11 @@ def _missing_required_rules(sources):
     if not (has_task(main, "ansible.builtin.template:", "gway-remote-health.timer")
             and has_task(main, "ansible.builtin.template:", "gway-remote-health.service")
             and has_task(main, "ansible.builtin.systemd:", "gway-remote-health.timer",
-                         fields=(("enabled", "true"), ("state", "started")))
+                         fields=(("enabled", "true"), ("state", "started")),
+                         when="github_health_token_config.stat.exists")
             and has_task(main, "ansible.builtin.systemd:", "gway-remote-health.timer",
-                         fields=(("enabled", "false"), ("state", "stopped")))):
+                         fields=(("enabled", "false"), ("state", "stopped")),
+                         when="not github_health_token_config.stat.exists")):
         missing.append({"target": "gway-remote-health.timer",
                         "evidence": "health_timer_recipe_missing"})
     # The obsolete broker service must remain explicitly stopped AND removed
