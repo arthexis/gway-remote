@@ -1,7 +1,7 @@
 {
   "--help": {
     "code": 0,
-    "stdout_sha256": "1c66da600ac255ce65b17262d47ed6ceb22e0dcfd4ea65f8c57a52a581faef97",
+    "stdout_sha256": "b8bd6694ce4c85dc1dbdd523f1dbad4d7bc469613e56da2648314b306892d73f",
     "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
   },
   "run --help": {
@@ -57,7 +57,7 @@
   "watch --wrong": {
     "code": 2,
     "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
-    "stderr_sha256": "90add78df4d1868f751a7644c7fc8d83968c959860c5d8a78ac6a6fef29bcad0"
+    "stderr_sha256": "53d66b681899c73fc8632141ae89e9baa99d5085f734367d28aa615524d8f319"
   },
   "watchdog": {
     "code": 2,
@@ -92,27 +92,27 @@
   "codex task": {
     "code": 2,
     "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
-    "stderr_sha256": "ff519711e420fb09d40f7ba2a2ce78ef6a4be0ab80f520b365e3f889df6f5b25"
+    "stderr_sha256": "e448bd03bb6f9797797c5489dcacb5419762e64e1886ad3f91a4d73e6f6a3ddb"
   },
   "codex approve": {
     "code": 2,
     "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
-    "stderr_sha256": "362847d595b05ffe31a0cd34f6ecff01372c148942ac954dbfd13b0d1faa50e3"
+    "stderr_sha256": "5d52284c046e05b5a206c8f0338506738c9a16a82752da62f9dce7f1c0bafa7b"
   },
   "codex next unexpected": {
     "code": 2,
     "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
-    "stderr_sha256": "1ea872283d96c43c3d92f24115b73e49ee170dfe522f3811b4e6918b478d04cb"
+    "stderr_sha256": "79d0d46c8a9e0a09985c9d1398da377414a580f3cdde79ae732bcb718768bc9b"
   },
   "codex submit": {
     "code": 2,
     "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
-    "stderr_sha256": "dc8057d9dcce7188976587969b6cf635b3839b74814884704c6052fccc2a1163"
+    "stderr_sha256": "b16651bf42e19572e63a67ae4b7628d22e6b6461885bd5a628758c2bf027c916"
   },
   "codex veto": {
     "code": 2,
     "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
-    "stderr_sha256": "7d3968c6d73fb119ed5b7f3c36d965d029ae8b687fde0ee11b86ea9f6a295c9d"
+    "stderr_sha256": "be2febeed29162caeb7a806ab6b1dd1aa802dd9ee61ef019b813c570bad28b8f"
   },
   "api --port invalid": {
     "code": 2,
