@@ -7,6 +7,7 @@ import os
 from pathlib import Path
 import subprocess
 import tempfile
+import time
 import unittest
 from unittest.mock import patch
 
@@ -155,6 +156,10 @@ class ArchiveInstallerTests(unittest.TestCase):
         cache.mkdir()
         (cache / "node_exec_worker.cpython-311.pyc").write_bytes(b"nonsense")
         (self.repo / "gway_remote/private.txt").write_text("untracked")
+        # The former `git archive HEAD:gway_remote` used current wall-clock
+        # time for tree archives, changing the digest across seconds even
+        # when tracked package bytes were identical.
+        time.sleep(1.2)
         again = self.install()
         self.assertFalse(again["changed"])
         self.assertEqual(again["sha256"], initial["sha256"])
