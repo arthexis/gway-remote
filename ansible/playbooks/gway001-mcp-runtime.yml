@@ -61,15 +61,8 @@
         - { key: GWAY_MCP_SOURCE_POLICY_SHA256, value: "{{ source_policy.stat.checksum | default('') }}" }
       register: source_policy_env
       when: source_policy.stat.exists
-    - name: Converge administratively installed node MCP manifests
-      become: true
-      ansible.builtin.command:
-        argv:
-          - /usr/bin/python3
-          - -I
-          - "{{ mcp_source }}/scripts/converge-mcp-manifests.py"
-      register: manifest_convergence
-      changed_when: "'changed=1' in manifest_convergence.stdout_lines"
+    # Provider-owned manifests are authoritative. Remote only validates and
+    # discovers them here; never republish Odoo or AgentOps from sources.json.
     - name: Verify installed MCP manifests are discoverable
       become: true
       ansible.builtin.command:
