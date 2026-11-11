@@ -186,6 +186,7 @@ class DriftDoctorTests(unittest.TestCase):
             """- name: Install health units
   ansible.builtin.template:
     src: health
+    dest: "/etc/systemd/system/{{ item }}"
   loop:
     - gway-remote-health.timer
     - gway-remote-health.service
@@ -238,6 +239,22 @@ class DriftDoctorTests(unittest.TestCase):
         self.assertEqual({r["target"] for r in report["findings"]
                           if r["code"] == "MISSING_DECLARED_RULE"}, targets)
         self.assertNotIn("not-gateway", json.dumps(report))
+        # A correct name in the task title is not enough: the module target
+        # must actually be the intended unit/destination.
+        disguised = files.copy()
+        disguised[0] = disguised[0].replace(
+            "- name: Disable without credential",
+            "- name: Disable gway-remote-health.timer without credential").replace(
+            "name: gway-remote-health.timer\n    enabled: false",
+            "name: gway-remote-watch.timer\n    enabled: false")
+        disguised[2] = disguised[2].replace(
+            "- name: Install Watchtower link",
+            "- name: Install /etc/systemd/system/gway-mcp-link.service").replace(
+            "dest: /etc/systemd/system/gway-mcp-link.service",
+            "dest: /etc/systemd/system/unrelated.service")
+        missing = {item["target"] for item in d._missing_required_rules(disguised)}
+        self.assertIn("gway-remote-health.timer", missing)
+        self.assertIn("gway-mcp-link.service", missing)
         with self.assertRaises(ValueError):
             d._missing_required_rules(files[:2])
 
