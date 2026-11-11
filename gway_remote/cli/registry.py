@@ -24,7 +24,7 @@ REGISTRATION = (
                 "inspection-host-pin", "register", "watchtower")),
     (local, ("codex", "api")),
     (operations, ("mcp",)),
-    (operations, ("node",)),
+    (operations, ("node", "doctor")),
 )
 
 
