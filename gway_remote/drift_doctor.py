@@ -41,6 +41,8 @@ _PROPOSALS = {
     "DRIFT_RELEASE_CONTENT": "review_immutable_release",
     "DRIFT_RETIRED_UNIT": "review_retired_unit_policy",
     "DRIFT_REACTIVATION_RULE": "review_checked_in_ansible_task",
+    "DRIFT_REQUIRED_UNIT_INACTIVE": "review_inactive_required_service",
+    "DRIFT_REQUIRED_UNIT_DISABLED": "review_disabled_watchtower_service",
     "MISSING_REQUIRED_UNIT": "review_preprovisioned_unit",
     "UNTRUSTED_INVENTORY": "inspect_inventory_permissions",
     "INVALID_RELEASE_EVIDENCE": "inspect_release_provenance",
@@ -53,9 +55,16 @@ _PROPOSALS = {
 }
 
 
-def _finding(code, *, status="unknown", evidence="not_verified"):
-    return {"code": code, "status": status, "evidence": evidence,
-            "proposed_action": _PROPOSALS[code]}
+def _finding(code, *, status="unknown", evidence="not_verified", target=None):
+    row = {"code": code, "status": status, "evidence": evidence,
+           "proposed_action": _PROPOSALS[code]}
+    # Only fixed, non-sensitive unit identifiers may appear in findings.
+    if target is not None:
+        if target not in _RETIRED + ("gway-remote-mcp.service",
+                                     "gway-mcp-gateway.service", "gway-mcp-link.service"):
+            raise ValueError("invalid_unit_target")
+        row["target"] = target
+    return row
 
 
 def _owned_bytes(path, *, maximum, owner=0):
@@ -289,14 +298,14 @@ def _services(*, node=None, unit_reader=_unit, role=None):
 def classify(source, inventory, release, providers, services):
     """Pure, stable, sanitized findings. Partial evidence is never a green bill."""
     findings = []
-    def add(code, status="unknown", evidence="not_verified"):
-        findings.append(_finding(code, status=status, evidence=evidence))
+    def add(code, status="unknown", evidence="not_verified", target=None):
+        findings.append(_finding(code, status=status, evidence=evidence, target=target))
     if source["state"] != "local_checkout":
         add("GIT_SOURCE_UNKNOWN")
         add("SOURCE_RULES_UNKNOWN")
     elif source["rules"]:
-        for _ in source["rules"]:
-            add("DRIFT_REACTIVATION_RULE", "drift", "local_checkout_rule")
+        for target in source["rules"]:
+            add("DRIFT_REACTIVATION_RULE", "drift", "local_checkout_rule", target)
     if inventory["state"] == "untrusted":
         add("UNTRUSTED_INVENTORY", "drift", "local_file_permissions")
     elif inventory["state"] != "validated_local_file":
@@ -314,14 +323,21 @@ def classify(source, inventory, release, providers, services):
     for unit, value in services["retired"].items():
         if value["state"] == "observed" and (
                 value["active"] == "active" or value["enablement"] == "enabled"):
-            add("DRIFT_RETIRED_UNIT", "drift", "local_systemd_observation")
+            add("DRIFT_RETIRED_UNIT", "drift", "local_systemd_observation", unit)
         elif value["state"] != "observed":
-            add("SERVICE_UNKNOWN")
+            add("SERVICE_UNKNOWN", target=unit)
+    if services.get("role") == "unknown":
+        add("SERVICE_UNKNOWN", evidence="host_role_not_proven")
     for unit, value in services["current"].items():
-        if value["state"] == "observed" and value["load"] == "not-found":
-            add("MISSING_REQUIRED_UNIT", "drift", "local_systemd_observation")
-        elif value["state"] != "observed":
-            add("SERVICE_UNKNOWN")
+        if value["state"] != "observed":
+            add("SERVICE_UNKNOWN", target=unit)
+        elif value["load"] == "not-found":
+            add("MISSING_REQUIRED_UNIT", "drift", "local_systemd_observation", unit)
+        elif value["load"] == "loaded" and value["active"] != "active":
+            add("DRIFT_REQUIRED_UNIT_INACTIVE", "drift", "local_systemd_observation", unit)
+        elif (services.get("role") == "watchtower_candidate"
+              and value["enablement"] != "enabled"):
+            add("DRIFT_REQUIRED_UNIT_DISABLED", "drift", "local_systemd_observation", unit)
     # Never call it fully healthy: even a systemd 'active' state does not
     # validate OAuth, worker identity, provider availability, or source HEAD.
     if any(f["status"] == "drift" for f in findings):
@@ -358,8 +374,10 @@ def format_report(report):
             "Provider manifests: " + report["providers"]["state"],
             "Verdict: " + report["result"]["state"]]
     for finding in report["result"]["findings"]:
-        rows.append(f'  {finding["code"]}: {finding["proposed_action"]} '
-                    f'({finding["evidence"]})')
+        target = finding.get("target")
+        rows.append(f'  {finding["code"]}' +
+                    (f' [{target}]' if target else "") +
+                    f': {finding["proposed_action"]} ({finding["evidence"]})')
     rows.append("No changes applied. Checkout HEAD is not verified GitHub main; "
                 "selected release is not runtime health.")
     return "\n".join(rows)
