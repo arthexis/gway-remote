@@ -11,9 +11,11 @@ import os
 from pathlib import Path
 import pwd
 import re
+import selectors
 import socket
 import stat
 import subprocess
+import time
 
 from .mcp_installed_providers import discover_installed_providers, INSTALL_DIR
 from .mcp_deployment_broker import status as deployment_status
@@ -119,6 +121,41 @@ def _read_inventory(path=INVENTORY, *, reader=_owned_bytes):
     return {"state": "validated_local_file", "digest": hashlib.sha256(data).hexdigest()}
 
 
+def _bounded_command_output(argv, *, maximum, env, timeout=5):
+    """Capture an exact read-only command with an actual RAM and time bound.
+
+    subprocess.run(capture_output=True) only checks size *after* unlimited
+    accumulation. A malicious, operator-supplied local Git blob could exhaust
+    memory even if the caller later rejects its length.
+    """
+    deadline = time.monotonic() + timeout
+    with subprocess.Popen(argv, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+                          env=env) as proc:
+        output = bytearray()
+        try:
+            with selectors.DefaultSelector() as selector:
+                selector.register(proc.stdout, selectors.EVENT_READ)
+                while True:
+                    remaining = deadline - time.monotonic()
+                    if remaining <= 0 or not selector.select(remaining):
+                        raise subprocess.TimeoutExpired(argv, timeout)
+                    chunk = os.read(proc.stdout.fileno(),
+                                    min(8192, maximum + 1 - len(output)))
+                    if not chunk:
+                        break
+                    output.extend(chunk)
+                    if len(output) > maximum:
+                        raise ValueError("oversized_git_output")
+            proc.wait(timeout=max(0.001, deadline - time.monotonic()))
+            if proc.returncode != 0:
+                raise ValueError("git_read_unavailable")
+            return bytes(output)
+        finally:
+            if proc.poll() is None:
+                proc.kill()
+                proc.wait(timeout=2)
+
+
 def _git_source(checkout, *, run=subprocess.run):
     """Read one local, operator-selected Git checkout; never fetch remote HEAD."""
     unknown = {"state": "unknown", "revision": None, "inventory_digest": None,
@@ -133,8 +170,12 @@ def _git_source(checkout, *, run=subprocess.run):
                "GIT_OPTIONAL_LOCKS": "0", "GIT_NO_REPLACE_OBJECTS": "1",
                "GIT_CONFIG_NOSYSTEM": "1", "GIT_CONFIG_GLOBAL": "/dev/null"}
         def get(*args, maximum=1024):
-            completed = run(["git", "-C", str(base), *args],
-                            capture_output=True, timeout=5, check=False, env=env)
+            argv = ["git", "-C", str(base), *args]
+            if run is subprocess.run:
+                return _bounded_command_output(argv, maximum=maximum, env=env)
+            # Existing offline fixtures inject a deterministic fake runner.
+            completed = run(argv, capture_output=True, timeout=5,
+                            check=False, env=env)
             if completed.returncode or len(completed.stdout) > maximum:
                 raise ValueError("unavailable_git_evidence")
             return completed.stdout
