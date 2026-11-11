@@ -374,7 +374,7 @@ class DriftDoctorTests(unittest.TestCase):
     state: started
     enabled: true
 """]
-        self.assertEqual(d._retired_rules(sources), [])
+        self.assertEqual(d._retired_rules(sources)["matches"], [])
         sources.append("""
 - name: Re-enable removed legacy timer
   ansible.builtin.systemd:
@@ -382,7 +382,32 @@ class DriftDoctorTests(unittest.TestCase):
     state: started
     enabled: true
 """)
-        self.assertEqual(d._retired_rules(sources), ["gway-remote-watch.timer"])
+        self.assertEqual(d._retired_rules(sources)["matches"], ["gway-remote-watch.timer"])
+
+    def test_retired_rule_only_matches_real_systemd_target(self):
+        mention = """- name: Replace old gway-remote-watch.timer with health timer
+  ansible.builtin.systemd:
+    name: gway-remote-health.timer
+    state: started
+    enabled: true
+"""
+        scan = d._retired_rules([mention])
+        self.assertEqual(scan, {"matches": [], "ambiguous": False})
+        dynamic = """- name: Install optionally active timer
+  ansible.builtin.systemd:
+    name: "{{ item }}"
+    state: started
+  loop:
+    - gway-remote-watch.timer
+"""
+        scan = d._retired_rules([dynamic])
+        self.assertEqual(scan, {"matches": [], "ambiguous": True})
+        declared = source()
+        declared["rules_dynamic"] = True
+        report = d.classify(declared, inventory(), release(), providers(), services())
+        self.assertEqual(report["state"], "incomplete")
+        self.assertIn("SOURCE_RULES_UNKNOWN",
+                      [finding["code"] for finding in report["findings"]])
 
     def test_systemd_reads_only_fixed_fields_and_no_mutation(self):
         runs = []
