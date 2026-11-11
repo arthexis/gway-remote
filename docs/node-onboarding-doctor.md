@@ -39,9 +39,15 @@ The main distinction is **`ready_for_operator_test` versus
 `operational.state=unverified`**. Even when registration, attestation,
 reachability, grant and pin are all confirmed, this doctor does not claim a
 working executor. Exit status **0** means conditions for a **separately
-authorized test** are observed, *not* that the node is operational. Exit
-status **1** means readiness is not established, **2** means invalid node ID
-or malformed input.
+authorized test** are observed, *not* that the node is operational. For a
+multi-node `execute.json`, every configured SSH pin and every enrolled
+node/address/attestation/grant/reachability must pass the same checks as
+the existing `load_service` startup; a broken *other* node cannot make the
+target falsely test-ready. An explicitly untrusted execution ledger also
+blocks readiness. Unknown historical ledger evidence alone does not assert
+a failure: a new ledger may be created by the existing runtime after
+operator-authorized activation. Exit status **1** means readiness is not
+established, **2** means invalid node ID or malformed input.
 
 A successful historical request must come from the existing private
 Watchtower ledger, match the enrolled node and pinned host SHA, have
