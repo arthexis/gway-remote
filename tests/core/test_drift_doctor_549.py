@@ -29,9 +29,9 @@ def inventory(state="validated_local_file", digest=DIGEST):
     return {"state": state, "digest": digest}
 
 
-def release(sha=SHA, state="selected_partial_verified"):
+def release(sha=SHA, state="selected_manifest_verified"):
     return {"state": state, "selected_sha": sha,
-            "evidence": "root_owned_pointer_manifest_launcher"}
+            "evidence": "root_owned_manifest_file_digests"}
 
 
 def providers(state="manifest_validated"):
@@ -150,6 +150,96 @@ class DriftDoctorTests(unittest.TestCase):
         self.assertTrue({"UNTRUSTED_INVENTORY", "INVALID_RELEASE_EVIDENCE",
                          "INVALID_PROVIDER_REGISTRY", "MISSING_REQUIRED_UNIT"} <= codes)
 
+    def test_masked_and_error_units_fail_closed(self):
+        data = services()
+        data["current"]["gway-remote-mcp.service"] = unit(load="masked")
+        result = d.classify(source(), inventory(), release(), providers(), data)
+        self.assertEqual(result["state"], "drift_detected")
+        self.assertIn(("MISSING_REQUIRED_UNIT", "gway-remote-mcp.service"),
+                      {(r["code"], r.get("target")) for r in result["findings"]})
+        data["current"]["gway-remote-mcp.service"] = unit(load="error")
+        result = d.classify(source(), inventory(), release(), providers(), data)
+        self.assertEqual(result["state"], "incomplete")
+        self.assertIn("SERVICE_UNKNOWN", {r["code"] for r in result["findings"]})
+        data = services()
+        data["retired"][d._RETIRED[0]] = unit(load="error")
+        self.assertEqual(d.classify(source(), inventory(), release(),
+                                    providers(), data)["state"], "incomplete")
+        data["retired"][d._RETIRED[0]] = unit(enablement="bad")
+        self.assertEqual(d.classify(source(), inventory(), release(),
+                                    providers(), data)["state"], "incomplete")
+
+    def test_inaccessible_inventory_is_unknown_but_unsafe_metadata_is_drift(self):
+        def inaccessible(path, *, maximum):
+            raise PermissionError("EACCES: secret path")
+        evidence = d._read_inventory(Path("/not-opened"), reader=inaccessible)
+        self.assertEqual(evidence["state"], "unknown")
+        self.assertNotIn("secret", json.dumps(evidence))
+        def unsafe(path, *, maximum):
+            raise d._UntrustedFileError("untrusted_file")
+        self.assertEqual(d._read_inventory(Path("/not-opened"),
+                                           reader=unsafe)["state"], "untrusted")
+
+    def test_missing_required_ansible_recipes_are_specific_and_read_only(self):
+        files = [
+            """- name: Install health units
+  ansible.builtin.template:
+    src: health
+  loop:
+    - gway-remote-health.timer
+    - gway-remote-health.service
+- name: Enable with credential
+  ansible.builtin.systemd:
+    name: gway-remote-health.timer
+    enabled: true
+    state: started
+- name: Disable without credential
+  ansible.builtin.systemd:
+    name: gway-remote-health.timer
+    enabled: false
+    state: stopped
+""",
+            """- name: Disable obsolete service
+  ansible.builtin.systemd:
+    name: gway-remote-deploy.service
+    enabled: false
+    state: stopped
+- name: Remove dedicated service files
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: absent
+  loop:
+    - /etc/systemd/system/gway-remote-deploy.service
+""",
+            """- name: Install Watchtower link
+  ansible.builtin.copy:
+    dest: /etc/systemd/system/gway-mcp-link.service
+- name: Install Watchtower gateway
+  ansible.builtin.copy:
+    dest: /etc/systemd/system/gway-mcp-gateway.service
+""",
+            "other enrollment recipe"
+        ]
+        self.assertEqual(d._missing_required_rules(files), [])
+        corrupted = files.copy()
+        corrupted[0] = corrupted[0].replace("enabled: false", "enabled: true")
+        corrupted[1] = corrupted[1].replace("state: absent", "state: present")
+        corrupted[2] = corrupted[2].replace("gway-mcp-link.service", "not-gateway.service")
+        absent = d._missing_required_rules(corrupted)
+        targets = {r["target"] for r in absent}
+        self.assertEqual(targets, {
+            "gway-remote-health.timer", "gway-remote-deploy.service",
+            "gway-mcp-link.service"})
+        declared = source()
+        declared["missing_rules"] = absent
+        report = d.classify(declared, inventory(), release(), providers(), services())
+        self.assertEqual(report["state"], "drift_detected")
+        self.assertEqual({r["target"] for r in report["findings"]
+                          if r["code"] == "MISSING_DECLARED_RULE"}, targets)
+        self.assertNotIn("not-gateway", json.dumps(report))
+        with self.assertRaises(ValueError):
+            d._missing_required_rules(files[:2])
+
     def test_owned_reader_does_not_follow_symlink_or_fifo(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
@@ -186,7 +276,7 @@ class DriftDoctorTests(unittest.TestCase):
             path.chmod(0o666)
             self.assertEqual(d._read_inventory(path, reader=own)["state"], "untrusted")
 
-    def test_release_selected_sha_and_partial_manifest_digest_not_runtime_health(self):
+    def test_release_manifest_digests_are_not_runtime_health(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp) / "mcp"
             releases = root / "releases"
@@ -195,13 +285,18 @@ class DriftDoctorTests(unittest.TestCase):
             code = sha_dir / "run.py"
             code.write_text("print('local fixture')\n")
             digest = hashlib.sha256(code.read_bytes()).hexdigest()
+            module = sha_dir / "gway_remote" / "node.py"
+            module.parent.mkdir()
+            module.write_text("# signed fixture module\n")
+            module_digest = hashlib.sha256(module.read_bytes()).hexdigest()
             (sha_dir / "manifest.json").write_text(json.dumps({
-                "revision": SHA, "sha256": {"run.py": digest}}))
+                "revision": SHA,
+                "sha256": {"run.py": digest, "gway_remote/node.py": module_digest}}))
             (root / "current").symlink_to("releases/" + SHA)
             def own(path, *, maximum, owner=0):
                 return d._owned_bytes(path, maximum=maximum, owner=os.geteuid())
             result = d._release_observation(root, reader=own, owner=os.geteuid())
-            self.assertEqual(result["state"], "selected_partial_verified")
+            self.assertEqual(result["state"], "selected_manifest_verified")
             self.assertEqual(result["selected_sha"], SHA)
             self.assertNotIn("healthy", json.dumps(result))
             code.write_text("tampered")
@@ -209,6 +304,11 @@ class DriftDoctorTests(unittest.TestCase):
             self.assertEqual(broken["state"], "invalid")
             self.assertEqual(broken["evidence"], "launcher_digest_mismatch")
             code.write_text("print('local fixture')\n")
+            module.write_text("# unexpected module change\n")
+            broken = d._release_observation(root, reader=own, owner=os.geteuid())
+            self.assertEqual(broken["state"], "invalid")
+            self.assertEqual(broken["evidence"], "manifest_content_mismatch")
+            module.write_text("# signed fixture module\n")
             (root / "current").unlink()
             (root / "current").symlink_to("../../secrets")
             broken = d._release_observation(root, reader=own, owner=os.geteuid())
