@@ -265,13 +265,54 @@ def _missing_required_rules(sources):
             if not line.lstrip().startswith("#")))
 
     def has_task(index, module, needle, *, fields=()):
-        return any(
-            module in task and needle in task
-            and all(re.search(r"(?m)^\s*" + re.escape(k)
-                              + r":\s*" + re.escape(v) + r"\s*$", task)
-                    for k, v in fields)
-            for task in blocks(sources[index])
-        )
+        # A task title can mention the expected unit while the actual
+        # module changes a different target. Check the module's destination
+        # and options, not arbitrary prose from the task.
+        target_field = {
+            "ansible.builtin.systemd:": "name",
+            "ansible.builtin.file:": "path",
+            "ansible.builtin.copy:": "dest",
+            "ansible.builtin.template:": "dest",
+        }[module]
+        for task in blocks(sources[index]):
+            match = re.search(
+                r"(?m)^(?P<indent>[ \t]*)" + re.escape(module) + r"[ \t]*$",
+                task)
+            if match is None:
+                continue
+            indent = len(match.group("indent"))
+            values = {}
+            for line in task[match.end():].splitlines():
+                if not line.strip():
+                    continue
+                depth = len(line) - len(line.lstrip())
+                if depth <= indent:
+                    break
+                if depth == indent + 2 and ":" in line:
+                    key, value = line.strip().split(":", 1)
+                    values[key] = value.strip().strip("'\"")
+            if any(values.get(key) != value for key, value in fields):
+                continue
+            actual = values.get(target_field)
+            if actual == needle:
+                return True
+            # The pre-existing Ansible recipes deliberately use the fixed
+            # '{{ item }}' loop. Only a matching, explicit loop item and the
+            # reviewed target directory can prove the install/remove rule.
+            if actual is None or "{{ item }}" not in actual:
+                continue
+            if module == "ansible.builtin.template:":
+                if actual != "/etc/systemd/system/{{ item }}":
+                    continue
+            elif module == "ansible.builtin.file:":
+                if actual != "{{ item }}":
+                    continue
+            else:
+                continue
+            if re.search(r"(?m)^[ \t]*-[ \t]+" + re.escape(needle) +
+                         r"[ \t]*$", task):
+                return True
+        return False
 
     missing = []
     main = 0
