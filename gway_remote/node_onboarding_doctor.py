@@ -23,7 +23,8 @@ _PIN_FIELDS = frozenset(("node", "address", "ssh_host_alias", "known_hosts",
 _SHA = re.compile(r"^[0-9a-f]{64}$")
 
 
-def _private_config(node, path=EXEC_CONFIG, *, pinned_factory=PinnedNode):
+def _private_config(node, path=EXEC_CONFIG, *, pinned_factory=PinnedNode,
+                    required_owner=0):
     """Inspect only the configured pin, never create a transport or use SSH.
 
     Strict root-owned file evidence; no unchecked addresses/paths from the
@@ -39,6 +40,7 @@ def _private_config(node, path=EXEC_CONFIG, *, pinned_factory=PinnedNode):
         with os.fdopen(fd, "rb") as stream:
             info = os.fstat(stream.fileno())
             if (not stat.S_ISREG(info.st_mode) or info.st_uid != 0
+                    or info.st_uid != required_owner
                     or info.st_mode & 0o022 or not 0 < info.st_size <= MAX_EXEC_CONFIG):
                 return {"state": "unsafe_configuration"}, None
             raw = stream.read(MAX_EXEC_CONFIG + 1)
