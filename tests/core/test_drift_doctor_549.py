@@ -195,11 +195,13 @@ class DriftDoctorTests(unittest.TestCase):
     name: gway-remote-health.timer
     enabled: true
     state: started
+  when: github_health_token_config.stat.exists
 - name: Disable without credential
   ansible.builtin.systemd:
     name: gway-remote-health.timer
     enabled: false
     state: stopped
+  when: not github_health_token_config.stat.exists
 """,
             """- name: Disable obsolete service
   ansible.builtin.systemd:
@@ -223,6 +225,14 @@ class DriftDoctorTests(unittest.TestCase):
             "other enrollment recipe"
         ]
         self.assertEqual(d._missing_required_rules(files), [])
+        # A correctly named timer but missing its token condition is an
+        # actual future-deploy reactivation risk.
+        unsafe_guard = files.copy()
+        unsafe_guard[0] = unsafe_guard[0].replace(
+            "when: not github_health_token_config.stat.exists",
+            "when: github_health_token_config.stat.exists")
+        self.assertIn("gway-remote-health.timer",
+                      {r["target"] for r in d._missing_required_rules(unsafe_guard)})
         corrupted = files.copy()
         corrupted[0] = corrupted[0].replace("enabled: false", "enabled: true")
         corrupted[1] = corrupted[1].replace("state: absent", "state: present")
