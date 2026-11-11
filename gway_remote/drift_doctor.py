@@ -61,17 +61,24 @@ def _finding(code, *, status="unknown", evidence="not_verified"):
 def _owned_bytes(path, *, maximum, owner=0):
     """Bounded, symlink-resistant metadata read, not a content trust anchor."""
     p = Path(path)
-    parent = p.parent.lstat()
-    if (not stat.S_ISDIR(parent.st_mode) or parent.st_uid != owner
-            or parent.st_mode & 0o022 or p.parent.is_symlink()):
-        raise PermissionError("untrusted_parent")
-    fd = os.open(p, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
-    with os.fdopen(fd, "rb") as stream:
-        info = os.fstat(stream.fileno())
-        if (not stat.S_ISREG(info.st_mode) or info.st_uid != owner
-                or info.st_mode & 0o022 or not 0 < info.st_size <= maximum):
-            raise PermissionError("untrusted_file")
-        data = stream.read(maximum + 1)
+    # Anchor the parent directory and use dir_fd for the final file: a
+    # symlink swap between lstat and open must never redirect a privileged read.
+    dfd = os.open(p.parent, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+    try:
+        parent = os.fstat(dfd)
+        if (not stat.S_ISDIR(parent.st_mode) or parent.st_uid != owner
+                or parent.st_mode & 0o022):
+            raise PermissionError("untrusted_parent")
+        fd = os.open(p.name, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK,
+                     dir_fd=dfd)
+        with os.fdopen(fd, "rb") as stream:
+            info = os.fstat(stream.fileno())
+            if (not stat.S_ISREG(info.st_mode) or info.st_uid != owner
+                    or info.st_mode & 0o022 or not 0 < info.st_size <= maximum):
+                raise PermissionError("untrusted_file")
+            data = stream.read(maximum + 1)
+    finally:
+        os.close(dfd)
     if not 0 < len(data) <= maximum:
         raise ValueError("oversized_or_empty")
     return data
@@ -247,22 +254,35 @@ def _unit(unit, *, user=False, run=subprocess.run):
         return {"state": "unknown"}
 
 
-def _services(*, node=None, unit_reader=_unit):
+def _services(*, node=None, unit_reader=_unit, role=None):
     hostname = node or socket.gethostname().split(".")[0]
-    output = {"state": "observed", "current": {}, "retired": {}}
+    # Never guess 'Watchtower' from not being gway-001: satellites must not
+    # be falsely diagnosed as lacking Watchtower-only units.
+    if role is None:
+        if hostname == "gway-001":
+            role = "controller"
+        elif (Path("/etc/systemd/system/gway-mcp-link.service").exists()
+              or Path("/etc/systemd/system/gway-mcp-gateway.service").exists()):
+            role = "watchtower_candidate"
+        else:
+            role = "unknown"
+    if role not in ("controller", "watchtower_candidate", "unknown"):
+        raise ValueError("invalid_role")
+    output = {"state": "observed", "role": role, "current": {}, "retired": {}}
     for unit in _RETIRED:
         output["retired"][unit] = unit_reader(unit)
-    # Only the existing gway-001 identity can observe the user-service bus.
-    if hostname == "gway-001" and pwd.getpwuid(os.geteuid()).pw_name == "arthe":
-        output["current"]["gway-remote-mcp.service"] = unit_reader(
-            "gway-remote-mcp.service", user=True)
-    elif hostname == "gway-001":
-        output["current"]["gway-remote-mcp.service"] = {"state": "unknown"}
-    else:
-        output["current"]["gway-mcp-gateway.service"] = unit_reader(
-            "gway-mcp-gateway.service")
-        output["current"]["gway-mcp-link.service"] = unit_reader(
-            "gway-mcp-link.service")
+    if role == "controller":
+        # Never inspect the wrong user's bus or infer service failure from it.
+        try:
+            is_operator = pwd.getpwuid(os.geteuid()).pw_name == "arthe"
+        except (KeyError, OSError):
+            is_operator = False
+        output["current"]["gway-remote-mcp.service"] = (
+            unit_reader("gway-remote-mcp.service", user=True)
+            if is_operator else {"state": "unknown"})
+    elif role == "watchtower_candidate":
+        for unit in ("gway-mcp-gateway.service", "gway-mcp-link.service"):
+            output["current"][unit] = unit_reader(unit)
     return output
 
 
