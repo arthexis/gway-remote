@@ -134,10 +134,10 @@ class DriftDoctorTests(unittest.TestCase):
     def test_local_inventory_reports_unknown_or_valid_digest_without_leaking_path(self):
         with tempfile.TemporaryDirectory() as temp:
             path = Path(temp) / "inventory.yml"
-            self.assertEqual(d._read_inventory(path)["state"], "unknown")
-            path.write_bytes(b"inventory")
             def own(path, *, maximum):
                 return d._owned_bytes(path, maximum=maximum, owner=os.geteuid())
+            self.assertEqual(d._read_inventory(path, reader=own)["state"], "unknown")
+            path.write_bytes(b"inventory")
             result = d._read_inventory(path, reader=own)
             self.assertEqual(result["state"], "validated_local_file")
             self.assertEqual(result["digest"], DIGEST)
