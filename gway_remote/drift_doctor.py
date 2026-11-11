@@ -186,15 +186,15 @@ def _missing_required_rules(sources):
         raise ValueError("incomplete_reviewed_sources")
 
     def blocks(source):
-        return re.split(r"(?m)^\\s*- name:\\s+", "\\n".join(
+        return re.split(r"(?m)^\s*- name:\s+", "\n".join(
             line for line in source.splitlines()
             if not line.lstrip().startswith("#")))
 
     def has_task(index, module, needle, *, fields=()):
         return any(
             module in task and needle in task
-            and all(re.search(r"(?m)^\\s*" + re.escape(k)
-                              + r":\\s*" + re.escape(v) + r"\\s*$", task)
+            and all(re.search(r"(?m)^\s*" + re.escape(k)
+                              + r":\s*" + re.escape(v) + r"\s*$", task)
                     for k, v in fields)
             for task in blocks(sources[index])
         )
