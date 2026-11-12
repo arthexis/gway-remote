@@ -16,6 +16,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import time
 
 REPOSITORY = "arthexis/ocpp-simulator"
 CLONE_URL = "https://github.com/arthexis/ocpp-simulator.git"
@@ -28,6 +29,40 @@ MODULE_SUM = "h1:THNriVV3bUWkGzaIkDeytcgoeBRjoN9ezPHsddIDfgc="
 
 class AdmissionError(RuntimeError):
     pass
+
+
+# Fixed labels only. Never derive diagnostics from command arguments or exceptions.
+_STAGE = "preflight"
+_STARTED_NS = 0
+_STAGES = frozenset({
+    "preflight", "github_admission", "release_inspection", "checkout",
+    "ansible_install", "release_verify", "go_provenance", "final_sha_fence",
+})
+
+
+def stage(name: str) -> None:
+    global _STAGE, _STARTED_NS
+    if name not in _STAGES:
+        raise ValueError("invalid internal stage")
+    _STAGE = name
+    _STARTED_NS = time.monotonic_ns()
+
+
+def safe_failure(exc: BaseException) -> str:
+    # No str(exc), traceback, argv, cwd, stdout, stderr or environment.
+    kind = type(exc).__name__
+    if kind not in {
+        "AdmissionError", "CalledProcessError", "TimeoutExpired",
+        "OSError", "ValueError", "JSONDecodeError", "SubprocessError",
+    }:
+        kind = "Other"
+    code = exc.returncode if isinstance(exc, subprocess.CalledProcessError) else None
+    exit_code = str(code) if type(code) is int else "none"
+    elapsed = max(0, (time.monotonic_ns() - _STARTED_NS) // 1_000_000)
+    return (
+        "::error::simulator auto-install failed closed "
+        f"stage={_STAGE} kind={kind} exit_code={exit_code} elapsed_ms={elapsed}"
+    )
 
 
 def require_sha(value: object) -> str:
@@ -112,6 +147,7 @@ def verify_installed(source: Path, release_root: Path, user_bin: Path, sha: str,
          "--before-previous", before_previous],
         cwd=source, timeout=30,
     )
+    stage("go_provenance")
     # A checksum alone doesn't prove Go dependency provenance.
     lab_bin = release_root / "current" / "bin" / "r6c3b2-uidlab"
     metadata = invoke(["go", "version", "-m", str(lab_bin)], timeout=20)
@@ -124,7 +160,9 @@ def verify_installed(source: Path, release_root: Path, user_bin: Path, sha: str,
 
 
 def auto_install() -> str:
+    stage("preflight")
     preflight()
+    stage("github_admission")
     # This opt-in gate prevents deploying the previously installed old main
     # when the GWay Remote integration merges before simulator PR #20.
     pr = github(f"repos/{REPOSITORY}/pulls/{PR_NUMBER}")
@@ -138,6 +176,7 @@ def auto_install() -> str:
     if not verified_ci(ci, sha):
         return "SKIPPED: exact current simulator main push CI is not successful"
 
+    stage("release_inspection")
     root = Path.home() / ".local" / "share" / "ocpp-simulator"
     user_bin = Path.home() / ".local" / "bin"
     # Reject unmanaged symlink layout before creating any source checkout.
@@ -148,6 +187,7 @@ def auto_install() -> str:
     destination = str(root / "releases" / sha)
 
     # No writes to the existing ~/Repos/ocpp-simulator operator checkout.
+    stage("checkout")
     with tempfile.TemporaryDirectory(prefix="ocpp-sim-verified-") as tmp:
         source = Path(tmp) / "source"
         git_env = os.environ.copy()
@@ -182,7 +222,9 @@ def auto_install() -> str:
             return "SKIPPED: simulator main superseded before installation"
 
         if old_current == destination:
+            stage("release_verify")
             verify_installed(source, root, user_bin, sha, old_current, old_previous)
+            stage("final_sha_fence")
             if main_sha() != sha:
                 raise AdmissionError("main advanced while verifying installed release")
             return f"UP_TO_DATE: verified installed simulator {sha}"
@@ -191,8 +233,11 @@ def auto_install() -> str:
         env["OCPP_SIMULATOR_EXPECTED_MAIN_SHA"] = sha
         # The same gh authentication is inherited by the Ansible fence; no
         # runner re-registration, sudo, new credential or node executor.
+        stage("ansible_install")
         invoke(["sh", "./deploy.sh"], cwd=source, env=env, timeout=2400)
+        stage("release_verify")
         verify_installed(source, root, user_bin, sha, old_current, old_previous)
+        stage("final_sha_fence")
         if main_sha() != sha:
             raise AdmissionError("main advanced during installation; installed receipt not accepted")
         return f"INSTALLED: verified simulator {sha} (no simulator session started)"
@@ -204,7 +249,7 @@ def main() -> int:
     except (AdmissionError, OSError, ValueError, json.JSONDecodeError,
             subprocess.SubprocessError) as exc:
         # No shell output or auth details: never leak GitHub credentials.
-        print(f"::error::simulator auto-install failed closed ({type(exc).__name__})")
+        print(safe_failure(exc))
         return 1
     print(f"::notice::{result}")
     return 0
