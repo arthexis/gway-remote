@@ -1,0 +1,31 @@
+name: Auto-install verified OCPP simulator on gway-001
+# A cross-repository runner cannot be scheduled from ocpp-simulator itself.
+# Reuse only GWay Remote's already installed, repository-scoped runner.
+on:
+  schedule:
+    - cron: '*/10 * * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ocpp-simulator-gway-001-auto-install
+  cancel-in-progress: false
+
+jobs:
+  install:
+    if: github.repository == 'arthexis/gway-remote'
+    runs-on: [self-hosted, Linux, ARM64, gway-001]
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Check exact simulator main CI, build from source with Ansible, and verify
+        shell: bash
+        run: |
+          set -euo pipefail
+          # The existing arthe runner's gh authentication is node-local;
+          # no new secret, token forwarding, runner or service is required.
+          python3 scripts/auto-deploy-ocpp-simulator.py
