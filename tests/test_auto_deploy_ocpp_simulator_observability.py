@@ -127,21 +127,18 @@ class SafeDiagnosticsTests(unittest.TestCase):
                     if failure_stage == "release_inspection":
                         raise mod.AdmissionError(SECRET)
                     return ""
-                def fake_verify(*args):
-                    if failure_stage == "release_verify":
-                        raise subprocess.CalledProcessError(17, ["verifier", SECRET], stderr=SECRET)
-                    # Preserve the actual Go provenance step and its stage transition.
-                    mod.stage("go_provenance")
-                    fake_invoke(["go", "version", "-m", "test"])
-                original_home = Path.home
+                def fake_verify_invoke(argv, **kwargs):
+                    if (failure_stage == "release_verify" and len(argv) > 1
+                            and "verify_main_install.py" in str(argv[1])):
+                        raise subprocess.CalledProcessError(17, argv, stderr=SECRET)
+                    return fake_invoke(argv, **kwargs)
                 with (
                     mock.patch.object(mod, "preflight", side_effect=fake_preflight),
                     mock.patch.object(mod, "github", side_effect=fake_github),
                     mock.patch.object(mod, "main_sha", side_effect=fake_main_sha),
                     mock.patch.object(mod, "verified_ci", return_value=True),
                     mock.patch.object(mod, "read_pointer", side_effect=fake_pointer),
-                    mock.patch.object(mod, "invoke", side_effect=fake_invoke),
-                    mock.patch.object(mod, "verify_installed", side_effect=fake_verify),
+                    mock.patch.object(mod, "invoke", side_effect=fake_verify_invoke),
                     mock.patch.object(mod.tempfile, "TemporaryDirectory") as tmp,
                     mock.patch.object(mod.Path, "home", return_value=root),
                 ):
