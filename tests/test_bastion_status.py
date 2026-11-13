@@ -57,6 +57,41 @@ class BastionEvidenceTests(unittest.TestCase):
         target.symlink_to(target.with_suffix(".saved"))
         self.assertEqual(read_bastion_evidence(self.root)["evidence"], "invalid")
 
+    def test_missing_is_explicitly_missing(self):
+        result = read_bastion_evidence(self.root)
+        self.assertEqual(result["evidence"], "missing")
+        self.assertIsNone(result["activated_sha"])
+
+    def test_mismatched_release_fails_closed(self):
+        self.write("staged", SHA)
+        (self.root / "releases" / SHA / "REVISION").write_text(OTHER + "\n")
+        result = read_bastion_evidence(self.root)
+        self.assertEqual(result["evidence"], "invalid")
+        self.assertIsNone(result["activated_sha"])
+        self.assertIsNone(result["staged_sha"])
+
+    def test_boolean_schema_is_not_schema_one(self):
+        self.write("staged", SHA)
+        (self.root / "deployment" / "staged.json").write_text(
+            json.dumps({"schema": True, "revision": SHA}))
+        self.assertEqual(read_bastion_evidence(self.root)["evidence"], "invalid")
+
+    def test_symlinked_deployment_directory_is_untrusted(self):
+        self.write("staged", SHA)
+        directory = self.root / "deployment"
+        saved = self.root / "saved-deployment"
+        directory.rename(saved)
+        directory.symlink_to(saved, target_is_directory=True)
+        self.assertEqual(read_bastion_evidence(self.root)["evidence"], "invalid")
+
+    def test_symlinked_release_directory_is_untrusted(self):
+        self.write("staged", SHA)
+        release = self.root / "releases" / SHA
+        saved = self.root / "saved-release"
+        release.rename(saved)
+        release.symlink_to(saved, target_is_directory=True)
+        self.assertEqual(read_bastion_evidence(self.root)["evidence"], "invalid")
+
 
 if __name__ == "__main__":
     unittest.main()
