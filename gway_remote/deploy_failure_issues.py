@@ -8,15 +8,35 @@ import json
 from pathlib import Path
 import subprocess
 
+# The CLI dispatcher and the checked-in workflow must agree on this set.
+# Do not list known-but-unadmitted repos (or guess missing job results).
+from .deploy_dispatch import TARGETS as DISPATCH_TARGETS
+
 REPOSITORIES = {
-    "ocpp_csms": "ocpp-csms",
-    "ocpp_reports": "ocpp-reports",
-    "ocpp_simulator": "ocpp-simulator",
-    "gway_lcd_sound": "gway-lcd-sound",
-    "gway_agent_ops": "gway-agent-ops",
-    "gway_ap_kiosk": "gway-ap-kiosk",
-    "gway_rfid": "gway-rfid",
+    name.replace("-", "_"): name
+    for name in DISPATCH_TARGETS if name != "all"
 }
+
+
+def require_job_results(selected, job_results):
+    """Validate the complete GitHub needs snapshot before any issue write."""
+    if selected != "all" and selected not in REPOSITORIES.values():
+        raise ValueError("unknown appliance deployment selection")
+    if type(job_results) is not dict:
+        raise ValueError("deployment job results must be an object")
+    expected = set(REPOSITORIES) | {"admission"}
+    if set(job_results) != expected:
+        missing = sorted(expected - set(job_results))
+        unexpected = sorted(set(job_results) - expected)
+        raise ValueError(
+            f"deployment job results mismatch: missing={missing}, unexpected={unexpected}"
+        )
+    valid_results = {"success", "failure", "cancelled", "skipped", "timed_out"}
+    for job, value in job_results.items():
+        if type(value) is not dict or value.get("result") not in valid_results:
+            raise ValueError(f"invalid deployment result for {job}")
+    if job_results["admission"]["result"] != "success":
+        raise ValueError("deployment admission was not successful")
 MARKER = "<!-- gway-remote:deployment-failure:{name} -->"
 
 
@@ -70,6 +90,7 @@ def upsert(repo, name, body):
 
 
 def report_failures(repo, run_url, selected, job_results, report_dir):
+    require_job_results(selected, job_results)
     directory = Path(report_dir)
     summary = (directory / "summary.md").read_text(encoding="utf-8")
     report = json.loads((directory / "summary.json").read_text(encoding="utf-8"))
