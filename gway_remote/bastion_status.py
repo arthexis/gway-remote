@@ -11,6 +11,10 @@ def read_bastion_evidence(root=None):
     root = Path(root) if root is not None else Path(os.environ.get("BASTION_INSTALL_ROOT", "/opt/gway-bastion"))
     revisions = {}
     try:
+        # Never follow symlinked evidence roots or version directories.
+        if (root.is_symlink() or (root / "deployment").is_symlink()
+                or (root / "releases").is_symlink()):
+            raise ValueError("untrusted evidence directory")
         for kind in ("staged", "activated"):
             file = root / "deployment" / (kind + ".json")
             if not file.exists() and not file.is_symlink():
@@ -20,12 +24,14 @@ def read_bastion_evidence(root=None):
                 raise ValueError("invalid evidence file")
             payload = json.loads(file.read_text(encoding="utf-8"))
             if (not isinstance(payload, dict) or set(payload) != {"schema", "revision"}
-                    or payload["schema"] != 1 or not isinstance(payload["revision"], str)
+                    or type(payload["schema"]) is not int or payload["schema"] != 1
+                    or not isinstance(payload["revision"], str)
                     or not _SHA.fullmatch(payload["revision"])):
                 raise ValueError("invalid evidence schema")
             sha = payload["revision"]
-            revision_file = root / "releases" / sha / "REVISION"
-            if revision_file.is_symlink() or not revision_file.is_file() or revision_file.read_text().strip() != sha:
+            release_dir = root / "releases" / sha
+            revision_file = release_dir / "REVISION"
+            if release_dir.is_symlink() or revision_file.is_symlink() or not revision_file.is_file() or revision_file.read_text().strip() != sha:
                 raise ValueError("unverified revision")
             revisions[kind] = sha
     except (OSError, ValueError, UnicodeError, TypeError):

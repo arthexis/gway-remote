@@ -44,12 +44,15 @@ def inventory(repository=None, *, node=None, client=None, attempts=None, install
         if repository is not None and repository != name:
             continue
         record = attempts.get(name) or {}
-        verified = installed(name) if local else None
+        # Consume Bastion's staging and activation evidence in one snapshot.
+        # A successful attempt or a staged SHA is never an installed SHA.
+        release = read_bastion_evidence() if local and name == "gway-bastion" else None
+        verified = (release["activated_sha"] if release is not None else
+                    installed(name) if local else None)
         latest = main_head(client, source)
         # Release symlinks may expose only 12 characters, unlike GitHub's full SHA.
         relation = ("unknown" if not verified else
                     "current" if latest.lower().startswith(verified.lower()) else "behind")
-        release = read_bastion_evidence() if local and name == "gway-bastion" else None
         managed = name in allowed
         deployable = managed and node == "gway-001" and local
         rows.append({"name": name, "repository": source,
@@ -66,7 +69,8 @@ def inventory(repository=None, *, node=None, client=None, attempts=None, install
                      "latest_sha": latest,
                      "revision_status": relation,
                      "release_state": release["release_state"] if release else None,
-                     "staged_sha": release["staged_sha"] if release else None})
+                     "staged_sha": release["staged_sha"] if release else None,
+                     "release_evidence": release["evidence"] if release else None})
     return {"node": node, "local_evidence": local, "checked_at": datetime.now(timezone.utc).isoformat(),
             "components": rows}
 
@@ -82,5 +86,32 @@ def format_inventory(report):
         )
         if not row["deployable"]:
             lines.append(f'  Reason: {row["management_reason"]}')
+        if row["name"] == "gway-bastion":
+            if not report["local_evidence"]:
+                lines.append("  Bastion release: unknown (remote node; local evidence not used)")
+                lines.append("  Activated/installed revision: unknown; comparison to main: unknown")
+                lines.append("  Runtime health: unknown (remote runtime not probed)")
+                continue
+            state = row.get("release_state")
+            evidence = row.get("release_evidence")
+            if state in ("staged", "activated") and evidence == "verified":
+                lines.append(f"  Bastion release: {state} (verified release metadata)")
+                if row.get("staged_sha"):
+                    lines.append(f'  Staged SHA: {row["staged_sha"]}')
+                if state == "activated" and row.get("installed_sha"):
+                    lines.append(f'  Activated/installed SHA: {row["installed_sha"]}; '
+                                 f'comparison to main: {row["revision_status"]}')
+                    lines.append("  Runtime health: unknown (no independent runtime probe)")
+                else:
+                    lines.append("  Activated/installed revision: unknown "
+                                 "(no verified activation); comparison to main: unknown")
+                    lines.append("  Runtime health: unverified "
+                                 "(staged release is not active service evidence)")
+            else:
+                reason = evidence if evidence in ("missing", "invalid") else "unavailable"
+                lines.append(f"  Bastion release: unknown ({reason} evidence)")
+                lines.append("  Activated/installed revision: unknown "
+                             "(no verified activation); comparison to main: unknown")
+                lines.append("  Runtime health: unknown (no independent runtime probe)")
     lines.append("Unknown installation is unverified, not absent. Remote nodes are not probed or adopted.")
     return "\n".join(lines)
