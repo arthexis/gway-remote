@@ -2,11 +2,15 @@
 import hashlib
 import json
 
-from .reconcile import TARGETS
+from .catalog_shadow import check_shadow_parity, load_catalog_data
 
 
 def export_targets():
-    targets = [{"name": name, "repository": repository} for name, repository in TARGETS]
+    # P3-A reads the P1 resource, but registry parity remains mandatory.
+    # No fallback to reconcile.TARGETS on missing or drifting metadata.
+    catalog = check_shadow_parity(load_catalog_data())
+    targets = [{"name": target.id, "repository": target.repository}
+               for target in catalog.targets]
     if len({row["name"] for row in targets}) != len(targets):
         raise ValueError("duplicate deployment target")
     if len({row["repository"] for row in targets}) != len(targets):

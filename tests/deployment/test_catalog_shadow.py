@@ -199,6 +199,8 @@ class ShadowCatalogTests(unittest.TestCase):
                    side_effect=FileNotFoundError("missing")):
             with self.assertRaisesRegex(ValueError, "resource unavailable"):
                 load_catalog()
+            with self.assertRaisesRegex(ValueError, "resource unavailable"):
+                export_targets()
         self.assertEqual(compact(export_targets()), original)
 
     def test_packaged_and_zipapp_resource_in_isolated_subprocess(self):
@@ -246,15 +248,18 @@ class ShadowCatalogTests(unittest.TestCase):
             self.assertEqual(packaged, installed)
             self.assertEqual(compact(export_targets()), GOLDEN_EXPORT)
 
-    def test_legacy_consumers_do_not_import_shadow_catalog(self):
-        # Future P3 will explicitly migrate consumers. P1 must not.
+    def test_unmigrated_consumers_do_not_import_shadow_catalog(self):
+        # P3-A migrates only target_export; all execution paths stay legacy.
         for relative in (
-            "gway_remote/reconcile.py", "gway_remote/target_export.py",
-            "gway_remote/deploy_dispatch.py", "gway_remote/best_effort.py",
-            "gway_remote/cli/deploy.py", "gway_remote/deploy_failure_issues.py",
+            "gway_remote/reconcile.py", "gway_remote/deploy_dispatch.py",
+            "gway_remote/best_effort.py", "gway_remote/cli/deploy.py",
+            "gway_remote/deploy_failure_issues.py",
         ):
             with self.subTest(relative=relative):
                 self.assertNotIn("catalog_shadow", (ROOT / relative).read_text())
+        source = (ROOT / "gway_remote/target_export.py").read_text()
+        self.assertIn("from .catalog_shadow import", source)
+        self.assertNotIn("from .reconcile import", source)
 
 
 if __name__ == "__main__":
