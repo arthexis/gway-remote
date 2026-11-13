@@ -1,7 +1,8 @@
-"""Strict, read-only P1 appliance catalog: descriptive data, never authorization.
+"""Strict P1/P3-A appliance metadata catalog: never deployment authority.
 
-No active caller uses this module. The installed root-owned inventory, reviewed
-installer code, and node-owned MCP manifests remain independent authorities.
+The public target export reads only the pure data loader, then separately checks
+parity against reviewed registries. Installed root-owned inventory, handlers
+and node-owned MCP manifests remain independent authorization boundaries.
 """
 from __future__ import annotations
 
@@ -139,15 +140,25 @@ def check_shadow_parity(catalog: Catalog) -> Catalog:
     return catalog
 
 
-def load_catalog() -> Catalog:
-    """Load the package-embedded JSON in a directory, release or zipapp.
+def load_catalog_data() -> Catalog:
+    """Read strictly validated descriptive JSON, without importing registries.
 
-    Only the trusted, fixed resource path is opened. No CWD dependency, shell,
-    subprocess, timers, network, policy edits or fallback to a failed catalog.
+    This pure stage is NOT a deployment authorization or a verification of
+    adapter/probe implementations. Keep the fixed packaged resource path and
+    reject missing or malformed data, including for zipapp deployments.
     """
     try:
         resource = resources.files("gway_remote").joinpath("data", RESOURCE)
         content = resource.read_text(encoding="utf-8")
     except (OSError, UnicodeError) as exc:
         raise ValueError("appliance catalog resource unavailable") from exc
-    return check_shadow_parity(parse_catalog(content))
+    return parse_catalog(content)
+
+
+def load_catalog() -> Catalog:
+    """Preserve P1/P2's checked loader and all existing parity guarantees.
+
+    Registry imports occur only inside check_shadow_parity, never in the pure
+    data loader or at module import time.
+    """
+    return check_shadow_parity(load_catalog_data())
