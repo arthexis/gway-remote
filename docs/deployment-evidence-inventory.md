@@ -69,11 +69,12 @@ mechanism that verifies real installed targets, bind the revision to that
 activation, and design a separate runtime health probe. It requires explicit
 owner authorization; never synthesize `activated.json` to make a dashboard green.
 
-**Concurrent Remote work:** #563/PR Draft #564 reinstates Reports admission;
-#565/PR Draft #566 validates deploy jobs and error reporting. They do not
-modify this inventory reader or its CLI formatter. The only known overlap
-between those two Drafts is `.github/workflows/appliance-deploy.yml`, which
-this #567 increment does not change. Future #565 P3 migration of CLI/mobile
+**Concurrent Remote work:** #563/PR Draft #564 proposes Reports admission;
+#565/PR #566 P0 has been squash-merged into `main` and validates deploy jobs
+and error reporting. Neither modifies this inventory reader or CLI formatter.
+#564 also edits `.github/workflows/appliance-deploy.yml` and must reconcile
+with P0 already in `main` before its own merge. This #567 increment does not
+change workflows. Future #565 P3 migration of CLI/mobile
 consumers must preserve the staged/activated/runtime separation and the
 additive evidence field; the current Android `deployments-overview` is a
 separate contract and remains unchanged. No field/runtime validation,
