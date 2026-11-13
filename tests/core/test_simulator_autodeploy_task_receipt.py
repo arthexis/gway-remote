@@ -101,5 +101,79 @@ class AnsibleTaskReceiptTests(unittest.TestCase):
                 self.assertNotIn(SECRET, value)
 
 
+    def test_ignored_and_rescued_recap_counts_fail_closed(self):
+        for suffix in ("ignored=1", "rescued=1"):
+            with self.subTest(status=suffix):
+                output = failed_output().replace(suffix.split("=")[0] + "=0", suffix)
+                value = receipt(subprocess.CalledProcessError(2, [SECRET], output=output))
+                self.assertIn('ansible_task="unknown"', value)
+                self.assertNotIn(SECRET, value)
+
+    def test_new_task_after_fatal_clears_prior_attribution(self):
+        next_task = "Verify Go backend"
+        first_task = f"TASK [{TASK}] ***********************\n"
+        second = f"TASK [{next_task}] ***********************\n"
+        fatal = f"fatal: [localhost]: FAILED! => {{'msg': '{SECRET}'}}\n"
+        recap = (
+            "PLAY RECAP ******************************\n"
+            "localhost : ok=7 changed=0 unreachable=0 failed=1 skipped=0 rescued=0 ignored=0\n"
+        )
+        for next_header in (second, "TASK [Secret " + SECRET + "] ***********************\n"):
+            with self.subTest(next_header=next_header[:20]):
+                output = first_task + fatal + next_header + recap
+                result = receipt(subprocess.CalledProcessError(2, [SECRET], output=output))
+                self.assertIn('ansible_task="unknown"', result)
+                self.assertNotIn(SECRET, result)
+
+    def test_multiple_normal_tasks_identify_only_last_fatal(self):
+        output = (
+            "TASK [Validate deployment user and supported Python] **********\n"
+            "ok: [localhost]\n"
+            "TASK [Inspect immutable release directory] **********\n"
+            "ok: [localhost]\n"
+            + failed_output()
+        )
+        value = receipt(subprocess.CalledProcessError(2, [SECRET], output=output))
+        self.assertIn('ansible_task="' + TASK + '"', value)
+        self.assertNotIn(SECRET, value)
+
+    def test_recap_before_fatal_cannot_be_reused(self):
+        correct = failed_output()
+        header = "PLAY RECAP ******************************\n"
+        row = "localhost : ok=1 changed=0 unreachable=0 failed=1 skipped=0 rescued=0 ignored=0\n"
+        cases = (
+            header + row + correct,
+            correct.replace("PLAY RECAP ", "PLAY RECAP ".replace(" ", "", 1)),
+            correct + header + row,
+        )
+        for output in cases:
+            with self.subTest(length=len(output)):
+                result = receipt(subprocess.CalledProcessError(2, [SECRET], output=output))
+                self.assertIn('ansible_task="unknown"', result)
+                self.assertNotIn(SECRET, result)
+
+    def test_multiple_fatals_and_ambiguous_recap_rows_are_unknown(self):
+        transcript = failed_output()
+        fatal = f"fatal: [localhost]: FAILED! => {{'msg': '{SECRET}'}}\n"
+        cases = (
+            transcript.replace(fatal, fatal + fatal),
+            transcript + "otherhost : ok=1 changed=0 unreachable=0 failed=1 skipped=0 rescued=0 ignored=0\n",
+            transcript.replace("failed=1", "failed=1 rescued=1", 1),
+            transcript + "TASK [Verify Go backend] ***********************\n",
+        )
+        for output in cases:
+            with self.subTest(length=len(output)):
+                result = receipt(subprocess.CalledProcessError(2, [SECRET], output=output))
+                self.assertIn('ansible_task="unknown"', result)
+                self.assertNotIn(SECRET, result)
+
+    def test_bounded_output_refuses_truncated_tail(self):
+        value = receipt(subprocess.CalledProcessError(
+            2, [SECRET], output="x" * 262145 + failed_output()
+        ))
+        self.assertIn('ansible_task="unknown"', value)
+        self.assertNotIn(SECRET, value)
+
+
 if __name__ == "__main__":
     unittest.main()
