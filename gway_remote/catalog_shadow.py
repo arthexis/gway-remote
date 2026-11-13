@@ -1,7 +1,8 @@
-"""Strict, read-only P1 appliance catalog: descriptive data, never authorization.
+"""Strict P1/P3-A appliance metadata catalog: never deployment authority.
 
-No active caller uses this module. The installed root-owned inventory, reviewed
-installer code, and node-owned MCP manifests remain independent authorities.
+The public target export reads only the pure data loader, then separately checks
+parity against reviewed registries. Installed root-owned inventory, handlers
+and node-owned MCP manifests remain independent authorization boundaries.
 """
 from __future__ import annotations
 
