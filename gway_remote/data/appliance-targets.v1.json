@@ -1,0 +1,54 @@
+{
+  "schema": "gway-remote/appliance-catalog/v1",
+  "targets": [
+    {
+      "id": "ocpp-csms",
+      "repository": "arthexis/ocpp-csms",
+      "adapter_id": "deploy_csms",
+      "probe_id": "ocpp-csms",
+      "release_mode": "standard"
+    },
+    {
+      "id": "ocpp-reports",
+      "repository": "arthexis/ocpp-reports",
+      "adapter_id": "deploy_reports",
+      "probe_id": "ocpp-reports",
+      "release_mode": "standard"
+    },
+    {
+      "id": "gway-lcd-sound",
+      "repository": "arthexis/gway-lcd-sound",
+      "adapter_id": "deploy_lcd_sound",
+      "probe_id": "gway-lcd-sound",
+      "release_mode": "standard"
+    },
+    {
+      "id": "gway-agent-ops",
+      "repository": "arthexis/gway-agent-ops",
+      "adapter_id": "deploy_agent_ops",
+      "probe_id": "gway-agent-ops",
+      "release_mode": "standard"
+    },
+    {
+      "id": "gway-ap-kiosk",
+      "repository": "arthexis/gway-ap-kiosk",
+      "adapter_id": "deploy_ap_kiosk",
+      "probe_id": "gway-ap-kiosk",
+      "release_mode": "standard"
+    },
+    {
+      "id": "gway-rfid",
+      "repository": "arthexis/gway-rfid",
+      "adapter_id": "deploy_rfid",
+      "probe_id": "gway-rfid",
+      "release_mode": "standard"
+    },
+    {
+      "id": "gway-bastion",
+      "repository": "arthexis/gway-bastion",
+      "adapter_id": "deploy_bastion",
+      "probe_id": null,
+      "release_mode": "stage_only"
+    }
+  ]
+}
