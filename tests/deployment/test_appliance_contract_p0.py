@@ -54,6 +54,11 @@ def workflow_contract(source):
     edges = {}
     for name, block in blocks.items():
         dependencies = NEEDS_RE.findall(block)
+        if name == "admission":
+            if dependencies:
+                raise ValueError("admission must be a root job")
+            edges[name] = ()
+            continue
         if len(dependencies) != 1:
             raise ValueError(f"{name}: expected exactly one needs declaration")
         raw = dependencies[0].strip()
