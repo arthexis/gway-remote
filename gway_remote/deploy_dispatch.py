@@ -8,8 +8,7 @@ REPOSITORY = "arthexis/gway-remote"
 WORKFLOW = "appliance-deploy.yml"
 from .reconcile import TARGETS as DEPLOYMENT_TARGETS
 
-TARGETS = ("all", *(name for name, _ in DEPLOYMENT_TARGETS
-                    if name != "ocpp-reports"))
+TARGETS = ("all", *(name for name, _ in DEPLOYMENT_TARGETS))
 
 
 def resolve_targets(selector: str, targets: tuple[str, ...] | None = None) -> tuple[str, ...]:
