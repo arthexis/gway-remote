@@ -95,8 +95,23 @@ def deploy_csms(sha: str) -> None:
         subprocess.run(["sh", "./deploy.sh"], cwd=source, check=True, timeout=900)
 
 
+def _reports_installed_role() -> str:
+    """Require the persisted role before Reports owner deployment."""
+    marker = Path("/opt/ocpp-reports/role")
+    if marker.is_symlink() or not marker.is_file():
+        raise RuntimeError("Reports role is not installed; explicit owner preflight required")
+    try:
+        role = marker.read_text(encoding="ascii").strip()
+    except (OSError, UnicodeError) as exc:
+        raise RuntimeError("Reports role preflight unavailable") from exc
+    if role not in ("terminal", "satellite", "watchtower", "control"):
+        raise RuntimeError("Reports role preflight invalid")
+    return role
+
+
 def deploy_reports(sha: str) -> None:
     """Deploy pinned Reports main through its canonical wrapper."""
+    role = _reports_installed_role()  # Never silently bootstrap the terminal role.
     with tempfile.TemporaryDirectory(prefix="reports-deploy-") as directory:
         source = Path(directory) / "source"
         subprocess.run(["git", "clone", "--quiet", "--no-checkout",
@@ -108,7 +123,7 @@ def deploy_reports(sha: str) -> None:
                                          text=True, timeout=20).strip()
         if actual.lower() != sha.lower():
             raise ValueError("Reports checkout SHA mismatch")
-        subprocess.run(["bash", "./deploy.sh"], cwd=source, check=True, timeout=900)
+        subprocess.run(["bash", "./deploy.sh", "--" + role], cwd=source, check=True, timeout=900)
 
 
 def deploy_agent_ops(sha: str) -> None:
