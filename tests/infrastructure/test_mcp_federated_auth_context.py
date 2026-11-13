@@ -51,6 +51,12 @@ class FederatedAuthContextV1Tests(unittest.TestCase):
             with self.subTest(invalid=repr(invalid)[:120]), self.assertRaises(AuthContextError):
                 self.check(invalid)
 
+    def test_non_string_context_identity_and_route_fields_rejected(self):
+        for field in ("principal_id", "node", "provider", "tool", "request_id"):
+            for value in (None, True, 1, []):
+                with self.subTest(field=field, value=repr(value)), self.assertRaises(AuthContextError):
+                    self.check({**self.context(), field: value})
+
     def test_read_scope_or_scope_type_rejected(self):
         for scope in ("read", "gway:read", "gway:execute", "EXECUTE", None, 1, True):
             with self.subTest(scope=scope), self.assertRaises(AuthContextError):
