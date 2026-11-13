@@ -160,6 +160,10 @@ class ApplianceContractP0Tests(unittest.TestCase):
         self.assertIn('outcome = results[job]["result"]', blocks["report"])
         self.assertIn("report-bundle", blocks["report"])
         self.assertIn("gway_remote.deploy_failure_issues", blocks["report"])
+        publisher = blocks["report"].split(
+            "      - name: Open or refresh deployment failure issues", 1
+        )[1].split("      - name: Upload report", 1)[0]
+        self.assertNotIn("continue-on-error: true", publisher)
 
     def test_inventory_is_independent_and_other_hosts_deny_all(self):
         inventory = INVENTORY_SOURCE.read_text(encoding="utf-8")
