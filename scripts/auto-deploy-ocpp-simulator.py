@@ -48,6 +48,89 @@ def stage(name: str) -> None:
     _STARTED_NS = time.monotonic_ns()
 
 
+
+# Frozen, literal task names from the approved ocpp-simulator release role
+# (revision 67e2d0e0fef704d7c693a6bd86af29bcc60db9a5).
+# No arbitrary task names, log lines or command fields can appear in receipts.
+_SAFE_ANSIBLE_TASKS = frozenset({
+    "Validate deployment user and supported Python",
+    "Identify complete checkout revision",
+    "Validate immutable revision identifier",
+    "Capture optional expected main SHA from automatic deployment",
+    "Fail closed on malformed or mismatched expected main SHA",
+    "Select immutable release paths",
+    "Create simulator installation directories",
+    "Inspect immutable release directory",
+    "Verify existing release provenance and installation",
+    "Verify existing release executable",
+    "Inspect Go executable in immutable release",
+    "Reject existing release lacking Go executable",
+    "Inspect isolated LAB-6 client in immutable release",
+    "Reject existing release missing isolated LAB-6 client",
+    "Reject incomplete immutable release without modifying it",
+    "Create versioned virtual environment",
+    "Install requested checkout into versioned release",
+    "Stage Go sources without modifying the Git checkout",
+    "Resolve Go module checksums in staged source",
+    "Inspect pinned ocpp-go module in staged source",
+    "Reject unpinned ocpp-go module",
+    "Verify staged Go module integrity",
+    "Build pinned Go backend into candidate release",
+    "Build isolated LAB-6 client into the same candidate release",
+    "Calculate relative checksum of isolated LAB-6 client",
+    "Store isolated LAB-6 client checksum in immutable release",
+    "Verify isolated LAB-6 client checksum before activation",
+    "Verify Go backend",
+    "Record release provenance",
+    "Verify candidate release before activation",
+    "Inspect existing current release link",
+    "Refuse unsafe current release path",
+    "Read currently active release target",
+    "Determine whether activation is necessary",
+    "Inspect existing previous release pointer",
+    "Refuse unmanaged previous release path",
+    "Reject superseded main immediately before mutating release pointers",
+    "Preserve previous release before changing current",
+    "Activate requested revision",
+    "Expose CLI in user bin directory",
+    "Expose Go backend CLI in user bin directory",
+    "Expose explicit Python backend CLI",
+    "Verify active command",
+    "Verify explicit Python CLI",
+    "Verify Go backend dispatch",
+})
+_TASK_HEADER = re.compile(r"TASK \[([^\]\r\n]{1,180})\] \*{3,}\Z")
+_FATAL_HEADER = re.compile(r"fatal: \[[^\]\r\n]{1,150}\]: FAILED!(?:\s+=>.*)?\Z")
+_FAILED_RECAP = re.compile(r"\bfailed=[1-9][0-9]*\b")
+
+
+def ansible_failed_task(exc: BaseException) -> str:
+    """Return an allowlisted task only with fatal marker and failed PLAY RECAP."""
+    if not isinstance(exc, subprocess.CalledProcessError) or _STAGE != "ansible_install":
+        return "unknown"
+    output = exc.output
+    if not isinstance(output, str):
+        return "unknown"
+    task = None
+    fatal_task = None
+    in_recap = False
+    recap_failed = False
+    for line in output[-262144:].splitlines():
+        if len(line) > 4096:
+            continue
+        match = _TASK_HEADER.fullmatch(line)
+        if match:
+            task = match.group(1) if match.group(1) in _SAFE_ANSIBLE_TASKS else None
+            in_recap = False
+        elif _FATAL_HEADER.fullmatch(line) and task is not None:
+            fatal_task = task
+        elif line.startswith("PLAY RECAP ") and set(line[11:]).issubset({" ", "*"}):
+            in_recap = True
+        elif in_recap and _FAILED_RECAP.search(line):
+            recap_failed = True
+    return fatal_task if recap_failed and fatal_task is not None else "unknown"
+
+
 def safe_failure(exc: BaseException) -> str:
     # No str(exc), traceback, argv, cwd, stdout, stderr or environment.
     kind = type(exc).__name__
@@ -59,9 +142,13 @@ def safe_failure(exc: BaseException) -> str:
     code = exc.returncode if isinstance(exc, subprocess.CalledProcessError) else None
     exit_code = str(code) if type(code) is int else "none"
     elapsed = max(0, (time.monotonic_ns() - _STARTED_NS) // 1_000_000)
+    task_receipt = (
+        f' ansible_task="{ansible_failed_task(exc)}"' if _STAGE == "ansible_install" else ""
+    )
     return (
         "::error::simulator auto-install failed closed "
         f"stage={_STAGE} kind={kind} exit_code={exit_code} elapsed_ms={elapsed}"
+        f"{task_receipt}"
     )
 
 
