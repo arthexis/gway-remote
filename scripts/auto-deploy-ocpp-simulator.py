@@ -48,6 +48,119 @@ def stage(name: str) -> None:
     _STARTED_NS = time.monotonic_ns()
 
 
+
+# Frozen, literal task names from the approved ocpp-simulator release role
+# (revision 67e2d0e0fef704d7c693a6bd86af29bcc60db9a5).
+# No arbitrary task names, log lines or command fields can appear in receipts.
+_SAFE_ANSIBLE_TASKS = frozenset({
+    "Validate deployment user and supported Python",
+    "Identify complete checkout revision",
+    "Validate immutable revision identifier",
+    "Capture optional expected main SHA from automatic deployment",
+    "Fail closed on malformed or mismatched expected main SHA",
+    "Select immutable release paths",
+    "Create simulator installation directories",
+    "Inspect immutable release directory",
+    "Verify existing release provenance and installation",
+    "Verify existing release executable",
+    "Inspect Go executable in immutable release",
+    "Reject existing release lacking Go executable",
+    "Inspect isolated LAB-6 client in immutable release",
+    "Reject existing release missing isolated LAB-6 client",
+    "Reject incomplete immutable release without modifying it",
+    "Create versioned virtual environment",
+    "Install requested checkout into versioned release",
+    "Stage Go sources without modifying the Git checkout",
+    "Resolve Go module checksums in staged source",
+    "Inspect pinned ocpp-go module in staged source",
+    "Reject unpinned ocpp-go module",
+    "Verify staged Go module integrity",
+    "Build pinned Go backend into candidate release",
+    "Build isolated LAB-6 client into the same candidate release",
+    "Calculate relative checksum of isolated LAB-6 client",
+    "Store isolated LAB-6 client checksum in immutable release",
+    "Verify isolated LAB-6 client checksum before activation",
+    "Verify Go backend",
+    "Record release provenance",
+    "Verify candidate release before activation",
+    "Inspect existing current release link",
+    "Refuse unsafe current release path",
+    "Read currently active release target",
+    "Determine whether activation is necessary",
+    "Inspect existing previous release pointer",
+    "Refuse unmanaged previous release path",
+    "Reject superseded main immediately before mutating release pointers",
+    "Preserve previous release before changing current",
+    "Activate requested revision",
+    "Expose CLI in user bin directory",
+    "Expose Go backend CLI in user bin directory",
+    "Expose explicit Python backend CLI",
+    "Verify active command",
+    "Verify explicit Python CLI",
+    "Verify Go backend dispatch",
+})
+_TASK_HEADER = re.compile(r"TASK \[([^\]\r\n]{1,180})\] \*{3,}\Z")
+_FATAL_HEADER = re.compile(r"fatal: \[[^\]\r\n]{1,150}\]: FAILED!(?:\s+=>.*)?\Z")
+_SAFE_RECAP_ROW = re.compile(
+    r"localhost\s*:\s+ok=[0-9]+\s+changed=[0-9]+\s+unreachable=0\s+"
+    r"failed=([0-9]+)\s+skipped=[0-9]+\s+rescued=([0-9]+)\s+ignored=([0-9]+)\s*\Z"
+)
+_DEPLOY_FOOTER = re.compile(r"OCPP simulator deployment completed in [0-9]+s \(exit [0-9]+\)\Z")
+
+
+def ansible_failed_task(exc: BaseException) -> str:
+    """Require one known fatal task followed by one failing, unrescued recap.
+
+    The result is a literal frozen label, not an excerpt of untrusted output.
+    Ambiguous, reordered, incomplete and oversized transcripts fail closed.
+    """
+    if not isinstance(exc, subprocess.CalledProcessError) or _STAGE != "ansible_install":
+        return "unknown"
+    output = exc.output
+    if not isinstance(output, str) or len(output) > 262144:
+        return "unknown"
+    task = None
+    fatal_task = None
+    in_recap = False
+    recap_failed = None
+    for line in output.splitlines():
+        if len(line) > 4096:
+            return "unknown"
+        match = _TASK_HEADER.fullmatch(line)
+        if match:
+            # A task after a fatal can indicate a rescued/ignored failure.
+            # Never attribute a later failure to the earlier task.
+            if fatal_task is not None or in_recap:
+                return "unknown"
+            name = match.group(1)
+            task = name if name in _SAFE_ANSIBLE_TASKS else None
+            continue
+        if _FATAL_HEADER.fullmatch(line):
+            if task is None or fatal_task is not None or in_recap:
+                return "unknown"
+            fatal_task = task
+            continue
+        if line.startswith("PLAY RECAP "):
+            if (in_recap or fatal_task is None
+                    or not set(line[11:]).issubset({" ", "*"})):
+                return "unknown"
+            in_recap = True
+            continue
+        if in_recap:
+            row = _SAFE_RECAP_ROW.fullmatch(line)
+            if row:
+                if recap_failed is not None:
+                    return "unknown"
+                failed, rescued, ignored = map(int, row.groups())
+                recap_failed = failed > 0 and rescued == 0 and ignored == 0
+            elif line and not _DEPLOY_FOOTER.fullmatch(line):
+                return "unknown"
+        elif line.startswith(("TASK [", "fatal:")):
+            return "unknown"
+    return fatal_task if in_recap and recap_failed and fatal_task is not None else "unknown"
+
+
+
 def safe_failure(exc: BaseException) -> str:
     # No str(exc), traceback, argv, cwd, stdout, stderr or environment.
     kind = type(exc).__name__
@@ -59,9 +172,13 @@ def safe_failure(exc: BaseException) -> str:
     code = exc.returncode if isinstance(exc, subprocess.CalledProcessError) else None
     exit_code = str(code) if type(code) is int else "none"
     elapsed = max(0, (time.monotonic_ns() - _STARTED_NS) // 1_000_000)
+    task_receipt = (
+        f' ansible_task="{ansible_failed_task(exc)}"' if _STAGE == "ansible_install" else ""
+    )
     return (
         "::error::simulator auto-install failed closed "
         f"stage={_STAGE} kind={kind} exit_code={exit_code} elapsed_ms={elapsed}"
+        f"{task_receipt}"
     )
 
 
