@@ -63,9 +63,12 @@ class DeployDispatchTests(unittest.TestCase):
         run.assert_not_called()
 
     @patch("gway_remote.deploy_dispatch.subprocess.run")
-    def test_reports_cannot_be_dispatched_to_gway001(self, run):
-        with self.assertRaisesRegex(ValueError, "Unknown deployment target"):
-            dispatch("ocpp-reports")
+    def test_reports_only_dispatches_to_gway001(self, run):
+        self.assertIn("ocpp-reports", dispatch("ocpp-reports"))
+        self.assertIn("inputs[repository]=ocpp-reports", run.call_args.args[0])
+        run.reset_mock()
+        with self.assertRaisesRegex(ValueError, "not approved"):
+            dispatch("ocpp-reports", node="gway-004")
         run.assert_not_called()
 
     def test_target_is_required(self):
