@@ -101,34 +101,64 @@ _SAFE_ANSIBLE_TASKS = frozenset({
 })
 _TASK_HEADER = re.compile(r"TASK \[([^\]\r\n]{1,180})\] \*{3,}\Z")
 _FATAL_HEADER = re.compile(r"fatal: \[[^\]\r\n]{1,150}\]: FAILED!(?:\s+=>.*)?\Z")
-_FAILED_RECAP = re.compile(r"\bfailed=[1-9][0-9]*\b")
+_SAFE_RECAP_ROW = re.compile(
+    r"localhost\s*:\s+ok=[0-9]+\s+changed=[0-9]+\s+unreachable=0\s+"
+    r"failed=([0-9]+)\s+skipped=[0-9]+\s+rescued=([0-9]+)\s+ignored=([0-9]+)\s*\Z"
+)
+_DEPLOY_FOOTER = re.compile(r"OCPP simulator deployment completed in [0-9]+s \(exit [0-9]+\)\Z")
 
 
 def ansible_failed_task(exc: BaseException) -> str:
-    """Return an allowlisted task only with fatal marker and failed PLAY RECAP."""
+    """Require one known fatal task followed by one failing, unrescued recap.
+
+    The result is a literal frozen label, not an excerpt of untrusted output.
+    Ambiguous, reordered, incomplete and oversized transcripts fail closed.
+    """
     if not isinstance(exc, subprocess.CalledProcessError) or _STAGE != "ansible_install":
         return "unknown"
     output = exc.output
-    if not isinstance(output, str):
+    if not isinstance(output, str) or len(output) > 262144:
         return "unknown"
     task = None
     fatal_task = None
     in_recap = False
-    recap_failed = False
-    for line in output[-262144:].splitlines():
+    recap_failed = None
+    for line in output.splitlines():
         if len(line) > 4096:
-            continue
+            return "unknown"
         match = _TASK_HEADER.fullmatch(line)
         if match:
-            task = match.group(1) if match.group(1) in _SAFE_ANSIBLE_TASKS else None
-            in_recap = False
-        elif _FATAL_HEADER.fullmatch(line) and task is not None:
+            # A task after a fatal can indicate a rescued/ignored failure.
+            # Never attribute a later failure to the earlier task.
+            if fatal_task is not None or in_recap:
+                return "unknown"
+            name = match.group(1)
+            task = name if name in _SAFE_ANSIBLE_TASKS else None
+            continue
+        if _FATAL_HEADER.fullmatch(line):
+            if task is None or fatal_task is not None or in_recap:
+                return "unknown"
             fatal_task = task
-        elif line.startswith("PLAY RECAP ") and set(line[11:]).issubset({" ", "*"}):
+            continue
+        if line.startswith("PLAY RECAP "):
+            if (in_recap or fatal_task is None
+                    or not set(line[11:]).issubset({" ", "*"})):
+                return "unknown"
             in_recap = True
-        elif in_recap and _FAILED_RECAP.search(line):
-            recap_failed = True
-    return fatal_task if recap_failed and fatal_task is not None else "unknown"
+            continue
+        if in_recap:
+            row = _SAFE_RECAP_ROW.fullmatch(line)
+            if row:
+                if recap_failed is not None:
+                    return "unknown"
+                failed, rescued, ignored = map(int, row.groups())
+                recap_failed = failed > 0 and rescued == 0 and ignored == 0
+            elif line and not _DEPLOY_FOOTER.fullmatch(line):
+                return "unknown"
+        elif line.startswith(("TASK [", "fatal:")):
+            return "unknown"
+    return fatal_task if in_recap and recap_failed and fatal_task is not None else "unknown"
+
 
 
 def safe_failure(exc: BaseException) -> str:
