@@ -224,6 +224,53 @@ class ApplianceContractP0Tests(unittest.TestCase):
         self.assertEqual(remainder.count("remote_managed_repositories: []"), 4)
         self.assertEqual(str(INVENTORY), "/etc/gway-remote/deployment.yml")
 
+    def test_complete_guard_conditions_reject_short_circuits_and_drift(self):
+        # All original fragments are still present in the first bypass.
+        original = re.search(r"(?m)^    if: .+$", self.source).group(0)
+        variants = (
+            original.replace("${{ ", "${{ true || ", 1),
+            original.replace(" }}", " || true }}", 1),
+            original.replace("github.actor == 'arthexis'",
+                             "github.actor == 'anonymous'", 1),
+            original.replace("needs.admission.result == 'success'",
+                             "(needs.admission.result == 'success' || true)", 1),
+            original.replace("inputs.repository == 'ocpp-csms'",
+                             "inputs.repository == 'gway-bastion'", 1),
+        )
+        for altered in variants:
+            with self.subTest(altered=altered):
+                self.assertNotEqual(original, altered)
+                mutated = self.source.replace(original, altered, 1)
+                with self.assertRaisesRegex(ValueError, "unsafe job condition"):
+                    workflow_contract(mutated)
+
+        # The report job must also retain its independent admission gate.
+        report_if = re.search(
+            r"(?m)^    if: .+$", self.source.split("  report:\n", 1)[1]
+        ).group(0)
+        mutated = self.source.replace(report_if, report_if.replace(
+            "needs.admission.result == 'success'",
+            "true || needs.admission.result == 'success'", 1
+        ), 1)
+        with self.assertRaisesRegex(ValueError, "unsafe job condition"):
+            workflow_contract(mutated)
+
+    def test_duplicate_summary_keys_rejected_before_literal_eval(self):
+        mapping_line = '              "ocpp_csms": "ocpp-csms",'
+        self.assertIn(mapping_line, self.source)
+        mutated = self.source.replace(
+            mapping_line, mapping_line + "\n" + mapping_line, 1
+        )
+        with self.assertRaisesRegex(ValueError, "duplicate report mapping key"):
+            workflow_contract(mutated)
+
+    def test_admission_cannot_gain_a_permissive_job_guard(self):
+        original = "  admission:\n    name: Verify requested node and repository"
+        modified = "  admission:\n    if: ${{ true }}\n    name: Verify requested node and repository"
+        self.assertIn(original, self.source)
+        with self.assertRaisesRegex(ValueError, "admission must not have"):
+            workflow_contract(self.source.replace(original, modified, 1))
+
     def test_mutated_or_drifting_contract_is_detected(self):
         replacements = (
             ("          - ocpp-csms\n", "          - ocpp-simulator\n"),
