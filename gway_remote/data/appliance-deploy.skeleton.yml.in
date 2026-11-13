@@ -1,0 +1,137 @@
+name: Appliance Deploy
+run-name: Deploy ${{ inputs.repository }} on ${{ inputs.node || 'gway-001' }} · ${{ inputs.request_id || 'manual' }}
+on:
+  workflow_dispatch:
+    inputs:
+      node:
+        description: Approved deployment node
+        type: choice
+        required: true
+        default: gway-001
+        options:
+          - gway-001
+          - gway-004
+          - gway-002
+          - gway-005
+          - customer.gelectriic.com
+      request_id:
+        description: Optional dispatch correlation ID
+        required: false
+        type: string
+      repository:
+        description: Repository to deploy
+        type: choice
+        required: true
+        default: all
+        options:
+@@CHOICES@@
+
+permissions:
+  contents: read
+  issues: write
+
+concurrency:
+  group: gway-001-appliance
+  cancel-in-progress: false
+
+jobs:
+  admission:
+    name: Verify requested node and repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Install Ansible inventory reader
+        run: python3 -m pip install ansible-core
+      - name: Reject unapproved target before deployment jobs
+        env:
+          REQUESTED_NODE: ${{ inputs.node }}
+          REQUESTED_REPOSITORY: ${{ inputs.repository }}
+          REQUEST_ACTOR: ${{ github.actor }}
+        run: |
+          python3 - <<'PY'
+          import os
+          from gway_remote.deployment_policy import require_local_deployment
+          if os.environ['REQUEST_ACTOR'] != 'arthexis':
+              raise SystemExit('Unauthorized deployment actor')
+          node = os.environ['REQUESTED_NODE']
+          repository = os.environ['REQUESTED_REPOSITORY']
+          if node != 'gway-001':
+              raise SystemExit('Node is not yet admitted for appliance deployments')
+          require_local_deployment(
+              None if repository == 'all' else repository,
+              hostname=node,
+              inventory='ansible/inventory/deployment.yml',
+          )
+          print('Approved deployment policy')
+          PY
+@@DEPLOY_JOBS@@  report:
+    name: Export appliance deployment report
+    needs: @@REPORT_NEEDS@@
+    if: ${{ always() && github.event_name == 'workflow_dispatch' && github.actor == 'arthexis' && needs.admission.result == 'success' && inputs.node == 'gway-001' }}
+    runs-on: [self-hosted, Linux, ARM64, gway-001]
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Summarize independent deployment outcomes
+        shell: bash
+        env:
+          SELECTED_NODE: ${{ inputs.node }}
+          SELECTED_REPOSITORY: ${{ inputs.repository }}
+          JOB_RESULTS: ${{ toJSON(needs) }}
+        run: |
+          python3 - <<'PY'
+          import json
+          import os
+
+          jobs = {
+@@REPORT_MAP@@
+          }
+          results = json.loads(os.environ["JOB_RESULTS"])
+          selected = os.environ["SELECTED_REPOSITORY"]
+          lines = [f"### Deployment job outcomes on {os.environ['SELECTED_NODE']}", "", "| Repository | Outcome |",
+                   "|---|---|"]
+          for job, repository in jobs.items():
+              outcome = results[job]["result"]
+              if outcome == "skipped" and selected not in ("all", repository):
+                  outcome = "not selected"
+              lines.append(f"| {repository} | {outcome} |")
+          with open(os.environ["GITHUB_STEP_SUMMARY"], "a", encoding="utf-8") as out:
+              out.write("\n".join(lines) + "\n\n")
+          PY
+      - name: Export read-only sanitized report
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m gway_remote report-bundle --output "$RUNNER_TEMP/gway-remote-report"
+          cat "$RUNNER_TEMP/gway-remote-report/summary.md" >> "$GITHUB_STEP_SUMMARY"
+      - name: Open or refresh deployment failure issues
+        if: ${{ always() }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SELECTED_REPOSITORY: ${{ inputs.repository }}
+          JOB_RESULTS: ${{ toJSON(needs) }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          if [ -f "$RUNNER_TEMP/gway-remote-report/summary.json" ]; then
+            python3 -m gway_remote.deploy_failure_issues \
+              --repo "$GITHUB_REPOSITORY" \
+              --run-url "$RUN_URL" \
+              --selected "$SELECTED_REPOSITORY" \
+              --job-results "$JOB_RESULTS" \
+              --report-dir "$RUNNER_TEMP/gway-remote-report"
+          else
+            echo "::warning::Report bundle missing; unable to publish failure issue"
+          fi
+      - name: Upload report and bounded sanitized logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: gway-001-deploy-report-${{ github.run_id }}
+          path: ${{ runner.temp }}/gway-remote-report/
+          retention-days: 14
+          if-no-files-found: error

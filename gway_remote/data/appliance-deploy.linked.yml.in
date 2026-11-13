@@ -1,0 +1,18 @@
+  @@JOB@@:
+    name: Deploy @@TARGET@@
+    needs: [admission, @@PREV@@]
+    if: ${{ always() && github.event_name == 'workflow_dispatch' && github.actor == 'arthexis' && needs.admission.result == 'success' && inputs.node == 'gway-001' && (inputs.repository == 'all' || inputs.repository == '@@TARGET@@') }}
+    runs-on: [self-hosted, Linux, ARM64, gway-001]
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Deploy @@TARGET@@
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GWAY_REMOTE_DISPATCH_TOKEN }}
+        run: |
+          set -euo pipefail
+          python3 -m gway_remote deploy-batch --all --target @@TARGET@@
+
