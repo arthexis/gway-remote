@@ -44,8 +44,8 @@ writes, repairs or dispatches. `--render` only prints to stdout for separate
 review/commit by an authorized developer. There is no `--write` option.
 The `validation` job in PR-only `.github/workflows/ci.yml` invokes **only
 `--check`**. A developer must explicitly commit any reviewed YAML change.
-On the P2 baseline the generated output is **9,975 bytes, identical byte for
-byte** to the preexisting static YAML. The existing P0 semantic parser/tests
+On the P2 baseline the generated output is **9,975 characters / 9,976 bytes
+UTF-8, identical byte for byte** to the preexisting static YAML. The existing P0 semantic parser/tests
 are additional independently implemented constraints.
 
 ## Fixed DAG and security guarantees
