@@ -135,7 +135,7 @@ class ApplianceGeneratorP2Tests(unittest.TestCase):
             ("gway_ap_kiosk", "gway_rfid"),
             ("gway_rfid", "gway_bastion"),
         ):
-            self.assertIn("    needs: [admission, " + previous + "]", text.split("  " + current + ":\n", 1)[1].split("\n  ", 1)[0])
+            self.assertRegex(text, rf"(?m)^  {current}:\n    name: [^\n]+\n    needs: \[admission, {previous}\]\n")
         self.assertIn("    needs: [admission, ocpp_csms, gway_lcd_sound, gway_agent_ops, gway_ap_kiosk, gway_rfid, gway_bastion]", text)
         self.assertIn("Deploy gway-bastion (stage-only)", text)
         self.assertIn("Bastion staged only; running services and keys unchanged", text)
