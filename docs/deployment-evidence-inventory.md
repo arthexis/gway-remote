@@ -24,58 +24,58 @@ Source inspection on 2026-10-28. **Not** a live host audit. The authoritative cu
 
 ## Bastion staged-only inventory clarification (#567; source review 2026-11-13)
 
-The checked-in Bastion \`deploy.sh\` invokes \`ansible/install.yml\` **only to stage** a
-versioned release and atomically write \`deployment/staged.json\`, cross-checked
-with \`releases/<sha>/REVISION\`. The owner installer deliberately never creates
-or updates \`deployment/activated.json\`, never changes SSH/USB helpers in PATH,
+The checked-in Bastion `deploy.sh` invokes `ansible/install.yml` **only to stage** a
+versioned release and atomically write `deployment/staged.json`, cross-checked
+with `releases/<sha>/REVISION`. The owner installer deliberately never creates
+or updates `deployment/activated.json`, never changes SSH/USB helpers in PATH,
 and never installs or restarts services. A staged SHA identical to GitHub main,
 a successful deployment attempt, and active systemd units do **not** certify
 an activated revision.
 
-On source inspection, \`bastion-ssh-agent.service\` invokes
-\`/usr/bin/ssh-agent\`; \`bastion-usb-refresh.service\` invokes
-\`/usr/local/bin/bastion-usb-refresh\`. Neither service definition directly
-binds the running executable to \`releases/<sha>\`. Neither service activity
+On source inspection, `bastion-ssh-agent.service` invokes
+`/usr/bin/ssh-agent`; `bastion-usb-refresh.service` invokes
+`/usr/local/bin/bastion-usb-refresh`. Neither service definition directly
+binds the running executable to `releases/<sha>`. Neither service activity
 nor an activation marker alone establishes independent runtime health.
 
-The read-only \`gway-remote deployments\` text table supplements its compact
+The read-only `gway-remote deployments` text table supplements its compact
 row with these **distinct evidence states** for local Bastion:
 
-- \`staged\`: verified staged record and staged SHA; installed/activated
-  revision and comparison to main remain \`unknown\`. Runtime is *unverified*.
-- \`activated\`: independently verified activation record; display activated
-  revision and source comparison, while runtime health remains \`unknown\`
+- `staged`: verified staged record and staged SHA; installed/activated
+  revision and comparison to main remain `unknown`. Runtime is *unverified*.
+- `activated`: independently verified activation record; display activated
+  revision and source comparison, while runtime health remains `unknown`
   because there is no independent Bastion runtime probe.
-- \`unknown\`: missing or invalid evidence; no staged or activated assertion,
-  installed revision and main comparison remain \`unknown\`.
+- `unknown`: missing or invalid evidence; no staged or activated assertion,
+  installed revision and main comparison remain `unknown`.
 
 The JSON inventory preserves all existing fields and **adds only**
-\`release_evidence\` (\`verified\`, \`missing\`, \`invalid\` for local Bastion;
-\`null\` elsewhere) to explain an unknown state without erasing evidence
+`release_evidence` (`verified`, `missing`, `invalid` for local Bastion;
+`null` elsewhere) to explain an unknown state without erasing evidence
 failures. The release reader is invoked **once per local Bastion inventory
-row**; \`installed_sha\` is derived only from that same verified activation
+row**; `installed_sha` is derived only from that same verified activation
 record, never a separate or inconsistent read. Symlinked evidence directories,
-symlinked release directories, malformed schema, and mismatch to \`REVISION\`
+symlinked release directories, malformed schema, and mismatch to `REVISION`
 fail closed. Matching REVISION metadata verifies a record's consistency; it
 does not cryptographically attest executable bytes or prove runtime health.
 
-For remote nodes, \`local_evidence=false\`, and every local Bastion release
-field remains \`null\` regardless of the operator's host state. Neither local
+For remote nodes, `local_evidence=false`, and every local Bastion release
+field remains `null` regardless of the operator's host state. Neither local
 reader nor installed-revision probes run for remote targets.
 
 **Separate Bastion-owner work, not this PR:** inventory the *actual* installed
 helper and unit paths and their ownership, choose a reviewed, atomic activation
 mechanism that verifies real installed targets, bind the revision to that
 activation, and design a separate runtime health probe. It requires explicit
-owner authorization; never synthesize \`activated.json\` to make a dashboard green.
+owner authorization; never synthesize `activated.json` to make a dashboard green.
 
 **Concurrent Remote work:** #563/PR Draft #564 reinstates Reports admission;
 #565/PR Draft #566 validates deploy jobs and error reporting. They do not
 modify this inventory reader or its CLI formatter. The only known overlap
-between those two Drafts is \`.github/workflows/appliance-deploy.yml\`, which
+between those two Drafts is `.github/workflows/appliance-deploy.yml`, which
 this #567 increment does not change. Future #565 P3 migration of CLI/mobile
 consumers must preserve the staged/activated/runtime separation and the
-additive evidence field; the current Android \`deployments-overview\` is a
+additive evidence field; the current Android `deployments-overview` is a
 separate contract and remains unchanged. No field/runtime validation,
 installation, service change, or workflow dispatch is implied by CI results.
 
