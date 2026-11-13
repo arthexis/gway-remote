@@ -137,9 +137,11 @@ class ShadowCatalogTests(unittest.TestCase):
             lambda x: x["targets"][1].update(id=x["targets"][0]["id"],
                                              repository=x["targets"][0]["repository"]),
             lambda x: x["targets"][1].update(repository=x["targets"][0]["repository"]),
-            # A legacy foo_bar name could collide with foo-bar on job ID.
-            lambda x: x["targets"][0].update(id="foo-bar", repository="arthexis/foo-bar"),
-            lambda x: x["targets"][1].update(id="foo_bar", repository="arthexis/foo_bar"),
+            # The normalized job ID would collide if snake_case were admitted.
+            lambda x: (
+                x["targets"][0].update(id="foo-bar", repository="arthexis/foo-bar"),
+                x["targets"][1].update(id="foo_bar", repository="arthexis/foo_bar"),
+            ),
         ):
             with self.subTest(mutate=str(mutate)):
                 with self.assertRaises(ValueError):
