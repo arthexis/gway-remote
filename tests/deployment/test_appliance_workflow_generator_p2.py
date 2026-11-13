@@ -33,6 +33,9 @@ class ApplianceGeneratorP2Tests(unittest.TestCase):
             shutil.copyfile(TEMPLATE_DIR / filename, dest / filename)
 
     def test_byte_exact_render_and_reviewed_dispatch_subset(self):
+        self.assertEqual(len(self.actual), 9_976)
+        self.assertEqual(len(render_workflow()), 9_975)  # characters, not bytes
+        self.assertEqual(len(render_workflow().encode("utf-8")), 9_976)
         self.assertEqual(render_workflow().encode(), self.actual)
         self.assertEqual(render_workflow(), render_workflow())
         self.assertTrue(check_workflow())
