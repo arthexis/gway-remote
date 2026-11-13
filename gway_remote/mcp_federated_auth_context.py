@@ -148,6 +148,11 @@ def validate_context(context, *, verified_principal, node, provider, tool,
                    tool=tool, request_id=request_id)
     if (type(context["version"]) is not int or context["version"] != VERSION
             or context["scope"] != "execute" or type(context["scope"]) is not str
+            or type(context["principal_id"]) is not str
+            or type(context["node"]) is not str
+            or type(context["provider"]) is not str
+            or type(context["tool"]) is not str
+            or type(context["request_id"]) is not str
             or context["principal_id"] != verified_principal
             or context["node"] != node or context["provider"] != provider
             or context["tool"] != tool or context["request_id"] != request_id
