@@ -4,7 +4,9 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from gway_remote.deploy_failure_issues import issue_body, upsert, report_failures
+from gway_remote.deploy_failure_issues import (
+    REPOSITORIES, issue_body, upsert, report_failures, require_job_results,
+)
 
 
 class FailureIssueTests(unittest.TestCase):
@@ -35,18 +37,98 @@ class FailureIssueTests(unittest.TestCase):
         self.assertIn("deployment-failure:gway-lcd-sound", body)
         self.assertLess(len(body), 7000)
 
-    @patch("gway_remote.deploy_failure_issues.upsert")
-    def test_only_failed_selected_component_published(self, publish):
+    def _report(self, selected, results):
         with tempfile.TemporaryDirectory() as td:
             d = Path(td)
             (d / "summary.md").write_text("Safe appliance summary")
             (d / "summary.json").write_text('{"components": []}')
-            jobs = {"ocpp_reports": {"result": "failure"},
-                    "gway_lcd_sound": {"result": "failure"}}
             report_failures("arthexis/gway-remote", "https://github.com/run/2",
-                            "ocpp-reports", jobs, d)
-            self.assertEqual(publish.call_count, 1)
-            self.assertEqual(publish.call_args.args[1], "ocpp-reports")
+                            selected, results, d)
+
+    @staticmethod
+    def _jobs(*, all_selected=False, **results):
+        # toJSON(needs) includes skipped jobs. For 'all', every job is selected.
+        default = "success" if all_selected else "skipped"
+        jobs = {job: {"result": default} for job in REPOSITORIES}
+        jobs["admission"] = {"result": "success"}
+        for job, result in results.items():
+            jobs[job] = {"result": result}
+        return jobs
+
+    @patch("gway_remote.deploy_failure_issues.upsert")
+    def test_only_failed_selected_component_published(self, publish):
+        self._report("gway-lcd-sound",
+                     self._jobs(gway_lcd_sound="failure", ocpp_csms="failure"))
+        publish.assert_called_once()
+        self.assertEqual(publish.call_args.args[1], "gway-lcd-sound")
+
+    @patch("gway_remote.deploy_failure_issues.upsert")
+    def test_all_reports_each_failed_real_job_including_bastion(self, publish):
+        self._report("all", self._jobs(
+            all_selected=True, ocpp_csms="failure", gway_lcd_sound="cancelled",
+            gway_bastion="timed_out"))
+        self.assertEqual([c.args[1] for c in publish.call_args_list],
+                         ["ocpp-csms", "gway-lcd-sound", "gway-bastion"])
+        self.assertNotIn("ocpp-simulator", REPOSITORIES.values())
+        # Reports must enter this map when PR #564 admits it to the dispatcher.
+        from gway_remote.deploy_dispatch import TARGETS
+        self.assertEqual(set(REPOSITORIES.values()), set(TARGETS) - {"all"})
+
+    @patch("gway_remote.deploy_failure_issues.upsert")
+    def test_missing_or_extra_job_fails_before_any_write(self, publish):
+        fixtures = [
+            {k: v for k, v in self._jobs().items() if k != "gway_rfid"},
+            {**self._jobs(), "ocpp_simulator": {"result": "failure"}},
+            {**self._jobs(), "ocpp_reports": {"result": "failure"}}
+            if "ocpp_reports" not in REPOSITORIES else
+            {**self._jobs(), "phantom_job": {"result": "failure"}},
+        ]
+        for jobs in fixtures:
+            with self.subTest(jobs=sorted(jobs)):
+                with self.assertRaisesRegex(ValueError, "job results mismatch"):
+                    self._report("all", jobs)
+        publish.assert_not_called()
+
+    @patch("gway_remote.deploy_failure_issues.upsert")
+    def test_invalid_results_or_admission_fail_closed(self, publish):
+        for selected, jobs in (
+            ("invalid", self._jobs()),
+            ("all", {**self._jobs(), "ocpp_csms": {}}),
+            ("all", {**self._jobs(), "admission": {"result": "failure"}}),
+            ("all", {**self._jobs(), "gway_rfid": {"result": "unknown"}}),
+        ):
+            with self.subTest(selected=selected, jobs=jobs):
+                with self.assertRaises(ValueError):
+                    self._report(selected, jobs)
+        publish.assert_not_called()
+
+    @patch("gway_remote.deploy_failure_issues.upsert")
+    def test_skipped_selected_jobs_are_rejected_before_any_write(self, publish):
+        cases = (
+            ("all", self._jobs()),
+            ("all", self._jobs(all_selected=True, gway_rfid="skipped")),
+            ("ocpp-csms", self._jobs()),
+            ("gway-lcd-sound", self._jobs(gway_lcd_sound="skipped")),
+        )
+        for selected, jobs in cases:
+            with self.subTest(selected=selected, jobs=jobs):
+                with self.assertRaisesRegex(ValueError, "selected appliance job skipped"):
+                    self._report(selected, jobs)
+        publish.assert_not_called()
+
+    @patch("gway_remote.deploy_failure_issues.upsert")
+    def test_unselected_skipped_jobs_remain_allowed(self, publish):
+        # Six job results exist, but only one repository was requested.
+        self._report("ocpp-csms", self._jobs(ocpp_csms="success"))
+        publish.assert_not_called()
+        self._report("gway-lcd-sound", self._jobs(gway_lcd_sound="failure"))
+        publish.assert_called_once()
+        self.assertEqual(publish.call_args.args[1], "gway-lcd-sound")
+
+    def test_job_result_validation_does_not_execute_gh(self):
+        with patch("gway_remote.deploy_failure_issues.gh_json") as api:
+            require_job_results("all", self._jobs(all_selected=True))
+            api.assert_not_called()
 
 
 if __name__ == "__main__":

@@ -231,7 +231,6 @@ jobs:
           cat "$RUNNER_TEMP/gway-remote-report/summary.md" >> "$GITHUB_STEP_SUMMARY"
       - name: Open or refresh deployment failure issues
         if: ${{ always() }}
-        continue-on-error: true
         env:
           GH_TOKEN: ${{ github.token }}
           SELECTED_REPOSITORY: ${{ inputs.repository }}
