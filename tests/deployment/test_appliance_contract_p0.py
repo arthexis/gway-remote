@@ -90,10 +90,55 @@ def workflow_contract(source):
     match = re.search(r"(?ms)^          jobs = (\{\n.*?^          \})", blocks["report"])
     if not match:
         raise ValueError("report job mapping unavailable")
-    mapping = ast.literal_eval(match.group(1))
+    # literal_eval silently overwrites duplicate dict keys; inspect the AST first.
+    try:
+        mapping_ast = ast.parse(match.group(1), mode="eval").body
+    except SyntaxError as exc:
+        raise ValueError("invalid report map syntax") from exc
+    if not isinstance(mapping_ast, ast.Dict) or any(
+        key is None for key in mapping_ast.keys
+    ):
+        raise ValueError("report mapping must be a literal dictionary")
+    keys = [ast.literal_eval(key) for key in mapping_ast.keys]
+    if any(type(key) is not str for key in keys):
+        raise ValueError("report mapping keys must be strings")
+    if len(keys) != len(set(keys)):
+        raise ValueError("duplicate report mapping key")
+    mapping = ast.literal_eval(mapping_ast)
     if type(mapping) is not dict or any(type(k) is not str or type(v) is not str
                                         for k, v in mapping.items()):
         raise ValueError("invalid report job map")
+
+    # Compare the complete, allowlisted GitHub condition; merely finding
+    # guard substrings would accept expressions like true || (admission...).
+    common_gate = (
+        "github.event_name == 'workflow_dispatch' && "
+        "github.actor == 'arthexis' && "
+        "needs.admission.result == 'success' && "
+        "inputs.node == 'gway-001'"
+    )
+    for name, block in blocks.items():
+        expressions = re.findall(r"(?m)^    if: (.+)$", block)
+        if name == "admission":
+            if expressions:
+                raise ValueError("admission must not have a job condition")
+            continue
+        if len(expressions) != 1:
+            raise ValueError(f"{name}: expected one explicit job condition")
+        always = "always() && " if name == "report" or len(edges[name]) > 1 else ""
+        if name == "report":
+            selector = ""
+        else:
+            if name not in mapping:
+                raise ValueError(f"{name}: missing summary mapping")
+            target = mapping[name]
+            selector = (
+                " && (inputs.repository == 'all' || "
+                f"inputs.repository == '{target}')"
+            )
+        expected = "${{ " + always + common_gate + selector + " }}"
+        if expressions[0] != expected:
+            raise ValueError(f"{name}: unsafe job condition")
     return options, blocks, edges, mapping, head
 
 
