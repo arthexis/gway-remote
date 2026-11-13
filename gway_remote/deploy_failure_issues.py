@@ -37,6 +37,13 @@ def require_job_results(selected, job_results):
             raise ValueError(f"invalid deployment result for {job}")
     if job_results["admission"]["result"] != "success":
         raise ValueError("deployment admission was not successful")
+    # GitHub's 'skipped' is valid only for targets outside this request.
+    # A selected job that never ran must not make the report look successful.
+    selected_jobs = (REPOSITORIES if selected == "all"
+                     else (selected.replace("-", "_"),))
+    for job in selected_jobs:
+        if job_results[job]["result"] == "skipped":
+            raise ValueError(f"selected appliance job skipped: {job}")
 MARKER = "<!-- gway-remote:deployment-failure:{name} -->"
 
 
