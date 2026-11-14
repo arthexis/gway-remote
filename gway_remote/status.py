@@ -12,7 +12,7 @@ _LOG = logging.getLogger(__name__)
 
 from .attempts import DEFAULT_DIR, read_attempts
 from .health import component_health, quick_component_check
-from .reconcile import TARGETS
+from .catalog_shadow import load_catalog
 from .probe_registry import probe_for
 from .bastion_status import read_bastion_evidence
 from .deployment_evidence import adapt_component
@@ -103,6 +103,9 @@ def status(directory=DEFAULT_DIR, probe=component_health, *, depth="deep"):
     if depth not in ("deep", "quick"):
         raise ValueError("invalid_status_depth")
     """Never deploy, restart services, or infer installed SHA from an attempt."""
+    # Validate exactly one ordered metadata snapshot before journal or probes.
+    # Catalog failure must not silently fall back to the legacy registry.
+    target_names = tuple(target.id for target in load_catalog().targets)
     started_ns = perf_counter_ns()
     try:
         attempts = read_attempts(directory)
@@ -113,7 +116,7 @@ def status(directory=DEFAULT_DIR, probe=component_health, *, depth="deep"):
     journal_ms = (perf_counter_ns() - started_ns) / 1_000_000
     components = []
     probe_durations = {}
-    for name, _ in TARGETS:
+    for name in target_names:
         entry = attempts.get(name)
         if journal_error:
             installation, sha, at, error, log = "unknown", None, None, journal_error, None
