@@ -279,7 +279,7 @@ class OfflineFenceJournal:
     def reserve(self, *, resources, now_ns, **binding):
         """One all-or-nothing resource-set decision; NEVER an execution permit."""
         _identity(binding)
-        if not _int(now_ns) or now_ns >= binding["lease_until_ns"]:
+        if not _int(now_ns):
             raise StoreError()
         try:
             resources = list(plan(resources).resources)
@@ -307,6 +307,8 @@ class OfflineFenceJournal:
                 return {"state": records[request]["state"], "generation": records[request]["generation"],
                         "receipt_digest": db.execute("SELECT receipt_digest FROM requests WHERE request_id=?",
                                                      (request,)).fetchone()[0]}
+            if now_ns >= binding["lease_until_ns"]:
+                raise StoreError()
             requested = ResourcePlan(tuple(resources))
             if any(conflicts(requested, ResourcePlan(tuple(s["resources"])))
                    for s in records.values() if s["state"] != "terminal"):
