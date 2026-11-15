@@ -23,9 +23,9 @@ class ApplianceWorkflowTests(unittest.TestCase):
         self.assertIn("workflow_dispatch:", deploy)
         self.assertNotIn("schedule:", deploy)
         self.assertIn("github.actor == 'arthexis'", deploy)
-        self.assertNotIn("ocpp-reports", MANAGED_DEPLOYMENT_TARGETS)
-        self.assertNotIn("ocpp_reports:", deploy)
-        self.assertNotIn("          - ocpp-reports", deploy)
+        self.assertIn("ocpp-reports", MANAGED_DEPLOYMENT_TARGETS)
+        self.assertIn("ocpp_reports:", deploy)
+        self.assertIn("          - ocpp-reports", deploy)
         for name in MANAGED_DEPLOYMENT_TARGETS[1:]:
             with self.subTest(repository=name):
                 self.assertIn(f"deploy-batch --all --target {name}", deploy)
@@ -40,7 +40,7 @@ class ApplianceWorkflowTests(unittest.TestCase):
         jobs = dict(zip(blocks[1::2], blocks[2::2]))
 
         tracks = (
-            ("ocpp_csms",),
+            ("ocpp_csms", "ocpp_reports"),
             ("gway_lcd_sound", "gway_agent_ops", "gway_ap_kiosk",
              "gway_rfid", "gway_bastion"),
         )
