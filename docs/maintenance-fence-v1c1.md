@@ -34,6 +34,13 @@ The journal stores monotonically increasing sequence numbers and canonical
 JSON snapshots with SHA-256 hash chaining; request materialized rows and
 generation metadata are reconciled against **full journal replay** on every
 operation. All journal and receipt mutations are committed in one transaction.
+For this offline prototype, journal replay is bounded at **4096 events**:
+once this limit is exhausted, further journal appends fail closed rather than
+allow unbounded growth. There is no compaction or automatic pruning; capacity
+exhaustion is an operational blocker, not a reason to recreate the database.
+Replay and per-request reconciliation remain potentially expensive (including
+quadratic work at larger histories); the bound is not a production performance
+guarantee.
 A mid-transaction crash cannot leave an accepted partial resource set.
 Any missing sequence, unexpected state transition, broken digest, divergent
 receipt or counter, malformed path or invalid schema causes a fail-closed error.
@@ -51,10 +58,12 @@ Supported offline transitions:
 - `terminal` never reopens its `request_id`. A different request may be
   accepted after recovery, but only in this non-operational prototype.
 
-A new competing request that detects expiry rolls back its attempted
-observation when conflict is rejected; **the conflict stays denied**. An
-explicit `observe` or exact duplicate inspection persists the uncertainty.
-A fresh record is never admitted merely because a lease expired.
+A new competing request that observes an expired or cross-boot owner commits
+the transition to `uncertain` **before returning a conflict rejection**.
+The competing reservation is never inserted, and neither the exception nor
+the retry can erase the committed observation. A fresh record is never
+admitted merely because a lease expired. This is one atomic journal transaction
+followed by an application-level denial, not an operational admission.
 
 ## What is NOT guaranteed
 
@@ -81,10 +90,15 @@ Run the offline test module:
 python -m unittest tests.core.test_maintenance_fence_store -v
 ```
 
-Tests use TemporaryDirectory databases, simulate multiple SQLite clients,
-stale leases, changed boot IDs, duplicate and conflicting requests,
-recovery, mid-transaction rollback, corrupted receipts, journal tampering,
-schema damage and invalid paths. This is **not** a real node integration test.
+Tests use TemporaryDirectory databases, **separate spawned OS processes and
+SQLite connections**, stale leases, changed boot IDs, duplicate and conflicting
+requests, recovery, mid-transaction rollback, **a committed reservation whose
+process exits before reporting success**, corrupted receipts, journal tampering,
+schema damage, invalid paths, and replay across 64 independent resource keys.
+Expiry and boot-change observations made during a denied conflicting request
+are re-read from a reopened database to prove durability. These checks remain
+hermetic: they do **not** demonstrate physical power-loss durability, actual
+admin authentication, privilege isolation or real node exclusion.
 
 Revert only the offline module, tests and this document. No runtime or
 persistent appliance state is introduced by the PR; test databases are
