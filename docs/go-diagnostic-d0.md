@@ -97,6 +97,59 @@ inode lifetime, resource lock ordering, mutual exclusion with
 uninstrumented legacy paths, and fencing before each effect. Do not wire
 this D0 model directly to the operational journal.
 
+## D1-B1 pure coordinator state model — no runtime authority
+
+`gway_remote/go_diagnostic_coordinator_d1b1.py` is a **pure, immutable
+state-transition model** for D1-B1. `reserve(snapshot, binding, witness)`
+returns a new snapshot with one canonical V1-B resource-set reservation or
+rejects. The entire set is a single value, not partially acquired locks;
+**this is not an atomic transaction across independently executing clients**.
+Only V1-C1 SQLite `BEGIN IMMEDIATE` supplies atomicity for cooperating
+offline clients, and its path-based open remains unfit for runtime authority.
+
+The model calls V1-C2 `validate_claimed_binding` with separate, injected
+`Witness` fields, `BootSample`, and canonical `plan` resources. A test-supplied
+witness is **not authenticated** by the model; `assess_offline`, `reserve`,
+and `Receipt.sanitized` do not return capabilities or execution permission.
+`check_order` encodes the global GitHub queue -> node coordinator -> brief
+SQLite transaction -> legacy flock -> effect sequence, not an acquired lock.
+
+D1-B1 states: `HELD`, `UNCERTAIN`, and `TERMINAL`. Expired leases, changed
+boots, or unverified child reaping/workspace removal move an active claim to
+`UNCERTAIN` and preserve overlap blocking. `finish` models ordinary,
+clean **offline** completion only; **V1-C1 does not implement this ordinary
+terminal transition**, and the model must not be connected to V1-C1 until
+the persistence contract is separately reviewed. `recovery_preview` checks
+injected admin/quiescence assertions but does **not** recover, free locks or
+validate their real-world provenance. Journal capacity at 4096 and generation
+overflow reject without pruning, resetting or automatic recovery.
+
+### Deferred runtime proof, not implied by hermetic tests
+
+- No kernel lock, trusted principal/boot/monotonic clock acquisition, IPC,
+  process-tree control, GitHub dispatch or Ansible effects
+- No FD-anchored SQLite lifetime: V1-C2 audit is point-in-time and V1-C1
+  `sqlite3.connect(path)` retains a TOCTOU hazard
+- No global linearizability across real callers, no fencing tokens consumed by
+  effect destinations, no proof that surviving children are stopped
+- External AgentOps and direct manual/legacy entrypoints remain unverified;
+  PR Draft #583 inventories paths, but does not certify their completeness
+
+### New hermetic tests
+
+```bash
+python -m unittest tests.core.test_go_diagnostic_coordinator_d1b1 -v
+```
+
+Tests cover canonical resource conflicts, independent witness mismatch,
+replay of changed identities, model snapshot atomicity, disjoint node claims,
+stale generations, expiry and boot changes, unknown descendants/cleanup,
+crash snapshot preservation, administrative recovery preview, strict
+phase order, and the 4096-event boundary.
+
+**Acceptance for D1-B1:** pure model and tests may reach PRE-READY only.
+Do not mark PR #584 Ready, merge, deploy, run Go, or close #561.
+
 ## Risk/acceptance matrix
 
 | Threat | D0 requirement | Runtime proof deferred to |
