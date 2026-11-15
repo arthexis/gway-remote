@@ -89,6 +89,14 @@ class OfflineJournalTests(unittest.TestCase):
             self.request("d", now=1001, lease=2000)
         self.assertEqual(self.store.inspect("c" * 32)["state"], "uncertain")
 
+    def test_exact_duplicate_after_expiry_records_uncertain(self):
+        self.request()
+        stale = self.request(now=1100, lease=1000)
+        self.assertEqual(stale["state"], "uncertain")
+        self.assertEqual(self.store.inspect("c"*32)["state"], "uncertain")
+        with self.assertRaises(StoreError):
+            self.request("d", now=1100, lease=2000)
+
     def test_expiration_during_new_request_keeps_reservation(self):
         self.request()
         with self.assertRaises(StoreError):
@@ -165,7 +173,7 @@ class OfflineJournalTests(unittest.TestCase):
         with self.assertRaises(StoreError):
             self.request(resources=())
         with self.assertRaises(StoreError):
-            self.request(ident="x")
+            self.request(request_id="short")
         with self.assertRaises(StoreError):
             self.request(now=True)
         with self.assertRaises(StoreError):
