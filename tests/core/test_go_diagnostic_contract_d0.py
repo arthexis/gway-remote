@@ -4,7 +4,11 @@ from dataclasses import replace
 
 from gway_remote.go_diagnostic_contract import (
     BarrierEvidence, ContractError, DiagnosticPlan, DiagnosticReceipt,
-    Phase, SandboxPolicy, StepResult, assess_offline, transition,
+    Phase, SandboxPolicy, StepResult, assess_offline, conceptual_conflicts,
+    transition,
+)
+from gway_remote.maintenance_fence_resources import (
+    plan as resource_plan, conflicts as resource_conflicts,
 )
 
 SIM_SHA = "67e2d0e0fef704d7c693a6bd86af29bcc60db9a5"
@@ -66,9 +70,59 @@ class TestOfflineGoContract(unittest.TestCase):
             with self.subTest(workspace=workspace):
                 self.rejects(lambda: plan(workspace=workspace).validate())
 
-    def test_resource_scope_cannot_expand_or_shrink(self):
-        self.rejects(lambda: plan(resources=frozenset({"node:gway-001:compute"})).validate())
-        self.rejects(lambda: plan(resources=frozenset({"node:gway-001:compute", "node:gway-001:ocpp-simulator", "node:watchtower"})).validate())
+    def test_resource_scope_is_canonical_whole_node(self):
+        self.assertEqual(plan().resources, ("node/gway-001",))
+        self.assertEqual(resource_plan(plan().resources).resources, plan().resources)
+        for invalid in (
+            ("node:gway-001:compute",),
+            ("node/gway-001/deploy/ocpp-simulator",),
+            ("node/gway-002",),
+            ("node/gway-001", "node/gway-001/deploy/ocpp-simulator"),
+            ("node/gway-001", "node/gway-002"),
+            frozenset({"node/gway-001"}),
+        ):
+            with self.subTest(invalid=invalid):
+                self.rejects(lambda: plan(resources=invalid).validate())
+
+    def test_v1b_canonicalization_collapses_descendants(self):
+        raw = ("node/gway-001/deploy/ocpp-simulator", "node/gway-001")
+        self.assertEqual(resource_plan(raw).resources, ("node/gway-001",))
+        self.rejects(lambda: conceptual_conflicts(raw, ("node/gway-001",)))
+        self.rejects(lambda: conceptual_conflicts(("node/gway-001", "node/gway-001"),
+                                                  ("node/gway-001",)))
+
+    def test_v1b_hierarchy_blocks_competing_operations(self):
+        root = ("node/gway-001",)
+        descendants = (
+            ("node/gway-001/deploy/ocpp-simulator",),
+            ("node/gway-001/deploy/gway-remote",),
+            ("node/gway-001/filesystem/releases",),
+            ("node/gway-001/service/ocpp-csms",),
+        )
+        for other in descendants:
+            with self.subTest(other=other):
+                self.assertTrue(conceptual_conflicts(root, other))
+                self.assertTrue(conceptual_conflicts(other, root))
+                self.assertTrue(resource_conflicts(resource_plan(root), resource_plan(other)))
+
+    def test_v1b_separate_nodes_and_siblings_are_conceptually_disjoint(self):
+        self.assertFalse(conceptual_conflicts(("node/gway-001",), ("node/gway-002",)))
+        self.assertFalse(conceptual_conflicts(
+            ("node/gway-001/deploy/ocpp-simulator",),
+            ("node/gway-001/deploy/gway-remote",)))
+        # Distinct keys do not certify real independence of CPU/memory effects.
+
+    def test_v1b_malformed_or_noncanonical_claims_fail_closed(self):
+        for invalid in (
+            ("node:gway-001:compute",), ("node/gway-001/compute/go",),
+            ("node/gway-001", "node/gway-001/deploy/ocpp-simulator"),
+            ("node/gway-001/deploy/a", "node/gway-001/deploy/a"),
+            ("node/gway-001/deploy/z", "node/gway-001/deploy/a"),
+            ("node/watchtower",), (), ["node/gway-001"],
+        ):
+            with self.subTest(invalid=invalid):
+                self.rejects(lambda: conceptual_conflicts(invalid, ("node/gway-001",)))
+                self.rejects(lambda: conceptual_conflicts(("node/gway-001",), invalid))
 
     def test_sandbox_security_flags(self):
         for flag in (
