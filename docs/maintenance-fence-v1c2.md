@@ -9,9 +9,11 @@ CLI, MCP, worker, workflow, deployment broker, AgentOps or Ansible.
 
 - `validate_claimed_binding` checks the submitted immutable request binding
   against **independently** supplied authenticated principal, node, repository,
-  commit SHA, source and request ID. It canonicalizes a separately verified
-  resource footprint, checks boot identity, and rejects an expired monotonic
-  deadline. Only a correlation digest is returned: not a permission/token.
+  commit SHA, source and request ID. It requires an explicit equality check
+  between canonicalized **declared_resources** and separately verified
+  **trusted_resources**; neither is inferred from the other. An omitted,
+  expanded or forged resource claim fails closed. It also checks boot identity
+  and rejects an expired monotonic deadline. Only a correlation digest is returned: not a permission/token.
 - `sample_local_boot` brackets a monotonic-nanosecond observation with two
   boot ID readings. Both readers are supplied by a trusted caller, not by
   serialized request arguments. A reboot, backwards clock, excessive sampling
@@ -19,10 +21,13 @@ CLI, MCP, worker, workflow, deployment broker, AgentOps or Ansible.
   caller used the actual Linux procfs/clock. Observations from distinct
   boots cannot be compared as belonging to one monotonic epoch.
 - `validate_recovery_record` verifies metadata against separately derived
-  administrator identity, node, exact current receipt digest and evidence
-  digest. It **does not validate** administrative authorization or physical
-  quiescence, nor call the SQLite recover method. A digest of an assertion is
-  not evidence that a worker has stopped.
+  administrator identity, node, **request_id**, exact positive **generation**,
+  exact current receipt digest and evidence digest. Stale/mismatched request
+  and generation fail closed. It **does not validate** administrative
+  authorization or physical quiescence, nor call the SQLite recover method.
+  A matching digest of an assertion is not evidence that a worker stopped.
+  Binding metadata to a generation does not establish freshness of that
+  generation unless the trusted witness is itself independently current.
 - Untrusted request dictionaries, federated auth context dictionaries, or
   any user-controlled fields must **never** be reused as their own
   `trusted_*` witness. Even a well-formed FederatedAuthContextV1 requires
@@ -51,9 +56,10 @@ independent review before runtime integration.
 
 `python -m unittest tests.core.test_maintenance_fence_provenance_v1c2 -v`
 
-Tests cover independent principal/node/repo/SHA/request mismatch, changed
-boot/expired lease, monotonic clock rollback, missing boot, sample-time bound,
-recovery metadata, private DB/WAL/SHM, symlinks, parent symlinks, permissions,
+Tests cover independent principal/node/repo/SHA/request mismatch, declared
+versus trusted resource scope, changed boot/expired lease, monotonic clock
+rollback, missing boot, sample-time bound, recovery request_id and generation
+binding, private DB/WAL/SHM, symlinks, parent symlinks, permissions,
 hardlinks, nonregular/missing files, invalid paths and an injected inode
 substitution. Rejects are sanitized and fail closed.
 
