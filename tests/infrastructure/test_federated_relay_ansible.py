@@ -1,5 +1,9 @@
 """Regression coverage for node-owned MCP relay provisioning."""
 import json
+import os
+import shutil
+import subprocess
+import tempfile
 import unittest
 from pathlib import Path
 from unittest.mock import patch
@@ -25,6 +29,33 @@ class FederatedRelayAnsibleTests(unittest.TestCase):
     def test_relay_opt_in_supports_enrolled_nodes(self):
         self.assertIn("is match('^gway-[0-9]+$')", MAIN.read_text())
         self.assertIn("gway_exec_transport_prepare | default(false) | bool", MAIN.read_text())
+
+    @unittest.skipUnless(shutil.which("ansible-playbook"), "Ansible unavailable")
+    def test_relay_preflight_accepts_managed_nodes_and_rejects_invalid_inputs(self):
+        # Run the actual first task in isolation; no account or SSH changes.
+        import yaml
+        first_task = yaml.safe_load(RELAY.read_text())[0]
+        with tempfile.TemporaryDirectory() as temp:
+            playbook = Path(temp) / "preflight.yml"
+            playbook.write_text(yaml.safe_dump([{
+                "hosts": "localhost", "connection": "local", "gather_facts": False,
+                "tasks": [first_task],
+            }]))
+            key = "ssh-ed25519 " + "A" * 44
+            for host, public_key, expected in (
+                ("gway-001", key, 0), ("gway-004", key, 0),
+                ("watchtower", key, 1), ("gway-004-extra", key, 1),
+                ("gway-004", "invalid", 1), ("gway-004", None, 1),
+            ):
+                with self.subTest(host=host, public_key=public_key):
+                    variables = {"ansible_hostname": host}
+                    if public_key is not None:
+                        variables["gway_exec_relay_public_key"] = public_key
+                    result = subprocess.run(
+                        ["ansible-playbook", "-i", "localhost,", str(playbook),
+                         "-e", json.dumps(variables)], capture_output=True, text=True,
+                        env={**os.environ, "ANSIBLE_LOCAL_TEMP": temp}, timeout=30)
+                    self.assertEqual(result.returncode == 0, expected == 0, result.stdout + result.stderr)
 
     def test_receiver_rejects_spoofed_node_identity(self):
         payload = {"operation": "provider_list", "node": "gway-002",
