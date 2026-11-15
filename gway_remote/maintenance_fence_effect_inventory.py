@@ -105,7 +105,9 @@ def validate_catalog(routes=ROUTES):
             canonical = plan(route.resources)
         except ValueError:
             raise InventoryError() from None
-        if canonical.resources != route.resources:
+        if (canonical.resources != route.resources
+                or any(resource.split("/")[1] != "gway-001"
+                       for resource in route.resources)):
             raise InventoryError()
     return tuple(routes)
 
