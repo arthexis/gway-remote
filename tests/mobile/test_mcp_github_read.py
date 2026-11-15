@@ -64,7 +64,12 @@ class GitHubReadTests(unittest.TestCase):
         self.assertEqual(get.call_count, 2)
 
     def test_rules_page_limit_and_malformed_rules(self):
-        with patch.object(api, "_get", return_value=[{"type": "deletion"}] * 100):
+        # Exercise the page limit with distinct records, not a repeated
+        # page (which correctly fails earlier as inconsistent pagination).
+        def unique_full_page(repository, path, params):
+            return [{"type": "deletion", "ruleset_id": params["page"] * 100 + i}
+                    for i in range(100)]
+        with patch.object(api, "_get", side_effect=unique_full_page):
             with self.assertRaisesRegex(api.WorkflowError, "github_incomplete_pagination"):
                 api.branch_effective_rules({"repository": REPO, "branch": "main"})
         with patch.object(api, "_get", return_value=[{"type": "required_status_checks", "parameters": []}]):
