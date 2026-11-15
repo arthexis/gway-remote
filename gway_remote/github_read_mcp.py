@@ -86,13 +86,25 @@ def _pages(repository, path, key, *, params=None):
 
 
 
-def _array_pages(repository, path):
-    """Array endpoint: only a short page proves termination; 1000 is a hard cap."""
+def _array_pages(repository, path, *, detect_rule_overlap=False):
+    """Array endpoint: short page proves termination; detect verifiable page overlap."""
     result = []
+    prior_page_fingerprints = set()
     for page in range(1, MAX_PAGES + 1):
         chunk = _get(repository, path, {"per_page": PAGE_SIZE, "page": page})
         if not isinstance(chunk, list) or any(not isinstance(x, dict) for x in chunk):
             raise WorkflowError("github_invalid_response")
+        if detect_rule_overlap:
+            # A rule's type alone is not an identity. Different rulesets and
+            # parameters may legitimately yield the same type. Identical
+            # records across distinct pages cannot certify completeness.
+            fingerprints = {
+                json.dumps(item, sort_keys=True, separators=(",", ":"), ensure_ascii=True)
+                for item in chunk
+            }
+            if fingerprints & prior_page_fingerprints:
+                raise WorkflowError("github_inconsistent_pagination")
+            prior_page_fingerprints.update(fingerprints)
         result.extend(chunk)
         if len(chunk) > PAGE_SIZE:
             raise WorkflowError("github_invalid_response")
@@ -109,7 +121,8 @@ def branch_effective_rules(args):
     if type(branch) is not str or not _BRANCH.fullmatch(branch) or ".." in branch or branch.startswith(("/", ".")):
         raise ValueError("invalid_branch")
     # GitHub's effective-rules endpoint returns an array, not a ruleset object.
-    data = _array_pages(repository, "rules/branches/" + quote(branch, safe=""))
+    data = _array_pages(repository, "rules/branches/" + quote(branch, safe=""),
+                        detect_rule_overlap=True)
     rules = []
     for rule in data:
         if (not isinstance(rule, dict) or type(rule.get("type")) is not str
@@ -141,6 +154,10 @@ def commit_checks(args):
                   {"per_page": 1, "page": 1})
     if (not isinstance(suites, dict) or type(suites.get("total_count")) is not int
             or suites["total_count"] < 0 or not isinstance(suites.get("check_suites"), list)):
+        raise WorkflowError("github_invalid_response")
+    # With per_page=1 the first page must have exactly one entry when
+    # total_count is positive, or none when it is zero.
+    if len(suites["check_suites"]) != (1 if suites["total_count"] else 0):
         raise WorkflowError("github_invalid_response")
     if suites["total_count"] >= 1000:
         raise WorkflowError("github_check_suite_coverage_unknown")

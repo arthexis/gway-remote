@@ -71,6 +71,33 @@ class GitHubReadTests(unittest.TestCase):
             with self.assertRaisesRegex(api.WorkflowError, "github_invalid_response"):
                 api.branch_effective_rules({"repository": REPO, "branch": "main"})
 
+    def test_cross_page_identical_rules_rejected(self):
+        first = [{"type": "deletion", "ruleset_id": 101,
+                  "ruleset_source": "arthexis/gway-remote"}] * 100
+        with patch.object(api, "_get", side_effect=[first, [first[0]]]):
+            with self.assertRaisesRegex(api.WorkflowError, "github_inconsistent_pagination"):
+                api.branch_effective_rules({"repository": REPO, "branch": "main"})
+
+    def test_same_type_different_rulesets_and_parameters_are_distinct(self):
+        first = [{"type": "required_status_checks", "ruleset_id": 101,
+                  "parameters": {"required_status_checks": [{"context": "CI"}]}}] * 100
+        second = [{"type": "required_status_checks", "ruleset_id": 102,
+                   "parameters": {"required_status_checks": [{"context": "CI"}]}},
+                  {"type": "required_status_checks", "ruleset_id": 101,
+                   "parameters": {"required_status_checks": [{"context": "lint"}]}}]
+        with patch.object(api, "_get", side_effect=[first, second]):
+            result = api.branch_effective_rules({"repository": REPO, "branch": "main"})
+        self.assertEqual(len(result["rules"]), 102)
+
+    def test_suite_first_page_count_consistency(self):
+        for count, entries in ((1, []), (0, [{}]), (2, [{}, {}])):
+            with self.subTest(total_count=count, entries=entries):
+                with patch.object(api, "_get", return_value={
+                    "total_count": count, "check_suites": entries}) as get:
+                    with self.assertRaisesRegex(api.WorkflowError, "github_invalid_response"):
+                        api.commit_checks({"repository": REPO, "sha": SHA})
+                    self.assertEqual(get.call_count, 1)
+
     def test_suite_coverage_fail_closed(self):
         with patch.object(api, "_get", return_value={"total_count": 1000, "check_suites": [{}]}) as get:
             with self.assertRaisesRegex(api.WorkflowError, "github_check_suite_coverage_unknown"):

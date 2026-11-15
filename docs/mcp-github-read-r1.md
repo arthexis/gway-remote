@@ -27,9 +27,15 @@ limited, truncated and inconsistent cases. There is no stale fallback.
 
 At most 10 pages of 100 rules, checks or classic statuses, 256 KiB per response,
 10-second per-request timeout; incomplete data is an error. A short page
-proves array-endpoint termination; a full tenth page fails closed. Rules
+proves array-endpoint termination; a full tenth page fails closed.
+For effective rules, identical complete records on different pages trigger an
+inconsistent-pagination error; same-type rules with distinct ruleset IDs or
+parameters remain distinct. Identical entries within one page are not presumed
+to be duplicates because the API has no per-rule stable ID. Rules
 are not proof that the branch exists. Check runs request filter=all, and an
-additional GitHub check-suite count fails closed at >=1000 suites because
+additional GitHub check-suite count validates first-page length for
+per_page=1 (one entry when total_count > 0, none otherwise) and fails closed
+at >=1000 suites because
 GitHub's per-ref check-run endpoint is limited to the latest 1000 suites.
 Counts remain subject to upstream concurrent changes; this is not an atomic
 GitHub snapshot. Redirects are rejected and no raw logs or secrets returned.
