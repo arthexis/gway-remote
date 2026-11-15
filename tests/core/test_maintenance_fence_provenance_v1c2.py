@@ -23,7 +23,8 @@ def trusted(**kwargs):
     args = dict(trusted_principal="b"*24, trusted_node=NODE,
                 trusted_repo="arthexis/ocpp-simulator", trusted_sha="a"*40,
                 trusted_source="schedule", trusted_request_id="c"*32,
-                trusted_resources=(RESOURCE,), trusted_sample=BootSample(BOOT, 100))
+                declared_resources=(RESOURCE,), trusted_resources=(RESOURCE,),
+                trusted_sample=BootSample(BOOT, 100))
     args.update(kwargs)
     return args
 
@@ -45,6 +46,8 @@ class ProvenanceTests(unittest.TestCase):
             {"trusted_sample": BootSample("boot-beta-0001", 100)},
             {"trusted_sample": BootSample(BOOT, 1000)},
             {"trusted_resources": ("node/gway-002",)},
+            {"declared_resources": ("node/gway-002",)},
+            {"declared_resources": ("node/gway-001/deploy/another",)},
         ]
         for changed in variants:
             with self.subTest(changed=changed), self.assertRaises(ProvenanceError):
@@ -60,6 +63,10 @@ class ProvenanceTests(unittest.TestCase):
             validate_claimed_binding({**CLAIM, "unexpected": 1}, **trusted())
         with self.assertRaises(ProvenanceError):
             validate_claimed_binding(dict(CLAIM), **trusted(trusted_resources=[]))
+        with self.assertRaises(ProvenanceError):
+            validate_claimed_binding(dict(CLAIM), **trusted(declared_resources=[]))
+        with self.assertRaises(ProvenanceError):
+            validate_claimed_binding(dict(CLAIM), **trusted(declared_resources=(RESOURCE, "node/gway-001/network/nftables")))
 
     def test_clock_two_boot_reads_with_monotonic_bracketing(self):
         times = iter((100, 101, 102))
@@ -90,18 +97,27 @@ class ProvenanceTests(unittest.TestCase):
                                       monotonic_ns=lambda: next(t))
 
     def test_recovery_metadata_requires_independent_matches(self):
-        record = dict(request_id="c"*32, node=NODE, admin="d"*24,
+        record = dict(request_id="c"*32, generation=7, node=NODE, admin="d"*24,
                       receipt_digest="e"*64, evidence_digest="f"*64)
         good = dict(trusted_admin="d"*24, trusted_node=NODE,
+                    trusted_request_id="c"*32, trusted_generation=7,
                     trusted_receipt_digest="e"*64, trusted_evidence_digest="f"*64)
         self.assertEqual(len(validate_recovery_record(record, **good)), 64)
         for change in ({"trusted_admin": "b"*24}, {"trusted_node": "gway-002"},
+                       {"trusted_request_id": "a"*32}, {"trusted_generation": 8},
                        {"trusted_receipt_digest": "0"*64},
                        {"trusted_evidence_digest": "0"*64}):
             with self.subTest(change=change), self.assertRaises(ProvenanceError):
                 validate_recovery_record(record, **{**good, **change})
         with self.assertRaises(ProvenanceError):
             validate_recovery_record({**record, "quiescent": True}, **good)
+        for altered in ({"request_id": "a"*32}, {"generation": 8},
+                        {"generation": True}, {"generation": 0},
+                        {"generation": -1}, {"generation": (1 << 63)}):
+            with self.subTest(altered=altered), self.assertRaises(ProvenanceError):
+                validate_recovery_record({**record, **altered}, **good)
+        with self.assertRaises(ProvenanceError):
+            validate_recovery_record(record, **{**good, "trusted_generation": True})
 
 
 class StoragePolicyTests(unittest.TestCase):
