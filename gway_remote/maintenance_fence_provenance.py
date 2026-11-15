@@ -73,7 +73,7 @@ def sample_local_boot(*, read_boot, monotonic_ns):
 
 def validate_claimed_binding(binding, *, trusted_principal, trusted_node,
                              trusted_repo, trusted_sha, trusted_source,
-                             trusted_request_id, trusted_resources,
+                             trusted_request_id, declared_resources, trusted_resources,
                              trusted_sample):
     """Compare payload with independent caller-verified facts; return digest only."""
     if type(binding) is not dict or set(binding) != _FIELDS:
@@ -83,13 +83,15 @@ def validate_claimed_binding(binding, *, trusted_principal, trusted_node,
     try:
         make_claim(**binding, generation=1)
         resources = plan(trusted_resources).resources
+        claimed_resources = plan(declared_resources).resources
     except (FenceError, ResourceError, ValueError, TypeError):
         raise ProvenanceError() from None
     expected = (trusted_principal, trusted_node, trusted_repo, trusted_sha,
                 trusted_source, trusted_request_id)
     claimed = (binding["verified_principal"], binding["node"], binding["repo"],
                binding["sha"], binding["source"], binding["request_id"])
-    if expected != claimed or binding["boot_id"] != trusted_sample.boot_id:
+    if (expected != claimed or claimed_resources != resources
+            or binding["boot_id"] != trusted_sample.boot_id):
         raise ProvenanceError()
     if trusted_sample.now_ns >= binding["lease_until_ns"]:
         raise ProvenanceError()
@@ -102,12 +104,19 @@ def validate_claimed_binding(binding, *, trusted_principal, trusted_node,
 
 
 def validate_recovery_record(record, *, trusted_admin, trusted_node,
+                             trusted_request_id, trusted_generation,
                              trusted_receipt_digest, trusted_evidence_digest):
     """Metadata consistency only: no real quiescence or administrator check."""
-    fields = {"request_id", "node", "admin", "receipt_digest", "evidence_digest"}
+    fields = {"request_id", "generation", "node", "admin",
+              "receipt_digest", "evidence_digest"}
     if type(record) is not dict or set(record) != fields:
         raise ProvenanceError()
     if (not _hex(record["request_id"], _HEX32)
+            or record["request_id"] != trusted_request_id
+            or type(record["generation"]) is not int
+            or not 0 < record["generation"] <= _MAX_NS
+            or type(trusted_generation) is not int
+            or record["generation"] != trusted_generation
             or not _hex(record["admin"], _HEX24)
             or not _hex(record["receipt_digest"], _HEX64)
             or not _hex(record["evidence_digest"], _HEX64)
