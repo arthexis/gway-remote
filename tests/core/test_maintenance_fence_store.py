@@ -193,6 +193,73 @@ class OfflineJournalTests(unittest.TestCase):
         self.assertEqual(reopened.inspect(f"{64:032x}")["generation"], 64)
         self.assertEqual(self.store.inspect(f"{1:032x}")["generation"], 1)
 
+    def test_exact_4096_4097_journal_limit_and_rollback(self):
+        """Boundary fixture uses valid chained records; no 4095 slow API replays.
+
+        At capacity, both conflicting admission and observed expiry reject
+        without mutating the terminal journal record or its receipt.
+        """
+        from gway_remote.maintenance_fence_store import _MAX_JOURNAL_EVENTS
+        self.assertEqual(_MAX_JOURNAL_EVENTS, 4096)
+        # Build a legitimate historical chain in one atomic transaction.
+        # Every resource is a distinct sibling, preserving replay invariants.
+        db = self.store._open()
+        try:
+            last = ""
+            for i in range(1, 4096):
+                req = f"{i:032x}"
+                binding = dict(node=NODE, repo="arthexis/ocpp-simulator",
+                               sha="a" * 40, verified_principal="b" * 24,
+                               source="schedule", request_id=req,
+                               boot_id="boot-alpha-01", lease_until_ns=1000)
+                snap = {"binding": binding,
+                        "resources": [f"node/gway-001/deploy/resource-{i}"],
+                        "state": "held", "generation": i,
+                        "reason": "reserved", "admin": None,
+                        "evidence_digest": None}
+                last = self.store._append(db, i, last, "reserved", snap)
+            db.execute("UPDATE meta SET value=? WHERE key='generation'", ("4095",))
+            db.commit()
+        finally:
+            db.close()
+
+        # Event 4096 is allowed and fully committed.
+        last_request = f"{4096:032x}"
+        resource = "node/gway-001/deploy/resource-4096"
+        receipt = self.request(request_id=last_request, resources=(resource,))
+        self.assertEqual(receipt["generation"], 4096)
+        self.assertEqual(receipt["state"], "held")
+        self.assertEqual(self.store.inspect(last_request), receipt)
+        # Duplicate at full capacity does not append or advance generation.
+        self.assertEqual(self.request(request_id=last_request, resources=(resource,)),
+                         receipt)
+
+        # Event 4097 must reject and roll back *all* tentative changes.
+        with self.assertRaises(StoreError):
+            self.request(request_id=f"{4097:032x}",
+                         resources=("node/gway-001/deploy/resource-4097",))
+        # Observing expiry at capacity also fails closed; not even an
+        # uncertain journal entry or receipt may be partially committed.
+        with self.assertRaises(StoreError):
+            self.store.observe(now_ns=1000, boot_id="boot-alpha-01")
+
+        reopened = OfflineFenceJournal(self.path)
+        self.assertEqual(reopened.inspect(last_request), receipt)
+        with sqlite3.connect(self.path) as check:
+            self.assertEqual(check.execute("SELECT COUNT(*) FROM journal").fetchone()[0], 4096)
+            self.assertEqual(check.execute("SELECT value FROM meta WHERE key='generation'").fetchone()[0],
+                             "4096")
+            self.assertEqual(check.execute("SELECT COUNT(*) FROM requests").fetchone()[0], 4096)
+            self.assertEqual(check.execute(
+                "SELECT COUNT(*) FROM journal WHERE seq=4097").fetchone()[0], 0)
+            self.assertEqual(check.execute(
+                "SELECT payload, receipt_digest FROM requests WHERE request_id=?",
+                (last_request,)).fetchone(),
+                check.execute(
+                    "SELECT payload, digest FROM journal WHERE seq=4096").fetchone())
+        self.assertEqual(self.request(request_id=last_request, resources=(resource,)),
+                         receipt)
+
     def test_admin_recovery_requires_exact_receipt_and_evidence(self):
         self.request()
         self.store.observe(now_ns=1000, boot_id="boot-alpha-01")
