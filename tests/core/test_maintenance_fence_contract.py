@@ -3,7 +3,7 @@ from dataclasses import replace
 import unittest
 
 from gway_remote.maintenance_fence_contract import (
-    Claim, Fence, FenceError, acquire, advance, make_claim, observe,
+    Claim, Fence, FenceError, Receipt, acquire, advance, make_claim, observe,
     recover, token_for,
 )
 
@@ -137,6 +137,63 @@ class MaintenanceFenceContractTests(unittest.TestCase):
             Fence(state="held")
         with self.assertRaises(FenceError):
             acquire(Fence(), claim(), now_ns=True)
+
+    def test_claim_receipt_cross_binding_and_digest_integrity(self):
+        held = self.held()
+        receipt = held.receipt
+        changes = (
+            {"digest": "0" * 64},
+            {"request_id": "d" * 32},
+            {"reason": "lease_extended"},
+            {"event": "renewed", "reason": "lease_extended"},
+        )
+        for change in changes:
+            with self.subTest(change=change), self.assertRaises(FenceError):
+                replace(held, receipt=replace(receipt, **change))
+        with self.assertRaises(FenceError):
+            replace(held, claim=replace(held.claim, request_id="d" * 32))
+        with self.assertRaises(FenceError):
+            replace(held, claim=replace(held.claim, token="0" * 64))
+        # The snapshot and its internally consistent digest can be forged by
+        # an attacker; these checks are not authentication.
+        self.assertEqual(receipt.request_id, held.claim.request_id)
+
+    def test_invalid_event_state_and_recovery_metadata(self):
+        held = self.held()
+        for change in (
+            {"event": "recovered"},
+            {"event": "completed"},
+            {"state": "terminal"},
+            {"reason": "success"},
+            {"previous_digest": "0" * 64},
+            {"admin": "e" * 24},
+        ):
+            with self.subTest(change=change), self.assertRaises(FenceError):
+                replace(held.receipt, **change)
+        with self.assertRaises(FenceError):
+            Receipt("recovered", "terminal", 2, "c" * 32,
+                    "administrative_recovery", "0" * 64)
+        uncertain = observe(held, now_ns=1000)
+        recovered = recover(uncertain, verified_admin="e" * 24,
+                            expected_generation=1,
+                            expected_digest=uncertain.receipt.digest,
+                            new_generation=2)
+        for change in (
+            {"previous_digest": "0" * 64},
+            {"admin": "f" * 24},
+            {"digest": "0" * 64},
+            {"reason": "success"},
+        ):
+            with self.subTest(recovery=change), self.assertRaises(FenceError):
+                replace(recovered, receipt=replace(recovered.receipt, **change))
+
+    def test_repo_segments_reject_dotdot_and_hidden_prefix(self):
+        for repo in ("../repo", "owner/..", "owner/.", "./repo",
+                     "owner/.hidden", "-owner/repo", "owner/-repo"):
+            with self.subTest(repo=repo), self.assertRaises(FenceError):
+                claim(repo=repo)
+        self.assertEqual(claim(repo="arthexis/gway-remote").repo,
+                         "arthexis/gway-remote")
 
     def test_digest_binds_lease_and_boot_and_receipt(self):
         held = self.held()
