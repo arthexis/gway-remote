@@ -38,6 +38,14 @@ For this offline prototype, journal replay is bounded at **4096 events**:
 once this limit is exhausted, further journal appends fail closed rather than
 allow unbounded growth. There is no compaction or automatic pruning; capacity
 exhaustion is an operational blocker, not a reason to recreate the database.
+At full capacity (4096 events), a new reservation, recovery or attempted
+\`held -> uncertain\` transition that needs an additional event fails closed:
+no partially recorded observation is committed, and the old receipt and
+stored state remain unchanged. Therefore, the persistence promise for
+\`uncertain\` is conditional on available journal capacity. **Never infer
+that a retained \`held\` record proves a current live lease after exhaustion.**
+A read-only inspection or exact retry that requires no append may still
+retrieve its previous receipt; capacity is not a bypass or an automatic unlock.
 Replay and per-request reconciliation remain potentially expensive (including
 quadratic work at larger histories); the bound is not a production performance
 guarantee.
