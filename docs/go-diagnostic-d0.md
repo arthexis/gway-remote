@@ -1,0 +1,96 @@
+# Issue #561 · D0 offline Go ARM64 diagnostic contract
+
+**Status:** draft contract and hermetic unit tests only. This code cannot execute,
+authorize, acquire locks, create files, contact nodes, or prove runtime safety.
+No entrypoint imports the D0 module; no workflows, CLI, MCP, broker, AgentOps,
+Ansible, services, SQLite or releases are changed.
+
+## Scope and source identity
+
+- Remote base: `2de97a6fb889f8e809bc369910f9a62696c832a8`.
+- Simulator fixed main: `67e2d0e0fef704d7c693a6bd86af29bcc60db9a5`.
+- Intended node and unprivileged user: `gway-001` / `arthe`.
+- Workspace: `/tmp/go-diag-<request_id>`, private and disposable.
+- Resource declarations: `node:gway-001:compute` and
+  `node:gway-001:ocpp-simulator`; fixed, not supplied by an untrusted caller.
+- Expected steps, strictly ordered: `mod_tidy`, `mod_verify`,
+  `build_backend`, `build_uidlab`. The first failure stops all later steps.
+- Existing simulator schedule is `*/10 * * * *` and uses GitHub concurrency
+  `ocpp-simulator-gway-001-auto-install`. The backend workflow uses a
+  **different** group, `gway-001-appliance-report`. GitHub groups are not a
+  process-wide mutex or sufficient memory/CPU exclusion.
+
+## Proposed runtime contract (not implemented)
+
+D1 must establish an **independently attested** lock shared by all relevant
+schedule, manual, broker and deployment entrypoints. The lock must cover
+admission, staging, sandbox execution, and cleanup, including descendants.
+A declaration saying `shared_lock_held=true` is NOT evidence that a kernel
+lock exists. Unknown owner, reboot, stale epoch, unrelated process, missing
+entrypoint, or ambiguous cleanup fails closed. Do not conflate scheduler queue
+ordering with physical node quiescence or ResourceFence admission.
+
+D2 may add an executor after separate review of privilege and isolation:
+
+1. Reverify both immutable SHAs, CI and node eligibility at admission and again
+   before any side effect. Do not trust a caller-supplied `trusted_resources`.
+2. Acquire the shared exclusion barrier **before** creating or writing to
+   workspace. Build from a pinned checkout and verified offline module cache.
+3. Prove network namespace has no usable host or CSMS connectivity, host file
+   system is not writable, host sockets/SSH agents/secrets are absent, and
+   execution cannot gain privilege. A `bwrap --unshare-net` argument alone
+   is not attestation; test the *effective* namespace and mount setup.
+4. For Go ARM64 use bounded, measured resources (design limits: 1024–4096 MiB,
+   max two Go compilation workers, 60–1200 seconds). Check actual available
+   memory and cgroup limits; a 128 MiB/60 s node_exec execution is insufficient.
+5. Run `go mod tidy`, `go mod verify`, build backend, build LAB client, using
+   a sandbox-local source/cache, and stop at the first failed terminal step.
+   No launch of the simulator, OCPP connection, CSMS/SQLite write or release
+   installation. Enforce process-tree kill on timeout.
+6. Emit only fixed-schema receipt with result enums, bounded exit codes,
+   no argv, paths supplied by commands, environment, stdout/stderr or tokens.
+   Verify process reaping and removal of temporary checkout/cache *before*
+   claiming success. A crash/uncertain cleanup remains `UNCERTAIN`.
+   Safe recovery must inspect owned temporary paths with no symlink following
+   and must never delete the operator checkout or simulator releases.
+
+A passing `assess_offline` result means *only* that the pure declarative
+contract is internally complete. It is not permission to run Go.
+
+## Relation to MaintenanceFence
+
+V1-A/B planning, V1-C1 SQLite journal and V1-C2 provenance checks are
+**offline-only**. No shared runtime authority exists yet. V1-D must
+separately establish trusted principal/boot/clock provenance, safe path and
+inode lifetime, resource lock ordering, mutual exclusion with
+uninstrumented legacy paths, and fencing before each effect. Do not wire
+this D0 model directly to the operational journal.
+
+## Risk/acceptance matrix
+
+| Threat | D0 requirement | Runtime proof deferred to |
+| --- | --- | --- |
+| Scheduled auto-install races | All entrypoints required in barrier claim | D1 kernel-lock owner and coverage |
+| Different workflow concurrency groups | Exact resource scope | D1 all entrypoint audit |
+| Access to CSMS | Network isolation flag | D2 effective namespace probe |
+| Writes outside /tmp | Private workdir and readonly host requirement | D2 mount/FD audit |
+| SSH tokens or leaked stdout | Fixed receipts only | D2 sandbox and output sanitizer |
+| OOM or runaway compilation | Bounded memory/parallelism/time | D2 cgroup and process tree test |
+| Interrupted cleanup | UNCERTAIN terminal state | D2 crash recovery |
+| Mutable main or stale revision | Exact SHAs on plan | D1/D2 independently checked SHAs |
+
+## Offline tests
+
+```bash
+python -m unittest tests.core.test_go_diagnostic_contract_d0 -v
+```
+
+The tests cover invalid identity/SHA/path/resources, disabled isolation
+flags, resource limits and Boolean spoofing, missing scheduler coverage,
+invalid state transitions, fabricated success, continued steps after failure,
+unverified cleanup and arbitrary unsanitized receipt text.
+
+**PRE-READY limitations:** This does not demonstrate arm64 execution, tool
+availability, connectivity isolation, usable Go module cache, liveness of
+GitHub runners, or any status of `current`/`previous`. Do not mark Ready,
+merge, deploy or close #561 based on offline test success.
