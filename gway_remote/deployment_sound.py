@@ -1,6 +1,7 @@
 """Bounded, best-effort deployment audio; no deployment authority lives here."""
 from datetime import datetime, timedelta, timezone
 import os
+import re
 import tempfile
 from pathlib import Path
 import sqlite3
@@ -94,7 +95,13 @@ class DeploymentSound:
             directory.mkdir(parents=True, exist_ok=True)
             state = event.removeprefix("deploy-").replace("rollback-", "rb-")
             line1 = self.target[:16]
-            line2 = f"{state} {(self.revision or '')[:7]}".strip()[:16]
+            # Only a full commit identifies its actual final six characters.
+            # Rollback restores a different revision which this notifier does
+            # not know, so never attach the failed deployment's SHA to it.
+            suffix = (self.revision[-6:].lower() if not event.startswith("rollback-")
+                      and isinstance(self.revision, str)
+                      and re.fullmatch(r"[0-9a-fA-F]{40}", self.revision) else "")
+            line2 = f"{state} {suffix}".strip()[:16]
             seconds = 60 if event in TERMINAL_EVENTS else 30
             expires = (datetime.now(timezone.utc) + timedelta(seconds=seconds)).isoformat()
             fd, temporary = tempfile.mkstemp(prefix=".lcd-deploy-", dir=directory)

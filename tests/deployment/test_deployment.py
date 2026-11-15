@@ -58,6 +58,16 @@ class DeploymentTests(unittest.TestCase):
         self.assertEqual(self.calls, ["install", "health"])
         self.assertEqual(sum(c[-1] == SERVICE and "restart" in c for c in self.commands), 1)
 
+    def test_default_notifier_receives_requested_revision(self):
+        revision = "a" * 34 + "123abc"
+        with patch("gway_remote.deployment.DeploymentSound") as factory:
+            deploy(token="secret", install=self.install, execute=self.execute,
+                   probe=self.probe, executable=self.executable, runtime=self.root,
+                   backup_dir=self.root, revision=revision)
+        factory.assert_called_once_with("gway-remote", revision=revision)
+        self.assertEqual([call.args[0] for call in factory.return_value.call_args_list],
+                         ["deploy-started", "deploy-activated", "deploy-verified"])
+
     def test_unchanged_healthy_install_skips_restart(self):
         def unchanged():
             self.calls.append("install")

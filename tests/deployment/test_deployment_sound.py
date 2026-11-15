@@ -38,12 +38,21 @@ class DeploymentSoundTests(unittest.TestCase):
 
     def test_lcd_uses_existing_lockfile_contract(self):
         with tempfile.TemporaryDirectory() as directory, patch("gway_remote.deployment_sound.Path.home", return_value=Path(directory)):
-            DeploymentSound("ocpp-csms", revision="a" * 40)._lcd("deploy-verified")
+            DeploymentSound("ocpp-csms", revision="a" * 34 + "123abc")._lcd("deploy-verified")
             path = Path(directory) / ".local/state/lcd-lockfiles/lcd-event-deployment.lck"
             lines = path.read_text().splitlines()
-            self.assertEqual(lines[:2], ["ocpp-csms", "verified aaaaaaa"])
+            self.assertEqual(lines[:2], ["ocpp-csms", "verified 123abc"])
             self.assertEqual(len(lines), 3)
             self.assertTrue(all(len(line) <= 16 for line in lines[:2]))
+
+    def test_missing_partial_and_rollback_revisions_are_not_misrepresented(self):
+        with tempfile.TemporaryDirectory() as directory, patch("gway_remote.deployment_sound.Path.home", return_value=Path(directory)):
+            path = Path(directory) / ".local/state/lcd-lockfiles/lcd-event-deployment.lck"
+            for revision in (None, "a" * 12, "x" * 40):
+                DeploymentSound("gway-remote", revision=revision)._lcd("deploy-verified")
+                self.assertEqual(path.read_text().splitlines()[1], "verified")
+            DeploymentSound("gway-remote", revision="a" * 34 + "123abc")._lcd("rollback-verified")
+            self.assertEqual(path.read_text().splitlines()[1], "rb-verified")
 
     def test_priority_prevents_regression_and_allows_new_attempt(self):
         with tempfile.TemporaryDirectory() as directory:

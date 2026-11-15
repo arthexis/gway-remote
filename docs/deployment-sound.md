@@ -33,8 +33,13 @@ playback, so unavailable audio is not retried. Calls time out after three second
 and cannot change deployment outcomes. No credentials or installer output enter
 sound arguments or receipts.
 
-The existing LCD event-lockfile runner receives the target, short revision and
-state for 30 seconds. Audio/LCD errors are ignored. Set
+The existing LCD event-lockfile runner receives the target and state, followed
+by the last six characters of the full requested commit SHA when known. The
+suffix identifies the attempted revision; only a verified event indicates that
+the existing verification conditions passed. Rollback events omit the SHA
+because the restored revision is not known to this notifier. Intermediate events
+expire after 30 seconds and terminal events after 60 seconds. Audio/LCD errors
+are ignored. Set
 `GWAY_REMOTE_SOUND_DISABLE=1` to disable these notifications and optional audio
 verification probes, including during hermetic tests.
 
