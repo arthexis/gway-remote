@@ -69,7 +69,7 @@ def local_api_token(*, service=SERVICE, execute=subprocess.run):
 
 
 def deploy(*, token, install, execute=run, probe=health, executable=EXECUTABLE,
-           runtime=None, backup_dir=None, notify=None):
+           runtime=None, backup_dir=None, notify=None, revision=None):
     if not token:
         raise ValueError("GWAY_REMOTE_API_TOKEN must be configured")
     runtime = pathlib.Path(runtime or f"/run/user/{os.getuid()}")
@@ -79,7 +79,7 @@ def deploy(*, token, install, execute=run, probe=health, executable=EXECUTABLE,
     if not executable.is_file():
         raise RuntimeError("Installed executable is missing")
 
-    notify = notify if notify is not None else DeploymentSound("gway-remote")
+    notify = notify if notify is not None else DeploymentSound("gway-remote", revision=revision)
 
     def emit(event):
         try:

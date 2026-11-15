@@ -65,7 +65,7 @@ jobs:
                   subprocess.run(["sh", "deploy.sh"], check=True, env=env)
                   return not (marker.is_file() and marker.read_text().strip() == "skipped")
 
-          deploy(token=local_api_token(), install=install)
+          deploy(token=local_api_token(), install=install, revision=os.environ.get("GITHUB_SHA"))
           PY
           /usr/local/bin/gway-remote status --json | python3 -c 'import json,sys; assert json.load(sys.stdin)["schema"] == "gway-remote/status/v1"'
       - name: Converge isolated gway-001 MCP runtime through Ansible
