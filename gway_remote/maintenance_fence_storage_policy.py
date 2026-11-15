@@ -30,8 +30,7 @@ def _mode_secure(info, uid, *, directory=False, ancestor=False):
             # actual storage directory; all other writable ancestors deny.
             sticky_root = (info.st_uid == 0 and
                            info.st_mode & stat.S_ISVTX and
-                           info.st_mode & stat.S_IWOTH and
-                           not info.st_mode & stat.S_IWGRP)
+                           info.st_mode & stat.S_IWOTH)
             if info.st_uid not in (0, uid) or (info.st_mode & 0o022 and not sticky_root):
                 raise StoragePolicyError()
         elif info.st_uid != uid or info.st_mode & 0o077:
