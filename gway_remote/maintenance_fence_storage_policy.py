@@ -45,7 +45,7 @@ def audit_private_sqlite(directory, filename):
 
     This is a point-in-time *diagnostic*, not authority to connect afterwards.
     """
-    if type(directory) not in (str, Path) or type(filename) is not str:
+    if not isinstance(directory, (str, Path)) or type(filename) is not str:
         raise StoragePolicyError()
     path = str(directory)
     if not path.startswith("/") or "//" in path or path.endswith("/.."):
