@@ -17,7 +17,7 @@ class ResourcePlannerTests(unittest.TestCase):
         self.assertTrue(overlaps(b, b))
         self.assertFalse(overlaps(b, c))
         self.assertFalse(overlaps(a, "node/gway-002"))
-        self.assertFalse(overlaps("node/gway-001", "node/gway-0010"))
+        self.assertFalse(overlaps("node/gway-001", "node/gway-010"))
 
     def test_canonical_sorted_order_and_duplicate_idempotence(self):
         x = "node/gway-001/service/ocpp-csms"
