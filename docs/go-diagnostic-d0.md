@@ -150,6 +150,45 @@ phase order, and the 4096-event boundary.
 **Acceptance for D1-B1:** pure model and tests may reach PRE-READY only.
 Do not mark PR #584 Ready, merge, deploy, run Go, or close #561.
 
+## D1-B2 hermetic interleaving and failure matrix
+
+`tests/core/test_go_diagnostic_interleavings_d1b2.py` adds deterministic
+adversarial tests, with no real threads, locks, IPC, filesystem, network or
+processes. It explores both serial orders of overlapping reservations; crash
+before the conceptual commit (proposal discarded) and after commit (durable
+snapshot replay); expiry and boot-change interleavings; stale generations;
+live descendants and incomplete workspace cleanup; and a recovery preview
+that cannot release a reservation. The tests exercise a full 4096-event
+journal and generation overflow without resetting or reclaiming capacity.
+No V1-C1/C2 code or persistence schema is changed.
+
+**Important negative result:** two independent callers each invoking pure
+`reserve` on the *same stale empty snapshot* can both receive `HELD` and
+generation 1. That is an intentional demonstration of the missing
+linearization point, not a passing concurrency guarantee. The test proves
+only that serial evaluation of a *shared committed snapshot* rejects the
+second conflicting claim. Production D1 must introduce trusted transaction
+ownership, CAS/serialization and actual process fencing before a single
+receipt can authorize anything. Stale pure proposals cannot be combined,
+committed, or used as permissions.
+
+For simulated crash-after-commit the earlier immutable snapshot remains
+blocked; crash-before-commit retains only the prior state. Neither simulates
+SQLite durability, WAL recovery, power loss or PID/process-group liveness.
+An exhausted offline journal may fail to append an expiry observation and
+retain a `HELD` record; the correct result is **NO-GO**, never a live lease
+assertion. Boolean admin/quiescence parameters are injected untrusted test
+values; a matching preview is not administrative authorization.
+
+```bash
+python -m unittest tests.core.test_go_diagnostic_interleavings_d1b2 -v
+```
+
+D1-B2 remains strictly offline. Effective atomicity, trusted boot/clock
+sampling, FD-safe SQLite lifetime, legacy route coverage, descendant
+termination and generation-aware side-effect boundaries require separately
+reviewed stages. Keep PR #584 Draft, #583 intact and issue #561 open.
+
 ## Risk/acceptance matrix
 
 | Threat | D0 requirement | Runtime proof deferred to |
