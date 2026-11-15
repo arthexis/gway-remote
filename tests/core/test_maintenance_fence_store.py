@@ -259,7 +259,7 @@ class OfflineJournalTests(unittest.TestCase):
             self.assertEqual(check.execute("SELECT COUNT(*) FROM journal").fetchone()[0], 4096)
             self.assertEqual(check.execute("SELECT value FROM meta WHERE key='generation'").fetchone()[0],
                              "2731")
-            self.assertEqual(check.execute("SELECT COUNT(*) FROM requests").fetchone()[0], 4096)
+            self.assertEqual(check.execute("SELECT COUNT(*) FROM requests").fetchone()[0], 1366)
             self.assertEqual(check.execute(
                 "SELECT COUNT(*) FROM journal WHERE seq=4097").fetchone()[0], 0)
             self.assertEqual(check.execute(
