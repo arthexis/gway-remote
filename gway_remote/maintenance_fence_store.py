@@ -290,12 +290,8 @@ class OfflineFenceJournal:
         def apply(db, records, generation, seq, last):
             request = binding["request_id"]
             existing = records.get(request)
-            if existing is not None:
-                if existing["binding"] != binding or existing["resources"] != resources:
-                    raise StoreError()
-                return {"state": existing["state"], "generation": existing["generation"],
-                        "receipt_digest": db.execute("SELECT receipt_digest FROM requests WHERE request_id=?",
-                                                     (request,)).fetchone()[0]}
+            if existing is not None and (existing["binding"] != binding or existing["resources"] != resources):
+                raise StoreError()
             # Expired or cross-boot owners remain reserved as uncertain.
             for other, snap in list(records.items()):
                 if snap["state"] != "held":
@@ -307,6 +303,10 @@ class OfflineFenceJournal:
                     seq += 1
                     last = self._append(db, seq, last, "uncertain", updated)
                     records[other] = updated
+            if existing is not None:
+                return {"state": records[request]["state"], "generation": records[request]["generation"],
+                        "receipt_digest": db.execute("SELECT receipt_digest FROM requests WHERE request_id=?",
+                                                     (request,)).fetchone()[0]}
             requested = ResourcePlan(tuple(resources))
             if any(conflicts(requested, ResourcePlan(tuple(s["resources"])))
                    for s in records.values() if s["state"] != "terminal"):
@@ -339,7 +339,8 @@ class OfflineFenceJournal:
 
     def observe(self, *, now_ns, boot_id):
         """Persist uncertainty on lease expiry / different boot; never release."""
-        if not _int(now_ns) or type(boot_id) is not str:
+        if (not _int(now_ns) or type(boot_id) is not str
+                or re.fullmatch(r"[a-zA-Z0-9_-]{8,128}", boot_id) is None):
             raise StoreError()
         def apply(db, records, generation, seq, last):
             changed = 0
