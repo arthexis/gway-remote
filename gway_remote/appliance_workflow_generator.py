@@ -19,10 +19,9 @@ TEMPLATE_DIR = Path(__file__).resolve().parent / "data"
 DEFAULT_WORKFLOW = ROOT / ".github" / "workflows" / "appliance-deploy.yml"
 
 # Deliberately *not* read from the seven-item catalog or from Ansible.
-# This is a separately reviewed fixed admission policy, six targets on main.
-# Reports needs an independently approved #564 before changing this tuple.
+# This is a separately reviewed fixed admission policy.
 TRACKS = (
-    ("ocpp-csms",),
+    ("ocpp-csms", "ocpp-reports"),
     ("gway-lcd-sound", "gway-agent-ops", "gway-ap-kiosk",
      "gway-rfid", "gway-bastion"),
 )
@@ -95,7 +94,7 @@ def render_workflow(*, catalog=None, template_dir=None) -> str:
         raise ValueError("failure reporter job map differs from the dispatcher")
     if any(name not in targets for name in names):
         raise ValueError("unrecognized generator target")
-    if "ocpp-reports" in names or "ocpp-simulator" in names:
+    if "ocpp-simulator" in names:
         raise ValueError("unadmitted target in generator policy")
     if targets["gway-bastion"].release_mode != "stage_only":
         raise ValueError("Bastion must remain stage_only")
