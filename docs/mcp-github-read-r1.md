@@ -25,9 +25,14 @@ evidence but NEVER declare a merge eligible; unknown rules and checks require
 separate evaluation. Explicit errors preserve inaccessible, invalid, rate-
 limited, truncated and inconsistent cases. There is no stale fallback.
 
-At most 10 pages of 100 checks or classic statuses, 256 KiB per response,
-10-second per-request timeout; incomplete data is an error. Branch rule arrays
-are limited to 100 entries (otherwise fail closed). No raw logs or secrets.
+At most 10 pages of 100 rules, checks or classic statuses, 256 KiB per response,
+10-second per-request timeout; incomplete data is an error. A short page
+proves array-endpoint termination; a full tenth page fails closed. Rules
+are not proof that the branch exists. Check runs request filter=all, and an
+additional GitHub check-suite count fails closed at >=1000 suites because
+GitHub's per-ref check-run endpoint is limited to the latest 1000 suites.
+Counts remain subject to upstream concurrent changes; this is not an atomic
+GitHub snapshot. Redirects are rejected and no raw logs or secrets returned.
 
 Hermetic tests: `python -m unittest tests.mobile.test_mcp_github_read -v`.
 After merge, a separate authorized operational release is necessary before

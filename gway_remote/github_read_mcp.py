@@ -4,7 +4,7 @@ import os
 import re
 from urllib.error import HTTPError, URLError
 from urllib.parse import quote, urlencode
-from urllib.request import Request, urlopen
+from urllib.request import Request, build_opener, HTTPRedirectHandler
 
 from .github_workflows_mcp import _allowed, WorkflowError
 
@@ -13,6 +13,11 @@ _BRANCH = re.compile(r"^[A-Za-z0-9_.\/-]{1,200}$")
 PAGE_SIZE = 100
 MAX_PAGES = 10
 MAX_BYTES = 256 * 1024
+
+
+class _NoRedirect(HTTPRedirectHandler):
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        return None
 
 
 def _get(repository, path, params=None):
@@ -30,11 +35,13 @@ def _get(repository, path, params=None):
         "X-GitHub-Api-Version": "2022-11-28",
     }, method="GET")
     try:
-        with urlopen(req, timeout=10) as response:
+        with build_opener(_NoRedirect).open(req, timeout=10) as response:
             body = response.read(MAX_BYTES + 1)
     except HTTPError as exc:
         code = exc.code
         exc.close()
+        if code in (301, 302, 303, 307, 308):
+            raise WorkflowError("github_redirect_rejected") from None
         if code in (401, 403, 404, 429):
             raise WorkflowError("github_http_" + str(code)) from None
         raise WorkflowError("github_unavailable") from None
@@ -48,13 +55,13 @@ def _get(repository, path, params=None):
         raise WorkflowError("github_invalid_response") from None
 
 
-def _pages(repository, path, key):
+def _pages(repository, path, key, *, params=None):
     """Fail closed on missing counts, truncated pages, duplicates and page cap."""
     result = []
     seen = set()
     total = None
     for page in range(1, MAX_PAGES + 1):
-        data = _get(repository, path, {"per_page": PAGE_SIZE, "page": page})
+        data = _get(repository, path, {**(params or {}), "per_page": PAGE_SIZE, "page": page})
         if not isinstance(data, dict) or type(data.get("total_count")) is not int:
             raise WorkflowError("github_invalid_response")
         entries = data.get(key)
@@ -78,6 +85,22 @@ def _pages(repository, path, key):
     raise WorkflowError("github_incomplete_pagination")
 
 
+
+def _array_pages(repository, path):
+    """Array endpoint: only a short page proves termination; 1000 is a hard cap."""
+    result = []
+    for page in range(1, MAX_PAGES + 1):
+        chunk = _get(repository, path, {"per_page": PAGE_SIZE, "page": page})
+        if not isinstance(chunk, list) or any(not isinstance(x, dict) for x in chunk):
+            raise WorkflowError("github_invalid_response")
+        result.extend(chunk)
+        if len(chunk) > PAGE_SIZE:
+            raise WorkflowError("github_invalid_response")
+        if len(chunk) < PAGE_SIZE:
+            return result
+    raise WorkflowError("github_incomplete_pagination")
+
+
 def branch_effective_rules(args):
     if type(args) is not dict or set(args) != {"repository", "branch"}:
         raise ValueError("invalid_arguments")
@@ -86,12 +109,12 @@ def branch_effective_rules(args):
     if type(branch) is not str or not _BRANCH.fullmatch(branch) or ".." in branch or branch.startswith(("/", ".")):
         raise ValueError("invalid_branch")
     # GitHub's effective-rules endpoint returns an array, not a ruleset object.
-    data = _get(repository, "rules/branches/" + quote(branch, safe=""))
-    if not isinstance(data, list) or len(data) > 100:
-        raise WorkflowError("github_invalid_response")
+    data = _array_pages(repository, "rules/branches/" + quote(branch, safe=""))
     rules = []
     for rule in data:
-        if not isinstance(rule, dict) or type(rule.get("type")) is not str:
+        if (not isinstance(rule, dict) or type(rule.get("type")) is not str
+                or not rule["type"] or ("parameters" in rule and not isinstance(rule["parameters"], dict))
+                or ("ruleset_id" in rule and type(rule["ruleset_id"]) is not int)):
             raise WorkflowError("github_invalid_response")
         rules.append({
             "type": rule["type"],
@@ -112,35 +135,47 @@ def commit_checks(args):
     sha = args["sha"]
     if type(sha) is not str or not _SHA.fullmatch(sha):
         raise ValueError("invalid_sha")
-    checks = _pages(repository, "commits/" + sha + "/check-runs", "check_runs")
-    statuses = _pages(repository, "commits/" + sha + "/statuses", "statuses") if False else None
-    # Classic commit statuses are an array endpoint, paginated without total_count.
-    classic = []
-    for page in range(1, MAX_PAGES + 1):
-        chunk = _get(repository, "commits/" + sha + "/statuses",
-                     {"per_page": PAGE_SIZE, "page": page})
-        if not isinstance(chunk, list) or any(not isinstance(x, dict) for x in chunk):
-            raise WorkflowError("github_invalid_response")
-        classic.extend(chunk)
-        if len(chunk) < PAGE_SIZE:
-            break
-    else:
-        raise WorkflowError("github_incomplete_pagination")
+    # The reference endpoint is limited to the 1,000 most recent check suites.
+    # Fail closed when an exhaustive snapshot cannot be certified.
+    suites = _get(repository, "commits/" + sha + "/check-suites",
+                  {"per_page": 1, "page": 1})
+    if (not isinstance(suites, dict) or type(suites.get("total_count")) is not int
+            or suites["total_count"] < 0 or not isinstance(suites.get("check_suites"), list)):
+        raise WorkflowError("github_invalid_response")
+    if suites["total_count"] >= 1000:
+        raise WorkflowError("github_check_suite_coverage_unknown")
+    checks = _pages(repository, "commits/" + sha + "/check-runs", "check_runs",
+                    params={"filter": "all"})
+    classic = _array_pages(repository, "commits/" + sha + "/statuses")
     normalized = []
     for item in checks:
         app = item.get("app")
-        if item.get("head_sha") != sha or not isinstance(app, (dict, type(None))):
+        if (item.get("head_sha") != sha or type(item.get("name")) is not str
+                or not item["name"] or item.get("status") not in
+                ("queued", "in_progress", "completed", "waiting", "pending", "requested")
+                or (item["status"] == "completed" and type(item.get("conclusion")) is not str)
+                or (item["status"] != "completed" and item.get("conclusion") is not None)
+                or not isinstance(app, (dict, type(None)))
+                or (app is not None and type(app.get("id")) is not int)):
             raise WorkflowError("github_invalid_response")
         normalized.append({"id": item["id"], "name": item.get("name"),
                            "status": item.get("status"), "conclusion": item.get("conclusion"),
                            "app_id": app.get("id") if app else None,
                            "details_url": item.get("details_url")})
-    states = []
+    states, seen = [], set()
     for item in classic:
-        if item.get("sha") not in (None, sha):
+        ident, creator = item.get("id"), item.get("creator")
+        if (type(ident) is not int or ident in seen
+                or item.get("sha") not in (None, sha)
+                or type(item.get("context")) is not str or not item["context"]
+                or item.get("state") not in ("pending", "success", "failure", "error")
+                or (creator is not None and
+                    (not isinstance(creator, dict) or type(creator.get("id")) is not int))):
             raise WorkflowError("github_invalid_response")
-        states.append({"id": item.get("id"), "context": item.get("context"),
-                       "state": item.get("state"), "creator_id": (item.get("creator") or {}).get("id")})
+        seen.add(ident)
+        states.append({"id": ident, "context": item["context"],
+                       "state": item["state"], "creator_id": creator.get("id") if creator else None})
     return {"schema": "github/checks/v1", "source": "github_live",
             "repository": repository, "sha": sha, "complete": True,
+            "coverage": "all_check_runs_for_ref_under_1000_suites",
             "check_runs": normalized, "statuses": states}
