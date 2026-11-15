@@ -1,6 +1,8 @@
 """Hermetic V1-C1 storage tests: no node, deployment or workflow access."""
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
+import multiprocessing
+import os
 import sqlite3
 import tempfile
 import unittest
@@ -11,6 +13,31 @@ NODE = "gway-001"
 SIMULATOR = "node/gway-001/deploy/ocpp-simulator"
 NETWORK = "node/gway-001/network/nftables"
 REPORTS = "node/gway-001/deploy/ocpp-reports"
+
+
+
+def _separate_process_reserve(path, request_id, gate, output):
+    """Separate interpreter/process/connection, never a simulated thread."""
+    gate.wait(timeout=15)
+    try:
+        receipt = OfflineFenceJournal(path).reserve(
+            resources=(SIMULATOR,), now_ns=100, node=NODE,
+            repo="arthexis/ocpp-simulator", sha="a" * 40,
+            verified_principal="b" * 24, source="schedule",
+            request_id=request_id, boot_id="boot-alpha-01", lease_until_ns=1000)
+        output.put(("held", receipt["generation"]))
+    except StoreError:
+        output.put(("denied", None))
+
+
+def _commit_then_lose_reply(path):
+    """Simulate process death AFTER a committed reservation, before reply."""
+    OfflineFenceJournal(path).reserve(
+        resources=(SIMULATOR,), now_ns=100, node=NODE,
+        repo="arthexis/ocpp-simulator", sha="a" * 40,
+        verified_principal="b" * 24, source="schedule",
+        request_id="c" * 32, boot_id="boot-alpha-01", lease_until_ns=1000)
+    os._exit(0)
 
 
 class OfflineJournalTests(unittest.TestCase):
@@ -101,10 +128,70 @@ class OfflineJournalTests(unittest.TestCase):
         self.request()
         with self.assertRaises(StoreError):
             self.request("d", now=1100, lease=2000)
-        # The competing transaction rolls back its observation, but it
-        # never grants a second claim; next observation records uncertainty.
-        self.assertEqual(self.store.observe(now_ns=1100, boot_id="boot-alpha-01"), 1)
+        # Conflict is denied, but the observed expiry is committed BEFORE
+        # returning the error; the journal survives reopen unchanged.
         self.assertEqual(self.store.inspect("c" * 32)["state"], "uncertain")
+        self.assertEqual(OfflineFenceJournal(self.path).inspect("c" * 32)["state"],
+                         "uncertain")
+        self.assertEqual(self.store.observe(now_ns=1100, boot_id="boot-alpha-01"), 0)
+        with self.assertRaises(StoreError):
+            self.request("d", now=1100, lease=2000)
+
+    def test_boot_change_during_denied_request_persists_uncertain(self):
+        self.request()
+        with self.assertRaises(StoreError):
+            self.request("d", boot="boot-alpha-02", now=200)
+        self.assertEqual(self.store.inspect("c" * 32)["state"], "uncertain")
+        self.assertEqual(self.store.observe(now_ns=200, boot_id="boot-alpha-02"), 0)
+
+    def test_two_independent_processes_one_owner(self):
+        ctx = multiprocessing.get_context("spawn")
+        gate = ctx.Barrier(2)
+        output = ctx.Queue()
+        workers = [ctx.Process(target=_separate_process_reserve,
+                               args=(str(self.path), token * 32, gate, output))
+                   for token in ("d", "e")]
+        try:
+            for child in workers:
+                child.start()
+            for child in workers:
+                child.join(timeout=20)
+                self.assertEqual(child.exitcode, 0)
+            outcomes = [output.get(timeout=3), output.get(timeout=3)]
+            self.assertEqual(sorted(x[0] for x in outcomes), ["denied", "held"])
+            self.assertEqual([x[1] for x in outcomes if x[0] == "held"], [1])
+        finally:
+            for child in workers:
+                if child.is_alive():
+                    child.terminate()
+                    child.join(timeout=5)
+            output.close()
+
+    def test_commit_survives_lost_reply_without_new_generation(self):
+        ctx = multiprocessing.get_context("spawn")
+        child = ctx.Process(target=_commit_then_lose_reply, args=(str(self.path),))
+        try:
+            child.start()
+            child.join(timeout=20)
+            self.assertEqual(child.exitcode, 0)
+        finally:
+            if child.is_alive():
+                child.terminate()
+                child.join(timeout=5)
+        original = self.store.inspect("c" * 32)
+        self.assertEqual(original["generation"], 1)
+        self.assertEqual(original["state"], "held")
+        self.assertEqual(self.request(), original)
+        with self.assertRaises(StoreError):
+            self.request(lease=2000)
+
+    def test_bounded_journal_replay_with_many_independent_resources(self):
+        for i in range(1, 65):
+            self.request(resources=(f"node/gway-001/deploy/resource-{i}",),
+                         request_id=f"{i:032x}")
+        reopened = OfflineFenceJournal(self.path)
+        self.assertEqual(reopened.inspect(f"{64:032x}")["generation"], 64)
+        self.assertEqual(self.store.inspect(f"{1:032x}")["generation"], 1)
 
     def test_admin_recovery_requires_exact_receipt_and_evidence(self):
         self.request()
