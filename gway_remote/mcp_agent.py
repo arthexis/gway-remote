@@ -3,7 +3,7 @@
 This is a transport-independent core. It MUST NOT be exposed over public
 HTTP without an authenticated MCP transport and operator authorization.
 """
-from . import github_workflows_mcp
+from . import github_workflows_mcp, github_read_mcp
 from .mcp_catalog import compose_catalog
 from .mcp_source_registry import compose_source_catalog
 from .mcp_source_stdio import call_source_tool, list_source_tools
@@ -15,6 +15,10 @@ TOOLS = (
      "inputSchema": {"type": "object", "properties": {"repository": {"type": "string"}, "branch": {"type": "string"}, "status": {"type": "string"}, "event": {"type": "string"}, "limit": {"type": "integer"}}, "additionalProperties": False}, "annotations": {"readOnlyHint": True}},
     {"name": "github_workflow_status", "description": "Read one workflow run, jobs and steps.",
      "inputSchema": {"type": "object", "properties": {"repository": {"type": "string"}, "run_id": {"type": "integer"}}, "required": ["repository", "run_id"], "additionalProperties": False}, "annotations": {"readOnlyHint": True}},
+    {"name": "github_branch_effective_rules", "description": "Read effective branch rules from GitHub.",
+     "inputSchema": {"type": "object", "properties": {"repository": {"type": "string"}, "branch": {"type": "string"}}, "required": ["repository", "branch"], "additionalProperties": False}, "annotations": {"readOnlyHint": True}},
+    {"name": "github_commit_checks", "description": "Read check runs and classic statuses for an exact commit.",
+     "inputSchema": {"type": "object", "properties": {"repository": {"type": "string"}, "sha": {"type": "string"}}, "required": ["repository", "sha"], "additionalProperties": False}, "annotations": {"readOnlyHint": True}},
     {"name": "mcp_source_status", "description": "Diagnose registered MCP source discovery without revealing secrets or source configuration.",
      "inputSchema": {"type": "object", "properties": {}, "additionalProperties": False},
      "annotations": {"readOnlyHint": True}},
@@ -25,6 +29,8 @@ TOOLS = (
 _HANDLERS = {
     "github_workflow_runs": github_workflows_mcp.runs,
     "github_workflow_status": github_workflows_mcp.status,
+    "github_branch_effective_rules": github_read_mcp.branch_effective_rules,
+    "github_commit_checks": github_read_mcp.commit_checks,
     "mcp_source_status": lambda arguments: source_status(),
     "github_workflow_errors": github_workflows_mcp.errors,
 }
@@ -92,6 +98,8 @@ def list_tools():
 
 def call_tool(name, arguments, *, authorized_scope="read"):
     """Dispatch a trusted tool under the explicitly authorized caller scope."""
+    if authorized_scope not in ("read", "execute"):
+        raise ValueError("invalid_scope")
     if type(name) is not str:
         raise ValueError("mcp_tool_not_allowed")
     if name not in _HANDLERS:
