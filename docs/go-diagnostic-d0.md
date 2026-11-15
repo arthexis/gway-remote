@@ -11,8 +11,12 @@ Ansible, services, SQLite or releases are changed.
 - Simulator fixed main: `67e2d0e0fef704d7c693a6bd86af29bcc60db9a5`.
 - Intended node and unprivileged user: `gway-001` / `arthe`.
 - Workspace: `/tmp/go-diag-<request_id>`, private and disposable.
-- Resource declarations: `node:gway-001:compute` and
-  `node:gway-001:ocpp-simulator`; fixed, not supplied by an untrusted caller.
+- Resource declaration (D1-A): the single canonical V1-B tuple
+  `("node/gway-001",)`, a **conservative whole-node footprint** that covers
+  compute pressure and Simulator-related filesystem/process effects. The old
+  `node:gway-001:*` colon syntax is invalid and no longer accepted. The
+  fixed plan is not supplied by an untrusted caller. Narrow child keys must
+  not replace it until real footprints and external entrypoints are attested.
 - Expected steps, strictly ordered: `mod_tidy`, `mod_verify`,
   `build_backend`, `build_uidlab`. The first failure stops all later steps.
 - Existing simulator schedule is `*/10 * * * *` and uses GitHub concurrency
@@ -57,6 +61,33 @@ D2 may add an executor after separate review of privilege and isolation:
 A passing `assess_offline` result means *only* that the pure declarative
 contract is internally complete. It is not permission to run Go.
 
+## D1-A canonical resource compatibility (offline only)
+
+`gway_remote.maintenance_fence_resources.plan` defines the sole valid V1-B
+resource grammar. D1-A imports this pure planner and its `conflicts` predicate;
+it does not acquire any lock, touch journal storage, nor authorize execution.
+`DiagnosticPlan.validate` requires exactly `("node/gway-001",)` and verifies
+canonical equality with `plan`. `conceptual_conflicts` rejects malformed,
+unsorted, duplicate, or ancestor/descendant-redundant input tuples rather than
+silently broadening or narrowing external claims.
+
+Examples (pure conflict logic, **not** proof of runtime exclusion):
+
+| Left | Right | V1-B conceptual conflict |
+| --- | --- | --- |
+| `node/gway-001` | `node/gway-001/deploy/ocpp-simulator` | Yes |
+| `node/gway-001` | `node/gway-001/deploy/gway-remote` | Yes |
+| `node/gway-001` | `node/gway-001/service/ocpp-csms` | Yes |
+| `node/gway-001` | `node/gway-002` | No |
+| `node/gway-001/deploy/ocpp-simulator` | `node/gway-001/deploy/gway-remote` | No (unless shared effects are proven and declared) |
+
+Sibling keys may be disjoint under the *pure* algorithm but in practice still
+share CPU, memory, cache, systemd and deployment pathways. Consequently D1-A
+uses the whole-node key and does not claim operational independence. A boolean
+`BarrierEvidence` is still only an untrusted D0 declaration, **never** a
+receipt from a coordinator. The D1-B/D1-C coordinator and execution entrypoint
+coverage remain separate, unsatisfied prerequisites.
+
 ## Relation to MaintenanceFence
 
 V1-A/B planning, V1-C1 SQLite journal and V1-C2 provenance checks are
@@ -85,7 +116,9 @@ this D0 model directly to the operational journal.
 python -m unittest tests.core.test_go_diagnostic_contract_d0 -v
 ```
 
-The tests cover invalid identity/SHA/path/resources, disabled isolation
+The tests cover V1-B hierarchy, root/descendant overlap, canonicalization,
+conceptually disjoint nodes and siblings, malformed resource claims, invalid
+identity/SHA/path/resources, disabled isolation
 flags, resource limits and Boolean spoofing, missing scheduler coverage,
 invalid state transitions, fabricated success, continued steps after failure,
 unverified cleanup and arbitrary unsanitized receipt text.
