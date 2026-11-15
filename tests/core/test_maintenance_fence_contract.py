@@ -56,13 +56,9 @@ class MaintenanceFenceContractTests(unittest.TestCase):
 
     def test_stale_fencing_token_and_tamper_are_rejected(self):
         held = self.held()
-        bad = replace(claim(), token="0" * 64)
-        for operation in (
-            lambda: acquire(held, bad, now_ns=200),
-            lambda: advance(held, bad, now_ns=200, action="complete"),
-        ):
-            with self.assertRaises(FenceError):
-                operation()
+        # Corrupted Claim is now rejected at construction, before transitions.
+        with self.assertRaises(FenceError):
+            replace(claim(), token="0" * 64)
         stale = claim(generation=2)
         self.assertEqual(advance(held, stale, now_ns=200, action="complete").state, "uncertain")
 
