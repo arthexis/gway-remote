@@ -201,24 +201,34 @@ class OfflineJournalTests(unittest.TestCase):
         """
         from gway_remote.maintenance_fence_store import _MAX_JOURNAL_EVENTS
         self.assertEqual(_MAX_JOURNAL_EVENTS, 4096)
-        # Build a legitimate historical chain in one atomic transaction.
-        # Every resource is a distinct sibling, preserving replay invariants.
+        # Use 1365 fully terminal reserve/uncertain/recover cycles:
+        # 1365 * 3 == 4095 events. This keeps active-resource conflict
+        # enumeration bounded while proving the exact journal boundary.
         db = self.store._open()
         try:
             last = ""
-            for i in range(1, 4096):
+            for i in range(1, 1366):
                 req = f"{i:032x}"
                 binding = dict(node=NODE, repo="arthexis/ocpp-simulator",
                                sha="a" * 40, verified_principal="b" * 24,
                                source="schedule", request_id=req,
                                boot_id="boot-alpha-01", lease_until_ns=1000)
-                snap = {"binding": binding,
+                base = {"binding": binding,
                         "resources": [f"node/gway-001/deploy/resource-{i}"],
-                        "state": "held", "generation": i,
-                        "reason": "reserved", "admin": None,
+                        "generation": 2 * i - 1, "admin": None,
                         "evidence_digest": None}
-                last = self.store._append(db, i, last, "reserved", snap)
-            db.execute("UPDATE meta SET value=? WHERE key='generation'", ("4095",))
+                last = self.store._append(
+                    db, 3 * i - 2, last, "reserved",
+                    {**base, "state": "held", "reason": "reserved"})
+                last = self.store._append(
+                    db, 3 * i - 1, last, "uncertain",
+                    {**base, "state": "uncertain", "reason": "expired"})
+                last = self.store._append(
+                    db, 3 * i, last, "recovered",
+                    {**base, "generation": 2 * i, "state": "terminal",
+                     "reason": "admin_recovery", "admin": "d" * 24,
+                     "evidence_digest": "e" * 64})
+            db.execute("UPDATE meta SET value=? WHERE key='generation'", ("2730",))
             db.commit()
         finally:
             db.close()
@@ -227,7 +237,7 @@ class OfflineJournalTests(unittest.TestCase):
         last_request = f"{4096:032x}"
         resource = "node/gway-001/deploy/resource-4096"
         receipt = self.request(request_id=last_request, resources=(resource,))
-        self.assertEqual(receipt["generation"], 4096)
+        self.assertEqual(receipt["generation"], 2731)
         self.assertEqual(receipt["state"], "held")
         self.assertEqual(self.store.inspect(last_request), receipt)
         # Duplicate at full capacity does not append or advance generation.
@@ -248,7 +258,7 @@ class OfflineJournalTests(unittest.TestCase):
         with sqlite3.connect(self.path) as check:
             self.assertEqual(check.execute("SELECT COUNT(*) FROM journal").fetchone()[0], 4096)
             self.assertEqual(check.execute("SELECT value FROM meta WHERE key='generation'").fetchone()[0],
-                             "4096")
+                             "2731")
             self.assertEqual(check.execute("SELECT COUNT(*) FROM requests").fetchone()[0], 4096)
             self.assertEqual(check.execute(
                 "SELECT COUNT(*) FROM journal WHERE seq=4097").fetchone()[0], 0)
