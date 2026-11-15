@@ -110,7 +110,7 @@ class InterleavingContractP2Tests(unittest.TestCase):
         text = BACKEND_DEPLOY.read_text(encoding="utf-8")
         workflow = BACKEND.read_text(encoding="utf-8")
         shell = DEPLOY_SH.read_text(encoding="utf-8")
-        self.assertIn("deploy(token=local_api_token(), install=install)", workflow)
+        self.assertIn('deploy(token=local_api_token(), install=install, revision=os.environ.get("GITHUB_SHA"))', workflow)
         self.assertIn('ansible-playbook "$ROOT/ansible/playbook.yml"', shell)
         self.assertNotIn("appliance_lock(", text)
         self.assertNotIn("appliance_lock(", shell)
