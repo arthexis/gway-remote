@@ -20,6 +20,8 @@ VERSION = "1"
 _HEX24 = re.compile(r"[0-9a-f]{24}\Z")
 _HEX64 = re.compile(r"[0-9a-f]{64}\Z")
 _MAX = (1 << 63) - 1
+# Offline prototype bound: full replay is mandatory and no journal pruning exists.
+_MAX_JOURNAL_EVENTS = 4096
 _FIELDS = frozenset(("node", "repo", "sha", "verified_principal", "source",
                      "request_id", "boot_id", "lease_until_ns"))
 _STATES = frozenset(("held", "uncertain", "terminal"))
@@ -192,7 +194,8 @@ class OfflineFenceJournal:
         last, head, max_gen, records = "", 0, 0, {}
         for seq, event, request, raw, previous, digest in db.execute(
                 "SELECT seq, event, request_id, payload, prev_digest, digest FROM journal ORDER BY seq"):
-            if not _int(seq, positive=True) or seq != head + 1 or previous != last:
+            if (not _int(seq, positive=True) or seq != head + 1
+                    or seq > _MAX_JOURNAL_EVENTS or previous != last):
                 raise StoreError()
             if type(digest) is not str or not _HEX64.fullmatch(digest):
                 raise StoreError()
@@ -252,6 +255,8 @@ class OfflineFenceJournal:
 
     @staticmethod
     def _append(db, seq, prev, event, snap):
+        if seq > _MAX_JOURNAL_EVENTS:
+            raise StoreError()
         request = snap["binding"]["request_id"]
         raw = _json(snap)
         digest = _digest(_json({"seq": seq, "event": event,
@@ -312,7 +317,9 @@ class OfflineFenceJournal:
             requested = ResourcePlan(tuple(resources))
             if any(conflicts(requested, ResourcePlan(tuple(s["resources"])))
                    for s in records.values() if s["state"] != "terminal"):
-                raise StoreError()
+                # Do not raise inside the transaction: any newly observed
+                # held->uncertain events must commit before returning denial.
+                return None
             if generation == _MAX:
                 raise StoreError()
             generation += 1
@@ -323,7 +330,12 @@ class OfflineFenceJournal:
             digest = self._append(db, seq, last, "reserved", snap)
             db.execute("UPDATE meta SET value=? WHERE key='generation'", (str(generation),))
             return {"state": "held", "generation": generation, "receipt_digest": digest}
-        return self._transaction(apply)
+        result = self._transaction(apply)
+        if result is None:
+            # The conflicting reservation was never created; uncertainty
+            # observations are already durable on the same SQLite file.
+            raise StoreError()
+        return result
 
     def inspect(self, request_id):
         """Validate full journal; historical state is never proof of a live worker."""
