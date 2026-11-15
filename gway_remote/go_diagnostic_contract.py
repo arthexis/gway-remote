@@ -10,14 +10,13 @@ from enum import Enum
 from pathlib import PurePosixPath
 import re
 
+from .maintenance_fence_resources import ResourceError, plan, conflicts
+
 _SHA = re.compile(r"[0-9a-f]{40}\Z")
 _RECEIPT_ID = re.compile(r"[a-z0-9][a-z0-9_-]{0,63}\Z")
 _ALLOWED_RESULTS = frozenset({"passed", "failed", "not_run"})
 _STEPS = ("mod_tidy", "mod_verify", "build_backend", "build_uidlab")
-_RESOURCES = frozenset({
-    "node:gway-001:compute",
-    "node:gway-001:ocpp-simulator",
-})
+_RESOURCES = ("node/gway-001",)  # Conservative whole-node footprint; V1-B canonical.
 _ALLOWED_CODES = frozenset({
     "ok", "admission_denied", "busy", "timeout", "resource_limit",
     "dependency_unavailable", "sandbox_unavailable", "step_failed",
@@ -98,7 +97,7 @@ class DiagnosticPlan:
     node: str = "gway-001"
     user: str = "arthe"
     arch: str = "arm64"
-    resources: frozenset[str] = _RESOURCES
+    resources: tuple[str, ...] = _RESOURCES
     policy: SandboxPolicy = SandboxPolicy()
 
     def validate(self) -> None:
@@ -109,8 +108,15 @@ class DiagnosticPlan:
             raise ContractError("sha_invalid")
         if (self.node, self.user, self.arch) != ("gway-001", "arthe", "arm64"):
             raise ContractError("target_invalid")
-        if type(self.resources) is not frozenset or self.resources != _RESOURCES:
+        # V1-B is the only resource grammar. A complete-node claim is
+        # intentional until compute, filesystem and process footprints are attested.
+        if type(self.resources) is not tuple or self.resources != _RESOURCES:
             raise ContractError("resource_scope_invalid")
+        try:
+            if plan(self.resources).resources != self.resources:
+                raise ContractError("resource_scope_invalid")
+        except ResourceError:
+            raise ContractError("resource_scope_invalid") from None
         if not isinstance(self.workspace, str) or "\x00" in self.workspace:
             raise ContractError("workspace_invalid")
         p = PurePosixPath(self.workspace)
@@ -122,6 +128,23 @@ class DiagnosticPlan:
         if not isinstance(self.policy, SandboxPolicy):
             raise ContractError("policy_invalid")
         self.policy.validate()
+
+
+def conceptual_conflicts(left: tuple[str, ...], right: tuple[str, ...]) -> bool:
+    """V1-B pure overlap comparison, NEVER evidence of actual lock ownership.
+
+    Require canonical tuples so duplicate or ancestor/descendant claims cannot
+    silently change their meaning; malformed values fail closed.
+    """
+    if type(left) is not tuple or type(right) is not tuple:
+        raise ContractError("resource_scope_invalid")
+    try:
+        a, b = plan(left), plan(right)
+        if a.resources != left or b.resources != right:
+            raise ContractError("resource_scope_invalid")
+        return conflicts(a, b)
+    except ResourceError:
+        raise ContractError("resource_scope_invalid") from None
 
 
 @dataclass(frozen=True)
