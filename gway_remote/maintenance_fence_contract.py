@@ -41,6 +41,8 @@ def _integer(value, *, positive=False):
 
 def _valid_identity(node, repo, sha, principal, source, request_id, boot_id):
     if not (_match(node, _NODE) and _match(repo, _REPO)
+            and all(part not in (".", "..") and not part.startswith(("-", "."))
+                    for part in repo.split("/"))
             and _match(sha, _SHA) and _match(principal, _PRINCIPAL)
             and type(source) is str and source in _SOURCES
             and _match(request_id, _REQUEST) and _match(boot_id, _BOOT)):
@@ -76,6 +78,11 @@ class Claim:
                 or not _match(self.token, _TOKEN)
                 or not _integer(self.lease_until_ns, positive=True)):
             raise FenceError()
+        if self.token != token_for(node=self.node, repo=self.repo, sha=self.sha,
+                                   principal=self.principal, source=self.source,
+                                   request_id=self.request_id, boot_id=self.boot_id,
+                                   generation=self.generation):
+            raise FenceError()
 
 
 @dataclass(frozen=True)
@@ -84,15 +91,32 @@ class Receipt:
     state: str
     generation: int
     request_id: str
+    reason: str
     digest: str
+    previous_digest: str | None = None
+    admin: str | None = None
 
     def __post_init__(self):
-        if (self.event not in ("acquired", "renewed", "completed", "uncertain", "recovered")
-                or type(self.event) is not str
-                or type(self.state) is not str or self.state not in _STATES
-                or not _integer(self.generation)
+        expected = {
+            "acquired": ("held", ("initial",)),
+            "renewed": ("held", ("lease_extended",)),
+            "completed": ("terminal", ("success",)),
+            "uncertain": ("uncertain", ("conflicting_or_expired_acquire",
+                                       "stale_or_expired", "fault", "lease_or_boot_changed")),
+            "recovered": ("terminal", ("administrative_recovery",)),
+        }
+        if (type(self.event) is not str or self.event not in expected
+                or type(self.state) is not str or self.state != expected[self.event][0]
+                or type(self.reason) is not str or self.reason not in expected[self.event][1]
+                or not _integer(self.generation, positive=True)
                 or not _match(self.request_id, _REQUEST)
                 or not _match(self.digest, _DIGEST)):
+            raise FenceError()
+        if self.event == "recovered":
+            if (not _match(self.previous_digest, _DIGEST)
+                    or not _match(self.admin, _PRINCIPAL)):
+                raise FenceError()
+        elif self.previous_digest is not None or self.admin is not None:
             raise FenceError()
 
 
@@ -115,14 +139,22 @@ class Fence:
         elif (self.claim is None or self.receipt is None
               or self.claim.generation != self.generation
               or self.receipt.generation != self.generation
-              or self.receipt.state != self.state):
+              or self.receipt.state != self.state
+              or self.receipt.request_id != self.claim.request_id
+              or self.receipt != _receipt(self.receipt.event, self.state,
+                                          self.claim, reason=self.receipt.reason,
+                                          previous_digest=self.receipt.previous_digest,
+                                          admin=self.receipt.admin)):
             raise FenceError()
 
 
-def _receipt(event, state, claim, *, reason):
-    return Receipt(event, state, claim.generation, claim.request_id,
-                   _hash({"version": VERSION, "event": event, "state": state,
-                          "claim": claim.__dict__, "reason": reason}))
+def _receipt(event, state, claim, *, reason, previous_digest=None, admin=None):
+    """Canonical internal consistency digest; NOT provenance or authenticity."""
+    payload = {"version": VERSION, "event": event, "state": state,
+               "claim": claim.__dict__, "reason": reason,
+               "previous_digest": previous_digest, "admin": admin}
+    return Receipt(event, state, claim.generation, claim.request_id, reason,
+                   _hash(payload), previous_digest, admin)
 
 
 def _fence(state, claim, event, reason):
@@ -241,9 +273,7 @@ def recover(fence, *, verified_admin, expected_generation, expected_digest,
                                 source=fence.claim.source, request_id=fence.claim.request_id,
                                 boot_id=fence.claim.boot_id, generation=new_generation),
                       fence.claim.lease_until_ns)
-    receipt = Receipt("recovered", "terminal", new_generation, tombstone.request_id,
-                      _hash({"version": VERSION, "event": "recovered",
-                             "previous_digest": expected_digest,
-                             "admin": verified_admin,
-                             "generation": new_generation, "claim": tombstone.__dict__}))
+    receipt = _receipt("recovered", "terminal", tombstone,
+                       reason="administrative_recovery",
+                       previous_digest=expected_digest, admin=verified_admin)
     return Fence("terminal", tombstone, new_generation, receipt)
