@@ -1,0 +1,56 @@
+name: Diagnose Watchtower SSH authentication (no deployment)
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# Do not overlap existing gway-001 deployments or appliance operations.
+concurrency:
+  group: gway-001-appliance-report
+  cancel-in-progress: false
+
+jobs:
+  ssh-auth:
+    if: github.repository == 'arthexis/gway-remote' && github.ref == 'refs/heads/main'
+    runs-on: [self-hosted, Linux, ARM64, gway-001]
+    timeout-minutes: 3
+    steps:
+      - name: Authenticate to Watchtower without deploying
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          # This runs inside the real GitHub Actions Runner.Worker context.
+          # Never print environment variables, SSH configuration, key paths,
+          # public/private keys, agent contents, or raw SSH diagnostics.
+          if [[ "$(id -un)" != "arthe" ]]; then
+            echo "::error::Unexpected runner identity"
+            exit 1
+          fi
+
+          # Identical SSH authentication flags to deploy-backend.yml.
+          # Only the remote command differs: 'true' is side-effect-free.
+          # No Ansible, checkout, credential provisioning, or deploy script.
+          set +e
+          diagnostic="$(timeout 20s ssh -T \
+            -o BatchMode=yes -o StrictHostKeyChecking=yes \
+            -o ConnectTimeout=8 -o ServerAliveInterval=20 \
+            -o ServerAliveCountMax=2 gelectriic.com true 2>&1)"
+          result=$?
+          set -e
+
+          # Classify locally; never emit untrusted remote output or raw stderr.
+          if [[ "$result" -eq 0 ]]; then
+            echo "watchtower_ssh_auth=PASS"
+          elif [[ "$diagnostic" == *"Permission denied (publickey)"* ]]; then
+            echo "::error::watchtower_ssh_auth=PUBLICKEY_REJECTED"
+            exit 1
+          elif [[ "$result" -eq 124 ]]; then
+            echo "::error::watchtower_ssh_auth=TIMEOUT"
+            exit 1
+          else
+            echo "::error::watchtower_ssh_auth=OTHER_FAILURE"
+            exit 1
+          fi
