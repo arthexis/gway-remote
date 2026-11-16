@@ -189,6 +189,60 @@ sampling, FD-safe SQLite lifetime, legacy route coverage, descendant
 termination and generation-aware side-effect boundaries require separately
 reviewed stages. Keep PR #584 Draft, #583 intact and issue #561 open.
 
+## D1-B3-A differential C1/C2 journal parity (hermetic only)
+
+`tests/core/test_go_diagnostic_differential_d1b3a.py` compares the
+immutable D1-B1/B2 snapshot against the existing V1-C1 SQLite
+`OfflineFenceJournal` in a private `TemporaryDirectory`. Tests use synthetic
+principal/request/boot values, no production database, node, secrets, runner
+or workflow. V1-C1 and V1-C2 code and schema remain unchanged.
+
+The semantic parity oracle checks equal initial `HELD` state and generation,
+idempotent identical binding, rejection of conflicting whole-node resources,
+monotonic generations for disjoint canonical children, rejection of mutated
+SHA/request binding, explicit `observe` on expiry and boot change, and
+preservation after rollback and database reopen.
+
+**Intentional and enforced divergences (do not normalize away):**
+
+1. C1 `reserve` observes expired or cross-boot reservations in the same
+   transaction *before* rejecting a conflicting request or returning an
+   idempotent retry; D1-B1 does not transition without `observe`.
+2. D1-B1 `finish` models conceptual clean `HELD -> TERMINAL`;
+   V1-C1 has no ordinary completion event or matching state transition.
+   **Never** translate it into C1 `recover`, which requires `UNCERTAIN`
+   plus separate administrative evidence and increments generation.
+3. D1-B1 `recovery_preview` does not mutate state; C1 `recover` writes
+   a terminal administrative tombstone after matching exact receipt digest.
+   Neither implementation checks physical quiescence or authenticates admin.
+4. D0 diagnostic IDs like `diagnostic-01` pass D0 syntax, but C1/C2 require
+   exactly 32 lowercase hexadecimal characters. Conversion must be explicit,
+   identity preserving and reviewed separately, never silently synthesized.
+5. The C1 storage policy is a point-in-time FD-based audit, not a pinned
+   SQLite connection. C1 `lstat` followed by `sqlite3.connect(path)`
+   leaves a TOCTOU gap. The test asserts this limitation, **not** a fix.
+6. Journal boundary testing patches `_MAX_JOURNAL_EVENTS` to 1 inside
+   the test process to verify rollback cheaply, while D1-B1 is tested at
+   4096. C1's existing dedicated 4096/4097 chain/replay test remains
+   authoritative for the *actual* limit. Failures to append `UNCERTAIN`
+   preserve older `HELD` bytes but do **not** prove a live lease.
+
+The tests also distinguish crash *before commit* (SQLite rollback on close)
+from crash *after commit* (reopen sees `HELD`) without invoking
+`os._exit`, spawning children or modifying other systems. D1-B1/B2 is
+not an atomic coordinator across processes; C1 serialization protects only
+cooperating offline SQLite clients and is not an execution fence.
+
+```bash
+python -m unittest tests.core.test_go_diagnostic_differential_d1b3a -v
+```
+
+**D1-B3-A PRE-READY only:** no mapping of model receipts to operational
+admission, no SQLite runtime connector, no lifecycle or workflow wiring.
+Further D1 work needs a separately reviewed ordinary-terminal persistence
+contract, fd-safe inode lifetime, trusted witness generation, and exhaustive
+side-effect/frontier coverage. Keep PRs #583/#584 Draft and #561 open.
+
 ## Risk/acceptance matrix
 
 | Threat | D0 requirement | Runtime proof deferred to |
