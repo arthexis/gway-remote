@@ -86,20 +86,20 @@ For this PR, verify the existing deploy sequence activates the node runtime
 before the Watchtower gateway, and stop instead of activating a sender whose
 receiver is not supported. Do not infer installed runtime from PR CI alone.
 
-## Why read requests remain legacy in this increment
+## Why old receivers still require a legacy read fallback
 
-The public gateway checks a dynamically discovered provider route; the
-federation call discovers the route again, and the node re-discovers its live
-tool declaration. A tool's classification can change between these steps.
-Unconditionally removing the read-vs-write assertion from all three layers
-would let a valid read-only bearer reach a write if such drift occurs.
+P2 removes the repeated Watchtower discovery, but the registered tool can
+still change classification before the node dispatches it. P3 introduced a
+read-only operation bound to the receiver's live provider declaration. P4
+selects that operation only when the node advertises its support. For an older
+node the existing legacy read request retains the same live-declaration
+write-denial behavior. Neither path carries a caller-chosen privilege
+escalation, and neither invents an additional OAuth authority.
 
-The intended final state is **OAuth authorization at Watchtower and operation
-validation at the node**, without repeated OAuth claims. Finish the read
-migration only after guaranteeing that a previously admitted read operation
-cannot become a write between admission and dispatch, without recreating a
-federated identity framework. A stable operation contract/version or equivalent
-minimal solution must be reviewed separately.
+The target architecture is **public OAuth admission at Watchtower plus actual
+operation validation by the node**, with a temporary legacy read wire for
+mixed revisions only. Once receivers converge, Stage C can remove that
+compatibility code; no new service or framework is necessary.
 
 ## Preconditions and acceptance
 
