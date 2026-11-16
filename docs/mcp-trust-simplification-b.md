@@ -38,6 +38,26 @@ deploy and not final retirement of internal OAuth-related scope parameters.
   external endpoints. Standalone federation calls without a supplied
   snapshot retain their existing discovery behavior.
 
+## Stage B/P3: read-only node operation, without OAuth fields
+
+The receiving SSH protocol now recognizes `provider_read`, with the same
+exact `node`, `request_id`, `provider`, `tool`, and `arguments`
+fields as an unscoped `provider_call`. It **does not** accept
+`authorized_scope`. This is an operation contract: the owning node must
+confirm that the live tool is still read-only before invoking it. It reuses
+the existing provider registry and stdio read/write verification, with no
+new identity, SSH key, service or authorization framework.
+
+The sender still uses the legacy `provider_call` + `authorized_scope="read"`
+for read operations **until the P3 receiver is activated**. Do NOT switch
+read emission in this PR increment: the deployed Stage A receiver does not
+recognize the new verb. The next P4 increment may switch the sender after
+a separately authorized receiver deployment is confirmed.
+
+This operation-bound check is not OAuth verification. Public OAuth remains
+at Watchtower. Tests prove allowed reads, rejected writes, precise wire
+fields and node identity without real SSH or providers.
+
 ## Why read requests remain legacy in this increment
 
 The public gateway checks a dynamically discovered provider route; the
