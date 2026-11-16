@@ -62,8 +62,16 @@ def installed_revision(name):
         except (OSError, RuntimeError):
             return None
         for parent in resolved.parents:
-            if parent.parent.name == "releases" and re.fullmatch(r"[0-9a-f]{40}", parent.name):
+            if parent.parent.name != "releases":
+                continue
+            if re.fullmatch(r"[0-9a-f]{40}", parent.name):
                 return parent.name
+            # Reports uses immutable "<full SHA>-pkg" releases under /opt.
+            # Do not widen the accepted shape for any other provider or root.
+            if name == "ocpp-reports" and parent.parent == Path("/opt/ocpp-reports/releases"):
+                match = re.fullmatch(r"([0-9a-f]{40})-pkg", parent.name)
+                if match and resolved == parent / "venv/bin/ocpp-reports":
+                    return match.group(1)
         return None
     if not spec.release or not spec.revision_pattern:
         return None
