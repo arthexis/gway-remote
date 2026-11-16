@@ -235,6 +235,19 @@ class MaintenanceSupervisorTests(unittest.TestCase):
             sup.CgroupV2(root / "link", root=root)
 
 
+
+    def test_exited_leader_is_not_signaled_as_reused_process_group(self):
+        with self.lock() as held:
+            proc, scope, clock, calls, spawn = self.scenario(
+                held, initial_code=0, descendants_stick=True)
+            with self.assertRaises(Uncertain):
+                sup.run_supervised(
+                    ["/bin/true"], lock=held, scope=scope,
+                    clock=clock, pause=clock.pause, spawn=spawn)
+            self.assertEqual(scope.terms, 0)
+            self.assertEqual(scope.kills, 1)
+            self.assertTrue((self.home / ".local/state/maintenance.uncertain").exists())
+
     def test_cgroup_kill_failure_is_uncertain_not_generic_error(self):
         with self.lock() as held:
             proc, scope, clock, calls, spawn = self.scenario(
