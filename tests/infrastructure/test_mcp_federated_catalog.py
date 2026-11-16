@@ -44,5 +44,52 @@ class FederatedCatalogTests(unittest.TestCase):
                                 invoke=lambda *a, **kw: None)
 
 
+    def test_advertised_read_rpc_uses_operation_bound_dispatch(self):
+        reply = provider_reply('gway-001', tools=[TOOL, fixture_tool('update')])
+        reply['providers'][0]['supports_provider_read'] = True
+        _, routes = catalog_from_nodes([], {'gway-001': reply})
+        spy = InvocationSpy(response={'content': []})
+        self.assertEqual(route_provider_call(routes, 'odoo__search', {},
+                                              authorized_scope='read',
+                                              invoke=spy.invoke), {'content': []})
+        self.assertEqual(spy.calls[0][1]['operation'], 'provider_read')
+        self.assertNotIn('authorized_scope', spy.calls[0][1])
+
+        # Even when read capability is supported, execution stays on provider_call.
+        route_provider_call(routes, 'odoo__update', {'id': 1},
+                            authorized_scope='execute', invoke=spy.invoke)
+        self.assertEqual(spy.calls[1][1]['operation'], 'provider_call')
+
+        # Read bearer never reaches a write tool or a remote node.
+        with self.assertRaises(PermissionError):
+            route_provider_call(routes, 'odoo__update', {},
+                                authorized_scope='read', invoke=spy.invoke)
+        self.assertEqual(len(spy.calls), 2)
+
+    def test_read_rpc_falls_back_for_legacy_catalog(self):
+        reply = provider_reply('gway-001', tools=[TOOL])
+        _, routes = catalog_from_nodes([], {'gway-001': reply})
+        spy = InvocationSpy(response={'content': []})
+        route_provider_call(routes, 'odoo__search', {},
+                            authorized_scope='read', invoke=spy.invoke)
+        self.assertEqual(spy.calls[0][1]['operation'], 'provider_call')
+        self.assertEqual(spy.calls[0][2], 'read')
+
+        # Explicitly disabled capability also preserves the old read wire.
+        reply['providers'][0]['supports_provider_read'] = False
+        _, routes = catalog_from_nodes([], {'gway-001': reply})
+        route_provider_call(routes, 'odoo__search', {},
+                            authorized_scope='read', invoke=spy.invoke)
+        self.assertEqual(spy.calls[1][1]['operation'], 'provider_call')
+
+    def test_invalid_capability_fails_closed(self):
+        for invalid in ('true', 1, None, [], {}):
+            with self.subTest(invalid=invalid):
+                reply = provider_reply('gway-001', tools=[TOOL])
+                reply['providers'][0]['supports_provider_read'] = invalid
+                with self.assertRaises(FederationError):
+                    catalog_from_nodes([], {'gway-001': reply})
+
+
 if __name__ == "__main__":
     unittest.main()
