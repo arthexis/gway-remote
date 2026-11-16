@@ -133,7 +133,7 @@ overflow reject without pruning, resetting or automatic recovery.
 - No global linearizability across real callers, no fencing tokens consumed by
   effect destinations, no proof that surviving children are stopped
 - External AgentOps and direct manual/legacy entrypoints remain unverified;
-  PR Draft #583 inventories paths, but does not certify their completeness
+  PR #583 (merged into main as b26b7280) inventories paths, but does not certify their completeness
 
 ### New hermetic tests
 
@@ -187,7 +187,7 @@ python -m unittest tests.core.test_go_diagnostic_interleavings_d1b2 -v
 D1-B2 remains strictly offline. Effective atomicity, trusted boot/clock
 sampling, FD-safe SQLite lifetime, legacy route coverage, descendant
 termination and generation-aware side-effect boundaries require separately
-reviewed stages. Keep PR #584 Draft, #583 intact and issue #561 open.
+reviewed stages. Keep PR #584 Draft and issue #561 open; the merged #583 inventory remains unchanged.
 
 ## D1-B3-A differential C1/C2 journal parity (hermetic only)
 
@@ -241,7 +241,7 @@ python -m unittest tests.core.test_go_diagnostic_differential_d1b3a -v
 admission, no SQLite runtime connector, no lifecycle or workflow wiring.
 Further D1 work needs a separately reviewed ordinary-terminal persistence
 contract, fd-safe inode lifetime, trusted witness generation, and exhaustive
-side-effect/frontier coverage. Keep PRs #583/#584 Draft and #561 open.
+side-effect/frontier coverage. PR #583 is merged; keep #584 Draft and #561 open.
 
 ## Risk/acceptance matrix
 
