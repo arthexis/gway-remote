@@ -33,14 +33,18 @@ class FederatedRelayAnsibleTests(unittest.TestCase):
     @unittest.skipUnless(shutil.which("ansible-playbook"), "Ansible unavailable")
     def test_relay_preflight_accepts_managed_nodes_and_rejects_invalid_inputs(self):
         # Run the actual first task in isolation; no account or SSH changes.
-        import yaml
-        first_task = yaml.safe_load(RELAY.read_text())[0]
+        parts = RELAY.read_text().split("\n# Install SSH's enforced restrictions", 1)
+        self.assertEqual(len(parts), 2, "relay preflight boundary changed")
+        first_task = parts[0]
+        self.assertEqual(first_task.count("\n- name:"), 1)
         with tempfile.TemporaryDirectory() as temp:
             playbook = Path(temp) / "preflight.yml"
-            playbook.write_text(yaml.safe_dump([{
-                "hosts": "localhost", "connection": "local", "gather_facts": False,
-                "tasks": [first_task],
-            }]))
+            tasks = Path(temp) / "tasks.yml"
+            tasks.write_text(first_task + "\n")
+            playbook.write_text(
+                "- hosts: localhost\n  connection: local\n  gather_facts: false\n"
+                "  tasks:\n    - import_tasks: tasks.yml\n"
+            )
             key = "ssh-ed25519 " + "A" * 44
             for host, public_key, expected in (
                 ("gway-001", key, 0), ("gway-004", key, 0),
