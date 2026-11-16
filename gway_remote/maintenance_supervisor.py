@@ -204,7 +204,11 @@ def run_supervised(
                 incident = True
                 raise Uncertain()
             if not term_sent and now >= lock.started + TERM_AT_SECONDS:
-                scope.term(process.pid)
+                # The session leader may already have exited while detached
+                # descendants remain. Never signal a potentially reused PGID;
+                # cgroup.kill at KILL_AT_SECONDS covers the remaining subtree.
+                if result is None:
+                    scope.term(process.pid)
                 term_sent = True
             if not kill_sent and now >= lock.started + KILL_AT_SECONDS:
                 scope.kill()
