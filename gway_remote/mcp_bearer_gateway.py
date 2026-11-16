@@ -177,7 +177,7 @@ def federated_source_status(federation):
     _, routes = federation.discover()
     sources = {}
     for name in sorted(routes):
-        node, source, _, scope = routes[name]
+        node, source, _, scope = routes[name][:4]
         item = sources.setdefault((node, source), {
             "source": source, "node": node, "enabled": True,
             "status": "available", "tools": [],
