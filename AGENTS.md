@@ -24,6 +24,37 @@ Developer agents are assigned implementation, refactoring, testing, and PR work.
   expected results, safety boundaries, and a reporting template. **The field
   agent is not responsible for developing or fixing the feature.**
 
+
+## Trusted internal operations — issue #586 (Stages A–C compatibility decision)
+
+- Watchtower owns OAuth bearer authentication and the public `gway:read` /
+  `gway:execute` admission decision. Do not duplicate OAuth identity or
+  scope authorization in internal node/provider RPCs.
+- Reuse installed SSH transport and the already selected installation user.
+  No per-tool Linux identity, SSH key, extra daemon, or authorization service
+  without a separately approved new trust boundary.
+- The node/provider owns actual operation validation: registered tools,
+  bounded arguments, allowed destinations, application state, concurrency,
+  idempotency and safe error handling. Retain these controls.
+- Stage B (#589) is merged and deployed: execute uses unscoped
+  `provider_call`; read uses the operation-bound `provider_read` when the
+  authenticated node catalog advertises `supports_provider_read`.
+  Watchtower uses one discovery snapshot to authorize and route each call.
+- For a receiver that does not advertise that capability, the sender retains
+  legacy `provider_call` with `authorized_scope="read"`. The node must
+  continue to reject writes on that read contract. This is compatibility with
+  Stage A and independent rollback, **not** another OAuth authorization.
+- Stage C decision: preserve the minimal A/B fallback while rollback to A
+  remains possible. Do not remove the legacy sender/receiver format without
+  explicit approval and an independently verified minimum rollback revision.
+  See issue #586, comment 6921029829. Respect receiver-first deployment and
+  do not infer authority to activate a release from a development PR.
+- Do not ask each feature PR to re-prove unchanged OpenSSH, credentials,
+  installation identity or OAuth implementation. A PR that changes an
+  external endpoint, an OS privilege, or a trust boundary needs explicit
+  scoped review. Authorization for an agent's assigned work is still governed
+  by its issue, not by possession of credentials.
+
 ## Agents operating directly on remote devices
 
 Remote-device agents are assigned **bounded operational verification**.

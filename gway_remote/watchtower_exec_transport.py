@@ -287,7 +287,7 @@ class SSHTransport:
         self._run = run
 
     def invoke(self, payload):
-        if type(payload) is not dict or payload.get("operation") not in {"submit","result","cancel","limits","provider_list","provider_call","file_read","deployment_preview","deployment_status","deployment_run","workspace_inspect"}:
+        if type(payload) is not dict or payload.get("operation") not in {"submit","result","cancel","limits","provider_list","provider_call","provider_read","file_read","deployment_preview","deployment_status","deployment_run","workspace_inspect"}:
             raise ValueError("invalid node operation")
         fields = {"submit":{"operation","node","request_id","command"},
                   "result":{"operation","node","request_id","cursor"},
@@ -295,12 +295,19 @@ class SSHTransport:
                    "limits":{"operation","node","request_id"},
                   "provider_list":{"operation","node","request_id"},
                   "provider_call":{"operation","node","request_id","provider","tool","arguments","authorized_scope"},
+                  "provider_read":{"operation","node","request_id","provider","tool","arguments"},
                   "file_read":{"operation","node","request_id","filename","offset"},
                   "workspace_inspect":{"operation","node","request_id","repository"},
                   "deployment_preview":{"operation","node","request_id","application"},
                   "deployment_status":{"operation","node","request_id","application"},
                   "deployment_run":{"operation","node","request_id","application","expected_revision"}}
-        if set(payload) != fields[payload["operation"]]:
+        actual_fields = set(payload)
+        expected_fields = fields[payload["operation"]]
+        # Stage B (#586): sender may emit the unscoped provider_call shape.
+        # All other operations, and legacy scoped calls, keep exact fields.
+        if (actual_fields != expected_fields and not
+                (payload["operation"] == "provider_call" and
+                 actual_fields == expected_fields - {"authorized_scope"})):
             raise ValueError("unexpected transport arguments")
         if payload["operation"] == "deployment_run" and (type(payload["expected_revision"]) is not str or not re.fullmatch(r"[0-9a-f]{40}", payload["expected_revision"])):
             raise ValueError("invalid expected deployment revision")
@@ -308,7 +315,7 @@ class SSHTransport:
             raise ValueError("wrong pinned node")
         validate_request_id(payload.get("request_id"))
         raw = json.dumps(payload, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
-        if len(raw) > (65536 if payload["operation"] == "provider_call" else 8192):
+        if len(raw) > (65536 if payload["operation"] in ("provider_call", "provider_read") else 8192):
             raise ValueError("transport request too large")
         # Forced-command key on node must ignore all SSH_ORIGINAL_COMMAND values.
         argv = ["ssh","-F","/dev/null","-T","-o","BatchMode=yes","-o","StrictHostKeyChecking=yes",

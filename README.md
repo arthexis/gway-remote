@@ -87,7 +87,7 @@ gway-remote deployments ocpp-csms
 gway-remote deployments --json
 ```
 
-This read-only inventory lists the six configured repositories, last recorded
+This read-only inventory lists the configured catalog repositories, last recorded
 deployment attempt timestamp, attempt result, attempted SHA, current GitHub
 `main` SHA, and independently verified installed SHA. An installed revision
 is shown as `unknown` when no supported release link can verify it; a

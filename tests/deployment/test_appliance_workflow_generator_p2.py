@@ -18,7 +18,7 @@ from gway_remote.deploy_dispatch import TARGETS as DISPATCH_TARGETS
 from gway_remote.deploy_failure_issues import REPOSITORIES
 from gway_remote.target_export import export_targets
 
-EXPECTED = ("ocpp-csms", "gway-lcd-sound", "gway-agent-ops",
+EXPECTED = ("ocpp-csms", "ocpp-reports", "gway-lcd-sound", "gway-agent-ops",
             "gway-ap-kiosk", "gway-rfid", "gway-bastion")
 GOLDEN_REVISION = "f602ee0234e4232246c67aa8cd02bd52fc4bff8b"
 
@@ -33,9 +33,6 @@ class ApplianceGeneratorP2Tests(unittest.TestCase):
             shutil.copyfile(TEMPLATE_DIR / filename, dest / filename)
 
     def test_byte_exact_render_and_reviewed_dispatch_subset(self):
-        self.assertEqual(len(self.actual), 9_976)
-        self.assertEqual(len(render_workflow()), 9_975)  # characters, not bytes
-        self.assertEqual(len(render_workflow().encode("utf-8")), 9_976)
         self.assertEqual(render_workflow().encode(), self.actual)
         self.assertEqual(render_workflow(), render_workflow())
         self.assertTrue(check_workflow())
@@ -111,7 +108,7 @@ class ApplianceGeneratorP2Tests(unittest.TestCase):
                 "github.actor == 'arthexis'", "true || github.actor == 'arthexis'", 1))
             self.assertFalse(check_workflow(template_dir=root))
 
-    def test_seven_known_six_admitted_no_reports_or_simulator(self):
+    def test_seven_known_and_admitted_no_simulator(self):
         rows = load_catalog().targets
         self.assertEqual(len(rows), 7)
         self.assertIn("ocpp-reports", tuple(row.id for row in rows))
@@ -119,7 +116,7 @@ class ApplianceGeneratorP2Tests(unittest.TestCase):
         area = text.split("      repository:\n", 1)[1].split("\npermissions:\n", 1)[0]
         choices = re.findall(r"(?m)^          - ([a-z0-9-]+)$", area)
         self.assertEqual(choices, ["all", *EXPECTED])
-        self.assertNotIn("  ocpp_reports:\n", text)
+        self.assertIn("  ocpp_reports:\n", text)
         self.assertNotIn("  ocpp_simulator:\n", text)
         for name in EXPECTED:
             self.assertEqual(text.count("deploy-batch --all --target " + name), 1)
@@ -130,16 +127,17 @@ class ApplianceGeneratorP2Tests(unittest.TestCase):
                  "github.actor == 'arthexis' && "
                  "needs.admission.result == 'success' && "
                  "inputs.node == 'gway-001'")
-        self.assertEqual(text.count(guard), 7)
-        self.assertEqual(text.count("github.event_name == 'workflow_dispatch'"), 7)
+        self.assertEqual(text.count(guard), 8)
+        self.assertEqual(text.count("github.event_name == 'workflow_dispatch'"), 8)
         for previous, current in (
+            ("ocpp_csms", "ocpp_reports"),
             ("gway_lcd_sound", "gway_agent_ops"),
             ("gway_agent_ops", "gway_ap_kiosk"),
             ("gway_ap_kiosk", "gway_rfid"),
             ("gway_rfid", "gway_bastion"),
         ):
             self.assertRegex(text, rf"(?m)^  {current}:\n    name: [^\n]+\n    needs: \[admission, {previous}\]\n")
-        self.assertIn("    needs: [admission, ocpp_csms, gway_lcd_sound, gway_agent_ops, gway_ap_kiosk, gway_rfid, gway_bastion]", text)
+        self.assertIn("    needs: [admission, ocpp_csms, ocpp_reports, gway_lcd_sound, gway_agent_ops, gway_ap_kiosk, gway_rfid, gway_bastion]", text)
         self.assertIn("Deploy gway-bastion (stage-only)", text)
         self.assertIn("Bastion staged only; running services and keys unchanged", text)
         self.assertNotIn("continue-on-error: true", text)
@@ -152,10 +150,10 @@ class ApplianceGeneratorP2Tests(unittest.TestCase):
         self.assertIn("if node != 'gway-001':", text)
         self.assertIn("require_local_deployment(", text)
         self.assertIn("inventory='ansible/inventory/deployment.yml'", text)
-        self.assertEqual(text.count("runs-on: [self-hosted, Linux, ARM64, gway-001]"), 7)
-        self.assertEqual(text.count("timeout-minutes: 30"), 6)
+        self.assertEqual(text.count("runs-on: [self-hosted, Linux, ARM64, gway-001]"), 8)
+        self.assertEqual(text.count("timeout-minutes: 30"), 7)
         self.assertIn("timeout-minutes: 10", text)
-        self.assertEqual(text.count("GH_TOKEN: ${{ secrets.GWAY_REMOTE_DISPATCH_TOKEN }}"), 6)
+        self.assertEqual(text.count("GH_TOKEN: ${{ secrets.GWAY_REMOTE_DISPATCH_TOKEN }}"), 7)
         self.assertIn("JOB_RESULTS: ${{ toJSON(needs) }}", text)
         self.assertIn("retention-days: 14", text)
         self.assertIn("if-no-files-found: error", text)

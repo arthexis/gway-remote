@@ -26,8 +26,16 @@ OPERATIONS = {
     "deployment_status": frozenset({"operation", "node", "request_id", "application"}),
     "deployment_run": frozenset({"operation", "node", "request_id", "application", "expected_revision"}),
     "provider_list": frozenset({"operation", "node", "request_id"}),
+    # Operation-bound read contract: no forwarded OAuth token or scope. The
+    # owning node checks the current tool declaration before dispatch.
+    "provider_read": frozenset({"operation", "node", "request_id", "provider", "tool", "arguments"}),
     "provider_call": frozenset({"operation", "node", "request_id", "provider", "tool", "arguments", "authorized_scope"}),
 }
+
+# Stage A (#586): accept a second *exact* SSH provider_call form without
+# a caller scope. Keep the scoped legacy form until all deployed senders
+# switch; the emitter still sends the legacy form in this stage.
+PROVIDER_CALL_UNSCOPED_FIELDS = OPERATIONS["provider_call"] - {"authorized_scope"}
 
 
 def serve_one(raw, *, jobs=None, hostname=None):
@@ -42,7 +50,9 @@ def serve_one(raw, *, jobs=None, hostname=None):
     if type(req) is not dict or req.get("operation") not in OPERATIONS:
         raise ValueError("invalid operation")
     op = req["operation"]
-    if set(req) != OPERATIONS[op]:
+    fields = set(req)
+    if fields != OPERATIONS[op] and not (op == "provider_call"
+                                             and fields == PROVIDER_CALL_UNSCOPED_FIELDS):
         raise ValueError("invalid request fields")
     host = hostname if hostname is not None else socket.gethostname()
     if not re.fullmatch(r"gway-[0-9]+", host) or req["node"] != host:
@@ -88,14 +98,25 @@ def serve_one(raw, *, jobs=None, hostname=None):
         else:
             result = accept(req["application"], rid, expected_revision=req["expected_revision"])
         return {"node": host, "request_id": rid, "result": result}
-    if op in ("provider_list", "provider_call"):
+    if op in ("provider_list", "provider_call", "provider_read"):
         from .mcp_node_providers import dispatch_node_provider_request
         from .mcp_installed_providers import discover_installed_providers
         registrations = discover_installed_providers()
         if op == "provider_list":
             request, scope = {"operation": "provider_list"}, "read"
+        elif op == "provider_read":
+            # Stage B/P3: the verb itself requests only a read operation;
+            # validate the LIVE declaration on the node. This is operation
+            # semantics, not a second check of the bearer identity.
+            scope = "read"
+            request = {key: req[key] for key in ("provider", "tool", "arguments")}
+            request["operation"] = "provider_call"
         else:
-            scope = req["authorized_scope"]
+            # Stage A compatibility: legacy SSH callers retain their scoped
+            # behavior. The new unscoped form is a trusted internal operator
+            # request, not a bearer authorization. Keep the existing node
+            # provider interface unchanged until Stage B removes scopes there.
+            scope = req.get("authorized_scope", "execute")
             if scope not in ("read", "execute"):
                 raise PermissionError("invalid scope")
             request = {key: req[key] for key in ("provider", "tool", "arguments")}

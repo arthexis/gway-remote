@@ -75,6 +75,30 @@ Keep the single local discovery command working while organizing tests.
 CI runs pytest in one matrix job per subsystem and in the separate validation job.\nRun `python3 -m pytest tests -v --durations=0 --durations-min=0` for\nper-test timings locally. The optional `python3 -m tests.support.run_tests --group all`\nrunner remains available for unittest-compatible timing output.\nStructural checks live in `tests/support/test_architecture.py`.\nChanges to the suite must preserve all existing test coverage unless a
 specific obsolete test is removed with a documented replacement.
 
+
+## Stable trust boundaries for feature PRs (#586)
+
+- Test public OAuth denial and write admission centrally at Watchtower; do
+  not recreate its full bearer/scope suite for every internal provider.
+- Test each new tool's *real* contract: registered operation, arguments,
+  resources, state, concurrency, idempotency, non-effects and safe errors.
+- Treat unchanged SSH keys, installed Linux identity and Ansible provisioning
+  as existing architecture; do not require a fresh manual SSH audit for each PR.
+- If a PR changes an external ingress, principal authority, transport, or
+  privilege boundary, include targeted boundary regression tests.
+- Stage B (#589) uses unscoped `provider_call` for execute and
+  `provider_read` for read only when the node advertises that capability.
+  Older receivers retain exact legacy scoped-read `provider_call` as a
+  rollback fallback; public OAuth admission remains on Watchtower.
+- Exercise both capability branches and mixed A/B revisions in hermetic tests,
+  including live tool read-to-write reclassification, malformed and missing
+  fields, unknown providers, wrong node identity and non-effects on denial.
+  Preserve existing public OAuth regression tests. CI is not proof of an
+  installed node or of successful production rollback.
+- Stage C accepts A/B compatibility as its current endpoint (issue #586,
+  comment 6921029829). Do not delete the fallback until an explicit minimum
+  rollback revision is approved and demonstrated.
+
 ## Refactor sequence
 
 1. TR1: document conventions and preserve baseline.

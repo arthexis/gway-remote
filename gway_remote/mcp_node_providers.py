@@ -71,6 +71,10 @@ def provider_list(registrations, *, node_id):
             providers.append({
                 "provider": registration.source_id, "node": node_id,
                 "revision": registration.revision, "status": "available",
+                # Capability is emitted only by a runtime that already supports
+                # provider_read. Old Watchtower parsers ignore extra provider
+                # fields, allowing receiver-first rollout without downtime.
+                "supports_provider_read": True,
                 "tools": catalog["read"] + catalog["execute_required"],
             })
         except NodeProviderError as exc:
