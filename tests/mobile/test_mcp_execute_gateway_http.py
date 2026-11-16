@@ -140,5 +140,75 @@ class GatewayFederationRoutesHTTPTests(unittest.TestCase):
                     thread.join()
 
 
+    def test_receiver_capability_preserves_public_read_write_boundary(self):
+        """Current node advertises provider_read; no live SSH or provider."""
+        from gway_remote.mcp_gateway_federation import FederatedProviders
+        from tests.helpers.mcp_provider import provider_reply
+        from tests.helpers.mcp_federation import fixture_tool
+
+        class CompatibleNode:
+            def __init__(self):
+                self.calls = []
+
+            def invoke(self, node, request, *, trusted_scope):
+                self.calls.append((request["operation"], trusted_scope))
+                if request["operation"] == "provider_list":
+                    reply = provider_reply(
+                        node, tools=[fixture_tool("lookup", read=True),
+                                     fixture_tool("update")])
+                    reply["providers"][0]["supports_provider_read"] = True
+                    return reply
+                if request["operation"] in ("provider_read", "provider_call"):
+                    return {"content": []}
+                raise AssertionError("unexpected node operation")
+
+        with tempfile.TemporaryDirectory() as directory:
+            registry = BearerRegistry(Path(directory) / "gateway.db")
+            read_token = registry.issue()
+            parent = registry.issue(scope="gway:execute", operator_approved=True)
+            execute_token = registry.issue(
+                scope="gway:execute", parent_id=parent.split("_", 2)[1])
+            node = CompatibleNode()
+            federation = FederatedProviders(
+                transport=node, nodes=lambda: ("gway-001",))
+            with make_server(
+                ("127.0.0.1", 0), BearerVerifier(registry.path),
+                "http://127.0.0.1:19011/mcp", "backend-secret",
+                federation=federation,
+            ) as gateway:
+                thread = threading.Thread(target=gateway.serve_forever,
+                                          daemon=True)
+                thread.start()
+                try:
+                    endpoint = "http://127.0.0.1:%d/mcp" % gateway.server_port
+
+                    def status(name, token):
+                        request = bearer_post(endpoint, mcp_call(name), token)
+                        try:
+                            with urlopen(request, timeout=3) as response:
+                                return response.status
+                        except HTTPError as exc:
+                            code = exc.code
+                            exc.close()
+                            return code
+
+                    self.assertEqual(status("odoo__lookup", read_token), 200)
+                    self.assertEqual(node.calls,
+                                     [("provider_list", "read"),
+                                      ("provider_read", "read")])
+
+                    self.assertEqual(status("odoo__update", read_token), 401)
+                    self.assertEqual(node.calls[-1], ("provider_list", "read"))
+                    self.assertEqual(len(node.calls), 3)
+
+                    self.assertEqual(status("odoo__update", execute_token), 200)
+                    self.assertEqual(node.calls[-2:],
+                                     [("provider_list", "read"),
+                                      ("provider_call", "execute")])
+                finally:
+                    gateway.shutdown()
+                    thread.join()
+
+
 if __name__ == "__main__":
     unittest.main()
