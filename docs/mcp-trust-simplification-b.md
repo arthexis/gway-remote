@@ -48,15 +48,43 @@ confirm that the live tool is still read-only before invoking it. It reuses
 the existing provider registry and stdio read/write verification, with no
 new identity, SSH key, service or authorization framework.
 
-The sender still uses the legacy `provider_call` + `authorized_scope="read"`
-for read operations **until the P3 receiver is activated**. Do NOT switch
-read emission in this PR increment: the deployed Stage A receiver does not
-recognize the new verb. The next P4 increment may switch the sender after
-a separately authorized receiver deployment is confirmed.
+During P3 the sender used legacy `provider_call` with `authorized_scope="read"`.
+P4 now switches automatically **only for receivers advertising support**;
+older nodes continue to use the legacy read wire without an unsafe probe.
 
 This operation-bound check is not OAuth verification. Public OAuth remains
 at Watchtower. Tests prove allowed reads, rejected writes, precise wire
 fields and node identity without real SSH or providers.
+
+## Stage B/P4: capability-based read emission and rolling compatibility
+
+A P3-or-newer node advertises `supports_provider_read: true` **on its
+provider_list provider records**. This optional, provider-level field is
+ignored by the old Watchtower parser and is a version/capability indicator
+rather than a credential. It can only come from the authenticated node
+catalog. Its absence, or explicit `false`, means the receiver might be
+older and requires the existing legacy `provider_call` with
+`authorized_scope="read"`. Malformed capability values fail closed.
+
+After public OAuth admission, Watchtower uses its single authenticated
+discovery snapshot to choose:
+- **read + advertised support** -> `provider_read` with no scope field;
+  the receiver confirms the live tool is still read-only before calling it
+- **read + no support** -> legacy `provider_call` with scoped read;
+  the old receiver still blocks write reclassification
+- **execute** -> unscoped `provider_call`, as introduced in P1
+
+This supports receiver-first rollout in **one PR**: gway-001's installed
+receiver can gain support before Watchtower starts using it. Old Watchtower
+ignores the optional provider metadata; new Watchtower falls back when
+encountering older nodes. No new service, extra query, deployment flag,
+user account, OAuth identity propagation or registry is needed.
+
+**Deployment gate:** Stage A receiver was installed by automatic workflow
+#43819904323, and a subsequent live AgentOps status/read check succeeded.
+For this PR, verify the existing deploy sequence activates the node runtime
+before the Watchtower gateway, and stop instead of activating a sender whose
+receiver is not supported. Do not infer installed runtime from PR CI alone.
 
 ## Why read requests remain legacy in this increment
 
@@ -83,8 +111,8 @@ minimal solution must be reviewed separately.
    pinned transport accepts only two exact `provider_call` shapes and
    rejects malformed requests without invoking SSH.
 4. No manual workflows, AgentOps, nodes or deployments during Draft review.
-5. Stage B/P2 and Stage C must retire the remaining legacy path after resolving
-   the classification drift case and confirming deployment compatibility.
+5. Stage C removes the remaining legacy read wire only after all deployed
+   receivers advertise `supports_provider_read` and rollback is safe.
 
 Keep issue #586 and AgentOps #80/#81 open. Do not merge this Draft until the
 post-merge Stage A deployment and receiver compatibility are established.
