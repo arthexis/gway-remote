@@ -75,24 +75,16 @@ class ProviderWireTests(unittest.TestCase):
         # Stage A adapter only: this does NOT prove a separate OAuth check.
         self.assertEqual(calls[0][1]["authorized_scope"], "execute")
 
-    def test_legacy_provider_call_preserves_read_and_execute(self):
-        from gway_remote.mcp_node_providers import NodeProviderError
-
-        with self.assertRaises(NodeProviderError) as denial:
-            self._provider_dispatch(
-                self._provider_request(authorized_scope="read"))
-        self.assertEqual(denial.exception.code, "permission_denied")
-
-        reply, calls = self._provider_dispatch(
-            self._provider_request(authorized_scope="execute"))
-        self.assertEqual(reply["result"], {"content": []})
-        self.assertEqual(len(calls), 1)
-
-        reply, calls = self._provider_dispatch(
-            self._provider_request("customer_search",
-                                   authorized_scope="read"))
-        self.assertEqual(reply["result"], {"content": []})
-        self.assertEqual(calls[0][1]["authorized_scope"], "read")
+    def test_legacy_provider_call_is_rejected_before_discovery(self):
+        import json
+        for scope in ("read", "execute", None, "bogus"):
+            with patch("gway_remote.node_exec_protocol.require_account"), (
+                patch("gway_remote.mcp_installed_providers.discover_installed_providers")
+            ) as discovery:
+                with self.subTest(scope=scope), self.assertRaises(ValueError):
+                    serve_one(json.dumps(self._provider_request(
+                        authorized_scope=scope)).encode(), hostname="gway-001")
+                discovery.assert_not_called()
 
     def test_unscoped_form_does_not_bypass_provider_catalog(self):
         from gway_remote.mcp_node_providers import NodeProviderError
@@ -105,32 +97,27 @@ class ProviderWireTests(unittest.TestCase):
                     NodeProviderError):
                 self._provider_dispatch(malformed)
 
-    def test_both_wire_forms_reject_extra_missing_or_invalid_fields(self):
+    def test_exact_wire_rejects_extra_missing_and_wrong_node(self):
         import json
         base = self._provider_request()
         invalid = (
-            {**base, "authorized_scope": "execute", "unexpected": True},
+            {**base, "authorized_scope": "read"},
+            {**base, "authorized_scope": "execute"},
             {**base, "untrusted_principal": "f" * 24},
             {key: value for key, value in base.items() if key != "arguments"},
-            {**base, "authorized_scope": "bogus"},
-            {**base, "authorized_scope": None},
             {**base, "node": "gway-002"},
             {**base, "request_id": "not-a-request-id"},
             {**base, "operation": "provider_list"},
         )
-        with (
-            patch("gway_remote.node_exec_protocol.require_account"),
+        with patch("gway_remote.node_exec_protocol.require_account"), (
             patch("gway_remote.mcp_installed_providers.discover_installed_providers",
-                  return_value=[]) as discovery,
+                  return_value=[]) as discovery
         ):
             for request in invalid:
                 with self.subTest(request=request), self.assertRaises(
                         (ValueError, PermissionError)):
-                    serve_one(json.dumps(request).encode(),
-                              hostname="gway-001")
-        # Invalid wire shape is rejected before any provider invocation;
-        # invalid legacy scope may reach discovery but never dispatch.
-        self.assertLessEqual(discovery.call_count, 2)
+                    serve_one(json.dumps(request).encode(), hostname="gway-001")
+        discovery.assert_not_called()
 
     def test_unrelated_operations_do_not_acquire_an_unscoped_variant(self):
         import json
@@ -142,9 +129,8 @@ class ProviderWireTests(unittest.TestCase):
                 serve_one(json.dumps(request).encode(), hostname="gway-001")
 
 
-    def test_sender_uses_unscoped_execute_and_legacy_read_wire(self):
+    def test_sender_emits_only_scope_free_operation_bound_wire(self):
         from gway_remote.mcp_provider_transport import ProviderTransport
-        from unittest.mock import Mock
         from types import SimpleNamespace
 
         captured = []
@@ -156,21 +142,28 @@ class ProviderWireTests(unittest.TestCase):
         with patch("gway_remote.mcp_provider_transport.pinned_transport",
                    return_value=SimpleNamespace(invoke=send)):
             client = ProviderTransport(object())
-            for scope in ("execute", "read"):
+            for operation, scope in (("provider_call", "execute"),
+                                     ("provider_read", "read")):
                 result = client.invoke(
-                    "gway-001", {"operation": "provider_call",
+                    "gway-001", {"operation": operation,
                                  "provider": "odoo", "tool": "customer_search",
-                                 "arguments": {}},
-                    trusted_scope=scope)
+                                 "arguments": {}}, trusted_scope=scope)
                 self.assertEqual(result, {"content": []})
+            for operation, scope in (("provider_call", "read"),
+                                     ("provider_read", "execute")):
+                with self.assertRaises(PermissionError):
+                    client.invoke(
+                        "gway-001", {"operation": operation, "provider": "odoo",
+                                     "tool": "customer_search", "arguments": {}},
+                        trusted_scope=scope)
         self.assertEqual(len(captured), 2)
-        self.assertEqual(set(captured[0]),
-                         {"operation", "node", "request_id",
-                          "provider", "tool", "arguments"})
-        self.assertEqual(captured[1]["authorized_scope"], "read")
-        self.assertEqual(set(captured[1]), set(captured[0]) | {"authorized_scope"})
+        for payload, operation in zip(captured, ("provider_call", "provider_read")):
+            self.assertEqual(payload["operation"], operation)
+            self.assertEqual(set(payload),
+                             {"operation", "node", "request_id", "provider",
+                              "tool", "arguments"})
 
-    def test_ssh_transport_accepts_both_exact_provider_call_shapes(self):
+    def test_ssh_transport_rejects_legacy_scope_before_ssh(self):
         import json
         from types import SimpleNamespace
         from unittest.mock import Mock
@@ -190,13 +183,13 @@ class ProviderWireTests(unittest.TestCase):
         fake = Mock(side_effect=fake_ssh)
         transport = SSHTransport(node, run=fake)
         original = self._provider_request(tool="customer_search")
-        for request in (original, {**original, "authorized_scope": "read"}):
-            self.assertEqual(transport.invoke(request)["node"], "gway-001")
-        self.assertEqual(len(replies), 2)
+        self.assertEqual(transport.invoke(original)["node"], "gway-001")
+        self.assertEqual(len(replies), 1)
         self.assertNotIn("authorized_scope", replies[0])
-        self.assertEqual(replies[1]["authorized_scope"], "read")
         before = fake.call_count
-        for bad in ({**original, "unknown": True},
+        for bad in ({**original, "authorized_scope": "read"},
+                    {**original, "authorized_scope": "execute"},
+                    {**original, "unknown": True},
                     {key: val for key, val in original.items()
                      if key != "arguments"},
                     {**original, "authorized_scope": "read", "extra": 1}):
@@ -204,14 +197,14 @@ class ProviderWireTests(unittest.TestCase):
                 transport.invoke(bad)
         self.assertEqual(fake.call_count, before)
 
-
     def test_gateway_reuses_exact_discovered_routes_without_second_list(self):
         from tests.helpers.mcp_provider import InvocationSpy, provider_reply
         from tests.helpers.mcp_federation import fixture_tool
 
-        spy = InvocationSpy(response=provider_reply(
-            tools=[fixture_tool("lookup", read=True),
-                   fixture_tool("update")]))
+        advertised = provider_reply(
+            tools=[fixture_tool("lookup", read=True), fixture_tool("update")])
+        advertised["providers"][0]["supports_provider_read"] = True
+        spy = InvocationSpy(response=advertised)
         gateway = FederatedProviders(
             transport=spy, nodes=lambda: ("gway-001",))
         _, routes = gateway.discover()
@@ -225,7 +218,7 @@ class ProviderWireTests(unittest.TestCase):
                          authorized_scope="read", routes=routes),
             {"content": []})
         self.assertEqual([x[1]["operation"] for x in spy.calls],
-                         ["provider_list", "provider_call"])
+                         ["provider_list", "provider_read"])
         self.assertEqual(spy.calls[1][2], "read")
 
         # A stale snapshot is not permission to upgrade read to execute.
@@ -339,8 +332,9 @@ class ProviderWireTests(unittest.TestCase):
         self.assertEqual(routes["odoo__search"][:4],
                          ("gway-001", "odoo", "search", "read"))
 
-    def test_read_sender_switches_only_when_receiver_advertises_support(self):
+    def test_read_sender_refuses_old_receiver_without_fallback(self):
         from gway_remote.mcp_provider_transport import ProviderTransport
+        from gway_remote.mcp_federated_catalog import FederationError, route_provider_call
         from types import SimpleNamespace
         from tests.helpers.mcp_provider import InvocationSpy, provider_reply
         from tests.helpers.mcp_federation import fixture_tool
@@ -354,28 +348,25 @@ class ProviderWireTests(unittest.TestCase):
         provider = ProviderTransport(object())
         with patch("gway_remote.mcp_provider_transport.pinned_transport",
                    return_value=SimpleNamespace(invoke=send)):
-            # A new receiver advertises the operation; its read call has no
-            # forwarded OAuth scope, but still carries the read-only verb.
             reply = provider_reply(tools=[fixture_tool("lookup", read=True)])
             reply["providers"][0]["supports_provider_read"] = True
-            spy = InvocationSpy(response=reply)
-            routes = FederatedProviders(
-                transport=spy, nodes=lambda: ("gway-001",)).discover()[1]
-            from gway_remote.mcp_federated_catalog import route_provider_call
-            route_provider_call(routes, "odoo__lookup", {},
-                                authorized_scope="read", invoke=provider.invoke)
-            self.assertEqual(captured[-1]["operation"], "provider_read")
-            self.assertNotIn("authorized_scope", captured[-1])
-
-            # A legacy receiver without capability stays on the old safe wire.
-            reply["providers"][0].pop("supports_provider_read")
             routes = FederatedProviders(
                 transport=InvocationSpy(response=reply),
                 nodes=lambda: ("gway-001",)).discover()[1]
             route_provider_call(routes, "odoo__lookup", {},
                                 authorized_scope="read", invoke=provider.invoke)
-            self.assertEqual(captured[-1]["operation"], "provider_call")
-            self.assertEqual(captured[-1]["authorized_scope"], "read")
+            self.assertEqual(captured[-1]["operation"], "provider_read")
+            self.assertNotIn("authorized_scope", captured[-1])
+
+            # Stage A rollback has no provider_read; fail without a remote call.
+            reply["providers"][0].pop("supports_provider_read")
+            routes = FederatedProviders(
+                transport=InvocationSpy(response=reply),
+                nodes=lambda: ("gway-001",)).discover()[1]
+            with self.assertRaises(FederationError):
+                route_provider_call(routes, "odoo__lookup", {},
+                                    authorized_scope="read", invoke=provider.invoke)
+            self.assertEqual(len(captured), 1)
 
 
 if __name__ == "__main__":

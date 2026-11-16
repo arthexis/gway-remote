@@ -120,3 +120,29 @@ compatibility code; no new service or framework is necessary.
   a material change.
 - Issue #586 remains open until its revised acceptance/closure is explicitly
   authorized; issue #591 and AgentOps #80/#81 remain separate.
+
+
+## Stage C legacy-wire retirement candidate — not active
+
+Following a new explicit owner request, the Draft candidate eliminates the
+remaining `authorized_scope` field from the **SSH provider RPC**, not public
+OAuth admission or the private backend's separately scoped HTTP path.
+Read-only tools dispatch exclusively as `provider_read`; writes use unscoped
+`provider_call`. If the authenticated node catalog does not advertise
+`supports_provider_read=true`, read calls fail closed **without invoking the
+node**. A legacy Stage A Watchtower that transmits scoped `provider_call`
+to a C receiver is rejected before provider discovery. Thus no read call is
+silently upgraded to write privilege.
+
+**HARD activation gate:** immutable Stage A releases are still candidates for
+node or Watchtower rollback; the two ends can be restored independently. C/A
+mixes can therefore lose availability although they fail closed. Before Ready,
+merge or automatic deploy, prove a minimum B-compatible rollback revision for
+both ends (including operator recovery), observe the installed raw capability
+per available provider, and accept the adversarial A/B/C matrix. Do not
+interpret this Draft or CI as a live runtime or rollback guarantee.
+
+The existing #586/#592 A/B compatibility decision remains the current
+operational contract pending separate activation acceptance. No AgentOps,
+SSH/account, Ansible, public OAuth or private `X-Gway-Caller-Scope` changes
+are part of this code candidate.

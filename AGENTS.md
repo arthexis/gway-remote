@@ -40,15 +40,15 @@ Developer agents are assigned implementation, refactoring, testing, and PR work.
   `provider_call`; read uses the operation-bound `provider_read` when the
   authenticated node catalog advertises `supports_provider_read`.
   Watchtower uses one discovery snapshot to authorize and route each call.
-- For a receiver that does not advertise that capability, the sender retains
-  legacy `provider_call` with `authorized_scope="read"`. The node must
-  continue to reject writes on that read contract. This is compatibility with
-  Stage A and independent rollback, **not** another OAuth authorization.
-- Stage C decision: preserve the minimal A/B fallback while rollback to A
-  remains possible. Do not remove the legacy sender/receiver format without
-  explicit approval and an independently verified minimum rollback revision.
-  See issue #586, comment 6921029829. Respect receiver-first deployment and
-  do not infer authority to activate a release from a development PR.
+- Stage C retirement candidate (new explicit owner request): remove the
+  legacy read sender/receiver wire format. Read exclusively uses `provider_read`
+  and an advertised `supports_provider_read=true`, otherwise fail closed.
+  Execute uses the exact unscoped `provider_call` form.
+- **Activation remains gated:** independent Watchtower or node rollback to a
+  pre-B release can break reads. Do not Ready, merge, or activate this candidate
+  until a minimum B-compatible rollback floor is independently demonstrated
+  on both endpoints and mixed-version regression passes. The #586/#592 A/B
+  policy stays in effect until then. Respect receiver-first deployment.
 - Do not ask each feature PR to re-prove unchanged OpenSSH, credentials,
   installation identity or OAuth implementation. A PR that changes an
   external endpoint, an OS privilege, or a trust boundary needs explicit

@@ -29,13 +29,8 @@ OPERATIONS = {
     # Operation-bound read contract: no forwarded OAuth token or scope. The
     # owning node checks the current tool declaration before dispatch.
     "provider_read": frozenset({"operation", "node", "request_id", "provider", "tool", "arguments"}),
-    "provider_call": frozenset({"operation", "node", "request_id", "provider", "tool", "arguments", "authorized_scope"}),
+    "provider_call": frozenset({"operation", "node", "request_id", "provider", "tool", "arguments"}),
 }
-
-# Stage A (#586): accept a second *exact* SSH provider_call form without
-# a caller scope. Keep the scoped legacy form until all deployed senders
-# switch; the emitter still sends the legacy form in this stage.
-PROVIDER_CALL_UNSCOPED_FIELDS = OPERATIONS["provider_call"] - {"authorized_scope"}
 
 
 def serve_one(raw, *, jobs=None, hostname=None):
@@ -51,8 +46,7 @@ def serve_one(raw, *, jobs=None, hostname=None):
         raise ValueError("invalid operation")
     op = req["operation"]
     fields = set(req)
-    if fields != OPERATIONS[op] and not (op == "provider_call"
-                                             and fields == PROVIDER_CALL_UNSCOPED_FIELDS):
+    if fields != OPERATIONS[op]:
         raise ValueError("invalid request fields")
     host = hostname if hostname is not None else socket.gethostname()
     if not re.fullmatch(r"gway-[0-9]+", host) or req["node"] != host:
@@ -112,13 +106,9 @@ def serve_one(raw, *, jobs=None, hostname=None):
             request = {key: req[key] for key in ("provider", "tool", "arguments")}
             request["operation"] = "provider_call"
         else:
-            # Stage A compatibility: legacy SSH callers retain their scoped
-            # behavior. The new unscoped form is a trusted internal operator
-            # request, not a bearer authorization. Keep the existing node
-            # provider interface unchanged until Stage B removes scopes there.
-            scope = req.get("authorized_scope", "execute")
-            if scope not in ("read", "execute"):
-                raise PermissionError("invalid scope")
+            # The authenticated SSH verb, never a caller-supplied field,
+            # chooses execution semantics. Reads use provider_read.
+            scope = "execute"
             request = {key: req[key] for key in ("provider", "tool", "arguments")}
             request["operation"] = "provider_call"
         return {"node": host, "request_id": rid, "result": dispatch_node_provider_request(
