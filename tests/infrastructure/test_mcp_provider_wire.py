@@ -142,5 +142,68 @@ class ProviderWireTests(unittest.TestCase):
                 serve_one(json.dumps(request).encode(), hostname="gway-001")
 
 
+    def test_sender_uses_unscoped_execute_and_legacy_read_wire(self):
+        from gway_remote.mcp_provider_transport import ProviderTransport
+        from unittest.mock import Mock
+        from types import SimpleNamespace
+
+        captured = []
+        def send(payload):
+            captured.append(payload)
+            return {"node": "gway-001", "request_id": payload["request_id"],
+                    "result": {"content": []}}
+
+        with patch("gway_remote.mcp_provider_transport.pinned_transport",
+                   return_value=SimpleNamespace(invoke=send)):
+            client = ProviderTransport(object())
+            for scope in ("execute", "read"):
+                result = client.invoke(
+                    "gway-001", {"operation": "provider_call",
+                                 "provider": "odoo", "tool": "customer_search",
+                                 "arguments": {}},
+                    trusted_scope=scope)
+                self.assertEqual(result, {"content": []})
+        self.assertEqual(len(captured), 2)
+        self.assertEqual(set(captured[0]),
+                         {"operation", "node", "request_id",
+                          "provider", "tool", "arguments"})
+        self.assertEqual(captured[1]["authorized_scope"], "read")
+        self.assertEqual(set(captured[1]), set(captured[0]) | {"authorized_scope"})
+
+    def test_ssh_transport_accepts_both_exact_provider_call_shapes(self):
+        import json
+        from types import SimpleNamespace
+        from unittest.mock import Mock
+        from gway_remote.watchtower_exec_transport import SSHTransport
+
+        node = SimpleNamespace(
+            node="gway-001", known_hosts="/tmp/test-known-hosts",
+            ssh_host_alias="gway-001", identity_file="/tmp/test-key",
+            remote_user="gway-relay", wireguard_address="10.90.0.2")
+        replies = []
+        def fake_ssh(argv, *, input, **kwargs):
+            message = json.loads(input)
+            replies.append(message)
+            return SimpleNamespace(stdout=json.dumps(
+                {"node": "gway-001", "request_id": message["request_id"],
+                 "result": {"content": []}}).encode())
+        fake = Mock(side_effect=fake_ssh)
+        transport = SSHTransport(node, run=fake)
+        original = self._provider_request(tool="customer_search")
+        for request in (original, {**original, "authorized_scope": "read"}):
+            self.assertEqual(transport.invoke(request)["node"], "gway-001")
+        self.assertEqual(len(replies), 2)
+        self.assertNotIn("authorized_scope", replies[0])
+        self.assertEqual(replies[1]["authorized_scope"], "read")
+        before = fake.call_count
+        for bad in ({**original, "unknown": True},
+                    {key: val for key, val in original.items()
+                     if key != "arguments"},
+                    {**original, "authorized_scope": "read", "extra": 1}):
+            with self.subTest(bad=bad), self.assertRaises(ValueError):
+                transport.invoke(bad)
+        self.assertEqual(fake.call_count, before)
+
+
 if __name__ == "__main__":
     unittest.main()
