@@ -28,8 +28,15 @@ class FederatedProviders:
             replies[node] = response
         return catalog_from_nodes(builtins, replies)
 
-    def call(self, name, arguments, *, authorized_scope):
-        _, routes = self.discover()
+    def call(self, name, arguments, *, authorized_scope, routes=None):
+        """Dispatch a route already authenticated and classified by the gateway.
+
+        The HTTP gateway may pass the exact routes snapshot used for public OAuth
+        admission. Standalone internal callers retain discovery by default.
+        The node still validates the live registered tool and read guard.
+        """
+        if routes is None:
+            _, routes = self.discover()
         return route_provider_call(routes, name, arguments,
                                    authorized_scope=authorized_scope,
                                    invoke=self.transport.invoke)
