@@ -205,5 +205,40 @@ class ProviderWireTests(unittest.TestCase):
         self.assertEqual(fake.call_count, before)
 
 
+    def test_gateway_reuses_exact_discovered_routes_without_second_list(self):
+        from tests.helpers.mcp_provider import InvocationSpy, provider_reply
+        from tests.helpers.mcp_federation import fixture_tool
+
+        spy = InvocationSpy(response=provider_reply(
+            tools=[fixture_tool("lookup", read=True),
+                   fixture_tool("update")]))
+        gateway = FederatedProviders(
+            transport=spy, nodes=lambda: ("gway-001",))
+        _, routes = gateway.discover()
+        self.assertEqual(len(spy.calls), 1)
+        self.assertEqual(spy.calls[0][1]["operation"], "provider_list")
+
+        # The same request routes are used after the public OAuth admission.
+        spy.response = {"content": []}
+        self.assertEqual(
+            gateway.call("odoo__lookup", {"id": 1},
+                         authorized_scope="read", routes=routes),
+            {"content": []})
+        self.assertEqual([x[1]["operation"] for x in spy.calls],
+                         ["provider_list", "provider_call"])
+        self.assertEqual(spy.calls[1][2], "read")
+
+        # A stale snapshot is not permission to upgrade read to execute.
+        with self.assertRaises(PermissionError):
+            gateway.call("odoo__update", {"id": 1},
+                         authorized_scope="read", routes=routes)
+        self.assertEqual(len(spy.calls), 2)
+
+        with self.assertRaises(ValueError):
+            gateway.call("odoo__missing", {},
+                         authorized_scope="execute", routes=routes)
+        self.assertEqual(len(spy.calls), 2)
+
+
 if __name__ == "__main__":
     unittest.main()
