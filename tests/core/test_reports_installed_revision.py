@@ -49,7 +49,7 @@ class ReportsInstalledRevisionTests(unittest.TestCase):
         self.assertIsNone(self.observed(deeper))
 
     def test_malformed_packaged_revisions_are_unknown(self):
-        for suffix in ("", "-dev", "-pkg-old", "-pkg/", "-pkg.pkg"):
+        for suffix in ("", "-dev", "-pkg-old", "-PKG", "-pkg.pkg"):
             with self.subTest(suffix=suffix):
                 binary = REPORTS_ROOT / (SHA + suffix) / "venv/bin/ocpp-reports"
                 if suffix == "":
