@@ -219,6 +219,9 @@ def run_supervised(
                 except (OSError, RuntimeError, ValueError):
                     pass
                 _record_uncertain(lock, "supervisor_interrupted")
+                # A failed controller probe/kill is not an ordinary FAILED
+                # installation. Its effects cannot be proven quiescent.
+                raise Uncertain() from None
             elif not released:
                 # The blocked child has not executed the installer. Still
                 # verify/terminate it when possible; no false success.
