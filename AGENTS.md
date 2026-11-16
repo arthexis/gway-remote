@@ -24,6 +24,31 @@ Developer agents are assigned implementation, refactoring, testing, and PR work.
   expected results, safety boundaries, and a reporting template. **The field
   agent is not responsible for developing or fixing the feature.**
 
+
+## Trusted internal operations — issue #586 (Stage A)
+
+- Watchtower owns OAuth bearer authentication and the public `gway:read` /
+  `gway:execute` admission decision. Do not duplicate OAuth identity or
+  scope authorization in internal node/provider RPCs.
+- Reuse installed SSH transport and the already selected installation user.
+  No per-tool Linux identity, SSH key, extra daemon, or authorization service
+  without a separately approved new trust boundary.
+- The node/provider owns actual operation validation: registered tools,
+  bounded arguments, allowed destinations, application state, concurrency,
+  idempotency and safe error handling. Retain these controls.
+- Stage A accepts both the existing `provider_call` wire form containing
+  `authorized_scope` and an unscoped future form at the **receiver only**.
+  The sender and public gateway are unchanged. Internal transport access is
+  not equivalent to public OAuth authorization.
+- Change the receiver before changing the sender; retain the legacy form
+  until deployed revisions have converged. Do not activate or deploy during
+  the offline refactor.
+- Do not ask each feature PR to re-prove unchanged OpenSSH, credentials,
+  installation identity or OAuth implementation. A PR that changes an
+  external endpoint, an OS privilege, or a trust boundary needs explicit
+  scoped review. Authorization for an agent's assigned work is still governed
+  by its issue, not by possession of credentials.
+
 ## Agents operating directly on remote devices
 
 Remote-device agents are assigned **bounded operational verification**.

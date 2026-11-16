@@ -29,6 +29,11 @@ OPERATIONS = {
     "provider_call": frozenset({"operation", "node", "request_id", "provider", "tool", "arguments", "authorized_scope"}),
 }
 
+# Stage A (#586): accept a second *exact* SSH provider_call form without
+# a caller scope. Keep the scoped legacy form until all deployed senders
+# switch; the emitter still sends the legacy form in this stage.
+PROVIDER_CALL_UNSCOPED_FIELDS = OPERATIONS["provider_call"] - {"authorized_scope"}
+
 
 def serve_one(raw, *, jobs=None, hostname=None):
     """One message per process, no interactive shell or arbitrary Python calls."""
@@ -42,7 +47,9 @@ def serve_one(raw, *, jobs=None, hostname=None):
     if type(req) is not dict or req.get("operation") not in OPERATIONS:
         raise ValueError("invalid operation")
     op = req["operation"]
-    if set(req) != OPERATIONS[op]:
+    fields = set(req)
+    if fields != OPERATIONS[op] and not (op == "provider_call"
+                                             and fields == PROVIDER_CALL_UNSCOPED_FIELDS):
         raise ValueError("invalid request fields")
     host = hostname if hostname is not None else socket.gethostname()
     if not re.fullmatch(r"gway-[0-9]+", host) or req["node"] != host:
@@ -95,7 +102,11 @@ def serve_one(raw, *, jobs=None, hostname=None):
         if op == "provider_list":
             request, scope = {"operation": "provider_list"}, "read"
         else:
-            scope = req["authorized_scope"]
+            # Stage A compatibility: legacy SSH callers retain their scoped
+            # behavior. The new unscoped form is a trusted internal operator
+            # request, not a bearer authorization. Keep the existing node
+            # provider interface unchanged until Stage B removes scopes there.
+            scope = req.get("authorized_scope", "execute")
             if scope not in ("read", "execute"):
                 raise PermissionError("invalid scope")
             request = {key: req[key] for key in ("provider", "tool", "arguments")}
