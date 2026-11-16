@@ -48,3 +48,27 @@ systemd units and runtime health implementation.
 This document defines *observable behavior only*. Do not hardcode the file
 names, exact state vocabulary, probe implementations, service names, or CLI
 parameters of another repository in its tests.
+
+## Proposed shared maintenance exclusion (documentation only)
+
+See [Maintenance lock V1](maintenance-lock-v1.md) for the proposed generic,
+host-local `~/.local/state/maintenance.lock` contract. It targets verified
+installation within 180 seconds, a single monotonic total budget of 300 seconds
+including at most 20 seconds waiting for the exclusive `flock`, and supervised
+SIGTERM/SIGKILL of transient installation processes. The lock is acquired
+once by the trusted operator-side supervisor, with verified descriptor
+inheritance for nested installation paths, never by blindly reacquiring the
+same lock in a child.
+
+`BUSY` must start no installation effect; `TIMEOUT` requires confirmed
+termination; `UNCERTAIN` must preserve a minimal fail-closed incident marker
+when quiescence cannot be established. Neither file age nor timeout authorizes
+an artificial unlock. Do not delete the lock file, infer successful installation
+from process exit alone, or auto-retry a timeout/uncertain operation.
+
+This is a **proposal only**, not runtime deployment admission. Each repository
+retains its existing independent security controls, SHA/CI admission, immutable
+release validation, post-install health proof, receipts, rollback and
+idempotency. The proposed contract must be validated hermetically and all
+conflicting direct/indirect installer entrypoints audited before activation;
+a passing document check must never be reported as runtime certification.
