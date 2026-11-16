@@ -75,6 +75,24 @@ Keep the single local discovery command working while organizing tests.
 CI runs pytest in one matrix job per subsystem and in the separate validation job.\nRun `python3 -m pytest tests -v --durations=0 --durations-min=0` for\nper-test timings locally. The optional `python3 -m tests.support.run_tests --group all`\nrunner remains available for unittest-compatible timing output.\nStructural checks live in `tests/support/test_architecture.py`.\nChanges to the suite must preserve all existing test coverage unless a
 specific obsolete test is removed with a documented replacement.
 
+
+## Stable trust boundaries for feature PRs (#586)
+
+- Test public OAuth denial and write admission centrally at Watchtower; do
+  not recreate its full bearer/scope suite for every internal provider.
+- Test each new tool's *real* contract: registered operation, arguments,
+  resources, state, concurrency, idempotency, non-effects and safe errors.
+- Treat unchanged SSH keys, installed Linux identity and Ansible provisioning
+  as existing architecture; do not require a fresh manual SSH audit for each PR.
+- If a PR changes an external ingress, principal authority, transport, or
+  privilege boundary, include targeted boundary regression tests.
+- Stage A supports both exact `provider_call` SSH wire shapes temporarily,
+  while the current sender still emits `authorized_scope`. Test legacy read
+  denial, legacy execute admission, unscoped dispatch and unknown/malformed
+  operations separately; never claim this is a live SSH or OAuth test.
+- Preserve the existing CI security tests until the relevant migration phase
+  formally replaces them with equivalent observable assertions.
+
 ## Refactor sequence
 
 1. TR1: document conventions and preserve baseline.
