@@ -612,8 +612,12 @@ class Handler(BaseHTTPRequestHandler):
                     return self.reject(403)
                 if routes[name][3] == "execute" and not has_exec:
                     return self.reject(401, scope="gway:execute")
+                # Reuse the same authenticated route snapshot used for
+                # OAuth admission. A second discovery would introduce a
+                # transient availability/classification race inside one call.
                 selected = self.server.federation.call(
-                    name, arguments, authorized_scope="execute" if has_exec else "read")
+                    name, arguments, authorized_scope="execute" if has_exec else "read",
+                    routes=routes)
                 result = {"content": [{"type": "text", "text": json.dumps(selected, separators=(",", ":"))}]}
                 body = json.dumps({"jsonrpc": "2.0", "id": payload.get("id"),
                                    "result": {"resultType": "complete", **result}
