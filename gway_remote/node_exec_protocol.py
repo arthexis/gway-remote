@@ -26,6 +26,9 @@ OPERATIONS = {
     "deployment_status": frozenset({"operation", "node", "request_id", "application"}),
     "deployment_run": frozenset({"operation", "node", "request_id", "application", "expected_revision"}),
     "provider_list": frozenset({"operation", "node", "request_id"}),
+    # Operation-bound read contract: no forwarded OAuth token or scope. The
+    # owning node checks the current tool declaration before dispatch.
+    "provider_read": frozenset({"operation", "node", "request_id", "provider", "tool", "arguments"}),
     "provider_call": frozenset({"operation", "node", "request_id", "provider", "tool", "arguments", "authorized_scope"}),
 }
 
@@ -95,12 +98,19 @@ def serve_one(raw, *, jobs=None, hostname=None):
         else:
             result = accept(req["application"], rid, expected_revision=req["expected_revision"])
         return {"node": host, "request_id": rid, "result": result}
-    if op in ("provider_list", "provider_call"):
+    if op in ("provider_list", "provider_call", "provider_read"):
         from .mcp_node_providers import dispatch_node_provider_request
         from .mcp_installed_providers import discover_installed_providers
         registrations = discover_installed_providers()
         if op == "provider_list":
             request, scope = {"operation": "provider_list"}, "read"
+        elif op == "provider_read":
+            # Stage B/P3: the verb itself requests only a read operation;
+            # validate the LIVE declaration on the node. This is operation
+            # semantics, not a second check of the bearer identity.
+            scope = "read"
+            request = {key: req[key] for key in ("provider", "tool", "arguments")}
+            request["operation"] = "provider_call"
         else:
             # Stage A compatibility: legacy SSH callers retain their scoped
             # behavior. The new unscoped form is a trusted internal operator
