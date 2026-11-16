@@ -86,12 +86,18 @@ specific obsolete test is removed with a documented replacement.
   as existing architecture; do not require a fresh manual SSH audit for each PR.
 - If a PR changes an external ingress, principal authority, transport, or
   privilege boundary, include targeted boundary regression tests.
-- Stage A supports both exact `provider_call` SSH wire shapes temporarily,
-  while the current sender still emits `authorized_scope`. Test legacy read
-  denial, legacy execute admission, unscoped dispatch and unknown/malformed
-  operations separately; never claim this is a live SSH or OAuth test.
-- Preserve the existing CI security tests until the relevant migration phase
-  formally replaces them with equivalent observable assertions.
+- Stage B (#589) uses unscoped `provider_call` for execute and
+  `provider_read` for read only when the node advertises that capability.
+  Older receivers retain exact legacy scoped-read `provider_call` as a
+  rollback fallback; public OAuth admission remains on Watchtower.
+- Exercise both capability branches and mixed A/B revisions in hermetic tests,
+  including live tool read-to-write reclassification, malformed and missing
+  fields, unknown providers, wrong node identity and non-effects on denial.
+  Preserve existing public OAuth regression tests. CI is not proof of an
+  installed node or of successful production rollback.
+- Stage C accepts A/B compatibility as its current endpoint (issue #586,
+  comment 6921029829). Do not delete the fallback until an explicit minimum
+  rollback revision is approved and demonstrated.
 
 ## Refactor sequence
 
