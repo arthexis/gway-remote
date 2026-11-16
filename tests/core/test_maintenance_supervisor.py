@@ -97,6 +97,11 @@ class MaintenanceSupervisorTests(unittest.TestCase):
         clock = Clock(held.started)
         calls = []
         def spawn(argv, **options):
+            # The mocked child must keep a real reader for the startup gate.
+            # Otherwise writing the attestation byte raises BrokenPipeError
+            # solely because this fake subprocess never inherited its fd.
+            fake_child_reader = os.dup(int(argv[4]))
+            self.addCleanup(os.close, fake_child_reader)
             calls.append((argv, options))
             return proc
         return proc, scope, clock, calls, spawn
