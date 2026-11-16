@@ -46,6 +46,13 @@ class MCPProviderLifecycleAnsibleTests(unittest.TestCase):
                 def invoke(self, node, request, *, trusted_scope):
                     if node != "gway-001":
                         raise AssertionError("unexpected node")
+                    # The synthetic transport bypasses node_exec_protocol,
+                    # which maps provider_read to the existing live read
+                    # provider dispatcher on the actual receiver.
+                    if request["operation"] == "provider_read":
+                        if trusted_scope != "read":
+                            raise PermissionError("invalid read invocation")
+                        request = {**request, "operation": "provider_call"}
                     return dispatch_node_provider_request(
                         installed(), request, node_id=node, trusted_scope=trusted_scope)
 
@@ -60,8 +67,9 @@ class MCPProviderLifecycleAnsibleTests(unittest.TestCase):
                                  ("a" if version == "v1" else "b") * 40)
                 catalog, routes = gateway.discover()
                 self.assertEqual([item["name"] for item in catalog], [expected])
-                self.assertEqual(routes[expected],
+                self.assertEqual(routes[expected][:4],
                                  ("gway-001", "fixture474", "ping_" + version, "read"))
+                self.assertIs(routes[expected][4], True)
                 reply = gateway.call(expected, {}, authorized_scope="read")
                 self.assertEqual(reply["content"], [{"type": "text", "text": "ok"}])
 
