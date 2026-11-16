@@ -313,5 +313,70 @@ class ProviderWireTests(unittest.TestCase):
         self.assertEqual(fake.call_count, 1)
 
 
+    def test_node_lists_read_operation_support_only_when_installed(self):
+        from gway_remote.mcp_node_providers import provider_list
+        from gway_remote.mcp_source_registry import SourceRegistration
+        from tests.helpers.mcp_federation import fixture_tool
+
+        registration = SourceRegistration(
+            source_id="odoo", revision="a" * 40,
+            executable="/usr/local/bin/odoo-mcp",
+            argv=("/usr/local/bin/odoo-mcp",),
+            run_as="arthe", enabled=True)
+        with (
+            patch("gway_remote.mcp_node_providers._node_registration",
+                  side_effect=lambda value: value),
+            patch("gway_remote.mcp_node_providers.list_source_tools",
+                  return_value=[fixture_tool("search", read=True)]),
+        ):
+            catalog = provider_list([registration], node_id="gway-001")
+        self.assertEqual(catalog["providers"][0]["supports_provider_read"], True)
+
+        # The older parser remains able to consume the response.
+        # Old Watchtower code ignores unknown provider-level metadata.
+        from gway_remote.mcp_federated_catalog import catalog_from_nodes
+        _, routes = catalog_from_nodes([], {"gway-001": catalog})
+        self.assertEqual(routes["odoo__search"][:4],
+                         ("gway-001", "odoo", "search", "read"))
+
+    def test_read_sender_switches_only_when_receiver_advertises_support(self):
+        from gway_remote.mcp_provider_transport import ProviderTransport
+        from types import SimpleNamespace
+        from tests.helpers.mcp_provider import InvocationSpy, provider_reply
+        from tests.helpers.mcp_federation import fixture_tool
+
+        captured = []
+        def send(payload):
+            captured.append(dict(payload))
+            return {"node": payload["node"], "request_id": payload["request_id"],
+                    "result": {"content": []}}
+
+        provider = ProviderTransport(object())
+        with patch("gway_remote.mcp_provider_transport.pinned_transport",
+                   return_value=SimpleNamespace(invoke=send)):
+            # A new receiver advertises the operation; its read call has no
+            # forwarded OAuth scope, but still carries the read-only verb.
+            reply = provider_reply(tools=[fixture_tool("lookup", read=True)])
+            reply["providers"][0]["supports_provider_read"] = True
+            spy = InvocationSpy(response=reply)
+            routes = FederatedProviders(
+                transport=spy, nodes=lambda: ("gway-001",)).discover()[1]
+            from gway_remote.mcp_federated_catalog import route_provider_call
+            route_provider_call(routes, "odoo__lookup", {},
+                                authorized_scope="read", invoke=provider.invoke)
+            self.assertEqual(captured[-1]["operation"], "provider_read")
+            self.assertNotIn("authorized_scope", captured[-1])
+
+            # A legacy receiver without capability stays on the old safe wire.
+            reply["providers"][0].pop("supports_provider_read")
+            routes = FederatedProviders(
+                transport=InvocationSpy(response=reply),
+                nodes=lambda: ("gway-001",)).discover()[1]
+            route_provider_call(routes, "odoo__lookup", {},
+                                authorized_scope="read", invoke=provider.invoke)
+            self.assertEqual(captured[-1]["operation"], "provider_call")
+            self.assertEqual(captured[-1]["authorized_scope"], "read")
+
+
 if __name__ == "__main__":
     unittest.main()
