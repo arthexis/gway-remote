@@ -15,22 +15,24 @@ class ProviderTransport:
     def invoke(self, node, request, *, trusted_scope):
         if trusted_scope not in ("read", "execute"):
             raise PermissionError("invalid provider scope")
-        if type(request) is not dict or request.get("operation") not in ("provider_list", "provider_call"):
+        if type(request) is not dict or request.get("operation") not in ("provider_list", "provider_call", "provider_read"):
             raise ValueError("invalid provider operation")
         operation = request["operation"]
         if set(request) != ({"operation"} if operation == "provider_list"
                                else {"operation", "provider", "tool", "arguments"}):
             raise ValueError("invalid provider request")
-        if operation == "provider_call" and type(request["arguments"]) is not dict:
+        if operation in ("provider_call", "provider_read") and type(request["arguments"]) is not dict:
             raise ValueError("invalid provider arguments")
+        if operation == "provider_read" and trusted_scope != "read":
+            raise PermissionError("read operation requires read-only admission")
         payload = {"operation": operation, "node": node,
                    "request_id": secrets.token_hex(16)}
-        if operation == "provider_call":
+        if operation in ("provider_call", "provider_read"):
             payload.update({key: request[key] for key in ("provider", "tool", "arguments")})
             # Stage B (#586): execute-scoped calls use the unscoped SSH form
             # introduced in Stage A. Retain the legacy read assertion until
             # read-to-write catalog drift has an operation-bound replacement.
-            if trusted_scope == "read":
+            if operation == "provider_call" and trusted_scope == "read":
                 payload["authorized_scope"] = "read"
         transport = pinned_transport(self.execution_transport, node)
         response = transport.invoke(payload)
