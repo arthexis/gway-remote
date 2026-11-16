@@ -27,5 +27,120 @@ class ProviderWireTests(unittest.TestCase):
         self.assertEqual(transport.calls[0][1], {"operation": "provider_list"})
 
 
+    def _provider_dispatch(self, request):
+        """Exercise real node catalog/dispatch with no SSH, provider or node."""
+        import json
+        from gway_remote.mcp_source_registry import SourceRegistration
+
+        registration = SourceRegistration(
+            source_id="odoo", revision="a" * 40,
+            executable="/usr/local/bin/odoo-mcp",
+            argv=("/usr/local/bin/odoo-mcp",),
+            run_as="arthe", enabled=True)
+        read = {"name": "customer_search", "inputSchema": {"type": "object"},
+                "annotations": {"readOnlyHint": True}}
+        write = {"name": "customer_update", "inputSchema": {"type": "object"},
+                 "annotations": {"readOnlyHint": False}}
+        invoked = []
+
+        def stub_provider(*args, **kwargs):
+            invoked.append((args, kwargs))
+            return {"content": []}
+
+        with (
+            patch("gway_remote.node_exec_protocol.require_account"),
+            patch("gway_remote.mcp_installed_providers.discover_installed_providers",
+                  return_value=[registration]),
+            patch("gway_remote.mcp_node_providers._node_registration",
+                  side_effect=lambda value: value),
+            patch("gway_remote.mcp_node_providers.list_source_tools",
+                  return_value=[read, write]),
+            patch("gway_remote.mcp_node_providers.call_source_tool",
+                  side_effect=stub_provider),
+        ):
+            reply = serve_one(json.dumps(request).encode(), hostname="gway-001")
+        return reply, invoked
+
+    def _provider_request(self, tool="customer_update", **extras):
+        return {"operation": "provider_call", "node": "gway-001",
+                "request_id": "e" * 32, "provider": "odoo",
+                "tool": tool, "arguments": {"id": 1}, **extras}
+
+    def test_unscoped_provider_call_accepts_registered_write(self):
+        reply, calls = self._provider_dispatch(self._provider_request())
+        self.assertEqual((reply["node"], reply["request_id"]),
+                         ("gway-001", "e" * 32))
+        self.assertEqual(reply["result"], {"content": []})
+        self.assertEqual(len(calls), 1)
+        # Stage A adapter only: this does NOT prove a separate OAuth check.
+        self.assertEqual(calls[0][1]["authorized_scope"], "execute")
+
+    def test_legacy_provider_call_preserves_read_and_execute(self):
+        from gway_remote.mcp_node_providers import NodeProviderError
+
+        with self.assertRaises(NodeProviderError) as denial:
+            self._provider_dispatch(
+                self._provider_request(authorized_scope="read"))
+        self.assertEqual(denial.exception.code, "permission_denied")
+
+        reply, calls = self._provider_dispatch(
+            self._provider_request(authorized_scope="execute"))
+        self.assertEqual(reply["result"], {"content": []})
+        self.assertEqual(len(calls), 1)
+
+        reply, calls = self._provider_dispatch(
+            self._provider_request("customer_search",
+                                   authorized_scope="read"))
+        self.assertEqual(reply["result"], {"content": []})
+        self.assertEqual(calls[0][1]["authorized_scope"], "read")
+
+    def test_unscoped_form_does_not_bypass_provider_catalog(self):
+        from gway_remote.mcp_node_providers import NodeProviderError
+
+        for malformed in (
+            self._provider_request(tool="missing_tool"),
+            {**self._provider_request(), "provider": "unregistered"},
+        ):
+            with self.subTest(malformed=malformed), self.assertRaises(
+                    NodeProviderError):
+                self._provider_dispatch(malformed)
+
+    def test_both_wire_forms_reject_extra_missing_or_invalid_fields(self):
+        import json
+        base = self._provider_request()
+        invalid = (
+            {**base, "authorized_scope": "execute", "unexpected": True},
+            {**base, "untrusted_principal": "f" * 24},
+            {key: value for key, value in base.items() if key != "arguments"},
+            {**base, "authorized_scope": "bogus"},
+            {**base, "authorized_scope": None},
+            {**base, "node": "gway-002"},
+            {**base, "request_id": "not-a-request-id"},
+            {**base, "operation": "provider_list"},
+        )
+        with (
+            patch("gway_remote.node_exec_protocol.require_account"),
+            patch("gway_remote.mcp_installed_providers.discover_installed_providers",
+                  return_value=[]) as discovery,
+        ):
+            for request in invalid:
+                with self.subTest(request=request), self.assertRaises(
+                        (ValueError, PermissionError)):
+                    serve_one(json.dumps(request).encode(),
+                              hostname="gway-001")
+        # Invalid wire shape is rejected before any provider invocation;
+        # invalid legacy scope may reach discovery but never dispatch.
+        self.assertLessEqual(discovery.call_count, 2)
+
+    def test_unrelated_operations_do_not_acquire_an_unscoped_variant(self):
+        import json
+
+        request = {"operation": "provider_list", "node": "gway-001",
+                   "request_id": "e" * 32, "arguments": {}}
+        with patch("gway_remote.node_exec_protocol.require_account"):
+            with self.assertRaises(ValueError):
+                serve_one(json.dumps(request).encode(), hostname="gway-001")
+
+
 if __name__ == "__main__":
     unittest.main()
