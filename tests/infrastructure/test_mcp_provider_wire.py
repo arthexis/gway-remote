@@ -240,5 +240,78 @@ class ProviderWireTests(unittest.TestCase):
         self.assertEqual(len(spy.calls), 2)
 
 
+    def test_provider_read_is_bound_to_live_tool_classification(self):
+        from gway_remote.mcp_node_providers import NodeProviderError
+
+        # No caller-provided OAuth scope. A registered read operation is allowed.
+        read_request = self._provider_request(tool="customer_search")
+        read_request["operation"] = "provider_read"
+        reply, calls = self._provider_dispatch(read_request)
+        self.assertEqual(reply["result"], {"content": []})
+        self.assertEqual(len(calls), 1)
+        self.assertEqual(calls[0][1]["authorized_scope"], "read")
+
+        # The identical RPC must not invoke a write-classified tool.
+        write_request = self._provider_request(tool="customer_update")
+        write_request["operation"] = "provider_read"
+        with self.assertRaises(NodeProviderError) as failure:
+            self._provider_dispatch(write_request)
+        self.assertEqual(failure.exception.code, "permission_denied")
+
+    def test_provider_read_is_still_exact_and_node_bound(self):
+        import json
+
+        request = self._provider_request(tool="customer_search")
+        request["operation"] = "provider_read"
+        invalid = (
+            {**request, "authorized_scope": "execute"},
+            {**request, "authorized_scope": "read"},
+            {**request, "caller": "external"},
+            {**request, "node": "gway-002"},
+            {**request, "request_id": "bad"},
+            {key: value for key, value in request.items() if key != "arguments"},
+        )
+        with patch("gway_remote.node_exec_protocol.require_account"):
+            for bad in invalid:
+                with self.subTest(request=bad), self.assertRaises(
+                        (ValueError, PermissionError)):
+                    serve_one(json.dumps(bad).encode(), hostname="gway-001")
+
+    def test_ssh_transport_provider_read_exact_wire_without_real_ssh(self):
+        import json
+        from types import SimpleNamespace
+        from unittest.mock import Mock
+        from gway_remote.watchtower_exec_transport import SSHTransport
+
+        node = SimpleNamespace(
+            node="gway-001", known_hosts="/tmp/test-known-hosts",
+            ssh_host_alias="gway-001", identity_file="/tmp/test-key",
+            remote_user="gway-relay", wireguard_address="10.90.0.2")
+        captured = []
+        def fake_ssh(argv, *, input, **kwargs):
+            message = json.loads(input)
+            captured.append(message)
+            return SimpleNamespace(stdout=json.dumps(
+                {"node": "gway-001", "request_id": message["request_id"],
+                 "result": {"content": []}}).encode())
+        fake = Mock(side_effect=fake_ssh)
+        transport = SSHTransport(node, run=fake)
+        read = {**self._provider_request(tool="customer_search"),
+                "operation": "provider_read"}
+        self.assertEqual(transport.invoke(read)["result"], {"content": []})
+        self.assertEqual(captured[0], read)
+        self.assertNotIn("authorized_scope", captured[0])
+        for bad in (
+            {**read, "authorized_scope": "read"},
+            {**read, "authorized_scope": "execute"},
+            {**read, "extra": True},
+            {**read, "node": "gway-002"},
+            {key: value for key, value in read.items() if key != "tool"},
+        ):
+            with self.subTest(request=bad), self.assertRaises(ValueError):
+                transport.invoke(bad)
+        self.assertEqual(fake.call_count, 1)
+
+
 if __name__ == "__main__":
     unittest.main()
