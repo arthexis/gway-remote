@@ -235,5 +235,87 @@ class MaintenanceSupervisorTests(unittest.TestCase):
             sup.CgroupV2(root / "link", root=root)
 
 
+    def test_cgroup_kill_failure_is_uncertain_not_generic_error(self):
+        with self.lock() as held:
+            proc, scope, clock, calls, spawn = self.scenario(
+                held, refuse_term=True)
+            with patch.object(scope, "kill", side_effect=OSError("controller unavailable")):
+                with self.assertRaises(Uncertain):
+                    sup.run_supervised(
+                        ["/bin/true"], lock=held, scope=scope,
+                        clock=clock, pause=clock.pause, spawn=spawn)
+            marker = self.home / ".local/state/maintenance.uncertain"
+            self.assertIn("supervisor_interrupted", marker.read_text())
+
+    def test_real_gate_never_runs_argv_before_scope_attestation(self):
+        # Exercises the real Python gate/exec path, but no real cgroup, node
+        # service, systemd unit, Ansible or deployment is touched.
+        marker = self.home / "child-executed"
+        class DisposableScope:
+            process = None
+            attached = False
+
+            def empty(self):
+                return self.process is None or self.process.poll() is not None
+
+            def attach(self, pid):
+                self.attached = True
+                assert self.process.pid == pid
+                assert not marker.exists(), "child ran before scope attach"
+
+            def contains(self, pid):
+                return self.attached and self.process.pid == pid
+
+            def term(self, pid):
+                os.killpg(pid, 15)
+
+            def kill(self):
+                os.killpg(self.process.pid, 9)
+
+        scope = DisposableScope()
+        def real_spawn(argv, **options):
+            scope.process = subprocess.Popen(argv, **options)
+            return scope.process
+
+        with self.lock() as held:
+            result = sup.run_supervised(
+                [sys.executable, "-c",
+                 "from pathlib import Path; Path(" + repr(str(marker)) + ").write_text('ok')"],
+                lock=held, scope=scope, spawn=real_spawn)
+            self.assertEqual((result.state, result.exit_code), ("EXITED", 0))
+            self.assertTrue(scope.attached)
+            self.assertEqual(marker.read_text(), "ok")
+
+    def test_real_gate_denied_does_not_run_child(self):
+        marker = self.home / "should-not-exist"
+        class DeniedScope:
+            process = None
+
+            def empty(self):
+                return True
+
+            def attach(self, pid):
+                raise Invalid()
+
+            def contains(self, pid):
+                return False
+
+            def kill(self):
+                os.killpg(self.process.pid, 9)
+
+        scope = DeniedScope()
+        def real_spawn(argv, **options):
+            scope.process = subprocess.Popen(argv, **options)
+            return scope.process
+        with self.lock() as held:
+            with self.assertRaises(Invalid):
+                sup.run_supervised(
+                    [sys.executable, "-c",
+                     "from pathlib import Path; Path(" + repr(str(marker)) + ").write_text('bad')"],
+                    lock=held, scope=scope, spawn=real_spawn)
+            scope.process.wait(timeout=3)
+        self.assertFalse(marker.exists())
+
+
 if __name__ == "__main__":
     unittest.main()
