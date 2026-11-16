@@ -109,10 +109,9 @@ class ProviderWireTests(unittest.TestCase):
             {**base, "request_id": "not-a-request-id"},
             {**base, "operation": "provider_list"},
         )
-        with patch("gway_remote.node_exec_protocol.require_account"), (
-            patch("gway_remote.mcp_installed_providers.discover_installed_providers",
-                  return_value=[]) as discovery
-        ):
+        with patch("gway_remote.node_exec_protocol.require_account"), \
+             patch("gway_remote.mcp_installed_providers.discover_installed_providers",
+                   return_value=[]) as discovery:
             for request in invalid:
                 with self.subTest(request=request), self.assertRaises(
                         (ValueError, PermissionError)):
