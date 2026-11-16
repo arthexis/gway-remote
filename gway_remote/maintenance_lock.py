@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import fcntl
 import json
+import math
 import os
 from pathlib import Path
 import pwd
@@ -140,7 +141,7 @@ class MaintenanceLock:
     """
 
     def __init__(self, *, wait_seconds: float = MAX_WAIT_SECONDS):
-        if type(wait_seconds) not in (float, int) or not 0 <= wait_seconds <= MAX_WAIT_SECONDS:
+        if type(wait_seconds) not in (float, int) or not math.isfinite(wait_seconds) or not 0 <= wait_seconds <= MAX_WAIT_SECONDS:
             raise Invalid()
         self.wait_seconds = wait_seconds
         self.started: float | None = None
