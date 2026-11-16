@@ -220,7 +220,7 @@ class DifferentialJournalTests(unittest.TestCase):
         # Documented TOCTOU: no intentional path swap or privileged operations.
         from gway_remote.maintenance_fence_storage_policy import audit_private_sqlite
         report = audit_private_sqlite(self.temp.name, "fence.sqlite")
-        self.assertIn("fence.sqlite", report.checked)
+        self.assertIn("fence.sqlite", report.checked_files)
         # Report is point-in-time and contains no pinned sqlite connection.
         self.assertFalse(hasattr(report, "connection"))
 
