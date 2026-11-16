@@ -101,18 +101,22 @@ operation validation by the node**, with a temporary legacy read wire for
 mixed revisions only. Once receivers converge, Stage C can remove that
 compatibility code; no new service or framework is necessary.
 
-## Preconditions and acceptance
+## Stage C acceptance boundary
 
-1. Confirm Stage A receiver is deployed on every target before activating this
-   sender. A merged commit or successful GitHub CI is not deployed-node proof.
-2. Run the existing public OAuth read-denied/execute-allowed regressions and
-   provider catalog/stdio tests unchanged.
-3. Hermetic tests: execute emits no scope; legacy read retains its scope;
-   pinned transport accepts only two exact `provider_call` shapes and
-   rejects malformed requests without invoking SSH.
-4. No manual workflows, AgentOps, nodes or deployments during Draft review.
-5. Stage C removes the remaining legacy read wire only after all deployed
-   receivers advertise `supports_provider_read` and rollback is safe.
-
-Keep issue #586 and AgentOps #80/#81 open. Do not merge this Draft until the
-post-merge Stage A deployment and receiver compatibility are established.
+- Current deployed scope-free RPCs use `provider_read` for supported node
+  reads and unscoped `provider_call` for execute, with legacy scoped-read
+  fallback only for older receivers. Public `gway:read` must never invoke
+  a tool that is currently write-classified.
+- `/opt/gway-mcp/previous` may point to a pre-B immutable release and the
+  node/gateway restore independently. No compatible rollback floor has been
+  established, so deletion of the fallback remains **out of scope**.
+- No new CI or deployment is implied by accepting the compatibility
+  decision. The private backend's `X-Gway-Caller-Scope` and the unused
+  `FederatedAuthContextV1` codec are separate boundaries; this policy
+  does not authorize changing either one.
+- Future removal requires a separately approved B-or-newer minimum for
+  receivers and rollback, explicit per-provider capability evidence and
+  adversarial mixed-version regression. Avoid periodic reaudits without
+  a material change.
+- Issue #586 remains open until its revised acceptance/closure is explicitly
+  authorized; issue #591 and AgentOps #80/#81 remain separate.
