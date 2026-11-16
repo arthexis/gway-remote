@@ -20,6 +20,24 @@ deploy and not final retirement of internal OAuth-related scope parameters.
 - No new key, Linux identity, SSH config, Ansible, provider privilege or network
   endpoint is introduced.
 
+## Stage B/P2: one route snapshot per admitted request
+
+- Watchtower verifies public OAuth against the tool classification returned
+  by one `federation.discover()`. The same authenticated routing snapshot is
+  passed to `federation.call(..., routes=routes)`, eliminating the second
+  `provider_list` round trip within a single federated tool invocation.
+- This reduces unnecessary transport dependence and prevents a second
+  discovery from disagreeing with the admission decision.
+- The node still discovers the live tool when dispatching. Legacy read
+  requests keep their node-side write guard; a read-to-write change is not
+  permitted by the transport just because the gateway has cached a route.
+- This **does not restore** missing providers when the first discovery is
+  empty or its underlying node is unavailable. Operational issue #591
+  diagnoses that separately.
+- No added OAuth identity propagation, keys, node users, transports or
+  external endpoints. Standalone federation calls without a supplied
+  snapshot retain their existing discovery behavior.
+
 ## Why read requests remain legacy in this increment
 
 The public gateway checks a dynamically discovered provider route; the
