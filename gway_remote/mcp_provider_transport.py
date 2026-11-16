@@ -27,7 +27,11 @@ class ProviderTransport:
                    "request_id": secrets.token_hex(16)}
         if operation == "provider_call":
             payload.update({key: request[key] for key in ("provider", "tool", "arguments")})
-            payload["authorized_scope"] = trusted_scope
+            # Stage B (#586): execute-scoped calls use the unscoped SSH form
+            # introduced in Stage A. Retain the legacy read assertion until
+            # read-to-write catalog drift has an operation-bound replacement.
+            if trusted_scope == "read":
+                payload["authorized_scope"] = "read"
         transport = pinned_transport(self.execution_transport, node)
         response = transport.invoke(payload)
         if type(response) is not dict or "result" not in response:
