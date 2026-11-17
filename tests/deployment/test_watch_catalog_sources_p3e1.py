@@ -141,10 +141,11 @@ class WatchCatalogSourcesP3E1(TestCase):
         self.dispatch.assert_not_called()
         self.reserve.assert_not_called()
 
-    def test_reservation_authority_not_changed(self):
-        with patch.object(appliance_watch, "load_catalog",
-                          side_effect=AssertionError("catalog read")) as loader:
-            with patch.object(appliance_watch.Path, "exists", return_value=False):
+    def test_reservation_reader_checks_catalog_even_without_file(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as directory:
+            with patch.object(appliance_watch, "load_catalog",
+                              wraps=load_catalog) as loader:
                 self.assertEqual(
-                    appliance_watch._dispatch_reservations("/tmp/not-real-path"), {})
-            loader.assert_not_called()
+                    appliance_watch._dispatch_reservations(directory), {})
+                loader.assert_called_once_with()
