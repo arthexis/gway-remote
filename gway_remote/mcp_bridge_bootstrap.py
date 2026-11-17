@@ -4,7 +4,21 @@ import threading
 from pathlib import Path
 
 from .mcp_bridge_sessions import BridgeSessions
+from .mcp_bridge_gateway_dispatch import CONTROL_AUDIENCE
 from .mcp_bridge_server import serve_managed_sessions
+
+
+def bridge_node_allowed(execution, node):
+    """Only the control-plane inventory or an actually admitted pinned node."""
+    if node == CONTROL_AUDIENCE:
+        return True
+    if execution is None:
+        return False
+    try:
+        execution._current_eligibility(node)
+    except (PermissionError, ValueError, KeyError, TypeError, OSError, AttributeError):
+        return False
+    return True
 
 
 def start_bridge(verifier, execution=None):
@@ -36,14 +50,16 @@ def start_bridge(verifier, execution=None):
 
     sessions = BridgeSessions(
         verifier=verifier, execution=execution,
-        allowed_node=lambda token, node: node == "gway-001",
+        allowed_node=lambda token, node: bridge_node_allowed(execution, node),
         read_principal=principal)
+    # The managed socket authenticates a session-bound audience for each call,
+    # rather than pinning the entire gateway to gway-001.
     service = serve_managed_sessions(
-        socket_path, key=key, audience="gway-001", sessions=sessions)
+        socket_path, key=key, audience=None, sessions=sessions)
     thread = threading.Thread(target=service.serve_forever, daemon=True)
     try:
         thread.start()
     except BaseException:
         service.server_close()
         raise
-    return service, thread, sessions, (str(socket_path), key, "gway-001")
+    return service, thread, sessions, (str(socket_path), key)

@@ -42,7 +42,7 @@ class AuthenticatedReceiptBoundaryTests(unittest.TestCase):
                 with make_server(("127.0.0.1", 0), verifier,
                                  "http://127.0.0.1:19011/mcp", "backend-secret",
                                  execution=executor, bridge_sessions=sessions,
-                                 bridge_transport=(str(path), key, "gway-001")) as gateway:
+                                 bridge_transport=(str(path), key)) as gateway:
                     socket_thread = threading.Thread(
                         target=socket_server.serve_forever, daemon=True)
                     http_thread = threading.Thread(

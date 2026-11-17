@@ -87,7 +87,13 @@ class AuthenticatedBridge:
         signed = {"envelope": envelope, "session_id": request["session_id"]} if self.sessions is not None else envelope
         if not hmac.compare_digest(sign(self.key, signed), signature):
             raise InvalidBridgeRequest("invalid signature")
-        validated = validate_envelope(envelope, audience=self.audience, now=now)
+        # Managed sessions bind their own authenticated audience. The socket
+        # signature alone cannot authorize it: sessions.dispatch below checks
+        # the server-created token/audience pair and revalidates OAuth.
+        target_audience = (
+            envelope.get("audience") if self.sessions is not None and type(envelope) is dict
+            else self.audience)
+        validated = validate_envelope(envelope, audience=target_audience, now=now)
         current = int(time.time()) if now is None else now
         with self.lock:
             self.seen = {k: expiry for k, expiry in self.seen.items() if expiry > current}

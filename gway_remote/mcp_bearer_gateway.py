@@ -310,21 +310,13 @@ class Handler(BaseHTTPRequestHandler):
         has_exec = self.server.registry.verify(token, required_scope="gway:execute")
         if not (has_read or has_exec):
             return self.reject(401)
-        if self.server.bridge_sessions is None:
-            return self._process_authenticated(token, has_read, has_exec)
-        from .mcp_bridge_gateway_session import gateway_bridge_session
-        try:
-            with gateway_bridge_session(
-                    self.server.bridge_sessions, bearer=token,
-                    audience="gway-001") as session_id:
-                self.bridge_session_id = session_id
-                return self._process_authenticated(token, has_read, has_exec)
-        except (PermissionError, ValueError, RuntimeError):
-            return self.reject(403)
+        # Node audiences are resolved after validating each tool call, not
+        # fixed to gway-001 for the lifetime of an entire HTTP request.
+        return self._process_authenticated(token, has_read, has_exec)
 
     def _bridge_node_tool(self, name, arguments, token):
         from .mcp_bridge_gateway_dispatch import dispatch_node_tool, OPERATIONS
-        if self.server.bridge_sessions is None or not hasattr(self, "bridge_session_id"):
+        if self.server.bridge_sessions is None or self.server.bridge_transport is None:
             raise PermissionError("bridge session missing")
         operation, scope = OPERATIONS[name]
         if not self.server.registry.verify(token, required_scope=scope):
@@ -333,11 +325,18 @@ class Handler(BaseHTTPRequestHandler):
             principal = self.server.registry.execution_principal(token)
         else:
             principal = self.server.bridge_sessions.read_principal(token)
-        path, key, audience = self.server.bridge_transport
-        return dispatch_node_tool(
-            socket_path=path, key=key, session_id=self.bridge_session_id,
-            audience=audience, principal=principal, name=name,
-            arguments=arguments)
+        from .mcp_bridge_gateway_dispatch import resolve_bridge_audience
+        from .mcp_bridge_gateway_session import gateway_bridge_session
+        audience = resolve_bridge_audience(
+            name, arguments, execution=self.server.execution, principal=principal)
+        path, key = self.server.bridge_transport
+        with gateway_bridge_session(
+                self.server.bridge_sessions, bearer=token,
+                audience=audience) as session_id:
+            return dispatch_node_tool(
+                socket_path=path, key=key, session_id=session_id,
+                audience=audience, principal=principal, name=name,
+                arguments=arguments)
 
     def _offline_backend(self, payload, version):
         """Serve only gateway-owned discovery; never cache backend-only tools."""
