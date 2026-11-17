@@ -10,8 +10,9 @@ import json
 import os
 from urllib.request import Request, urlopen
 
-from .reconcile import TARGETS
+from .catalog_shadow import load_catalog
 from .attempt_policy import Candidate, plan
+from .reconcile import TARGETS
 
 
 def timestamp(value: str) -> datetime:
@@ -85,10 +86,17 @@ def ci_for_head(client: GitHub, repository: str, sha: str):
     return "success" if all(r.get("conclusion") == "success" for r in runs) else "failure"
 
 
-def collect(client, attempts=None):
+def collect(client, attempts=None, *, catalog_targets=None):
+    # The optional snapshot must be the same closed, ordered, reviewed set.
+    # In particular, an injected target cannot add a GitHub request.
+    targets = (tuple((target.id, target.repository)
+                     for target in load_catalog().targets)
+               if catalog_targets is None else catalog_targets)
+    if type(targets) is not tuple or targets != TARGETS:
+        raise ValueError("catalog differs from reviewed target registry")
     attempts = attempts or {}
     states = []
-    for name, repository in TARGETS:
+    for name, repository in targets:
         sha = main_head(client, repository)
         states.append(Candidate(name, sha, main_arrival(client, repository, sha),
                                 ci_for_head(client, repository, sha), attempts.get(name)))
@@ -96,8 +104,11 @@ def collect(client, attempts=None):
 
 
 def report(client, now=None, attempts=None):
-    states = collect(client, attempts)
-    result = plan(states, now or datetime.now(timezone.utc))
+    # Exactly one checked snapshot feeds both collection and pure policy.
+    targets = tuple((target.id, target.repository) for target in load_catalog().targets)
+    states = collect(client, attempts, catalog_targets=targets)
+    result = plan(states, now or datetime.now(timezone.utc),
+                  catalog_targets=targets)
     return {"decision": result.state, "reason": result.reason,
             "targets": [{"name": s.name, "desired": s.sha,
                          "last_attempted": s.attempted_sha, "ci": s.ci}
