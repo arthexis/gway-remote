@@ -55,8 +55,10 @@
     - name: Require unique systemd session rule and no duplicate exemption
       ansible.builtin.assert:
         that:
-          - "(mcp_pam_content.content | b64decode | regex_findall('(?m)^session\s+optional\s+pam_systemd[.]so\s*$') | length) == 1"
-          - "(mcp_pam_content.content | b64decode | regex_findall('(?m)^session \[success=1 default=ignore\] pam_succeed_if[.]so quiet user = gway-mcp-forward$') | length) <= 1"
+          - >-
+            (mcp_pam_content.content | b64decode | regex_findall('(?m)^session\s+optional\s+pam_systemd[.]so\s*$') | length) == 1
+          - >-
+            (mcp_pam_content.content | b64decode | regex_findall('(?m)^session \[success=1 default=ignore\] pam_succeed_if[.]so quiet user = gway-mcp-forward$') | length) <= 1
     - name: Exempt MCP forward-only SSH user from logind sessions
       become: true
       ansible.builtin.lineinfile:
