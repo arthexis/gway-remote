@@ -1,4 +1,4 @@
-# Executor identity provisioning contract — GWay Remote #617 (Draft)
+# Executor identity provisioning contract — GWay Remote #617
 
 This defines only **initial node-local identity selection**. The authorization
 boundary stays unchanged: Watchtower authenticates node and OAuth scope;
@@ -47,6 +47,8 @@ imports that same selector for Ansible. It does not dispatch jobs.
 - **Normal Ansible deployment:** `./deploy.sh` refuses root and passes the
   actual invoking `id -un` as `gway_remote_runner_user`. The role resolves
   the same identity before preparing the dormant `gway-exec` account.
+  For private executor state, Ansible uses the account's actual primary GID,
+  which need not have the same name as the login.
   For an explicitly root-driven Ansible install, supply the intended
   existing CLI runner with `gway_remote_runner_user` and a separate explicit
   `gway_remote_executor_override`; never infer the become user. The override
@@ -54,7 +56,7 @@ imports that same selector for Ansible. It does not dispatch jobs.
 - **Upgrade:** do not change the selected identity or ledgers. Bootstrap
   creates a root-owned policy only if absent. Ansible keeps the existing
   guarded SSH relay, user manager checks, ledger-drain check, and existing
-  byte-for-byte rescue path. This Draft is **not** an identity migration tool.
+  byte-for-byte rescue path. This change is **not** an identity migration tool.
 
 ## Security and operational caveats
 
@@ -79,4 +81,6 @@ override, unknown/root/ambiguous accounts, unattended root-only failures,
 preservation of valid policy, legacy state/relay, idempotent persistence,
 negative node/scope routing (existing tests), and unchanged relay rollback
 behaviour. A successful CI result is **not** evidence of field acceptance.
-No deployment, migration, Ready or merge is authorized by this Draft.
+Merge does not authorize live-node executor migration, AgentOps dispatch, or
+permission changes. Existing main-branch automation is independent of a
+separately reviewed field cutover.
