@@ -61,7 +61,8 @@ def _utc(value: datetime | None) -> datetime | None:
     return value.astimezone(timezone.utc)
 
 
-def reconcile(targets: Sequence[TargetState], now: datetime) -> DeploymentPlan:
+def reconcile(targets: Sequence[TargetState], now: datetime, *,
+              catalog_targets=None) -> DeploymentPlan:
     """Evaluate an entire appliance snapshot; fail closed on incomplete inputs.
 
     The caller supplies authoritative main-branch arrival timestamps, verified CI
@@ -72,8 +73,19 @@ def reconcile(targets: Sequence[TargetState], now: datetime) -> DeploymentPlan:
     if now_utc is None:
         raise ValueError("now must be timezone-aware")
 
+    # Metadata is supplied by the caller, never loaded inside pure policy.
+    # Only the exact reviewed ordered registry is permitted; it cannot
+    # expand target or deployment authority.
+    if catalog_targets is not None and (
+        type(catalog_targets) is not tuple or catalog_targets != TARGETS
+    ):
+        return DeploymentPlan(
+            Decision.BLOCKED, (), (), None,
+            "catalog differs from reviewed target registry")
+
     by_name = {target.name: target for target in targets}
-    expected = tuple(name for name, _ in TARGETS)
+    registry = TARGETS if catalog_targets is None else catalog_targets
+    expected = tuple(name for name, _ in registry)
     snapshot = tuple(
         DeploymentTarget(name, by_name[name].desired_sha)
         for name in expected if name in by_name
