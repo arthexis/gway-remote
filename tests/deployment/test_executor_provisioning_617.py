@@ -89,6 +89,46 @@ class ProvisioningIdentityTests(unittest.TestCase):
             bootstrap.main()
         self.assertEqual(events, ["resolve", "wire", "persist", "prepare"])
 
+    def test_ansible_uses_verified_account_primary_group_not_username(self):
+        from pathlib import Path
+        root = Path(__file__).resolve().parents[2]
+        for path in ("node-exec-select.yml", "node-mcp-deploy.yml"):
+            source = (root / "ansible/roles/gway_remote/tasks" / path).read_text()
+            self.assertIn('group: "{{ getent_passwd[gway_remote_exec_run_user][2] }}"', source)
+            self.assertNotIn('group: "{{ gway_remote_exec_run_user }}"', source)
+
+    def test_root_owned_policy_idempotence_and_symlink_fail_closed(self):
+        import stat
+        from tempfile import TemporaryDirectory
+        with TemporaryDirectory() as temp:
+            policy = Path(temp) / "identity.json"
+            original_lstat = Path.lstat
+            original_fstat = os.fstat
+
+            def root_parent(path):
+                info = original_lstat(path)
+                if Path(path) == policy.parent:
+                    return SimpleNamespace(st_mode=info.st_mode, st_uid=0)
+                return info
+
+            def root_file(fd):
+                info = original_fstat(fd)
+                return SimpleNamespace(st_mode=info.st_mode, st_uid=0)
+
+            with (patch.object(bootstrap.os, "geteuid", return_value=0),
+                  patch.object(Path, "lstat", autospec=True, side_effect=root_parent),
+                  patch.object(bootstrap.os, "fstat", side_effect=root_file)):
+                self.assertTrue(bootstrap.persist_executor_user("alice", policy=policy))
+                self.assertEqual(json.loads(policy.read_text()), {"user": "alice"})
+                self.assertFalse(bootstrap.persist_executor_user("alice", policy=policy))
+                with self.assertRaises(PermissionError):
+                    bootstrap.persist_executor_user("bob", policy=policy)
+                self.assertEqual(bootstrap.read_executor_policy(policy), "alice")
+                policy.unlink()
+                policy.symlink_to(Path(temp) / "elsewhere")
+                with self.assertRaises(OSError):
+                    bootstrap.read_executor_policy(policy)
+
     def test_negative_scope_and_transport_not_modified_by_selector(self):
         from pathlib import Path
         root = Path(__file__).resolve().parents[2]
