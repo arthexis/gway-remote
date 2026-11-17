@@ -728,6 +728,15 @@ if [ "$(hostname -s)" != '{device}' ]; then
   echo 'satellite bootstrap target hostname mismatch' >&2
   exit 1
 fi
+# An override is accepted only as an explicit provisioning argument.
+if [ "$#" -ne 0 ] && {{ [ "$#" -ne 2 ] || [ "$1" != "--executor-user" ]; }}; then
+  echo 'usage: bootstrap [--executor-user EXISTING_NON_ROOT_ACCOUNT]' >&2
+  exit 2
+fi
+if [ "$#" -eq 0 ] && [ -z "${{SUDO_USER:-}}" ]; then
+  echo 'bootstrap requires sudo origin or --executor-user' >&2
+  exit 2
+fi
 command -v apt-get >/dev/null || {{ echo 'unsupported distribution' >&2; exit 1; }}
 export DEBIAN_FRONTEND=noninteractive
 apt-get update -qq
@@ -736,7 +745,7 @@ temp="$(mktemp -d)"
 trap 'rm -rf "$temp"' EXIT HUP INT TERM
 curl -fsS --proto '=https' --max-redirs 0 'https://register.gelectriic.com/v1/bootstrap/{secret}/client.py' -o "$temp/client.py"
 printf '%s' '{secret}' > "$temp/session"
-python3 "$temp/client.py" bootstrap --device '{device}' --server-public-key '{server_key}' --token-file "$temp/session"{' --repair' if repair_host_identity else ''}
+python3 "$temp/client.py" bootstrap --device '{device}' --server-public-key '{server_key}' --token-file "$temp/session"{' --repair' if repair_host_identity else ''} "$@"
 pub="$(wg show gway public-key)"
 printf '{{"device":"%s","public_key":"%s"}}' '{device}' "$pub" > "$temp/ack.json"
 curl -fsS --proto '=https' --max-redirs 0 -X POST -H 'Content-Type: application/json' --data-binary @"$temp/ack.json" 'https://register.gelectriic.com/v1/bootstrap/{secret}/complete' >/dev/null
