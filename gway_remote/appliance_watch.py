@@ -22,6 +22,7 @@ from .deploy_dispatch import dispatch
 from .github_state import GitHub, ci_for_head, main_arrival
 from .diagnostics import diagnose
 from .health import quick_component_check
+from .catalog_shadow import load_catalog
 from .reconcile import TARGETS
 
 ISSUE_MARKER = "<!-- gway-remote:appliance-watch:{name}:{kind} -->"
@@ -147,6 +148,9 @@ def _github_client():
 
 
 def check(*, apply=False, client=None, now=None):
+    # Strict catalog preflight before token, journal, inventory or GitHub I/O.
+    # Metadata here selects CI/issue source URLs, never deployment rights.
+    sources = {target.id: target.repository for target in load_catalog().targets}
     client = client if client is not None else _github_client()
     now = now or datetime.now(timezone.utc)
     attempts = read_attempts()  # Corrupt evidence aborts, never triggers installs.
@@ -155,7 +159,6 @@ def check(*, apply=False, client=None, now=None):
     observations = {x["name"]: x for x in diagnose()["components"]}
     decisions = []
     pending = []
-    sources = dict(TARGETS)
     for row in report["components"]:
         name = row["name"]
         # Inventory is authoritative for this node. Never report or deploy
