@@ -1,0 +1,81 @@
+---
+# Manual, opt-in only. Not referenced by deploy.sh or the normal role.
+# Execute *locally on gway-004* from a clean reviewed checkout, after an
+# operator has stopped new admissions to this node. Merely merging this
+# playbook never changes the node's identity.
+- name: Explicit existing executor migration gway-004 gway-exec to arthe
+  hosts: gway-004
+  connection: local
+  become: true
+  gather_facts: true
+  vars:
+    gway_remote_install_root: /opt/gway-remote
+    gway_remote_exec_user: gway-exec
+  tasks:
+    - name: Require exact target, approval, and fixed executor boundaries
+      ansible.builtin.assert:
+        that:
+          - inventory_hostname == 'gway-004'
+          - ansible_hostname == 'gway-004'
+          - gway_remote_install_root == '/opt/gway-remote'
+          - gway_remote_exec_user == 'gway-exec'
+          - (gway_executor_migration_approval | default('')) == 'I_ACCEPT_GWAY_004_EXECUTOR_ARTHE'
+          - (gway_executor_migration_expected_sha | default('')) is match('^[0-9a-f]{40}$')
+        fail_msg: Explicit 004-only approval and full reviewed source revision are required.
+
+    - name: Resolve exact reviewed checkout
+      ansible.builtin.command:
+        argv: [git, -C, "{{ playbook_dir }}/..", rev-parse, --verify, HEAD]
+      register: migration_source_head
+      changed_when: false
+
+    - name: Reject a different checkout revision
+      ansible.builtin.assert:
+        that:
+          - migration_source_head.stdout == gway_executor_migration_expected_sha
+        fail_msg: Executor migration source revision is not the reviewed SHA.
+
+    - name: Detect tracked and untracked checkout modifications
+      ansible.builtin.command:
+        argv: [git, -C, "{{ playbook_dir }}/..", status, --porcelain, --untracked-files=all]
+      register: migration_source_dirty
+      changed_when: false
+
+    - name: Reject any modified source or untracked file
+      ansible.builtin.assert:
+        that:
+          - migration_source_dirty.stdout == ''
+        fail_msg: Executor migration requires a completely clean checkout.
+
+    - name: Check live identity, installed receiver compatibility, old receipts and relay
+      ansible.builtin.command:
+        argv:
+          - /usr/bin/env
+          - PYTHONPATH=/opt/gway-remote
+          - /usr/bin/python3
+          - "{{ playbook_dir }}/../scripts/preflight-executor-migration-004.py"
+      register: migration_preflight
+      changed_when: false
+
+    - name: Require exact bounded preflight output
+      ansible.builtin.assert:
+        that:
+          - (migration_preflight.stdout | from_json).node == 'gway-004'
+          - (migration_preflight.stdout | from_json).previous in ['gway-exec', 'arthe']
+          - (migration_preflight.stdout | from_json).selected == 'arthe'
+          - (migration_preflight.stdout | from_json).status in ['preflight_only', 'already_selected']
+        fail_msg: Missing or unexpected 004 executor preflight receipt.
+
+    - name: Pin selected identity to the reviewed preflight result
+      ansible.builtin.set_fact:
+        gway_remote_exec_run_user: arthe
+        gway_remote_resolved_executor_user: arthe
+
+    - name: Reject attempts to override the single permitted identity
+      ansible.builtin.assert:
+        that:
+          - gway_remote_exec_run_user == 'arthe'
+          - gway_remote_resolved_executor_user == 'arthe'
+
+    - name: Reuse the existing guarded identity and SSH relay cutover with rescue
+      ansible.builtin.import_tasks: roles/gway_remote/tasks/node-exec-select.yml
