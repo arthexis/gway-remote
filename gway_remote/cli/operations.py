@@ -32,6 +32,9 @@ def register(subparsers, targets, names):
         doctor = node_ops.add_parser("doctor", help="Inspect local enrollment and pin evidence, without SSH")
         doctor.add_argument("node", help="enrolled gway node name")
         doctor.add_argument("--json", action="store_true")
+        plan = node_ops.add_parser("plan", help="Compare inventory with the reviewed repository catalog")
+        plan.add_argument("node")
+        plan.add_argument("--json", action="store_true")
     if "doctor" in names:
         drift = subparsers.add_parser("doctor", help="Read-only local Git/inventory/runtime drift diagnosis")
         drift.add_argument("--checkout", metavar="PATH",
@@ -55,6 +58,14 @@ def dispatch(args, parser):
             parser.exit(1)
         if report["result"]["state"] == "incomplete":
             parser.exit(2)
+        return True
+    if args.command == "node" and args.node_action == "plan":
+        from ..node_plan import plan, format_plan
+        try:
+            report = plan(args.node)
+        except (OSError, ValueError, TypeError, KeyError):
+            parser.exit(2, "gway-remote: node plan unavailable\n")
+        print(json.dumps(report, indent=2, sort_keys=True) if args.json else format_plan(report))
         return True
     if args.command == "node":
         from ..node_onboarding_doctor import diagnose_node, format_diagnosis

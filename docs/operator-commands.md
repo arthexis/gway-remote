@@ -42,3 +42,15 @@ For the intended customer host, the proposed identity is `ocpp-abb-1` and DNS na
 - `gway_remote/__main__.py`: current CLI parser and operator command implementation
 - `gway_remote/wireguard_enrollment_contract.py`: current accepted node identifier syntax
 - `ansible/inventory/deployment.yml`: current management inventory and repository allowlists
+
+## Review a node repository plan
+
+`gway-remote node plan NODE --json` compares the installed deployment inventory
+with the reviewed deployment target catalog. It reports unknown and duplicate
+entries and suggested Agent Ops repository additions. Suggestions do not grant
+permissions; Agent Ops admission depends on its installed version and policy.
+Repositories outside the deployment catalog are reported for review, not
+implicitly rejected. This is an inventory-only report: it does not contact the
+node or verify enrollment, runtime, provider installation, or deployment.
+Use `gway-remote node doctor NODE --json` separately for available local
+enrollment and SSH pin evidence.
