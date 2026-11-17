@@ -57,7 +57,7 @@ class MultiNodeFederationTests(unittest.TestCase):
         response["providers"].append(dict(response["providers"][0]))
         with self.assertRaisesRegex(FederationError, "ambiguous_provider"):
             catalog_from_nodes([], {"gway-004": response})
-        with self.assertRaisesRegex(FederationError, "ambiguous_provider"):
+        with self.assertRaisesRegex(ValueError, "duplicate tool name"):
             catalog_from_nodes([{"name": "gway_004_agentops__status",
                                     "inputSchema": {"type": "object"}}],
                                {"gway-004": reply("gway-004")})
