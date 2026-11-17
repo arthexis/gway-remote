@@ -9,7 +9,7 @@ import os
 from pathlib import Path
 import stat
 
-from .reconcile import TARGETS
+from .catalog_shadow import load_catalog
 
 # Fixed owner-defined installation conventions. Never discover roots by searching
 # a home directory, and never accept a path from the command line.
@@ -68,7 +68,8 @@ def _tree_size(path: Path, *, limit: int = 50000) -> tuple[int | None, str | Non
 
 def preview(repository=None, *, home=None, roots=None):
     """Inspect only registered roots; no subprocess, writes, or network access."""
-    names = tuple(name for name, _ in TARGETS)
+    # Validate one checked, ordered catalog snapshot before inspecting paths.
+    names = tuple(target.id for target in load_catalog().targets)
     if repository is not None and repository not in names:
         raise ValueError("unregistered target")
     home = Path(home) if home is not None else Path.home()
