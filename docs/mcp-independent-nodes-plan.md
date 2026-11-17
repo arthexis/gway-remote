@@ -25,7 +25,7 @@ Related: [gway-remote #264](https://github.com/arthexis/gway-remote/issues/264)
    keep OAuth, error handling, method allowlist and scopes intact. Align
    mcp_catalog_inspect with tools/list. Use bounded discovery deadlines.
    No node enrollment, SSH configuration, deployment or privilege change.
-2. **P2 — Independently authorized per-node bridge.** Remove the fixed
+2. **P2 — Independently authorized per-node bridge (implementation in this PR).** Remove the fixed
    `audience=gway-001` in gateway/bridge bootstrap and dispatch. Select a
    current attested node based on the trusted registry and exact requested
    operation; bind each authenticated principal, scope, audience, request ID,
@@ -54,3 +54,24 @@ Related: [gway-remote #264](https://github.com/arthexis/gway-remote/issues/264)
 - Unauthenticated clients, unapproved tools and backend-only tools continue
   to fail closed.
 - CI is hermetic; no 001 or Watchtower change until separate approval.
+
+## P2 bridge contract and rollout gate
+
+The fixed `gway-001` bridge audience is replaced by a request-scoped audience
+selected at Watchtower. `gway-000` is reserved exclusively for read-only
+`node_list` / `node_capabilities`, and does not describe a real node. Every
+other tool must use the current trusted pinned node transport. The bridge
+session registers this audience from the authenticated HTTP gateway; the
+HMAC-signed envelope alone is insufficient. Revalidate OAuth and target
+eligibility on every dispatch, including read-only SSH operations.
+
+For `node_result`, `node_cancel` and `node_deploy_status`, determine the
+node from the existing durable request ledger **after checking principal
+ownership**. An explicit destination on the latter must match that record;
+retries, cancelled requests, and UNCERTAIN receipts must never be dispatched
+to another node. Preserve cross-node request-ID deduplication and deny
+unattested, unreachable, stale or missing transports.
+
+Source/CI merge does **not** activate a new satellite or alter credentials,
+WireGuard, SSH, services or deployments. Operator-specific Watchtower/runtime
+validation and an offline-001 test remain P3 acceptance gates.

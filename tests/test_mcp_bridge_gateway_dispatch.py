@@ -4,7 +4,7 @@ from gway_remote.mcp_bridge_gateway_dispatch import dispatch_node_tool, OPERATIO
 
 class GatewayDispatchTests(unittest.TestCase):
     def test_operation_catalog(self):
-        self.assertEqual(len(OPERATIONS), 9)
+        self.assertEqual(len(OPERATIONS), 11)
         self.assertEqual(OPERATIONS["node_exec"], ("execution.start", "gway:execute"))
 
     def test_session_binding(self):
