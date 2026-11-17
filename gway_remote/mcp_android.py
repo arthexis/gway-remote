@@ -34,9 +34,9 @@ def _tool(name, description, properties=None, required=(), *, read=False):
 
 _COORD = {"type": "integer", "minimum": 0, "maximum": 4095}
 TOOLS = [
-    _tool("status", "Read the single USB Android device status; no serial or secrets returned.", read=True),
-    _tool("ui_tree", "Read bounded, password-redacted visible accessibility elements.", read=True),
-    _tool("capture", "Capture one reduced JPEG preview of the Android screen; may contain private data.", read=True),
+    _tool("status", "Read USB device, screen state, lock state and rotation; no serial returned.", read=True),
+    _tool("ui_tree", "Read bounded, password-redacted visible elements and state flags.", read=True),
+    _tool("capture", "Capture one JPEG preview with structured coordinate metadata; may contain private data.", read=True),
     _tool("tap", "Tap one validated on-screen coordinate.", {"x": _COORD, "y": _COORD}, ("x", "y")),
     _tool("swipe", "Swipe between on-screen coordinates in 100-1000 ms.",
           {"x1": _COORD, "y1": _COORD, "x2": _COORD, "y2": _COORD,
@@ -109,6 +109,34 @@ class Device:
             raise AndroidError("screen_dimensions_invalid")
         return width, height
 
+    def screen_state(self, serial):
+        """Best-effort display/lock/rotation observations, never an unlock action.
+
+        Unknown values remain null; the established model/size response survives
+        a dumpsys denial or vendor-specific output variation.
+        """
+        def dump(service):
+            try:
+                return self.adb(serial, "shell", "dumpsys", service, timeout=6).decode(
+                    "utf-8", "replace")[:256_000]
+            except AndroidError:
+                return ""
+
+        power = dump("power")
+        display = re.search(r"Display Power:\s*state=(ON|OFF|DOZE|DOZE_SUSPEND)\b", power)
+        screen_on = (display.group(1) == "ON") if display else None
+
+        trust = dump("trust")
+        current = re.search(
+            r"(?m)^.*\(current\):[^\n]*\bdeviceLocked=(0|1|true|false)\b",
+            trust, re.IGNORECASE)
+        locked = (current.group(1).lower() in ("1", "true")) if current else None
+
+        controls = dump("input")
+        orientation = re.search(r"\bSurfaceOrientation:\s*([0-3])\b", controls)
+        rotation = (int(orientation.group(1)) * 90) if orientation else None
+        return {"screen_on": screen_on, "locked": locked, "rotation": rotation}
+
     def _point(self, point, size):
         x, y = point
         if not (0 <= x < size[0] and 0 <= y < size[1]):
@@ -124,7 +152,8 @@ class Device:
             width, height = self.size(serial)
             model = self.adb(serial, "shell", "getprop", "ro.product.model").decode(
                 "utf-8", "replace").strip()[:80]
-            return {"usb": "authorized", "width": width, "height": height, "model": model}
+            return {"usb": "authorized", "width": width, "height": height,
+                    "model": model, **self.screen_state(serial)}
         if name == "ui_tree":
             path = "/sdcard/.gway-remote-ui.xml"
             try:
@@ -146,6 +175,10 @@ class Device:
                             "bounds": attrs.get("bounds", "")[:40],
                             "clickable": attrs.get("clickable") == "true",
                             "enabled": attrs.get("enabled") == "true",
+                            "checked": attrs.get("checked") == "true",
+                            "selected": attrs.get("selected") == "true",
+                            "focused": attrs.get("focused") == "true",
+                            "scrollable": attrs.get("scrollable") == "true",
                         })
                     if len(nodes) >= 100:
                         break
@@ -161,16 +194,38 @@ class Device:
             raw = self.adb(serial, "exec-out", "screencap", "-p", timeout=7)
             if len(raw) > MAX_RAW_IMAGE or not raw.startswith(b"\x89PNG\r\n\x1a\n"):
                 raise AndroidError("invalid_screenshot")
+            # The PNG IHDR gives the actual orientation at capture time.
+            # A separate wm size call can race with a device rotation.
+            if len(raw) < 24:
+                raise AndroidError("invalid_screenshot")
+            native_width = int.from_bytes(raw[16:20], "big")
+            native_height = int.from_bytes(raw[20:24], "big")
+            if not (0 < native_width <= 4096 and 0 < native_height <= 4096):
+                raise AndroidError("invalid_screenshot")
+            capture_width = 480
+            # Keep the previous 480px JPEG preview and an even-scaled height.
+            capture_height = max(2, 2 * round(native_height * capture_width /
+                                               native_width / 2))
+            if capture_height > 4096:
+                raise AndroidError("invalid_screenshot")
             jpeg = self._call([
                 FFMPEG, "-nostdin", "-hide_banner", "-loglevel", "error",
                 "-f", "image2pipe", "-vcodec", "png", "-i", "pipe:0",
-                "-vf", "scale=480:-2", "-frames:v", "1",
+                "-vf", f"scale={capture_width}:{capture_height}", "-frames:v", "1",
                 "-f", "image2pipe", "-vcodec", "mjpeg", "-q:v", "10", "pipe:1",
             ], timeout=5, data=raw)
             if not jpeg.startswith(b"\xff\xd8") or not 0 < len(jpeg) <= MAX_IMAGE:
                 raise AndroidError("image_limit_exceeded")
-            return {"content": [{"type": "image", "mimeType": "image/jpeg",
-                                 "data": base64.b64encode(jpeg).decode("ascii")}]}
+            return {
+                "content": [{"type": "image", "mimeType": "image/jpeg",
+                             "data": base64.b64encode(jpeg).decode("ascii")}],
+                "structuredContent": {
+                    "native_width": native_width, "native_height": native_height,
+                    "capture_width": capture_width, "capture_height": capture_height,
+                    "scale_x": native_width / capture_width,
+                    "scale_y": native_height / capture_height,
+                },
+            }
         if name in ("tap", "swipe"):
             size = self.size(serial)
             first = (arguments["x"], arguments["y"]) if name == "tap" else (

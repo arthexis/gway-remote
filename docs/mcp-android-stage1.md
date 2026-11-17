@@ -67,3 +67,28 @@ catalog and verify:
 Do not claim installed MCP availability until this field acceptance succeeds.
 This increment does not implement browser scenarios, image-redaction pipelines,
 persistent screenshots, or automation loops; those remain separate #339 work.
+
+## Stage 2: state and coordinate metadata (#339)
+
+The existing seven MCP tools, USB-only device selection, federated transport,
+`gway:read`/`gway:execute` annotations and input schemas are unchanged.
+
+- `android__status` adds `screen_on` (display power ON), `locked`
+  (current Android user's trust state) and `rotation` (degrees:
+  0/90/180/270). Each may be `null` when vendor dumpsys output is
+  unavailable or cannot be interpreted; do not treat unknown as unlocked.
+- `android__ui_tree` adds boolean `checked`, `selected`, `focused`
+  and `scrollable` to each existing, password-redacted element.
+- `android__capture` keeps exactly one 480px-wide MCP JPEG image content
+  and adds standard MCP `structuredContent` with `native_width`,
+  `native_height`, `capture_width`, `capture_height`, `scale_x`,
+  `scale_y`. The source dimensions come from the PNG captured in that
+  same call, not an earlier screen query. The scale maps preview pixels
+  to native coordinates: `native_x = preview_x * scale_x` and likewise
+  for Y. Round to integers and validate screen bounds before tapping.
+  Older one-image responses remain valid; clients ignoring
+  `structuredContent` still receive the same image.
+
+No auto-wake, unlock, new tools, authentication, services, scenarios,
+persistent images, or additional device access are introduced.
+
