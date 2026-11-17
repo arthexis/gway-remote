@@ -23,7 +23,6 @@ from .github_state import GitHub, ci_for_head, main_arrival
 from .diagnostics import diagnose
 from .health import quick_component_check
 from .catalog_shadow import load_catalog
-from .reconcile import TARGETS
 
 ISSUE_MARKER = "<!-- gway-remote:appliance-watch:{name}:{kind} -->"
 COOLDOWN = timedelta(minutes=10)
@@ -100,12 +99,16 @@ def _issue(repo, name, kind, reason):
 
 
 def _dispatch_reservations(directory=DEFAULT_DIR):
+    # Journal target names are descriptive, never deployment authority.
+    # The checked catalog must pass reviewed registry parity even if no
+    # journal exists, before accessing or creating reservation state.
+    allowed_names = {target.id for target in load_catalog().targets}
     path = Path(directory) / "watch-dispatches.json"
     if not path.exists():
         return {}
     data = json.loads(path.read_text(encoding="utf-8"))
     if not isinstance(data, dict) or any(
-        name not in dict(TARGETS) or not isinstance(sha, str) or
+        name not in allowed_names or not isinstance(sha, str) or
         not re.fullmatch(r"[0-9a-f]{40}", sha) for name, sha in data.items()
     ):
         raise ValueError("invalid appliance watch dispatch journal")
