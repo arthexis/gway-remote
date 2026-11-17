@@ -733,7 +733,12 @@ if [ "$#" -ne 0 ] && {{ [ "$#" -ne 2 ] || [ "$1" != "--executor-user" ]; }}; the
   echo 'usage: bootstrap [--executor-user EXISTING_NON_ROOT_ACCOUNT]' >&2
   exit 2
 fi
-if [ "$#" -eq 0 ] && [ -z "${{SUDO_USER:-}}" ]; then
+# Host-identity repair is identity-neutral: keep root-only repair supported.
+if [ "{'1' if repair_host_identity else '0'}" = "1" ] && [ "$#" -ne 0 ]; then
+  echo 'host identity repair does not accept executor override' >&2
+  exit 2
+fi
+if [ "$#" -eq 0 ] && [ -z "${{SUDO_USER:-}}" ] && [ "{'1' if repair_host_identity else '0'}" != "1" ]; then
   echo 'bootstrap requires sudo origin or --executor-user' >&2
   exit 2
 fi
