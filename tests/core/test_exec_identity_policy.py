@@ -41,7 +41,7 @@ class ExecutorIdentityTests(unittest.TestCase):
         self.assertEqual(self.read_policy("gway-exec", "gway-001"), "gway-exec")
 
     def test_unrecognized_users_rejected(self):
-        for user in ("root", "ubuntu", "", None):
+        for user in ("root", "../escape", "", None):
             with self.subTest(user=user), self.assertRaises(PermissionError):
                 self.read_policy(user, "gway-001")
 
