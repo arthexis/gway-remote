@@ -9,7 +9,7 @@ from pathlib import Path
 import subprocess
 
 from .logs import read_log, sanitize
-from .reconcile import TARGETS
+from .catalog_shadow import load_catalog
 from .probe_registry import probe_for
 from .status import status
 
@@ -61,8 +61,9 @@ def classify(component, systemd):
 
 
 def diagnose(name=None, *, directory=None, lines=30):
-    """Return compact, sanitised diagnostics; all target names come from TARGETS."""
-    names = {target for target, _ in TARGETS}
+    """Return compact, sanitised diagnostics for checked catalog targets."""
+    # Validate the whole reviewed catalog before status, logs or systemd I/O.
+    names = {target.id for target in load_catalog().targets}
     if name is not None and name not in names:
         raise ValueError("unknown deployment target")
     if not 1 <= lines <= 100:
