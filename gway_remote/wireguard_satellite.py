@@ -171,6 +171,134 @@ def _atomic_new(path, content):
         Path(temp).unlink(missing_ok=True)
 
 
+
+# Shared by the standalone HTTPS bootstrap client and the Ansible resolver.
+# Never treat an MCP request as an installation identity selector.
+EXECUTOR_POLICY = Path("/etc/gway-remote/executor-identity.json")
+EXECUTOR_NAME = re.compile(r"^[a-z_][a-z0-9_-]*$")
+
+
+def _existing_executor(name):
+    import pwd
+    if type(name) is not str or not EXECUTOR_NAME.fullmatch(name):
+        raise ValueError("invalid executor account")
+    try:
+        account = pwd.getpwnam(name)
+    except KeyError as exc:
+        raise ValueError("executor account not found") from exc
+    if account.pw_uid == 0 or account.pw_name != name:
+        raise ValueError("root or ambiguous executor account")
+    return name
+
+
+def sudo_install_user(environ=None):
+    import pwd
+    env = os.environ if environ is None else environ
+    name, uid = env.get("SUDO_USER"), env.get("SUDO_UID")
+    if name is None and uid is None:
+        return None
+    if not name or not isinstance(uid, str) or not uid.isascii() or not uid.isdecimal():
+        raise ValueError("incomplete sudo origin")
+    _existing_executor(name)
+    try:
+        account = pwd.getpwuid(int(uid))
+    except KeyError as exc:
+        raise ValueError("sudo UID unknown") from exc
+    if account.pw_uid == 0 or account.pw_name != name:
+        raise ValueError("sudo installer mismatch")
+    return name
+
+
+def read_executor_policy(path=EXECUTOR_POLICY):
+    import stat
+    path = Path(path)
+    try:
+        directory_stat = path.parent.lstat()
+    except FileNotFoundError:
+        return None
+    if (not stat.S_ISDIR(directory_stat.st_mode) or directory_stat.st_uid != 0
+            or directory_stat.st_mode & 0o022):
+        raise PermissionError("unsafe executor policy directory")
+    parent_fd = os.open(path.parent, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+    try:
+        try:
+            fd = os.open(path.name, os.O_RDONLY | os.O_NOFOLLOW, dir_fd=parent_fd)
+        except FileNotFoundError:
+            return None
+        try:
+            info = os.fstat(fd)
+            if (not stat.S_ISREG(info.st_mode) or info.st_uid != 0
+                    or info.st_mode & 0o022):
+                raise PermissionError("unsafe executor identity policy")
+            with os.fdopen(fd, "rb", closefd=False) as stream:
+                raw = stream.read(1025)
+            if len(raw) > 1024:
+                raise ValueError("oversized executor policy")
+            data = json.loads(raw)
+            if type(data) is not dict or set(data) != {"user"}:
+                raise ValueError("invalid executor identity policy")
+            return _existing_executor(data["user"])
+        finally:
+            os.close(fd)
+    finally:
+        os.close(parent_fd)
+
+
+def select_executor_user(installer, override=None, *, existing=None, legacy=False):
+    """Existing identities win. Explicit override is only for new provisioning."""
+    override = None if override in (None, "") else _existing_executor(override)
+    if existing is not None:
+        existing = _existing_executor(existing)
+        if override is not None and override != existing:
+            raise PermissionError("executor migration requires separate approval")
+        return existing
+    if legacy:
+        if override is not None and override != "gway-exec":
+            raise PermissionError("legacy executor migration requires separate approval")
+        return _existing_executor("gway-exec")
+    if override is not None:
+        return override
+    if not installer:
+        raise ValueError("root-only bootstrap requires explicit executor user")
+    return _existing_executor(installer)
+
+
+def resolve_executor_user(installer=None, override=None, *,
+                          policy=EXECUTOR_POLICY,
+                          legacy_state=Path("/var/lib/gway-exec"),
+                          legacy_relay=Path("/etc/ssh/sshd_config.d/40-gway-exec-relay.conf")):
+    old = read_executor_policy(policy)
+    return select_executor_user(installer, override, existing=old,
+                                legacy=old is None and (legacy_state.exists() or legacy_relay.exists()))
+
+
+def persist_executor_user(user, *, policy=EXECUTOR_POLICY):
+    """Bootstrap records only new root-owned policies; never performs a cutover."""
+    import stat
+    if os.geteuid() != 0:
+        raise PermissionError("root required")
+    user = _existing_executor(user)
+    path = Path(policy)
+    if not path.parent.exists():
+        path.parent.mkdir(mode=0o755)
+    info = path.parent.lstat()
+    if (not stat.S_ISDIR(info.st_mode) or info.st_uid != 0
+            or info.st_mode & 0o022):
+        raise PermissionError("unsafe executor policy directory")
+    value = (json.dumps({"user": user}, separators=(",", ":")) + "\n").encode()
+    try:
+        fd = os.open(path, os.O_CREAT | os.O_EXCL | os.O_WRONLY | os.O_NOFOLLOW, 0o644)
+    except FileExistsError:
+        if read_executor_policy(path) != user:
+            raise PermissionError("identity changes require separate migration")
+        return False
+    with os.fdopen(fd, "wb") as stream:
+        stream.write(value)
+        stream.flush()
+        os.fsync(stream.fileno())
+    return True
+
+
 def bootstrap(device, server_key, token, *, config=Path("/etc/wireguard/gway.conf"),
               url=DEFAULT_URL, repair_host_identity=False):
     if os.geteuid() != 0:
@@ -271,6 +399,7 @@ def main(argv=None):
     boot.add_argument("--url", default=DEFAULT_URL)
     boot.add_argument("--repair", dest="repair_host_identity", action="store_true",
                       help="attest an existing matching tunnel without changing it")
+    boot.add_argument("--executor-user", help="existing non-root user (only during initial provisioning)")
     status = sub.add_parser("status")
     status.add_argument("--config", type=Path, default=Path("/etc/wireguard/gway.conf"))
     args = parser.parse_args(argv)
@@ -286,12 +415,15 @@ def main(argv=None):
                 token = getpass.getpass("Watchtower invitation token: ")
             if not re.fullmatch(r"[A-Za-z0-9_-]{32,128}", token):
                 raise ValueError("invalid invitation")
+            # Preflight identity before touching WireGuard or accounts.
+            selected = None
+            if not args.repair_host_identity:
+                selected = resolve_executor_user(sudo_install_user(), args.executor_user)
             result = bootstrap(args.device, args.server_public_key, token,
                                url=args.url,
                                repair_host_identity=args.repair_host_identity)
-            # Fresh/reused bootstrap prepares a dormant executor, but neither
-            # this endpoint nor local account creation authorizes remote jobs.
             if not args.repair_host_identity:
+                persist_executor_user(selected)
                 result.update(prepare_dormant_executor())
             print(json.dumps(result))
     except (OSError, ValueError, RuntimeError, subprocess.CalledProcessError) as exc:
