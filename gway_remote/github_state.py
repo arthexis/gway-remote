@@ -10,7 +10,7 @@ import json
 import os
 from urllib.request import Request, urlopen
 
-from .reconcile import TARGETS
+from .catalog_shadow import load_catalog
 from .attempt_policy import Candidate, plan
 
 
@@ -87,8 +87,10 @@ def ci_for_head(client: GitHub, repository: str, sha: str):
 
 def collect(client, attempts=None):
     attempts = attempts or {}
+    # Validate the complete reviewed metadata snapshot before any GitHub I/O.
+    targets = tuple((target.id, target.repository) for target in load_catalog().targets)
     states = []
-    for name, repository in TARGETS:
+    for name, repository in targets:
         sha = main_head(client, repository)
         states.append(Candidate(name, sha, main_arrival(client, repository, sha),
                                 ci_for_head(client, repository, sha), attempts.get(name)))
