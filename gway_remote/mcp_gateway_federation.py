@@ -40,3 +40,32 @@ class FederatedProviders:
         return route_provider_call(routes, name, arguments,
                                    authorized_scope=authorized_scope,
                                    invoke=self.transport.invoke)
+
+
+def federated_tool_result(selected):
+    """Preserve bounded MCP images; keep all existing text provider output unchanged.
+
+    The gateway historically wraps provider results as JSON text. Only a
+    well-formed, single JPEG image travels as actual MCP image content.
+    """
+    import base64
+    import json
+
+    if (type(selected) is dict and type(selected.get("content")) is list
+            and any(type(item) is dict and item.get("type") == "image"
+                    for item in selected["content"])):
+        if set(selected) != {"content"} or len(selected["content"]) != 1:
+            raise ValueError("invalid_provider_image")
+        item = selected["content"][0]
+        if type(item) is not dict or set(item) != {"type", "mimeType", "data"} or (
+                item["type"] != "image" or item["mimeType"] != "image/jpeg"
+                or type(item["data"]) is not str or len(item["data"]) > 190_000):
+            raise ValueError("invalid_provider_image")
+        try:
+            payload = base64.b64decode(item["data"], validate=True)
+        except (ValueError, base64.binascii.Error) as exc:
+            raise ValueError("invalid_provider_image") from exc
+        if not 0 < len(payload) <= 140_000 or not payload.startswith(b"\xff\xd8"):
+            raise ValueError("invalid_provider_image")
+        return selected
+    return {"content": [{"type": "text", "text": json.dumps(selected, separators=(",", ":"))}]}
