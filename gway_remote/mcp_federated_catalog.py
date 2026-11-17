@@ -28,9 +28,9 @@ def catalog_from_nodes(builtins, node_catalogs):
         raise FederationError("invalid_node_catalogs")
     routes = {}
     declarations = []
-    # Source names are global MCP names. A collision across nodes is ambiguous
-    # even when their individual tool names do not overlap.
-    owners = {}
+    # Node-local provider IDs may repeat. Keep the historic gway-001 public
+    # names stable; qualify all other nodes to prevent ambiguous dispatch.
+    owners = set()
     for node, response in sorted(node_catalogs.items()):
         if type(node) is not str or not _NODE.fullmatch(node) or type(response) is not dict or set(response) != {"node", "providers"} or response["node"] != node or type(response["providers"]) is not list:
             raise FederationError("invalid_node_catalog")
@@ -51,9 +51,12 @@ def catalog_from_nodes(builtins, node_catalogs):
                 raise FederationError("invalid_provider")
             if type(provider["tools"]) is not list or len(provider["tools"]) > 64:
                 raise FederationError("invalid_tools")
-            if source in owners:
+            if (node, source) in owners:
                 raise FederationError("ambiguous_provider")
-            owners[source] = node
+            owners.add((node, source))
+            public_source = source if node == "gway-001" else node.replace("-", "_") + "_" + source
+            if not _PROVIDER.fullmatch(public_source):
+                raise FederationError("invalid_public_provider")
             if provider["status"] != "available":
                 continue
             for tool in provider["tools"]:
@@ -62,7 +65,7 @@ def catalog_from_nodes(builtins, node_catalogs):
                 if (type(tool.get("inputSchema")) is not dict
                         or tool["inputSchema"].get("type") != "object"):
                     raise FederationError("invalid_tool_schema")
-                name = source + "__" + tool["name"]
+                name = public_source + "__" + tool["name"]
                 if name in routes:
                     raise FederationError("ambiguous_provider")
                 routes[name] = (node, source, tool["name"], required_scope(tool),
