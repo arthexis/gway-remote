@@ -18,6 +18,10 @@ class Execution:
     def exec(self, **kwargs):
         self.calls.append(kwargs)
         return {"status": "dispatched"}
+    def _owned(self, principal, request_id):
+        if principal != "a" * 24 or request_id != "b" * 32:
+            raise PermissionError("unowned job")
+        return {"node": "gway-001", "principal": principal}
     def result(self, **kwargs):
         self.calls.append(kwargs)
         return {"status": "running"}

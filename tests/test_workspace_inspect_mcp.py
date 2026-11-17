@@ -70,7 +70,9 @@ class WorkspaceInspectMCPTests(unittest.TestCase):
                 }
 
         read_transport = ReadTransport()
-        execution = SimpleNamespace(relay=SimpleNamespace(transport=read_transport))
+        execution = SimpleNamespace(
+            relay=SimpleNamespace(transport=read_transport),
+            _current_eligibility=lambda node: None)
         handler = SessionBridgeDispatch(
             verifier=Verifier(), session_token="trusted",
             allowed_node=lambda token, node: node == "gway-002",
@@ -152,7 +154,9 @@ class WorkspaceInspectMCPTests(unittest.TestCase):
                         "result": {"node": request["node"],
                                    "repository": request["repository"]}}
         transport = Transport()
-        execution = SimpleNamespace(relay=SimpleNamespace(transport=transport))
+        execution = SimpleNamespace(
+            relay=SimpleNamespace(transport=transport),
+            _current_eligibility=lambda node: None)
         def make(exec_service):
             return SessionBridgeDispatch(
                 verifier=Verifier(), session_token="valid",
@@ -254,7 +258,9 @@ class WorkspaceInspectMCPTests(unittest.TestCase):
                     "arguments": {"node": "gway-001", "repository": "arthexis/odoo-gelectriic"}}
         def make(transport):
             from types import SimpleNamespace
-            execution = (SimpleNamespace(relay=SimpleNamespace(transport=transport))
+            execution = (SimpleNamespace(
+                relay=SimpleNamespace(transport=transport),
+                _current_eligibility=lambda node: None)
                          if transport is not None else None)
             return SessionBridgeDispatch(
                 verifier=Verifier(), session_token="valid",
