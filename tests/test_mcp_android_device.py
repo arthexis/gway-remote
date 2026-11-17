@@ -26,8 +26,16 @@ class FakeRun:
             data = self.size
         elif argv[-3:] == ["shell", "getprop", "ro.product.model"]:
             data = b"SM-G950F\n"
+        elif argv[-3:] == ["shell", "dumpsys", "power"]:
+            data = b"mWakefulness=Awake\nDisplay Power: state=ON\n"
+        elif argv[-3:] == ["shell", "dumpsys", "trust"]:
+            data = b"User (current): trusted=0, deviceLocked=0\n"
+        elif argv[-3:] == ["shell", "dumpsys", "input"]:
+            data = b"SurfaceOrientation: 1\n"
         elif argv[-3:] == ["exec-out", "screencap", "-p"]:
-            data = b"\x89PNG\r\n\x1a\n" + b"a" * 10
+            data = (b"\x89PNG\r\n\x1a\n" + b"\x00" * 8
+                    + (1080).to_bytes(4, "big") + (2220).to_bytes(4, "big")
+                    + b"a" * 10)
         elif argv[-3:] == ["shell", "cat", "/sdcard/.gway-remote-ui.xml"]:
             data = (b'<hierarchy><node text="Visible" clickable="true" '
                     b'enabled="true" bounds="[0,0][100,100]" />'
@@ -43,7 +51,20 @@ class DeviceContracts(unittest.TestCase):
         result = Device(runner).invoke("status", {})
         self.assertEqual(result["model"], "SM-G950F")
         self.assertEqual((result["width"], result["height"]), (1080, 2220))
+        self.assertEqual((result["screen_on"], result["locked"], result["rotation"]),
+                         (True, False, 90))
         self.assertNotIn("SERIAL123", json.dumps(result))
+
+    def test_unknown_screen_state_is_null_not_guessed(self):
+        class UnknownDump(FakeRun):
+            def __call__(self, argv, **kwargs):
+                if "dumpsys" in argv:
+                    return subprocess.CompletedProcess(argv, 1, b"", b"denied")
+                return super().__call__(argv, **kwargs)
+        result = Device(UnknownDump()).invoke("status", {})
+        self.assertEqual((result["screen_on"], result["locked"], result["rotation"]),
+                         (None, None, None))
+        self.assertEqual(result["usb"], "authorized")
 
     def test_ambiguous_or_network_device_never_runs_action(self):
         for devices in (
@@ -93,6 +114,10 @@ class DeviceContracts(unittest.TestCase):
         runner = FakeRun()
         result = Device(runner).invoke("ui_tree", {})
         self.assertEqual(result["elements"][0]["text"], "Visible")
+        self.assertEqual({key: result["elements"][0][key]
+                          for key in ("checked", "selected", "focused", "scrollable")},
+                         {"checked": False, "selected": False, "focused": False,
+                          "scrollable": False})
         self.assertNotIn("secret", json.dumps(result))
         self.assertTrue(any(cmd[-3:] == ["rm", "-f", "/sdcard/.gway-remote-ui.xml"]
                             for cmd in runner.commands))
@@ -102,6 +127,24 @@ class DeviceContracts(unittest.TestCase):
         result = call_tool("capture", {}, device=Device(runner))
         self.assertEqual(result["content"][0]["type"], "image")
         self.assertEqual(base64.b64decode(result["content"][0]["data"])[:2], b"\xff\xd8")
+        meta = result["structuredContent"]
+        self.assertEqual((meta["native_width"], meta["native_height"]), (1080, 2220))
+        self.assertEqual((meta["capture_width"], meta["capture_height"]), (480, 986))
+        self.assertEqual(meta["scale_x"], 2.25)
+        self.assertAlmostEqual(meta["scale_y"], 2220 / 986)
+        self.assertEqual(federated_tool_result(result), result)
+        self.assertEqual(len(result["content"]), 1)
+        self.assertTrue(any("scale=480:986" in cmd for cmd in runner.commands))
+
+    def test_invalid_png_dimensions_fail_before_ffmpeg(self):
+        class BadPng(FakeRun):
+            def __call__(self, argv, **kwargs):
+                if argv[-3:] == ["exec-out", "screencap", "-p"]:
+                    return subprocess.CompletedProcess(argv, 0, b"\x89PNG\r\n\x1a\n" + b"a" * 10, b"")
+                return super().__call__(argv, **kwargs)
+        runner = BadPng()
+        self.assertTrue(call_tool("capture", {}, device=Device(runner))["isError"])
+        self.assertFalse(any(cmd[0].endswith("ffmpeg") for cmd in runner.commands))
 
     def test_reject_oversized_image(self):
         class HugeRun(FakeRun):
@@ -140,6 +183,20 @@ class McpProtocolContracts(unittest.TestCase):
         result = {"content": [{"type": "image", "mimeType": "image/jpeg",
                                "data": base64.b64encode(jpeg).decode()}]}
         self.assertEqual(federated_tool_result(result), result)
+
+    def test_image_metadata_cannot_carry_arbitrary_fields(self):
+        image = {"type": "image", "mimeType": "image/jpeg",
+                 "data": base64.b64encode(b"\xff\xd8jpeg").decode()}
+        for metadata in (
+            {"arbitrary": "secret"},
+            {"native_width": 1080, "native_height": 2220, "capture_width": 480,
+             "capture_height": 986, "scale_x": True, "scale_y": 2220 / 986},
+            {"native_width": 1080, "native_height": 2220, "capture_width": 480,
+             "capture_height": 986, "scale_x": 3.0, "scale_y": 2220 / 986},
+        ):
+            with self.subTest(metadata=metadata):
+                with self.assertRaises(ValueError):
+                    federated_tool_result({"content": [image], "structuredContent": metadata})
 
     def test_bad_provider_image_fails_closed(self):
         for result in (
