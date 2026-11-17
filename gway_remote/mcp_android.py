@@ -116,6 +116,9 @@ class Device:
 
     def invoke(self, name, arguments):
         _required_args(name, arguments)
+        if name == "text" and not re.fullmatch(
+                r"[A-Za-z0-9 .,_@/-]{1,80}", arguments["value"], flags=re.ASCII):
+            raise AndroidError("unsafe_text")
         serial = self.serial()
         if name == "status":
             width, height = self.size(serial)
@@ -184,8 +187,6 @@ class Device:
             self.adb(serial, "shell", "input", "keyevent", "KEYCODE_" + arguments["key"])
         elif name == "text":
             value = arguments["value"]
-            if not re.fullmatch(r"[A-Za-z0-9 .,_@/-]{1,80}", value, flags=re.ASCII):
-                raise AndroidError("unsafe_text")
             self.adb(serial, "shell", "input", "text", value.replace(" ", "%s"))
         return {"ok": True, "action": name}
 
