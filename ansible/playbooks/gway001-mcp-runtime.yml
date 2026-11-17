@@ -188,4 +188,4 @@
         owner: root
         group: root
         mode: "0644"
-        content: "{{ {'source_id': 'android', 'revision': mcp_target_sha, 'executable': '/usr/bin/python3', 'argv': ['/usr/bin/python3', '-I', '/opt/gway-mcp/releases/' ~ mcp_target_sha ~ '/run.py', 'android_provider']} | to_json }}\n"
+        content: "{{ {'source_id': 'android', 'revision': mcp_target_sha, 'executable': '/usr/bin/python3.11', 'argv': ['/usr/bin/python3.11', '-I', '/opt/gway-mcp/releases/' ~ mcp_target_sha ~ '/run.py', 'android_provider']} | to_json }}\n"
