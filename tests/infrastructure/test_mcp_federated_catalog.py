@@ -25,9 +25,12 @@ class FederatedCatalogTests(unittest.TestCase):
         self.assertEqual(spy.calls[0][1]["operation"], "provider_call")
         self.assertEqual(spy.calls[0][2], "read")
 
-    def test_duplicate_provider_tool_rejected(self):
-        with self.assertRaises(FederationError):
-            catalog_from_nodes([], nodes('gway-001', 'gway-002'))
+    def test_same_provider_on_distinct_nodes_gets_distinct_routes(self):
+        tools, routes = catalog_from_nodes([], nodes('gway-001', 'gway-002'))
+        self.assertEqual({t["name"] for t in tools},
+                         {"odoo__search", "gway_002_odoo__search"})
+        self.assertEqual(routes["odoo__search"][0], "gway-001")
+        self.assertEqual(routes["gway_002_odoo__search"][0], "gway-002")
 
 
     def test_unknown_tool_rejected(self):

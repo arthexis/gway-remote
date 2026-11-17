@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Read-only, fail-closed identity cutover check; run only as root via Ansible."""
 import os
+import re
 from pathlib import Path
 import sqlite3
 import sys
@@ -12,7 +13,7 @@ def main():
         raise SystemExit("root and one requested user required")
     previous = selected_user()
     requested = sys.argv[1]
-    if requested not in ("arthe", "gway-exec"):
+    if not re.fullmatch(r"[a-z_][a-z0-9_-]*", requested) or requested == "root":
         raise SystemExit("unsupported identity")
     if previous == requested:
         print("unchanged")

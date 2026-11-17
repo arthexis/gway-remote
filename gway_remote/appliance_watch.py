@@ -22,7 +22,7 @@ from .deploy_dispatch import dispatch
 from .github_state import GitHub, ci_for_head, main_arrival
 from .diagnostics import diagnose
 from .health import quick_component_check
-from .reconcile import TARGETS
+from .catalog_shadow import load_catalog
 
 ISSUE_MARKER = "<!-- gway-remote:appliance-watch:{name}:{kind} -->"
 COOLDOWN = timedelta(minutes=10)
@@ -78,6 +78,39 @@ def _busy():
     return False
 
 
+
+def _dispatch_failure_reason(target, revision, exc):
+    """Bounded metadata only: never publish exception strings, stderr or argv."""
+    known_classes = {
+        "OSError", "FileNotFoundError", "PermissionError", "TimeoutError",
+        "RuntimeError", "CalledProcessError", "TimeoutExpired",
+    }
+    error_class = type(exc).__name__
+    if error_class not in known_classes:
+        error_class = "OtherError"
+    cause = exc.__cause__
+    cause_class = type(cause).__name__ if cause is not None else "unavailable"
+    if cause is not None and cause_class not in known_classes:
+        cause_class = "OtherError"
+    underlying = cause if isinstance(cause, subprocess.CalledProcessError) else exc
+    code = underlying.returncode if isinstance(underlying, subprocess.CalledProcessError) else None
+    exit_code = str(code) if isinstance(code, int) and -255 <= code <= 255 else "unavailable"
+    # Parse but never copy diagnostic text into the issue.
+    raw = (underlying.stderr if isinstance(underlying, subprocess.CalledProcessError)
+           and isinstance(underlying.stderr, str) else str(exc))
+    match = re.search(r"\bHTTP(?:/[12](?:\.\d)?)?[\s:]+([1-5][0-9]{2})(?![0-9])",
+                      raw, flags=re.IGNORECASE)
+    http_status = match.group(1) if match else "unavailable"
+    safe_target = (target if isinstance(target, str)
+                   and re.fullmatch(r"[a-z0-9-]{1,64}", target) else "unknown")
+    safe_revision = (revision if isinstance(revision, str)
+                     and re.fullmatch(r"[0-9a-f]{40}", revision) else "unknown")
+    return ("Appliance workflow dispatch was rejected or unavailable\n\n"
+            f"target={safe_target}\nrevision={safe_revision}\n"
+            f"error_class={error_class}\ncause_class={cause_class}\n"
+            f"http_status={http_status}\nexit_code={exit_code}")
+
+
 def _issue(repo, name, kind, reason):
     marker = ISSUE_MARKER.format(name=name, kind=kind)
     title = f"Appliance {kind}: {name}"
@@ -99,12 +132,16 @@ def _issue(repo, name, kind, reason):
 
 
 def _dispatch_reservations(directory=DEFAULT_DIR):
+    # Journal target names are descriptive, never deployment authority.
+    # The checked catalog must pass reviewed registry parity even if no
+    # journal exists, before accessing or creating reservation state.
+    allowed_names = {target.id for target in load_catalog().targets}
     path = Path(directory) / "watch-dispatches.json"
     if not path.exists():
         return {}
     data = json.loads(path.read_text(encoding="utf-8"))
     if not isinstance(data, dict) or any(
-        name not in dict(TARGETS) or not isinstance(sha, str) or
+        name not in allowed_names or not isinstance(sha, str) or
         not re.fullmatch(r"[0-9a-f]{40}", sha) for name, sha in data.items()
     ):
         raise ValueError("invalid appliance watch dispatch journal")
@@ -147,6 +184,9 @@ def _github_client():
 
 
 def check(*, apply=False, client=None, now=None):
+    # Strict catalog preflight before token, journal, inventory or GitHub I/O.
+    # Metadata here selects CI/issue source URLs, never deployment rights.
+    sources = {target.id: target.repository for target in load_catalog().targets}
     client = client if client is not None else _github_client()
     now = now or datetime.now(timezone.utc)
     attempts = read_attempts()  # Corrupt evidence aborts, never triggers installs.
@@ -155,7 +195,6 @@ def check(*, apply=False, client=None, now=None):
     observations = {x["name"]: x for x in diagnose()["components"]}
     decisions = []
     pending = []
-    sources = dict(TARGETS)
     for row in report["components"]:
         name = row["name"]
         # Inventory is authoritative for this node. Never report or deploy
@@ -196,13 +235,15 @@ def check(*, apply=False, client=None, now=None):
             # Only one request per tick. The existing workflow owns serialization.
             dispatched = pending[0]
             try:
-                if not _reserve_dispatch(dispatched, next(row["latest_sha"] for row in report["components"] if row["name"] == dispatched)):
+                revision = next(row["latest_sha"] for row in report["components"]
+                                if row["name"] == dispatched)
+                if not _reserve_dispatch(dispatched, revision):
                     return {"schema": "gway-remote/watch/v1", "checked_at": now.isoformat(),
                             "decisions": decisions, "dispatched": None}
                 dispatch(dispatched)
             except (OSError, RuntimeError, subprocess.CalledProcessError) as exc:
                 _issue("arthexis/gway-remote", dispatched, "dispatch-failure",
-                       "Appliance workflow dispatch was rejected or unavailable")
+                       _dispatch_failure_reason(dispatched, revision, exc))
                 raise
     return {"schema": "gway-remote/watch/v1", "checked_at": now.isoformat(),
             "decisions": decisions, "dispatched": dispatched}

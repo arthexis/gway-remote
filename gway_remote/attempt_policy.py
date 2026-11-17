@@ -23,12 +23,19 @@ class Plan:
     reason: str
 
 
-def plan(candidates, now, *, bypass_quiet=False, managed=None):
-    """An unknown attempt is eligible once; failed or interrupted attempts need explicit retry."""
+def plan(candidates, now, *, bypass_quiet=False, managed=None, catalog_targets=None):
+    """Pure policy: an optional prevalidated catalog snapshot may not widen TARGETS."""
     if now.tzinfo is None or now.utcoffset() is None:
         raise ValueError("now must be timezone-aware")
+    # Catalog I/O belongs to the caller. Only the exact reviewed ordered
+    # tuple is admissible; never derive execution rights from metadata.
+    if catalog_targets is not None and (
+        type(catalog_targets) is not tuple or catalog_targets != TARGETS
+    ):
+        return Plan("blocked", (), "catalog differs from reviewed target registry")
     by_name = {c.name: c for c in candidates}
-    names = tuple(name for name, _ in TARGETS if managed is None or name in managed)
+    targets = TARGETS if catalog_targets is None else catalog_targets
+    names = tuple(name for name, _ in targets if managed is None or name in managed)
     if not names:
         return Plan("idle", (), "no managed appliance targets")
     if len(candidates) != len(names) or set(by_name) != set(names):

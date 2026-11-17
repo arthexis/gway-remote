@@ -13,7 +13,7 @@
     path: /var/lib/gway-mcp-deploy
     state: directory
     owner: "{{ gway_remote_exec_run_user }}"
-    group: "{{ gway_remote_exec_run_user }}"
+    group: "{{ getent_passwd[gway_remote_exec_run_user][2] }}"
     mode: "0700"
 
 # Retire only the obsolete deployment-specific privilege path. This does not

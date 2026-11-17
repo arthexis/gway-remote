@@ -6,7 +6,7 @@ import subprocess
 from .deployment_policy import INVENTORY
 from .attempts import read_attempts
 from .github_state import GitHub, main_head
-from .reconcile import TARGETS
+from .catalog_shadow import load_catalog
 from .status import installed_revision
 from .bastion_status import read_bastion_evidence
 
@@ -29,8 +29,9 @@ def _node_policy(node, inventory_path=INVENTORY):
 
 def inventory(repository=None, *, node=None, client=None, attempts=None, installed=None, policy=None):
     """Report attempt evidence separately from independently verified installation."""
-    names = dict(TARGETS)
-    if repository is not None and repository not in names:
+    # One strictly checked metadata snapshot; never deployment authority.
+    targets = tuple((target.id, target.repository) for target in load_catalog().targets)
+    if repository is not None and repository not in dict(targets):
         raise ValueError(f"Unknown repository: {repository}")
     local_node = socket.gethostname().split(".", 1)[0]
     node = node or local_node
@@ -40,7 +41,7 @@ def inventory(repository=None, *, node=None, client=None, attempts=None, install
     attempts = attempts if attempts is not None else (read_attempts() if local else {})
     installed = installed if installed is not None else installed_revision
     rows = []
-    for name, source in TARGETS:
+    for name, source in targets:
         if repository is not None and repository != name:
             continue
         record = attempts.get(name) or {}
