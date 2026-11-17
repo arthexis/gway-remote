@@ -56,13 +56,21 @@ class DiagnosticsCatalogP3B2Tests(unittest.TestCase):
         self.assertEqual((loads, status_calls, logs, systemd), (1, 1, 1, 1))
         self.assertEqual(result["components"][0]["diagnosis"], "runtime-not-verified")
 
-    def test_no_import_time_catalog_lookup(self):
-        # Existing module import cannot accidentally load the checked metadata.
-        with patch("gway_remote.catalog_shadow.load_catalog",
-                   side_effect=AssertionError("import-time catalog lookup")):
-            import importlib
-            importlib.reload(diagnostics)
-        self.assertTrue(callable(diagnostics.diagnose))
+    def test_module_does_not_eagerly_load_catalog(self):
+        # Inspect the module AST rather than reloading a shared module; reload
+        # would overwrite pytest's patched attributes and leak mocks to peers.
+        import ast
+        import inspect
+        tree = ast.parse(inspect.getsource(diagnostics))
+        for node in tree.body:
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+                continue
+            self.assertFalse(
+                any(isinstance(child, ast.Call)
+                    and isinstance(child.func, ast.Name)
+                    and child.func.id == "load_catalog"
+                    for child in ast.walk(node))
+            )
 
     def test_invalid_catalog_fails_before_any_status_log_or_systemd(self):
         with patch.object(diagnostics, "load_catalog",
