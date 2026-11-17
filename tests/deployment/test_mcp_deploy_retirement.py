@@ -113,7 +113,7 @@ class LegacyDeployRetirementTests(unittest.TestCase):
         main = MAIN.read_text()
         self.assertIn('key: "{{ gway_remote_exec_run_user }}"', role)
         self.assertIn('owner: "{{ gway_remote_exec_run_user }}"', role)
-        self.assertIn('group: "{{ gway_remote_exec_run_user }}"', role)
+        self.assertIn('group: "{{ getent_passwd[gway_remote_exec_run_user][2] }}"', role)
         self.assertIn('mode: "0700"', role)
         self.assertNotIn("gway_remote_exec_user", role)
         self.assertIn('      - "{{ gway_remote_exec_run_user }}"', main)
