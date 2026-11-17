@@ -16,6 +16,8 @@ MAX_BODY = 65536
 MAX_RESPONSE = 262144
 # Agent Ops read adapters may take 20 seconds; allow bounded bridge overhead.
 UPSTREAM_TIMEOUT = 30
+# Discovery must recover promptly when the legacy gway-001 backend is offline.
+DISCOVERY_TIMEOUT = 3
 ALLOWED_METHODS = frozenset({"server/discover", "initialize", "notifications/initialized", "tools/list", "tools/call"})
 ALLOWED_TOOLS = frozenset({"github_workflow_runs", "github_workflow_status", "github_workflow_errors", "mcp_source_status",
     "node_list", "node_capabilities", "node_file_download", "node_exec_preview",
@@ -337,6 +339,52 @@ class Handler(BaseHTTPRequestHandler):
             audience=audience, principal=principal, name=name,
             arguments=arguments)
 
+    def _offline_backend(self, payload, version):
+        """Serve only gateway-owned discovery; never cache backend-only tools."""
+        method = payload["method"]
+        params = payload.get("params", {})
+        if method == "notifications/initialized":
+            if "id" in payload or type(params) is not dict:
+                return self.reject(400)
+            self.send_response(202)
+            self.send_header("MCP-Protocol-Version", version)
+            self.send_header("Cache-Control", "no-store")
+            self.send_header("Content-Length", "0")
+            self.end_headers()
+            return
+        if method == "initialize":
+            requested = params.get("protocolVersion", "2025-03-26") if type(params) is dict else None
+            if type(requested) is not str or not requested:
+                return self.reject(400)
+            result = {"protocolVersion": "2025-03-26", "capabilities": {"tools": {}},
+                      "serverInfo": {"name": "gway-agent-ops", "version": "0.1.0"}}
+        elif method == "tools/list":
+            allowed = {"_meta"} if version == "2026-07-28" else set()
+            if type(params) is not dict or set(params) - allowed:
+                return self.reject(400)
+            try:
+                tools, _ = effective_catalog(
+                    [], federation=self.server.federation,
+                    execution=self.server.execution)
+            except (OSError, ValueError, RuntimeError, PermissionError, TypeError, KeyError):
+                return self.reject(502)
+            result = {"tools": tools}
+        else:
+            return self.reject(502)
+        if version == "2026-07-28":
+            result = {"resultType": "complete", **result}
+        body = json.dumps({"jsonrpc": "2.0", "id": payload.get("id"),
+                           "result": result}, separators=(",", ":")).encode()
+        if len(body) > MAX_RESPONSE:
+            return self.reject(502)
+        self.send_response(200)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("MCP-Protocol-Version", version)
+        self.send_header("Cache-Control", "no-store")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
     def _process_authenticated(self, token, has_read, has_exec):
         if self.headers.get("Content-Type", "").split(";", 1)[0].strip().lower() != "application/json":
             return self.reject(415)
@@ -404,12 +452,20 @@ class Handler(BaseHTTPRequestHandler):
                            "Content-Type": "application/json",
                            "Accept": "application/json, text/event-stream",
                            "MCP-Protocol-Version": "2025-03-26"}
-                with self.server.opener.open(Request(self.server.upstream, probe,
-                                                     headers), timeout=UPSTREAM_TIMEOUT) as upstream:
-                    backend_reply = upstream.read(MAX_RESPONSE + 1)
-                if len(backend_reply) > MAX_RESPONSE:
-                    raise ValueError("oversized backend catalog")
-                backend_tools = json.loads(backend_reply)["result"]["tools"]
+                try:
+                    with self.server.opener.open(Request(self.server.upstream, probe,
+                                                         headers), timeout=DISCOVERY_TIMEOUT) as upstream:
+                        backend_reply = upstream.read(MAX_RESPONSE + 1)
+                except HTTPError:
+                    raise ValueError("backend rejected catalog") from None
+                except (OSError, URLError):
+                    # Backend unavailable: only node-owned and gateway-owned
+                    # tools are eligible, never stale backend declarations.
+                    backend_tools = []
+                else:
+                    if len(backend_reply) > MAX_RESPONSE:
+                        raise ValueError("oversized backend catalog")
+                    backend_tools = json.loads(backend_reply)["result"]["tools"]
                 _, selected = effective_catalog(
                     backend_tools, federation=self.server.federation,
                     execution=self.server.execution)
@@ -641,14 +697,20 @@ class Handler(BaseHTTPRequestHandler):
                    "MCP-Protocol-Version": "2025-03-26"}
         req = Request(self.server.upstream, raw, headers, method="POST")
         try:
-            with self.server.opener.open(req, timeout=UPSTREAM_TIMEOUT) as response:
+            timeout = DISCOVERY_TIMEOUT if payload["method"] in {
+                "initialize", "tools/list", "notifications/initialized"} else UPSTREAM_TIMEOUT
+            with self.server.opener.open(req, timeout=timeout) as response:
                 status = response.status
                 body = response.read(MAX_RESPONSE + 1)
                 typ = response.headers.get("Content-Type", "application/json")
         except HTTPError as exc:
             status, body, typ = exc.code, b"", "application/json"
             exc.close()
-        except (OSError, URLError, ValueError):
+        except (OSError, URLError):
+            if payload["method"] in {"initialize", "tools/list", "notifications/initialized"}:
+                return self._offline_backend(payload, version)
+            return self.reject(502)
+        except ValueError:
             return self.reject(502)
         if len(body) > MAX_RESPONSE:
             return self.reject(502)
