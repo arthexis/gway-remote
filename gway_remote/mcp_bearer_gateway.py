@@ -673,7 +673,8 @@ class Handler(BaseHTTPRequestHandler):
                 selected = self.server.federation.call(
                     name, arguments, authorized_scope="execute" if has_exec else "read",
                     routes=routes)
-                result = {"content": [{"type": "text", "text": json.dumps(selected, separators=(",", ":"))}]}
+                from .mcp_gateway_federation import federated_tool_result
+                result = federated_tool_result(selected)
                 body = json.dumps({"jsonrpc": "2.0", "id": payload.get("id"),
                                    "result": {"resultType": "complete", **result}
                                    if version == "2026-07-28" else result},
