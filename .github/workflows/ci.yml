@@ -113,6 +113,7 @@ jobs:
           ansible-playbook --syntax-check -i 'localhost,' ansible/playbooks/validate-mcp-source-provision.yml
           ansible-playbook --syntax-check -i 'localhost,' ansible/observe-deployment.yml
           ansible-playbook --syntax-check -i 'gway-004,' ansible/migrate-executor-004.yml
+          ansible-playbook --syntax-check -i 'localhost,' ansible/playbooks/gway002-relay-only.yml
           ansible-playbook --syntax-check -i 'wireguard_hub,' ansible/playbooks/adopt-wireguard-peer.yml
           ansible-playbook --syntax-check -i 'watchtower,' ansible/playbooks/watchtower-enrollment.yml
           ansible-playbook --syntax-check -i 'watchtower,' ansible/playbooks/watchtower-enrollment-production.yml
