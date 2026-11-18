@@ -9,6 +9,7 @@ from __future__ import annotations
 import argparse
 import base64
 import hashlib
+import ipaddress
 import json
 import os
 from pathlib import Path
@@ -166,13 +167,16 @@ def plan(*, service_uid, config=CONFIG, host_key=HOST_KEY,
             raise PinRefused("an existing node pin is no longer valid")
 
     host_pub, ledger_address = _attested_key(NODE, host_key)
+    enrolled_ip = ipaddress.ip_interface(ledger_address)
+    if enrolled_ip.version != 4 or enrolled_ip.network.prefixlen != 32:
+        raise PinRefused("invalid enrolled WireGuard /32")
     current = node_registry_inventory.load(inventory)
     matches = [x for x in current["nodes"] if x["node"] == NODE]
     if (len(matches) != 1 or matches[0]["registered"] is not True
             or matches[0]["identity_verified"] is not True
             or matches[0]["execute_eligible"] is not True
             or matches[0]["reachable"] != "reachable"
-            or matches[0]["address"] != ledger_address):
+            or matches[0]["address"] != str(enrolled_ip.ip)):
         raise PinRefused("fresh enrolled execution eligibility or address denied")
 
     digest = _digest(base64.b64decode(host_pub.split()[1], validate=True))
@@ -180,7 +184,7 @@ def plan(*, service_uid, config=CONFIG, host_key=HOST_KEY,
     new_known = original_known + appended + (NODE + " " + host_pub + "\n").encode("ascii")
     entry = {
         "node": NODE,
-        "address": ledger_address,
+        "address": str(enrolled_ip.ip),
         "ssh_host_alias": NODE,
         "known_hosts": str(known_path),
         "identity_file": str(identity_path),
@@ -225,7 +229,9 @@ def _atomic_file(path, raw, info):
     fd, name = tempfile.mkstemp(prefix=".gway-002-pin-", dir=path.parent)
     try:
         with os.fdopen(fd, "wb") as out:
-            os.fchown(out.fileno(), info.st_uid, info.st_gid)
+            staged_info = os.fstat(out.fileno())
+            if (staged_info.st_uid, staged_info.st_gid) != (info.st_uid, info.st_gid):
+                os.fchown(out.fileno(), info.st_uid, info.st_gid)
             os.fchmod(out.fileno(), stat.S_IMODE(info.st_mode))
             out.write(raw)
             out.flush()
