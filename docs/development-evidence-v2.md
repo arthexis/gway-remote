@@ -58,3 +58,8 @@ after the observation all block review. The journal entry timestamp cannot
 postdate the journal collection timestamp. These are consistency checks on
 caller-supplied snapshots; they still do not authenticate the source or prove
 a running production release has passed functional acceptance.
+
+The deep status inventory must also contain every reviewed catalog target
+exactly once; a component-only subset, duplicate row, or injected unknown
+target is rejected as incomplete before comparison. This is a consistency
+gate on the existing full status contract, not evidence of remote identity.
