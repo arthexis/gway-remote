@@ -121,7 +121,7 @@
   },
   "watchtower --help": {
     "code": 0,
-    "stdout_sha256": "d789751ef70c92c1411196b3ce440c798a1c65695e1c60c4a918666bcbba283e",
+    "stdout_sha256": "48d67573505a801fca001fedcc5d83f1c52e16366b98e7e4cfc264f607e2493a",
     "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
   },
   "codex --help": {
@@ -171,7 +171,7 @@
   },
   "watchtower adopt --help": {
     "code": 0,
-    "stdout_sha256": "d789751ef70c92c1411196b3ce440c798a1c65695e1c60c4a918666bcbba283e",
+    "stdout_sha256": "48d67573505a801fca001fedcc5d83f1c52e16366b98e7e4cfc264f607e2493a",
     "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
   }
 }
