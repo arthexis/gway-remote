@@ -22,6 +22,7 @@ FIELDS = frozenset((
     "host_key_sha256", "remote_user",
 ))
 NODE = re.compile(r"gway-[0-9]{3}\Z")
+ROOT_UID = 0
 MAX_CONFIG_BYTES = 4096
 MAX_OUTPUT_BYTES = 2048
 
@@ -37,7 +38,7 @@ def _config_nodes(path):
     try:
         info = os.fstat(fd)
         if (not stat.S_ISREG(info.st_mode) or info.st_nlink != 1
-                or info.st_uid != 0 or info.st_mode & 0o022
+                or info.st_uid != ROOT_UID or info.st_mode & 0o022
                 or not 0 < info.st_size <= MAX_CONFIG_BYTES):
             raise RelayPublicKeyUnavailable("unsafe execute configuration")
         raw = os.read(fd, MAX_CONFIG_BYTES + 1)
@@ -60,6 +61,15 @@ def _config_nodes(path):
     return nodes
 
 
+def _check_identity_parents(path, owner):
+    for ancestor in path.parents:
+        parent = ancestor.lstat()
+        if (not stat.S_ISDIR(parent.st_mode)
+                or parent.st_mode & 0o022
+                or parent.st_uid not in (ROOT_UID, owner)):
+            raise RelayPublicKeyUnavailable("unsafe relay identity parent")
+
+
 def _private_identity(path):
     """Open one existing private identity without following a symlink."""
     path = Path(path)
@@ -74,12 +84,7 @@ def _private_identity(path):
             raise RelayPublicKeyUnavailable("unsafe relay identity metadata")
         # Require all parent directories to be trusted and non-writable by
         # unrelated accounts. The file itself may belong to the gateway UID.
-        for ancestor in path.parents:
-            parent = ancestor.lstat()
-            if (not stat.S_ISDIR(parent.st_mode)
-                    or parent.st_mode & 0o022
-                    or parent.st_uid not in (0, info.st_uid)):
-                raise RelayPublicKeyUnavailable("unsafe relay identity parent")
+        _check_identity_parents(path, info.st_uid)
         return fd
     except BaseException:
         os.close(fd)
