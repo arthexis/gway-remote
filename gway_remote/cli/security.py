@@ -51,7 +51,7 @@ def register(subparsers, names):
         register_parser.add_argument("--settings", type=Path, default=Path("/etc/gway-remote/watchtower.json"))
     if "watchtower" in names:
         watchtower_parser = subparsers.add_parser("watchtower", help="Root-only Watchtower enrollment administration")
-        watchtower_parser.add_argument("action", choices=("serve", "invite", "register", "revoke", "revoke-bootstrap", "bootstrap-status", "status", "snapshot", "recover", "revoke-host", "rotate-host", "adopt", "attest"))
+        watchtower_parser.add_argument("action", choices=("serve", "invite", "register", "revoke", "revoke-bootstrap", "bootstrap-status", "status", "snapshot", "recover", "revoke-host", "rotate-host", "adopt", "attest", "relay-public-key"))
         watchtower_parser.add_argument("node", nargs="?", help="node ID for adopt or attest")
         watchtower_parser.add_argument("--settings", type=Path, default=Path("/etc/gway-remote/watchtower.json"), help="root-owned Watchtower settings for adopt")
         watchtower_parser.add_argument("--ledger", help="root-owned SQLite enrollment ledger")
@@ -167,6 +167,17 @@ def dispatch(args, parser):
                 return True
             if os.geteuid() != 0:
                 parser.exit(1, "gway-remote: Watchtower administration requires root or sudo\n")
+            if args.action == "relay-public-key":
+                if not args.node:
+                    parser.error("watchtower relay-public-key requires a configured node")
+                from ..watchtower_relay_public_key import export_public_key
+                try:
+                    result = export_public_key(args.node)
+                except (OSError, ValueError, RuntimeError, TypeError, KeyError):
+                    # Do not expose private key locations or exception payloads.
+                    parser.exit(1, "gway-remote: relay public key unavailable\n")
+                print(json.dumps(result, sort_keys=True))
+                return True
             if args.action in ("adopt", "attest"):
                 from ..watchtower_settings import adopt_settings
                 settings = adopt_settings(args.settings)
