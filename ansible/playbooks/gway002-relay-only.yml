@@ -94,7 +94,7 @@
       ansible.builtin.assert:
         that:
           - gway_exec_relay_public_key is match('^ssh-ed25519 [A-Za-z0-9+/=]+( [A-Za-z0-9_.@-]+)?$')
-          - "'\n' not in gway_exec_relay_public_key"
+          - gway_exec_relay_public_key.splitlines() | length == 1
       no_log: true
 
     - name: Inspect all existing relay-owned files without following symlinks
