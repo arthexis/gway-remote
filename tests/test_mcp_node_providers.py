@@ -16,6 +16,8 @@ READ = {"name": "customer_search", "inputSchema": {"type": "object"},
         "annotations": {"readOnlyHint": True}}
 WRITE = {"name": "customer_update", "inputSchema": {"type": "object"},
          "annotations": {"readOnlyHint": False}}
+BATCH = {"name": "customer_vehicle_batch_apply", "inputSchema": {"type": "object"},
+         "annotations": {"readOnlyHint": False}}
 
 
 @patch("gway_remote.mcp_node_providers._node_registration", side_effect=lambda registration: registration)
@@ -42,6 +44,28 @@ class NodeProviderTests(unittest.TestCase):
                                arguments={"id": 1}, authorized_scope="execute")
         self.assertEqual(result, {"content": []})
         self.assertEqual(invoke.call_args.kwargs["authorized_scope"], "execute")
+
+    @patch("gway_remote.mcp_node_providers.call_source_tool", return_value={"content": []})
+    @patch("gway_remote.mcp_node_providers.list_source_tools", return_value=[READ, WRITE, BATCH])
+    def test_only_odoo_customer_batch_receives_bounded_extended_deadline(self, discovery, invoke, identity):
+        provider_call([REG], provider="odoo", tool="customer_vehicle_batch_apply",
+                      arguments={"batch": {"schema_version": 1, "cases": []}},
+                      authorized_scope="execute")
+        self.assertEqual(invoke.call_args.kwargs["timeout"], 25)
+        self.assertEqual(invoke.call_args.kwargs["authorized_scope"], "execute")
+        provider_call([REG], provider="odoo", tool="customer_update",
+                      arguments={"id": 1}, authorized_scope="execute")
+        self.assertNotIn("timeout", invoke.call_args.kwargs)
+
+    @patch("gway_remote.mcp_node_providers.call_source_tool")
+    @patch("gway_remote.mcp_node_providers.list_source_tools", return_value=[READ, WRITE, BATCH])
+    def test_batch_remains_execute_only(self, discovery, invoke, identity):
+        with self.assertRaises(NodeProviderError) as context:
+            provider_call([REG], provider="odoo", tool="customer_vehicle_batch_apply",
+                          arguments={"batch": {"schema_version": 1, "cases": []}},
+                          authorized_scope="read")
+        self.assertEqual(context.exception.code, "permission_denied")
+        invoke.assert_not_called()
 
     @patch("gway_remote.mcp_node_providers.list_source_tools", side_effect=OSError())
     def test_failure_is_isolated(self, discovery, identity):
