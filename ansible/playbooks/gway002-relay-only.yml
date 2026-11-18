@@ -1,0 +1,179 @@
+---
+# #614: strictly local gway-002 relay-only preparation, independent of the
+# main appliance deployment role. Defaults to zero changes, even on 002.
+# The operator must deliver and verify only Watchtower's PUBLIC relay key
+# through an independently authenticated administration path. Never a private key.
+- name: Prepare only the restricted gway-002 SSH receiver
+  hosts: localhost
+  connection: local
+  gather_facts: true
+  become: false
+  vars:
+    gway_002_relay_apply: false
+    gway_remote_install_root: /opt/gway-remote
+    gway_002_relay_paths:
+      - /etc/ssh/sshd_config.d/40-gway-exec-relay.conf
+      - /etc/sudoers.d/gway-exec-relay
+      - /var/lib/gway-relay/.ssh/authorized_keys
+  tasks:
+    - name: Refuse other nodes, identities, or implicit authorization
+      ansible.builtin.assert:
+        that:
+          - ansible_hostname == 'gway-002'
+          - inventory_hostname == 'localhost'
+          - lookup('pipe', 'id -un') == 'arthe'
+          - gway_002_relay_apply | type_debug == 'bool'
+          - gway_002_expected_executor_user is defined
+          - gway_002_expected_executor_user in ['gway-exec', 'arthe']
+          - gway_002_relay_public_key_path is defined
+          - gway_002_relay_public_key_sha256 is defined
+          - gway_002_relay_public_key_sha256 is match('^[0-9a-f]{64}$')
+          - not (gway_002_relay_apply | bool) or (gway_002_relay_approval | default('')) == 'I_ACCEPT_GWAY_002_RELAY_ONLY'
+        fail_msg: "gway-002 requires a local arthe session, reviewed public key and explicit apply approval"
+
+    - name: Inspect existing installed GWay Remote protocol module
+      ansible.builtin.stat:
+        path: /opt/gway-remote/gway_remote/node_exec_protocol.py
+        follow: false
+      register: relay_protocol_module
+
+    - name: Require existing regular protocol code; no implicit installation
+      ansible.builtin.assert:
+        that:
+          - relay_protocol_module.stat.isreg | default(false)
+          - not (relay_protocol_module.stat.islnk | default(false))
+
+    - name: Resolve existing root-controlled executor identity without changing it
+      ansible.builtin.command:
+        argv:
+          - /usr/bin/python3
+          - -c
+          - "from gway_remote.node_exec_identity import selected_user; print(selected_user())"
+      environment:
+        PYTHONPATH: /opt/gway-remote
+      become: true
+      register: relay_selected_account
+      changed_when: false
+
+    - name: Refuse executor identity migration or an unexpected default
+      ansible.builtin.assert:
+        that:
+          - relay_selected_account.stdout == gway_002_expected_executor_user
+
+    - name: Inspect operator-staged Watchtower relay public key
+      ansible.builtin.stat:
+        path: "{{ gway_002_relay_public_key_path }}"
+        checksum_algorithm: sha256
+        follow: false
+      become: true
+      register: relay_public_key_file
+
+    - name: Require root-controlled unchanged public key with independent digest
+      ansible.builtin.assert:
+        that:
+          - relay_public_key_file.stat.isreg | default(false)
+          - not (relay_public_key_file.stat.islnk | default(false))
+          - relay_public_key_file.stat.pw_name == 'root'
+          - relay_public_key_file.stat.mode in ['0600', '0644', '0444', '0400']
+          - relay_public_key_file.stat.checksum == gway_002_relay_public_key_sha256
+
+    - name: Read only the approved public relay key
+      ansible.builtin.slurp:
+        src: "{{ gway_002_relay_public_key_path }}"
+      become: true
+      register: relay_public_key_bytes
+      no_log: true
+
+    - name: Select exact public key for the existing relay recipe
+      ansible.builtin.set_fact:
+        gway_exec_relay_public_key: "{{ (relay_public_key_bytes.content | b64decode).strip() }}"
+        gway_remote_exec_run_user: "{{ gway_002_expected_executor_user }}"
+      no_log: true
+
+    - name: Refuse unexpected key formats or additional lines
+      ansible.builtin.assert:
+        that:
+          - gway_exec_relay_public_key is match('^ssh-ed25519 [A-Za-z0-9+/=]+( [A-Za-z0-9_.@-]+)?$')
+          - "'\n' not in gway_exec_relay_public_key"
+      no_log: true
+
+    - name: Inspect all existing relay-owned files without following symlinks
+      ansible.builtin.stat:
+        path: "{{ item }}"
+        follow: false
+      loop: "{{ gway_002_relay_paths }}"
+      become: true
+      register: relay_files_before
+
+    - name: Reject unknown or writable existing relay files
+      ansible.builtin.assert:
+        that:
+          - not (item.stat.islnk | default(false))
+          - not (item.stat.exists | default(false)) or (item.stat.isreg | default(false))
+          - not (item.stat.exists | default(false)) or item.stat.pw_name == 'root'
+          - not (item.stat.exists | default(false)) or item.stat.mode == ('0440' if item.item.endswith('/gway-exec-relay') else '0644')
+      loop: "{{ relay_files_before.results }}"
+      loop_control:
+        label: "{{ item.item }}"
+
+    - name: Preserve existing relay policy bytes for rescue only
+      ansible.builtin.slurp:
+        src: "{{ item.item }}"
+      when: item.stat.exists | default(false)
+      loop: "{{ relay_files_before.results }}"
+      become: true
+      register: relay_original_bytes
+      no_log: true
+
+    - name: Report eligibility without applying anything
+      ansible.builtin.debug:
+        msg:
+          node: gway-002
+          mode: "{{ 'explicit_apply' if gway_002_relay_apply else 'preflight_only' }}"
+          executor_policy: unchanged
+          remote_managed_repositories: unchanged
+          wireguard: unchanged
+          watchtower_pin: unchanged
+          agentops: unchanged
+
+    - name: Converge only existing restricted SSH relay recipe with recovery
+      when: gway_002_relay_apply | bool
+      block:
+        - name: Apply the existing pinned, force-command-only relay tasks
+          ansible.builtin.include_tasks: ../roles/gway_remote/tasks/node-exec-relay.yml
+      rescue:
+        - name: Restore byte-for-byte any previously existing relay policy
+          ansible.builtin.copy:
+            dest: "{{ item.item.item }}"
+            content: "{{ item.content | b64decode }}"
+            owner: root
+            group: root
+            mode: "{{ '0440' if item.item.item.endswith('/gway-exec-relay') else '0644' }}"
+          loop: "{{ relay_original_bytes.results }}"
+          when: item.content is defined
+          become: true
+          no_log: true
+
+        - name: Remove only relay files that were initially absent
+          ansible.builtin.file:
+            path: "{{ item.item.item }}"
+            state: absent
+          loop: "{{ relay_original_bytes.results }}"
+          when: item.content is not defined
+          become: true
+
+        - name: Validate restored system SSH daemon configuration
+          ansible.builtin.command:
+            argv: [/usr/sbin/sshd, -t]
+          become: true
+          changed_when: false
+
+        - name: Reload restored SSH policy
+          ansible.builtin.systemd:
+            name: ssh
+            state: reloaded
+          become: true
+
+        - name: Refuse silent partial relay installation
+          ansible.builtin.fail:
+            msg: "gway-002 relay failed; previous relay files restored. Verify node state before any retry."
