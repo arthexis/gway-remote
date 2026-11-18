@@ -46,3 +46,15 @@ separate authenticated collection and functional acceptance.
 The deploy workflow and impact gate remain unchanged. Since this PR adds
 files outside the reviewed V1 allowlist, any merge remains operational
 and requires separate authorization. #565, #614 and #617 stay independent.
+
+## Audit hardening (PR #633)
+
+A clean `review` now additionally requires a journal status of `installed`,
+not merely a coincident requested SHA; staged/failed/started attempts remain
+unknown. The entire existing `deployment_evidence.validate` envelope is
+checked, including required fields, evidence list and capability flags.
+Recorded probe errors, absent active-release evidence, and activation times
+after the observation all block review. The journal entry timestamp cannot
+postdate the journal collection timestamp. These are consistency checks on
+caller-supplied snapshots; they still do not authenticate the source or prove
+a running production release has passed functional acceptance.
