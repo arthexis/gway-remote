@@ -147,6 +147,7 @@
         argv: [/usr/bin/getent, passwd, gway-relay]
       become: true
       changed_when: false
+      register: relay_existing_passwd
       when: gway_002_relay_apply | bool
 
     - name: Check pre-existing restricted relay group
@@ -154,6 +155,31 @@
         argv: [/usr/bin/getent, group, gway-relay]
       become: true
       changed_when: false
+      when: gway_002_relay_apply | bool
+
+    - name: Inspect existing restricted relay account groups
+      ansible.builtin.command:
+        argv: [/usr/bin/id, -nG, gway-relay]
+      register: relay_account_groups
+      become: true
+      changed_when: false
+      when: gway_002_relay_apply | bool
+
+    - name: Inspect existing restricted relay account lock
+      ansible.builtin.command:
+        argv: [/usr/bin/passwd, -S, gway-relay]
+      register: relay_account_lock
+      become: true
+      changed_when: false
+      when: gway_002_relay_apply | bool
+
+    - name: Refuse unjournaled relay account migration
+      ansible.builtin.assert:
+        that:
+          - relay_account_groups.stdout.split() == ['gway-relay']
+          - relay_account_lock.stdout.split()[1] in ['L', 'LK']
+          - relay_existing_passwd.stdout.split(':')[5] == '/var/lib/gway-relay'
+          - relay_existing_passwd.stdout.split(':')[6] == '/bin/sh'
       when: gway_002_relay_apply | bool
 
     - name: Check existing relay directories are root-owned and nonwritable
