@@ -57,14 +57,43 @@ gway-relay account, one approved public key, forced protocol, validated
 sshd/sudoers). It does **not** invoke the general role, modify WireGuard or
 change `remote_managed_repositories`.
 
-The playbook snapshots pre-existing relay-file bytes in its **runtime** and
-attempts to restore them on handled failures. This is **not a durable,
-power-loss-safe rollback guarantee**: before any production apply, the
-operator must record a separate protected durable backup and prove
-independent administrative access and a recovery procedure. A missing SSH
-principal/receiver, active SSH conflict, unsupported sudo policy or uncertain
-backup blocks application; no retries by guessing. Any unmatched existing
-relay configuration requires explicit review before apply.
+The relay-only playbook now requires the restricted account, group and
+root-owned directories to exist before any apply; it **does not bootstrap**
+these unjournaled resources. After independently authenticated field preflight,
+an explicit apply writes a root-protected `0700` journal directory at
+`/var/lib/gway002-relay-rollback` containing a `0600` fsynced snapshot
+of the three bounded relay files (original bytes, mode, group and checksum).
+The snapshot is atomically published and parent directories fsynced *before*
+any SSH/sudoers file mutation. Handled failures restore bytes through
+same-directory fsynced atomic replacement and validate `sshd -t` before
+reloading SSH. An interrupted operation leaves `state=pending`:
+**nothing may automatically run another apply** while this marker exists.
+
+If power is lost after journal preparation, an operator with the independently
+authenticated local administrative route must inspect the node, then perform
+explicit recovery (from the reviewed checkout, as root):
+
+```sh
+python3 ansible/playbooks/gway002_relay_journal.py status
+python3 ansible/playbooks/gway002_relay_journal.py recover
+/usr/sbin/sshd -t
+systemctl reload ssh
+python3 ansible/playbooks/gway002_relay_journal.py finish
+```
+
+Recovery is replayable until validated completion. The `complete` journal
+is intentionally retained to prevent an accidental second apply; future
+maintenance needs separate review and archival. This supports **durable
+crash-recoverable rollback**, not zero-downtime multi-file atomicity or
+automatic unattended recovery. Files created by the recipe may be removed
+during recovery, but the account and directories are deliberately required
+to preexist. If a service reload or recovery fails, preserve the pending
+journal and block further writes.
+
+This PR still does **not authorize a production apply**. No independently
+authenticated administrative route to 002 is evidenced. A staging/preflight
+on 002 and SSH configuration/reload behavior remain unverified by offline CI.
+Any unmatched existing relay configuration requires explicit review.
 
 ## Stage B: Watchtower SSH pin after authenticated node protocol
 
