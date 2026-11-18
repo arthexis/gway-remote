@@ -84,109 +84,112 @@ def fake_inventory():
     }]}
 
 
-def test_read_only_plan_requires_matching_authoritative_host_key(tmp_path, monkeypatch):
-    config, known, identity, host, uid = files(tmp_path)
-    _fake_trust(monkeypatch)
-    monkeypatch.setattr(pin, "LEDGER", tmp_path / "does-not-exist")
-    monkeypatch.setattr(pin, "snapshot_from_path", lambda _: fake_ledger())
-    monkeypatch.setattr(pin.node_registry_inventory, "load", lambda _: fake_inventory())
-    plan = pin.plan(service_uid=uid, config=config, host_key=host,
-                    inventory=tmp_path / "inventory")
-    assert plan["pin_digest"] == HOST_DIGEST
-    assert plan["existing_nodes"] == ("gway-004",)
-    assert b"gway-004" in plan["known"][2] and b"gway-002" in plan["known"][2]
-    assert plan["known"][1] == known.read_bytes()  # preview never writes
-    assert plan["config"][1] == config.read_bytes()
-    assert plan["config"][2].count(b"gway-002") == 2
-    host.write_text(OLD_PUBLIC + "\n")
-    with pytest.raises(ValueError, match="differs"):
-        pin.plan(service_uid=uid, config=config, host_key=host,
-                 inventory=tmp_path / "inventory")
 
-
-def test_plan_refuses_stale_grant_existing_alias_and_mismatched_pin(tmp_path, monkeypatch):
-    config, known, identity, host, uid = files(tmp_path)
-    _fake_trust(monkeypatch)
-    monkeypatch.setattr(pin, "snapshot_from_path", lambda _: fake_ledger())
-    denied = fake_inventory()
-    denied["nodes"][0]["execute_eligible"] = False
-    monkeypatch.setattr(pin.node_registry_inventory, "load", lambda _: denied)
-    with pytest.raises(ValueError, match="eligibility"):
-        pin.plan(service_uid=uid, config=config, host_key=host)
-    monkeypatch.setattr(pin.node_registry_inventory, "load", lambda _: fake_inventory())
-    known.write_text(known.read_text() + "gway-002 " + HOST_PUBLIC + "\n")
-    with pytest.raises(ValueError, match="existing gway-002"):
-        pin.plan(service_uid=uid, config=config, host_key=host)
-    known.write_text("gway-004 " + HOST_PUBLIC + "\n")
-    with pytest.raises(ValueError, match="pin is no longer valid"):
-        pin.plan(service_uid=uid, config=config, host_key=host)
-
-
-def journal_fixture(tmp_path, monkeypatch):
-    config, known, _, _, uid = files(tmp_path)
-    _fake_trust(monkeypatch)
-    monkeypatch.setattr(pin, "CONFIG", config)
-    before_config, before_known = config.read_bytes(), known.read_bytes()
-    after_config = before_config + b"\n"
-    after_known = before_known + b"gway-002 " + HOST_PUBLIC.encode() + b"\n"
-    p = {"config": (config, before_config, after_config, config.stat()),
-         "known": (known, before_known, after_known, known.stat())}
-    monkeypatch.setattr(pin, "plan", lambda *, service_uid: p)
-    root = tmp_path / "journal-state"
-    return root, config, known, before_config, before_known, uid
-
-
-def test_explicit_apply_keeps_durable_images_and_manual_recovery(tmp_path, monkeypatch):
-    root, config, known, before_config, before_known, uid = journal_fixture(
-        tmp_path, monkeypatch)
-    with pytest.raises(pin.PinRefused, match="explicit relay"):
-        pin.apply(service_uid=uid, approval="", relay_confirmed=True, state=root)
-    assert not root.exists()
-    assert pin.apply(service_uid=uid, approval=pin._APPROVAL,
-                     relay_confirmed=True, state=root) == "pending_acceptance"
-    assert config.read_bytes() != before_config
-    assert known.read_bytes() != before_known
-    assert (root / "config.before").read_bytes() == before_config
-    assert (root / "known.before").read_bytes() == before_known
-    assert json.loads((root / "journal.json").read_text())["state"] == "pending_acceptance"
-    with pytest.raises(FileExistsError):
+class TestWatchtowerPin002:
+    def test_read_only_plan_requires_matching_authoritative_host_key(self, tmp_path, monkeypatch):
+        config, known, identity, host, uid = files(tmp_path)
+        _fake_trust(monkeypatch)
+        monkeypatch.setattr(pin, "LEDGER", tmp_path / "does-not-exist")
+        monkeypatch.setattr(pin, "snapshot_from_path", lambda _: fake_ledger())
+        monkeypatch.setattr(pin.node_registry_inventory, "load", lambda _: fake_inventory())
+        plan = pin.plan(service_uid=uid, config=config, host_key=host,
+                        inventory=tmp_path / "inventory")
+        assert plan["pin_digest"] == HOST_DIGEST
+        assert plan["existing_nodes"] == ("gway-004",)
+        assert b"gway-004" in plan["known"][2] and b"gway-002" in plan["known"][2]
+        assert plan["known"][1] == known.read_bytes()  # preview never writes
+        assert plan["config"][1] == config.read_bytes()
+        assert plan["config"][2].count(b"gway-002") == 2
+        host.write_text(OLD_PUBLIC + "\n")
+        with pytest.raises(ValueError, match="differs"):
+            pin.plan(service_uid=uid, config=config, host_key=host,
+                     inventory=tmp_path / "inventory")
+    
+    
+    def test_plan_refuses_stale_grant_existing_alias_and_mismatched_pin(self, tmp_path, monkeypatch):
+        config, known, identity, host, uid = files(tmp_path)
+        _fake_trust(monkeypatch)
+        monkeypatch.setattr(pin, "snapshot_from_path", lambda _: fake_ledger())
+        denied = fake_inventory()
+        denied["nodes"][0]["execute_eligible"] = False
+        monkeypatch.setattr(pin.node_registry_inventory, "load", lambda _: denied)
+        with pytest.raises(ValueError, match="eligibility"):
+            pin.plan(service_uid=uid, config=config, host_key=host)
+        monkeypatch.setattr(pin.node_registry_inventory, "load", lambda _: fake_inventory())
+        known.write_text(known.read_text() + "gway-002 " + HOST_PUBLIC + "\n")
+        with pytest.raises(ValueError, match="existing gway-002"):
+            pin.plan(service_uid=uid, config=config, host_key=host)
+        known.write_text("gway-004 " + HOST_PUBLIC + "\n")
+        with pytest.raises(ValueError, match="pin is no longer valid"):
+            pin.plan(service_uid=uid, config=config, host_key=host)
+    
+    
+    def journal_fixture(tmp_path, monkeypatch):
+        config, known, _, _, uid = files(tmp_path)
+        _fake_trust(monkeypatch)
+        monkeypatch.setattr(pin, "CONFIG", config)
+        before_config, before_known = config.read_bytes(), known.read_bytes()
+        after_config = before_config + b"\n"
+        after_known = before_known + b"gway-002 " + HOST_PUBLIC.encode() + b"\n"
+        p = {"config": (config, before_config, after_config, config.stat()),
+             "known": (known, before_known, after_known, known.stat())}
+        monkeypatch.setattr(pin, "plan", lambda *, service_uid: p)
+        root = tmp_path / "journal-state"
+        return root, config, known, before_config, before_known, uid
+    
+    
+    def test_explicit_apply_keeps_durable_images_and_manual_recovery(self, tmp_path, monkeypatch):
+        root, config, known, before_config, before_known, uid = journal_fixture(
+            tmp_path, monkeypatch)
+        with pytest.raises(pin.PinRefused, match="explicit relay"):
+            pin.apply(service_uid=uid, approval="", relay_confirmed=True, state=root)
+        assert not root.exists()
+        assert pin.apply(service_uid=uid, approval=pin._APPROVAL,
+                         relay_confirmed=True, state=root) == "pending_acceptance"
+        assert config.read_bytes() != before_config
+        assert known.read_bytes() != before_known
+        assert (root / "config.before").read_bytes() == before_config
+        assert (root / "known.before").read_bytes() == before_known
+        assert json.loads((root / "journal.json").read_text())["state"] == "pending_acceptance"
+        with pytest.raises(FileExistsError):
+            pin.apply(service_uid=uid, approval=pin._APPROVAL,
+                      relay_confirmed=True, state=root)
+        assert pin.recover(state=root, approval="I_ACCEPT_GWAY_002_PIN_ROLLBACK") == "rolled_back"
+        assert config.read_bytes() == before_config
+        assert known.read_bytes() == before_known
+        assert pin.recover(state=root, approval="I_ACCEPT_GWAY_002_PIN_ROLLBACK") == "already_rolled_back"
+    
+    
+    def test_failure_between_file_swaps_rolls_back_without_replaying(self, tmp_path, monkeypatch):
+        root, config, known, before_config, before_known, uid = journal_fixture(
+            tmp_path, monkeypatch)
+        original_replace = pin._atomic_file
+        calls = []
+    
+        def one_failure(path, raw, info):
+            calls.append(path.name)
+            if len(calls) == 2:
+                raise OSError("simulated crash before second swap")
+            return original_replace(path, raw, info)
+    
+        monkeypatch.setattr(pin, "_atomic_file", one_failure)
+        with pytest.raises(OSError, match="simulated crash"):
+            pin.apply(service_uid=uid, approval=pin._APPROVAL,
+                      relay_confirmed=True, state=root)
+        assert config.read_bytes() == before_config
+        assert known.read_bytes() == before_known
+        assert json.loads((root / "journal.json").read_text())["state"] == "rolled_back"
+    
+    
+    def test_recovery_does_not_overwrite_unknown_concurrent_bytes(self, tmp_path, monkeypatch):
+        root, config, known, before_config, before_known, uid = journal_fixture(
+            tmp_path, monkeypatch)
         pin.apply(service_uid=uid, approval=pin._APPROVAL,
                   relay_confirmed=True, state=root)
-    assert pin.recover(state=root, approval="I_ACCEPT_GWAY_002_PIN_ROLLBACK") == "rolled_back"
-    assert config.read_bytes() == before_config
-    assert known.read_bytes() == before_known
-    assert pin.recover(state=root, approval="I_ACCEPT_GWAY_002_PIN_ROLLBACK") == "already_rolled_back"
-
-
-def test_failure_between_file_swaps_rolls_back_without_replaying(tmp_path, monkeypatch):
-    root, config, known, before_config, before_known, uid = journal_fixture(
-        tmp_path, monkeypatch)
-    original_replace = pin._atomic_file
-    calls = []
-
-    def one_failure(path, raw, info):
-        calls.append(path.name)
-        if len(calls) == 2:
-            raise OSError("simulated crash before second swap")
-        return original_replace(path, raw, info)
-
-    monkeypatch.setattr(pin, "_atomic_file", one_failure)
-    with pytest.raises(OSError, match="simulated crash"):
-        pin.apply(service_uid=uid, approval=pin._APPROVAL,
-                  relay_confirmed=True, state=root)
-    assert config.read_bytes() == before_config
-    assert known.read_bytes() == before_known
-    assert json.loads((root / "journal.json").read_text())["state"] == "rolled_back"
-
-
-def test_recovery_does_not_overwrite_unknown_concurrent_bytes(tmp_path, monkeypatch):
-    root, config, known, before_config, before_known, uid = journal_fixture(
-        tmp_path, monkeypatch)
-    pin.apply(service_uid=uid, approval=pin._APPROVAL,
-              relay_confirmed=True, state=root)
-    config.write_bytes(b'{"unrelated":"operator changes"}')
-    config.chmod(0o600)
-    with pytest.raises(pin.PinRefused, match="concurrent"):
-        pin.recover(state=root, approval="I_ACCEPT_GWAY_002_PIN_ROLLBACK")
-    assert config.read_bytes() == b'{"unrelated":"operator changes"}'
-    assert json.loads((root / "journal.json").read_text())["state"] == "pending_acceptance"
+        config.write_bytes(b'{"unrelated":"operator changes"}')
+        config.chmod(0o600)
+        with pytest.raises(pin.PinRefused, match="concurrent"):
+            pin.recover(state=root, approval="I_ACCEPT_GWAY_002_PIN_ROLLBACK")
+        assert config.read_bytes() == b'{"unrelated":"operator changes"}'
+        assert json.loads((root / "journal.json").read_text())["state"] == "pending_acceptance"
+    
