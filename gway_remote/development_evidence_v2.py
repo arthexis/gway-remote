@@ -73,7 +73,14 @@ def development_evidence_v2(name, *, journal, status_report, github, observed_at
         or status_report.get("node") != "gway-001"
         or not isinstance(status_report.get("components"), list)):
         raise ValueError("untrusted or incomplete local status envelope")
-    matching = [r for r in status_report["components"] if isinstance(r, dict) and r.get("name") == name]
+    # The existing deep status endpoint always reports the full registered
+    # catalog; missing, duplicated or injected rows are incomplete evidence.
+    components = status_report["components"]
+    expected = set(targets)
+    names = [r.get("name") if isinstance(r, dict) else None for r in components]
+    if len(names) != len(expected) or set(names) != expected or len(set(names)) != len(names):
+        raise ValueError("incomplete or ambiguous release report")
+    matching = [r for r in components if r["name"] == name]
     if len(matching) != 1:
         raise ValueError("missing or duplicate release row")
     row = matching[0]
