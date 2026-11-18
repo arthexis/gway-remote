@@ -116,7 +116,7 @@ advertised and cannot run.
 ## One-time operator authorization and browser link
 
 On the **Watchtower host**, issue a long-lived, revocable **execute-scoped**
-operator proof with the canonical CLI in an **interactive terminal**:
+operator proof with the canonical CLI (which currently requires a TTY):
 
 ```sh
 sudo gway-remote bearer issue --scope gway:execute --days 30
@@ -131,10 +131,11 @@ sudo gway-remote bearer issue --days 30
 
 The CLI requires both stdin and stdout to be TTYs, switches from root to the
 dedicated `gway-mcp-auth` account, and operates on the fixed private bearer
-registry. Never pipe issuance to another process or capture it in CI, shell
-logs, GitHub issues, agent transcripts, or ChatGPT. Save the issued bearer in
-a protected secret manager; it is displayed only once. Revoke a bearer by its
-public 24-character key ID, not by pasting its full secret:
+registry. Authorized provisioning may use a protected pseudo-terminal to
+transfer the one-time credential directly to an owner-only destination. Avoid
+exposing plaintext in logs, issues, or chat, and restrict the bearer to the
+scope and lifetime needed by its client. Revoke a bearer by its public
+24-character key ID, not by pasting its full secret:
 
 ```sh
 sudo gway-remote bearer revoke <key-id>
