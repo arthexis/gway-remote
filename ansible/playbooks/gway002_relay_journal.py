@@ -17,7 +17,8 @@ import tempfile
 
 ROOT = Path("/var/lib/gway002-relay-rollback")
 JOURNAL = ROOT / "journal.json"
-OWNER_UID = 0\nPATHS = (
+OWNER_UID = 0
+PATHS = (
     Path("/etc/ssh/sshd_config.d/40-gway-exec-relay.conf"),
     Path("/etc/sudoers.d/gway-exec-relay"),
     Path("/var/lib/gway-relay/.ssh/authorized_keys"),
