@@ -21,9 +21,16 @@ def fixture():
             "checked_at": NOW, "components": [{
                 "name": "ocpp-csms", "installed_sha": SHA, "health": "healthy",
                 "deployment_evidence": {
-                    "repository": REPO, "observed_at": NOW,
-                    "activated_revision": SHA, "installation_state": "activated",
+                    "schema_version": 1, "repository": REPO,
+                    "source_revision": None, "staged_revision": None,
+                    "activated_revision": SHA, "activated_at": "2026-11-18T20:59:59Z",
+                    "observed_at": NOW, "installation_state": "activated",
                     "runtime_state": "healthy",
+                    "evidence": ["verified_active_release"], "errors": [],
+                    "capabilities": {
+                        "staging": False, "activation": True,
+                        "runtime_probe": True, "runtime_required": True,
+                    },
                 },
             }],
         },
@@ -124,6 +131,41 @@ class V2EvidenceTests(unittest.TestCase):
                        {"journal": 1, "release": 1, "github": 1, "ci": True}):
             with self.assertRaises(ValueError):
                 development_evidence_v2(**fixture(), max_age_seconds=policy)
+
+    def test_failed_started_or_staged_attempt_never_reviews(self):
+        for status in ("failed", "started", "staged"):
+            value = fixture()
+            value["journal"]["ocpp-csms"]["status"] = status
+            result = development_evidence_v2(**value)
+            self.assertEqual(result["stage"], "unknown")
+            self.assertIn("attempt_not_installed", result["reasons"])
+
+    def test_partial_or_contradictory_release_envelope(self):
+        for mutation, expected in (
+            (lambda x: x.pop("errors"), None),
+            (lambda x: x.update(errors=["invalid_release_evidence"]), "invalid_release_evidence"),
+            (lambda x: x.update(evidence=[]), "activation_unverified"),
+            (lambda x: x["capabilities"].update(activation=False), "activation_unverified"),
+            (lambda x: x.update(activated_at="2026-11-18T21:00:01Z"),
+             "activation_after_release_read"),
+        ):
+            value = fixture()
+            evidence = value["status_report"]["components"][0]["deployment_evidence"]
+            mutation(evidence)
+            if expected is None:
+                with self.assertRaises(ValueError):
+                    development_evidence_v2(**value)
+            else:
+                result = development_evidence_v2(**value)
+                self.assertIn(expected, result["reasons"])
+                self.assertEqual(result["stage"], "unknown")
+
+    def test_attempt_timestamp_cannot_postdate_journal_read(self):
+        value = fixture()
+        value["journal"]["ocpp-csms"]["at"] = "2026-11-18T21:00:01Z"
+        result = development_evidence_v2(**value)
+        self.assertIn("attempt_after_journal_read", result["reasons"])
+        self.assertEqual(result["stage"], "unknown")
 
     def test_journal_does_not_supply_installation(self):
         value = fixture()
