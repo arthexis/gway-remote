@@ -1,6 +1,6 @@
 """Hermetic crash-recovery checks. Never touches real SSH or privileged paths."""
 import importlib.util
-import json
+import os
 from pathlib import Path
 import tempfile
 import unittest
@@ -23,6 +23,8 @@ class RecoveryJournalTest(unittest.TestCase):
             patch.object(journal, "JOURNAL", base / "backup/journal.json"),
             patch.object(journal, "PATHS", tuple(base / name for name in ("sshd", "sudoers", "key"))),
             patch.object(journal, "_parents", lambda path: None),
+            patch.object(journal, "OWNER_UID", os.getuid()),
+            patch.object(journal.os, "fchown", lambda *args: None),
         ]
         for item in self.patches:
             item.start()
