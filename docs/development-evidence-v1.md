@@ -11,12 +11,11 @@ endpoint, or separate ledger. It only projects caller-supplied observations.
 - `deployment_receipt(name, attempt, observed_sha=..., health=...)` accepts
   an existing journal entry and independently supplied **read-only** installed
   revision and health evidence. Until independently observed, both are
-  `unknown`. The projection deliberately excludes private logs/errors.
+  `unknown`. Matching SHA plus supplied healthy status yields `evidence=consistent`,\n  never `acceptance=verified`: provenance, freshness and functional acceptance\n  are not represented in V1. The projection excludes private logs/errors.
 - `development_snapshot(receipt=..., github_head=..., ci=...)` takes an
   independently observed GitHub HEAD and CI conclusion. It classifies
-  `unknown`, `blocked`, `pending` and `accepted` without querying any
-  external service. A `verified` projection means *the supplied* observations
-  match; it is not itself an attestation or authorization.
+  `unknown`, `blocked`, `pending` and `review` without querying any
+  external service. `review` indicates only self-consistent supplied evidence,\n  not a verified installation or an accepted release. Forged or noncanonical\n  receipt dictionaries are rejected.
 - No network, host files, subprocess, MCP, SSH or GitHub operations occur
   inside these functions. Neither function causes or permits a deployment.
 - Invalid SHA, timestamp, status, CI or unknown target fail closed. A missing
