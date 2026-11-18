@@ -142,6 +142,41 @@
       register: relay_original_bytes
       no_log: true
 
+    - name: Check pre-existing restricted relay principal and directories
+      ansible.builtin.command:
+        argv: [/usr/bin/getent, passwd, gway-relay]
+      become: true
+      changed_when: false
+      when: gway_002_relay_apply | bool
+
+    - name: Check pre-existing restricted relay group
+      ansible.builtin.command:
+        argv: [/usr/bin/getent, group, gway-relay]
+      become: true
+      changed_when: false
+      when: gway_002_relay_apply | bool
+
+    - name: Check existing relay directories are root-owned and nonwritable
+      ansible.builtin.stat:
+        path: "{{ item }}"
+        follow: false
+      loop:
+        - /var/lib/gway-relay
+        - /var/lib/gway-relay/.ssh
+      register: relay_existing_directories
+      become: true
+      when: gway_002_relay_apply | bool
+
+    - name: Refuse to create accounts or directories outside the file journal
+      ansible.builtin.assert:
+        that:
+          - item.stat.isdir | default(false)
+          - not (item.stat.islnk | default(false))
+          - item.stat.pw_name == 'root'
+          - item.stat.mode == '0755'
+      loop: "{{ relay_existing_directories.results }}"
+      when: gway_002_relay_apply | bool
+
     - name: Report eligibility without applying anything
       ansible.builtin.debug:
         msg:
@@ -157,41 +192,44 @@
       when: gway_002_relay_apply | bool
       become: true
       block:
+        - name: Create fsynced protected rollback journal before relay changes
+          ansible.builtin.command:
+            argv: [/usr/bin/python3, "{{ playbook_dir }}/gway002_relay_journal.py", prepare]
+          changed_when: true
+
         - name: Apply the existing pinned, force-command-only relay tasks
           ansible.builtin.include_tasks: ../roles/gway_remote/tasks/node-exec-relay.yml
-      rescue:
-        - name: Restore byte-for-byte any previously existing relay policy
-          ansible.builtin.copy:
-            dest: "{{ item.item.item }}"
-            content: "{{ item.content | b64decode }}"
-            owner: root
-            group: root
-            mode: "{{ '0440' if item.item.item.endswith('/gway-exec-relay') else '0644' }}"
-          loop: "{{ relay_original_bytes.results }}"
-          when: item.content is defined
-          become: true
-          no_log: true
 
-        - name: Remove only relay files that were initially absent
-          ansible.builtin.file:
-            path: "{{ item.item.item }}"
-            state: absent
-          loop: "{{ relay_original_bytes.results }}"
-          when: item.content is not defined
-          become: true
+        - name: Validate effective SSH configuration after relay changes
+          ansible.builtin.command:
+            argv: [/usr/sbin/sshd, -t]
+          changed_when: false
+
+        - name: Mark durable journal complete after successful validation
+          ansible.builtin.command:
+            argv: [/usr/bin/python3, "{{ playbook_dir }}/gway002_relay_journal.py", finish]
+          changed_when: true
+      rescue:
+        - name: Recover saved files atomically from durable disk journal
+          ansible.builtin.command:
+            argv: [/usr/bin/python3, "{{ playbook_dir }}/gway002_relay_journal.py", recover]
+          changed_when: true
 
         - name: Validate restored system SSH daemon configuration
           ansible.builtin.command:
             argv: [/usr/sbin/sshd, -t]
-          become: true
           changed_when: false
 
         - name: Reload restored SSH policy
           ansible.builtin.systemd:
             name: ssh
             state: reloaded
-          become: true
+
+        - name: Finalize recovered journal after validated reload
+          ansible.builtin.command:
+            argv: [/usr/bin/python3, "{{ playbook_dir }}/gway002_relay_journal.py", finish]
+          changed_when: true
 
         - name: Refuse silent partial relay installation
           ansible.builtin.fail:
-            msg: "gway-002 relay failed; previous relay files restored. Verify node state before any retry."
+            msg: "gway-002 relay failed; verify node state before any retry."
