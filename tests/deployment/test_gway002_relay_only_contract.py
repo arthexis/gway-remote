@@ -70,8 +70,8 @@ class Gway002RelayOnlyContract(unittest.TestCase):
         self.assertEqual(task["when"], "gway_002_relay_apply | bool")
         self.assertTrue(task["become"])
         block = task["block"]
-        self.assertEqual(len(block), 1)
-        included = block[0]["ansible.builtin.include_tasks"]
+        self.assertGreaterEqual(len(block), 2)
+        included = next(x["ansible.builtin.include_tasks"] for x in block if "ansible.builtin.include_tasks" in x)
         self.assertEqual(included, "../roles/gway_remote/tasks/node-exec-relay.yml")
         names = {task.get("name") for task in self.role}
         for name in (
@@ -81,13 +81,20 @@ class Gway002RelayOnlyContract(unittest.TestCase):
         ):
             self.assertIn(name, names)
         rescue = task["rescue"]
-        self.assertTrue(any("ansible.builtin.copy" in x for x in rescue))
-        self.assertTrue(any("ansible.builtin.file" in x for x in rescue))
+        self.assertTrue(any("recover" in str(x.get("ansible.builtin.command", {}).get("argv", [])) for x in rescue))
         self.assertTrue(any("ansible.builtin.systemd" in x for x in rescue))
         self.assertTrue(any("ansible.builtin.fail" in x for x in rescue))
         self.assertEqual(
             {x["ansible.builtin.systemd"]["name"]
              for x in rescue if "ansible.builtin.systemd" in x}, {"ssh"})
+
+    def test_journal_gate_precedes_mutation_and_fail_closed(self):
+        prepare = self.task("Create durable protected journal before any change")
+        self.assertEqual(prepare["when"], "gway_002_relay_apply | bool")
+        self.assertIn("prepare", prepare["ansible.builtin.command"]["argv"])
+        self.assertIn("gway002_relay_journal.py", str(prepare))
+        self.assertIn("Refuse to create accounts or directories outside the file journal",
+                      {t.get("name") for t in self.tasks})
 
     def test_inventory_is_still_production_and_deny_deploy(self):
         data = yaml.safe_load(INVENTORY.read_text(encoding="utf-8"))
@@ -102,7 +109,7 @@ class Gway002RelayOnlyContract(unittest.TestCase):
             "NOT ACCEPTED", "ssh_auth", "watchtower attest gway-002 --dry-run",
             "Stage B is currently", "not an automated apply",
             "gway-exec", "arthe", "remote_managed_repositories: []",
-            "not a durable,", "StrictHostKeyChecking=no",
+            "durable", "StrictHostKeyChecking=no",
         ):
             self.assertIn(phrase, text)
 
