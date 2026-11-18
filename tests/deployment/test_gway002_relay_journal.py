@@ -39,7 +39,7 @@ class RecoveryJournalTest(unittest.TestCase):
     def test_power_loss_then_explicit_byte_exact_recovery(self):
         journal.prepare()
         self.files[0].write_bytes(b"partial update")
-        self.files[1].write_bytes(b"other update")
+        self.files[1].chmod(0o644)  # Test runner is deliberately non-root.\n        self.files[1].write_bytes(b"other update")
         self.files[2].write_bytes(b"new key")
         journal.recover()
         self.assertEqual(self.files[0].read_bytes(), b"original\x00bytes\n")
