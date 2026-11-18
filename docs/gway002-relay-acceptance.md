@@ -30,16 +30,18 @@ executor to bootstrap its own SSH permissions. Do not add public SSH, TOFU,
 
 From an exact, reviewed gway-remote checkout **on 002 as arthe**, after
 establishing an independent administrative session, stage *only the reviewed
-Watchtower relay public key* in a root-owned, non-symlink regular file. Verify
-its SHA-256 digest out of band against the Watchtower origin; pass its local
-path and digest as parameters. Independently verify the installed executor
+Watchtower relay public key* at the fixed root-owned path
+`/etc/gway-remote/approved-watchtower-relay.pub`, as a non-symlink regular
+file under a protected root-owned directory. Verify
+its SHA-256 digest out of band against the Watchtower origin; pass the digest
+only. The fixed staging path cannot be overridden with another arbitrary path. Independently verify the installed executor
 identity (`gway-exec` or `arthe`) and use the observed value as the expected
 value: the playbook **never changes it**.
 
 ```sh
 ansible-playbook -i localhost, -c local \
   ansible/playbooks/gway002-relay-only.yml \
-  -e '{"gway_002_expected_executor_user":"<verified-existing-user>","gway_002_relay_public_key_path":"<operator-staged-public-key-file>","gway_002_relay_public_key_sha256":"<sha256-of-that-file>"}'
+  -e '{"gway_002_expected_executor_user":"<verified-existing-user>","gway_002_relay_public_key_sha256":"<sha256-of-that-file>"}'
 ```
 
 Default mode is preflight/read-only. It verifies the **actual local hostname**,
