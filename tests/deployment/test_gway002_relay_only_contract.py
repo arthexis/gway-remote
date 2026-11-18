@@ -56,7 +56,7 @@ class Gway002RelayOnlyContract(unittest.TestCase):
         self.assertIn("no_log: true", text)
         self.assertNotIn("ssh-keyscan", text)
         self.assertNotIn("StrictHostKeyChecking=no", text)
-        self.assertNotIn("remote_managed_repositories:", text)
+        self.assertNotIn("/etc/gway-remote/deployment.yml", text)
         self.assertNotIn("ansible.builtin.git:", text)
         self.assertNotIn("ansible.builtin.apt:", text)
         self.assertNotIn("ansible.builtin.user:", text)
