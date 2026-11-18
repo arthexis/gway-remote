@@ -24,7 +24,27 @@ class DeploymentSoundTests(unittest.TestCase):
                 for target, attempt in (("a", "one"), ("a", "one"), ("b", "one"), ("a", "two")):
                     DeploymentSound(target, attempt, database=database, run=run)("deploy-started")
             self.assertEqual(run.call_count, 3)
-            self.assertEqual(run.call_args.args[0][-4:], ["--event", "deploy-started", "--source", "gway-remote"])
+            args = run.call_args.args[0]
+            self.assertTrue(args[0].endswith("/.local/bin/gway-lcd-sound"))
+            self.assertEqual(args[1:], ["sound", "play", "--event", "deploy-started", "--source", "gway-remote", "--within", "30"])
+
+    def test_older_sound_cli_falls_back_without_window(self):
+        from types import SimpleNamespace
+        with tempfile.TemporaryDirectory() as directory:
+            runner = Mock(side_effect=[SimpleNamespace(returncode=2), SimpleNamespace(returncode=0)])
+            with patch.object(DeploymentSound, "_lcd"):
+                DeploymentSound("a", database=Path(directory) / "db", run=runner)("deploy-started")
+            self.assertEqual(runner.call_count, 2)
+            self.assertTrue(runner.call_args.args[0][0].endswith("/.local/bin/sound"))
+            self.assertNotIn("--within", runner.call_args.args[0])
+
+    def test_backend_failure_does_not_replay(self):
+        from types import SimpleNamespace
+        with tempfile.TemporaryDirectory() as directory:
+            runner = Mock(return_value=SimpleNamespace(returncode=1))
+            with patch.object(DeploymentSound, "_lcd"):
+                DeploymentSound("a", database=Path(directory) / "db", run=runner)("deploy-started")
+            self.assertEqual(runner.call_count, 1)
 
     def test_playback_and_state_failures_are_nonfatal(self):
         with tempfile.TemporaryDirectory() as directory, patch.dict(os.environ, {"GWAY_REMOTE_SOUND_DISABLE": "0"}):

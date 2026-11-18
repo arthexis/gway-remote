@@ -82,9 +82,21 @@ class DeploymentSound:
                                (self.target, self.deployment_id,
                                 self.created_at, rank, now))
                     self._lcd(event)
-            self.run([str(Path.home() / ".local/bin/sound"), "--event", event,
-                      "--source", "gway-remote"], timeout=3, check=False,
-                     stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            # Prefer the release-owned LCD Sound interface; the independent
+            # system sound command may not support --within yet.
+            sound_args = ["--event", event, "--source", "gway-remote"]
+            options = dict(timeout=3, check=False, stdout=subprocess.DEVNULL,
+                           stderr=subprocess.DEVNULL)
+            try:
+                result = self.run([str(Path.home() / ".local/bin/gway-lcd-sound"),
+                                   "sound", "play", *sound_args, "--within", "30"], **options)
+                unsupported = result.returncode == 2
+            except FileNotFoundError:
+                unsupported = True
+            if unsupported:
+                # Older nodes keep their existing notification behavior until
+                # LCD Sound is upgraded. Never retry a failed audio backend.
+                self.run([str(Path.home() / ".local/bin/sound"), *sound_args], **options)
         except Exception:
             pass
 
