@@ -63,3 +63,23 @@ The deep status inventory must also contain every reviewed catalog target
 exactly once; a component-only subset, duplicate row, or injected unknown
 target is rejected as incomplete before comparison. This is a consistency
 gate on the existing full status contract, not evidence of remote identity.
+
+## Existing-reader integration (same PR)
+
+The optional `development_evidence_v2_collect.collect_v2` uses only the
+existing local `read_attempts()`, `status(depth="deep")`, and injected
+`github_state.GitHub.get` read client; its caller must run on the owning
+node with existing permissions. No new authentication, service or MCP tool.
+
+CI is mapped conservatively: GitHub's exact merged-main SHA must identify
+one same-repository merged PR, whose PR-head SHA must match exactly one
+explicitly associated successful PR Actions run. For squash merges, the
+PR run SHA and main SHA are **different**, and both are exposed separately
+in `ci_run`. The adapter's `ci_head_sha` means *verified applicability to
+main* after this lookup, not the actual Actions run head. Missing,
+ambiguous, unexpected or page-saturated results yield CI `unknown`;
+no automatic acceptance, privilege increase or fallback token is allowed.
+
+The collected snapshot retains `source_attestation=unverified` and
+`functional_acceptance=unknown`. Collector read outputs are not signed or
+independent attestation and must not be treated as deploy approval.
