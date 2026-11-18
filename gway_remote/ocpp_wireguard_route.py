@@ -69,9 +69,12 @@ def classify_route(route_json: str, destination: str) -> dict[str, Any]:
 
     gateway = route.get("gateway")
     if gateway is not None:
+        if not isinstance(gateway, str):
+            result["reason"] = "invalid_gateway"
+            return result
         try:
             ipaddress.IPv4Address(gateway)
-        except (ipaddress.AddressValueError, ValueError, TypeError):
+        except (ipaddress.AddressValueError, ValueError):
             result["reason"] = "invalid_gateway"
             return result
 
