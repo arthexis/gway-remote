@@ -48,3 +48,38 @@ endpoint, or separate ledger. It only projects caller-supplied observations.
 No new issue is necessary until the existing overlapping issues have been
 reviewed and this small baseline has CI evidence. No production cutover,
 merge, release or installation is authorized by this document.
+
+## Auto-deploy push impact admission (PR #632, still not activated)
+
+The existing `.github/workflows/deploy-backend.yml` deploys gway-001 and
+Watchtower on every `main` push. This PR proposes a hosted read-only
+`admission` job before either self-hosted deployment job. It compares the
+complete Git `github.event.before..github.sha` range and emits a strictly
+binary deployment decision. Only these **exact** V1 non-runtime paths are
+allowlisted:
+
+- `docs/development-evidence-v1.md`
+- `tests/deployment/test_development_evidence.py`
+- `gway_remote/development_evidence.py`
+
+Any other changed path (including this workflow, the impact classifier,
+deployment scripts, configuration or future code) requests the **unchanged**
+existing deployment jobs. Missing history, force pushes, invalid/empty diffs
+and an admission failure block both jobs, rather than silently declaring
+an offline-only update. A blocked operational push requires explicit
+investigation and manual remediation; it does not become "up to date".
+No new permissions, credentials, targets or services are introduced.
+
+**First-merge bootstrap limitation:** The guard changes the workflow file
+itself. Accordingly, its first merge is classified as operational and would
+trigger existing gway-001 and Watchtower auto-deploy. Do **not** merge this
+PR under a no-deploy constraint. A separately approved deployment window or
+a verified external pre-merge control is required for first activation; the
+PR's green tests cannot prove production deployment suppression. Once
+activated, a later merge containing only the three allowlisted paths may
+skip deploy, but each push must be evaluated independently.
+
+The narrowly allowlisted Python module has no import path from production
+entrypoints in this increment; expanding its callers or changing unrelated
+runtime files is operational. The allowlist must be reviewed again when V2
+integrates runtime adapters.
