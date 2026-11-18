@@ -55,8 +55,8 @@ def deployment_receipt(name, attempt, *, observed_sha=None, health=None):
     observed = _sha(observed_sha)
     release = ("matching" if observed == sha else "different") if observed else "unknown"
     # The journal's 'installed' status is an installer outcome, not runtime proof.
-    acceptance = ("verified" if status == "installed" and release == "matching"
-                  and health == "healthy" else "unknown")
+    evidence = ("consistent" if status == "installed" and release == "matching"
+                and health == "healthy" else "incomplete")
     return {
         "schema": "gway.deployment-receipt.v1",
         "target": name,
@@ -67,7 +67,8 @@ def deployment_receipt(name, attempt, *, observed_sha=None, health=None):
         "installed_sha": observed,
         "release_match": release,
         "health": health or "unknown",
-        "acceptance": acceptance,
+        "evidence": evidence,
+        "acceptance": "unknown",  # No provenance, freshness or functional check in V1.
     }
 
 
@@ -79,11 +80,20 @@ def development_snapshot(*, receipt=None, github_head=None, ci="unknown",
         raise ValueError("invalid GitHub head")
     if ci not in _CI:
         raise ValueError("invalid CI status")
-    if receipt is not None and (
-        not isinstance(receipt, dict) or
-        receipt.get("schema") != "gway.deployment-receipt.v1"
-    ):
-        raise ValueError("invalid receipt")
+    if receipt is not None:
+        if not isinstance(receipt, dict) or receipt.get("schema") != "gway.deployment-receipt.v1":
+            raise ValueError("invalid receipt")
+        # Validate the full projection, not merely a caller-provided schema tag.
+        try:
+            projected = deployment_receipt(
+                receipt["target"],
+                {"sha": receipt["requested_sha"], "status": receipt["attempt_status"],
+                 "at": receipt["attempt_at"]},
+                observed_sha=receipt["installed_sha"], health=receipt["health"])
+        except (KeyError, TypeError, ValueError) as exc:
+            raise ValueError("invalid receipt") from exc
+        if receipt != projected:
+            raise ValueError("receipt is not a canonical V1 projection")
     if blocked_reason is not None and (not isinstance(blocked_reason, str)
                                        or not blocked_reason.strip()):
         raise ValueError("invalid blocker")
@@ -98,9 +108,9 @@ def development_snapshot(*, receipt=None, github_head=None, ci="unknown",
         stage, reason = "unknown", "independent installed release unavailable"
     elif installed != head:
         stage, reason = "pending", "installed revision differs from GitHub HEAD"
-    elif receipt["acceptance"] != "verified":
-        stage, reason = "pending", "functional or health acceptance unverified"
+    elif receipt["evidence"] == "consistent":
+        stage, reason = "review", "consistent supplied observations; source, freshness and functional acceptance unverified"
     else:
-        stage, reason = "accepted", "matching release and health evidence supplied"
+        stage, reason = "pending", "installation outcome or health evidence incomplete"
     return {"schema": "gway.development-snapshot.v1", "stage": stage,
             "reason": reason, "github_head": head, "ci": ci, "receipt": receipt}
