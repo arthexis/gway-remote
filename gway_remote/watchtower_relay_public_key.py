@@ -21,7 +21,7 @@ FIELDS = frozenset((
     "node", "address", "ssh_host_alias", "known_hosts", "identity_file",
     "host_key_sha256", "remote_user",
 ))
-NODE = re.compile(r"gway-[0-9]{3}\\Z")
+NODE = re.compile(r"gway-[0-9]{3}\Z")
 MAX_CONFIG_BYTES = 4096
 MAX_OUTPUT_BYTES = 2048
 
@@ -129,5 +129,5 @@ def export_public_key(node, *, config=CONFIG, run=subprocess.run):
     return {
         "node": node,
         "public_key": key,
-        "sha256": hashlib.sha256((key + "\\n").encode("ascii")).hexdigest(),
+        "sha256": hashlib.sha256((key + "\n").encode("ascii")).hexdigest(),
     }
