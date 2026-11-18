@@ -72,6 +72,24 @@ class WatchtowerRelayPublicKeyTests(unittest.TestCase):
         self.assertNotIn(str(self.key_path), json.dumps(result))
         self.assertNotIn("PRIVATE", json.dumps(result))
 
+    def test_real_ssh_keygen_can_derive_via_inherited_descriptor(self):
+        # Synthetic disposable key; no real Watchtower identity is read.
+        import subprocess
+        if not Path("/usr/bin/ssh-keygen").is_file():
+            self.skipTest("OpenSSH client utility unavailable on CI host")
+        self.key_path.unlink()
+        subprocess.run(
+            ["/usr/bin/ssh-keygen", "-q", "-t", "ed25519", "-N", "",
+             "-f", str(self.key_path)],
+            check=True, capture_output=True, timeout=10,
+        )
+        report = relay.export_public_key("gway-001", config=self.config_path)
+        self.assertTrue(report["public_key"].startswith("ssh-ed25519 "))
+        self.assertEqual(
+            report["sha256"],
+            hashlib.sha256((report["public_key"] + "\n").encode("ascii")).hexdigest(),
+        )
+
     def test_node_must_be_pinned_and_unique(self):
         with self.assertRaisesRegex(ValueError, "not configured"):
             relay.export_public_key("gway-002", config=self.config_path, run=self._run_ok)
