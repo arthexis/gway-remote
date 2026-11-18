@@ -7,7 +7,8 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
 
-from .development_evidence import _sha, _time, deployment_receipt, development_snapshot
+from .development_evidence import _sha, _time, deployment_receipt
+from .deployment_evidence import validate as validate_release_evidence
 from .reconcile import TARGETS
 
 _SOURCES = ("journal", "release", "github", "ci")
@@ -77,9 +78,15 @@ def development_evidence_v2(name, *, journal, status_report, github, observed_at
         raise ValueError("missing or duplicate release row")
     row = matching[0]
     evidence = row.get("deployment_evidence")
-    if (not isinstance(evidence, dict)
-        or evidence.get("repository") != repository
-        or evidence.get("observed_at") != status_report.get("checked_at")):
+    # The complete existing status schema is the authority for shape, not the
+    # caller's selection of convenient fields. A partial "activated" dict
+    # must never be promoted to a clean review.
+    try:
+        evidence = validate_release_evidence(evidence)
+    except (KeyError, TypeError, ValueError) as exc:
+        raise ValueError("invalid release evidence envelope") from exc
+    if (evidence["repository"] != repository
+        or evidence["observed_at"] != status_report.get("checked_at")):
         raise ValueError("inconsistent release provenance")
     attempt = journal.get(name)
     if attempt is not None and not isinstance(attempt, dict):
@@ -107,8 +114,13 @@ def development_evidence_v2(name, *, journal, status_report, github, observed_at
     installed = _sha(raw_installed)
     if raw_installed is not None and installed is None:
         reasons.append("installed_revision_not_full_sha")
-    if evidence.get("installation_state") != "activated" or evidence.get("activated_revision") != raw_installed:
+    if (evidence["installation_state"] != "activated"
+        or evidence["activated_revision"] != raw_installed
+        or not evidence["capabilities"]["activation"]
+        or "verified_active_release" not in evidence["evidence"]):
         reasons.append("activation_unverified")
+    if evidence["errors"] or "invalid_release_evidence" in evidence["evidence"]:
+        reasons.append("invalid_release_evidence")
     if installed is None:
         reasons.append("installed_revision_unknown")
     elif installed != head:
@@ -122,8 +134,18 @@ def development_evidence_v2(name, *, journal, status_report, github, observed_at
         receipt = deployment_receipt(name, attempt, observed_sha=installed,
                                      health=row.get("health") if row.get("health") in
                                      ("healthy", "unhealthy", "unknown") else "unknown")
+        if receipt["attempt_status"] != "installed":
+            reasons.append("attempt_not_installed")
         if receipt["requested_sha"] != head:
             reasons.append("attempt_revision_differs")
+        if _clock(receipt["attempt_at"]) > _clock(observed_at):
+            reasons.append("attempt_after_journal_read")
+    # An activation timestamp is evidence of when the pointer changed, not
+    # an observation timestamp. It cannot be after the corresponding read.
+    if evidence["activated_at"] is not None:
+        activated_at = _clock(evidence["activated_at"])
+        if activated_at > _clock(status_report["checked_at"]):
+            reasons.append("activation_after_release_read")
     # Never claim operational acceptance: data come from supplied readouts.
     # A clean result is still only 'review'; separate live functional acceptance
     # and authenticated source provenance belong to V3.
