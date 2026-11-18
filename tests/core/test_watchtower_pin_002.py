@@ -173,6 +173,30 @@ class WatchtowerPin002Tests(unittest.TestCase):
         self.assertEqual(json.loads((state / "journal.json").read_text())["state"],
                          "rolled_back")
 
+    def test_external_edit_between_swaps_is_not_overwritten(self):
+        state, old_config, _ = self._transaction()
+        original_atomic = pin._atomic_file
+
+        def edit_after_first_swap(path, raw, info):
+            original_atomic(path, raw, info)
+            if path == self.known:
+                # External operator edits execute.json after the known_hosts
+                # replacement, but before execute.json's own swap.
+                self.config.write_bytes(b'{"operator":"new state"}')
+                self.config.chmod(0o600)
+
+        self._patch(pin, "_atomic_file", edit_after_first_swap)
+        with self.assertRaisesRegex(pin.PinRefused,
+                                    "concurrent change before target replacement"):
+            pin.apply(service_uid=self.uid, approval=pin._APPROVAL,
+                      relay_confirmed=True, state=state)
+        self.assertEqual(self.config.read_bytes(), b'{"operator":"new state"}')
+        self.assertNotEqual(self.config.read_bytes(), old_config)
+        # The journal remains available for manual reconciliation, never
+        # overwrite external bytes to force a rollback.
+        self.assertEqual(json.loads((state / "journal.json").read_text())["state"],
+                         "prepared")
+
     def test_recover_refuses_to_overwrite_unrelated_operator_changes(self):
         state, _, _ = self._transaction()
         pin.apply(service_uid=self.uid, approval=pin._APPROVAL,
