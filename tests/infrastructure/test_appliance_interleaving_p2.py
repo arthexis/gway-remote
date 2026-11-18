@@ -123,7 +123,8 @@ class InterleavingContractP2Tests(unittest.TestCase):
         backend = BACKEND.read_text(encoding="utf-8")
         self.assertIn('flock -n 9', text)
         self.assertIn('state/deploy.lock', text)
-        self.assertIn("needs: deploy", backend)
+        self.assertIn("needs: [admission, deploy]", backend)
+        self.assertIn("needs.admission.outputs.deploy == 'true'", backend)
         self.assertNotEqual(group(BACKEND), group(APPLIANCE))
         self.assertTrue(any(
             overlaps(s) and allowed_schedule(

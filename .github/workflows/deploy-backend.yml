@@ -12,8 +12,28 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  admission:
+    name: Classify push impact (hosted, read-only)
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      deploy: ${{ steps.impact.outputs.deploy }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Evaluate complete push range (fail closed)
+        id: impact
+        env:
+          PUSH_BEFORE: ${{ github.event.before }}
+          PUSH_SHA: ${{ github.sha }}
+        run: python3 -m gway_remote.deploy_impact
+
   deploy:
-    if: github.repository == 'arthexis/gway-remote' && github.ref == 'refs/heads/main'
+    needs: admission
+    if: github.repository == 'arthexis/gway-remote' && github.ref == 'refs/heads/main' && needs.admission.result == 'success' && needs.admission.outputs.deploy == 'true'
     runs-on: [self-hosted, Linux, ARM64, gway-001]
     timeout-minutes: 15
     steps:
@@ -88,8 +108,8 @@ jobs:
     # Keep the one trusted ARM64 runner as the dispatch origin. The existing
     # pinned operator SSH route is the only remote hop; no new runner or secret.
     # Attempt Watchtower even if the gway-001 deployment failed.
-    needs: deploy
-    if: ${{ always() && github.repository == 'arthexis/gway-remote' && github.ref == 'refs/heads/main' }}
+    needs: [admission, deploy]
+    if: ${{ always() && github.repository == 'arthexis/gway-remote' && github.ref == 'refs/heads/main' && needs.admission.result == 'success' && needs.admission.outputs.deploy == 'true' }}
     runs-on: [self-hosted, Linux, ARM64, gway-001]
     timeout-minutes: 20
     steps:
