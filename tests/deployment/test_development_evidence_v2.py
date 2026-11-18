@@ -3,6 +3,7 @@ import copy
 import unittest
 
 from gway_remote.development_evidence_v2 import development_evidence_v2
+from gway_remote.reconcile import TARGETS
 
 SHA = "a" * 40
 OTHER = "b" * 40
@@ -11,7 +12,7 @@ REPO = "arthexis/ocpp-csms"
 
 
 def fixture():
-    return {
+    result = {
         "name": "ocpp-csms",
         "journal": {"ocpp-csms": {
             "sha": SHA, "status": "installed", "at": "2026-11-18T20:00:00Z",
@@ -40,6 +41,12 @@ def fixture():
         },
         "observed_at": NOW, "now": NOW,
     }
+    # Deep status lists the complete reviewed registry, even when a snapshot
+    # projects a single component. Other rows must not masquerade as the target.
+    result["status_report"]["components"].extend(
+        {"name": target} for target, _ in TARGETS if target != "ocpp-csms"
+    )
+    return result
 
 
 class V2EvidenceTests(unittest.TestCase):
@@ -102,6 +109,17 @@ class V2EvidenceTests(unittest.TestCase):
         ):
             value = fixture()
             mutation(value)
+            with self.assertRaises(ValueError):
+                development_evidence_v2(**value)
+
+    def test_partial_or_injected_inventory_fails_closed(self):
+        for mutation in (
+            lambda rows: rows.pop(),
+            lambda rows: rows.append({"name": "unreviewed-node"}),
+            lambda rows: rows.__setitem__(-1, {"name": "ocpp-csms"}),
+        ):
+            value = fixture()
+            mutation(value["status_report"]["components"])
             with self.assertRaises(ValueError):
                 development_evidence_v2(**value)
 
