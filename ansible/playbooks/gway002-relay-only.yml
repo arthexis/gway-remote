@@ -138,6 +138,7 @@
 
     - name: Converge only existing restricted SSH relay recipe with recovery
       when: gway_002_relay_apply | bool
+      become: true
       block:
         - name: Apply the existing pinned, force-command-only relay tasks
           ansible.builtin.include_tasks: ../roles/gway_remote/tasks/node-exec-relay.yml
