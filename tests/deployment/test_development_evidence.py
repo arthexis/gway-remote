@@ -23,7 +23,8 @@ class DevelopmentEvidenceTests(unittest.TestCase):
 
     def test_verified_requires_observed_sha_and_health(self):
         receipt = self.receipt(observed_sha=SHA.upper(), health="healthy")
-        self.assertEqual(receipt["acceptance"], "verified")
+        self.assertEqual(receipt["evidence"], "consistent")
+        self.assertEqual(receipt["acceptance"], "unknown")
         self.assertEqual(receipt["installed_sha"], SHA)
         self.assertEqual(receipt["attempt_at"], "2026-11-18T12:00:00+00:00")
         for kwargs in ({"observed_sha": OTHER, "health": "healthy"},
@@ -61,10 +62,20 @@ class DevelopmentEvidenceTests(unittest.TestCase):
         self.assertEqual(development_snapshot(receipt=receipt, github_head=OTHER,
                                               ci="success")["stage"], "pending")
         self.assertEqual(development_snapshot(receipt=receipt, github_head=SHA,
-                                              ci="success")["stage"], "accepted")
+                                              ci="success")["stage"], "review")
         self.assertEqual(development_snapshot(receipt=receipt, github_head=SHA,
                                               ci="success", blocked_reason="field gate")["stage"],
                          "blocked")
+
+    def test_rejects_forged_receipts(self):
+        receipt = self.receipt(observed_sha=SHA, health="healthy")
+        for forged in (dict(receipt, acceptance="verified"),
+                       dict(receipt, installed_sha=OTHER),
+                       dict(receipt, evidence="verified"),
+                       dict(receipt, health="healthy", evidence="incomplete"),
+                       {"schema": "gway.deployment-receipt.v1"}):
+            with self.subTest(forged=forged), self.assertRaises(ValueError):
+                development_snapshot(receipt=forged, github_head=SHA, ci="success")
 
     def test_snapshot_does_not_promote_attempt_to_live_proof(self):
         receipt = self.receipt()
