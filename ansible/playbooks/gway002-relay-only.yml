@@ -188,15 +188,17 @@
           watchtower_pin: unchanged
           agentops: unchanged
 
+    - name: Create durable protected journal before any change
+      ansible.builtin.command:
+        argv: [/usr/bin/python3, "{{ playbook_dir }}/gway002_relay_journal.py", prepare]
+      become: true
+      changed_when: true
+      when: gway_002_relay_apply | bool
+
     - name: Converge only existing restricted SSH relay recipe with recovery
       when: gway_002_relay_apply | bool
       become: true
       block:
-        - name: Create fsynced protected rollback journal before relay changes
-          ansible.builtin.command:
-            argv: [/usr/bin/python3, "{{ playbook_dir }}/gway002_relay_journal.py", prepare]
-          changed_when: true
-
         - name: Apply the existing pinned, force-command-only relay tasks
           ansible.builtin.include_tasks: ../roles/gway_remote/tasks/node-exec-relay.yml
 
