@@ -124,7 +124,7 @@ class TestWatchtowerPin002:
             pin.plan(service_uid=uid, config=config, host_key=host)
     
     
-    def journal_fixture(tmp_path, monkeypatch):
+    def journal_fixture(self, tmp_path, monkeypatch):
         config, known, _, _, uid = files(tmp_path)
         _fake_trust(monkeypatch)
         monkeypatch.setattr(pin, "CONFIG", config)
@@ -139,7 +139,7 @@ class TestWatchtowerPin002:
     
     
     def test_explicit_apply_keeps_durable_images_and_manual_recovery(self, tmp_path, monkeypatch):
-        root, config, known, before_config, before_known, uid = journal_fixture(
+        root, config, known, before_config, before_known, uid = self.journal_fixture(
             tmp_path, monkeypatch)
         with pytest.raises(pin.PinRefused, match="explicit relay"):
             pin.apply(service_uid=uid, approval="", relay_confirmed=True, state=root)
@@ -161,7 +161,7 @@ class TestWatchtowerPin002:
     
     
     def test_failure_between_file_swaps_rolls_back_without_replaying(self, tmp_path, monkeypatch):
-        root, config, known, before_config, before_known, uid = journal_fixture(
+        root, config, known, before_config, before_known, uid = self.journal_fixture(
             tmp_path, monkeypatch)
         original_replace = pin._atomic_file
         calls = []
@@ -182,7 +182,7 @@ class TestWatchtowerPin002:
     
     
     def test_recovery_does_not_overwrite_unknown_concurrent_bytes(self, tmp_path, monkeypatch):
-        root, config, known, before_config, before_known, uid = journal_fixture(
+        root, config, known, before_config, before_known, uid = self.journal_fixture(
             tmp_path, monkeypatch)
         pin.apply(service_uid=uid, approval=pin._APPROVAL,
                   relay_confirmed=True, state=root)
