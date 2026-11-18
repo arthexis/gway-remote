@@ -355,8 +355,18 @@ def apply(*, service_uid, approval, relay_confirmed, state=STATE):
             if latest != before or meta.st_ino != info.st_ino:
                 raise PinRefused("config changed since preflight")
         # Known host goes first so existing configs remain usable between swaps.
+        # Recheck each original file immediately before its OWN replacement:
+        # an operator can alter config after both initial preflight reads.
+        # This narrows, but cannot eliminate, an uncooperative rename race.
         for kind in ("known", "config"):
-            target, _, after, info = p[kind]
+            target, before, after, info = p[kind]
+            latest, current = _file(target, uid=info.st_uid,
+                                    maximum=MAX_CONFIG if kind == "config" else MAX_KNOWN,
+                                    private=(kind == "known"))
+            if (latest != before or current.st_ino != info.st_ino
+                    or current.st_gid != info.st_gid
+                    or stat.S_IMODE(current.st_mode) != stat.S_IMODE(info.st_mode)):
+                raise PinRefused("concurrent change before target replacement")
             _atomic_file(target, after, info)
             observed, _ = _file(target, uid=info.st_uid,
                                 maximum=MAX_CONFIG if kind == "config" else MAX_KNOWN,
