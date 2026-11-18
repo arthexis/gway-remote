@@ -11,6 +11,7 @@
   vars:
     gway_002_relay_apply: false
     gway_remote_install_root: /opt/gway-remote
+    gway_002_relay_public_key_path: /etc/gway-remote/approved-watchtower-relay.pub
     gway_002_relay_paths:
       - /etc/ssh/sshd_config.d/40-gway-exec-relay.conf
       - /etc/sudoers.d/gway-exec-relay
@@ -25,7 +26,7 @@
           - gway_002_relay_apply | type_debug == 'bool'
           - gway_002_expected_executor_user is defined
           - gway_002_expected_executor_user in ['gway-exec', 'arthe']
-          - gway_002_relay_public_key_path is defined
+          - gway_002_relay_public_key_path == '/etc/gway-remote/approved-watchtower-relay.pub'
           - gway_002_relay_public_key_sha256 is defined
           - gway_002_relay_public_key_sha256 is match('^[0-9a-f]{64}$')
           - not (gway_002_relay_apply | bool) or (gway_002_relay_approval | default('')) == 'I_ACCEPT_GWAY_002_RELAY_ONLY'
@@ -59,6 +60,22 @@
       ansible.builtin.assert:
         that:
           - relay_selected_account.stdout == gway_002_expected_executor_user
+
+    - name: Inspect trusted parent of operator-staged relay key
+      ansible.builtin.stat:
+        path: /etc/gway-remote
+        follow: false
+      become: true
+      register: relay_key_parent
+
+    - name: Refuse a symlinked or writable relay key directory
+      ansible.builtin.assert:
+        that:
+          - relay_key_parent.stat.isdir | default(false)
+          - not (relay_key_parent.stat.islnk | default(false))
+          - relay_key_parent.stat.pw_name == 'root'
+          - relay_key_parent.stat.mode in ['0755', '0750', '0700', '0555', '0550', '0500']
+        fail_msg: "Approved relay public key must reside under protected root-owned /etc/gway-remote"
 
     - name: Inspect operator-staged Watchtower relay public key
       ansible.builtin.stat:
