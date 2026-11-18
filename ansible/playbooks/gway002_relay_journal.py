@@ -17,7 +17,7 @@ import tempfile
 
 ROOT = Path("/var/lib/gway002-relay-rollback")
 JOURNAL = ROOT / "journal.json"
-PATHS = (
+OWNER_UID = 0\nPATHS = (
     Path("/etc/ssh/sshd_config.d/40-gway-exec-relay.conf"),
     Path("/etc/sudoers.d/gway-exec-relay"),
     Path("/var/lib/gway-relay/.ssh/authorized_keys"),
@@ -26,7 +26,7 @@ PATHS = (
 
 def _directory(path):
     info = path.lstat()
-    if not stat.S_ISDIR(info.st_mode) or info.st_uid != 0 or info.st_mode & 0o022:
+    if not stat.S_ISDIR(info.st_mode) or info.st_uid != OWNER_UID or info.st_mode & 0o022:
         raise RuntimeError("unsafe directory: " + str(path))
 
 
@@ -41,7 +41,7 @@ def _read(path):
         info = path.lstat()
     except FileNotFoundError:
         return None
-    if not stat.S_ISREG(info.st_mode) or info.st_uid != 0 or info.st_nlink != 1:
+    if not stat.S_ISREG(info.st_mode) or info.st_uid != OWNER_UID or info.st_nlink != 1:
         raise RuntimeError("unsafe relay file: " + str(path))
     flags = os.O_RDONLY | os.O_NOFOLLOW
     fd = os.open(path, flags)
@@ -73,7 +73,7 @@ def _atomic(path, data, mode, gid=0):
     fd, name = tempfile.mkstemp(prefix=".gway002-", dir=path.parent)
     try:
         os.fchmod(fd, mode)
-        os.fchown(fd, 0, gid)
+        os.fchown(fd, OWNER_UID, gid)
         with os.fdopen(fd, "wb", closefd=False) as stream:
             stream.write(data)
             stream.flush()
@@ -95,7 +95,7 @@ def _root():
     _directory(ROOT.parent)
     if ROOT.exists() or ROOT.is_symlink():
         info = ROOT.lstat()
-        if not stat.S_ISDIR(info.st_mode) or info.st_uid != 0 or stat.S_IMODE(info.st_mode) != 0o700:
+        if not stat.S_ISDIR(info.st_mode) or info.st_uid != OWNER_UID or stat.S_IMODE(info.st_mode) != 0o700:
             raise RuntimeError("unsafe rollback root")
     else:
         ROOT.mkdir(mode=0o700)
