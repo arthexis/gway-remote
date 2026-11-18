@@ -102,8 +102,15 @@ def provider_call(registrations, *, provider, tool, arguments, authorized_scope)
     if required_scope(declaration) == "execute" and authorized_scope != "execute":
         raise NodeProviderError("permission_denied", provider=provider)
     try:
+        # Issue arthexis/odoo-gelectriic#62: one reviewed batch performs up to
+        # four independent Odoo readbacks. Extend ONLY this declared tool's
+        # stdio budget, leaving 5s for the existing 30s gateway deadline.
+        # Authorization and declaration revalidation still run unchanged.
+        options = {"authorized_scope": authorized_scope}
+        if registration.source_id == "odoo" and tool == "customer_vehicle_batch_apply":
+            options["timeout"] = 25
         return call_source_tool(_node_registration(registration), tool, arguments, declaration,
-                                authorized_scope=authorized_scope)
+                                **options)
     except SourceProtocolError as exc:
         raise NodeProviderError(exc.code, provider=provider, stage=exc.stage,
                                 retryable=exc.retryable) from exc
