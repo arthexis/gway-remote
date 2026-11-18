@@ -13,7 +13,7 @@ from gway_remote import __main__ as cli
 from gway_remote import watchtower_relay_public_key as relay
 
 
-WIRE = b"\\x00\\x00\\x00\\x0bssh-ed25519\\x00\\x00\\x00\\x20" + b"K" * 32
+WIRE = b"\x00\x00\x00\x0bssh-ed25519\x00\x00\x00\x20" + b"K" * 32
 KEY = "ssh-ed25519 " + base64.b64encode(WIRE).decode("ascii")
 
 
@@ -59,13 +59,13 @@ class WatchtowerRelayPublicKeyTests(unittest.TestCase):
         self.assertEqual(kwargs["timeout"], 5)
         self.assertFalse(kwargs["check"])
         self.assertTrue(kwargs["capture_output"])
-        return SimpleNamespace(returncode=0, stdout=KEY + " fixture-comment\\n", stderr="")
+        return SimpleNamespace(returncode=0, stdout=KEY + " fixture-comment\n", stderr="")
 
     def test_read_only_public_output_and_exact_stage_checksum(self):
         result = relay.export_public_key("gway-001", config=self.config_path, run=self._run_ok)
         self.assertEqual(result, {
             "node": "gway-001", "public_key": KEY,
-            "sha256": hashlib.sha256((KEY + "\\n").encode("ascii")).hexdigest(),
+            "sha256": hashlib.sha256((KEY + "\n").encode("ascii")).hexdigest(),
         })
         self.assertEqual(self.key_path.read_bytes(),
                          b"FICTIONAL PRIVATE FIXTURE -- never output")
@@ -119,11 +119,11 @@ class WatchtowerRelayPublicKeyTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "derivation failed"):
             relay.export_public_key("gway-001", config=self.config_path, run=failed)
         def bad(*args, **kwargs):
-            return SimpleNamespace(returncode=0, stdout="ssh-rsa AAAA\\n", stderr="")
+            return SimpleNamespace(returncode=0, stdout="ssh-rsa AAAA\n", stderr="")
         with self.assertRaises(ValueError):
             relay.export_public_key("gway-001", config=self.config_path, run=bad)
         def multiple(*args, **kwargs):
-            return SimpleNamespace(returncode=0, stdout=KEY + "\\n" + KEY, stderr="")
+            return SimpleNamespace(returncode=0, stdout=KEY + "\n" + KEY, stderr="")
         with self.assertRaisesRegex(ValueError, "invalid public-key output"):
             relay.export_public_key("gway-001", config=self.config_path, run=multiple)
 
@@ -137,9 +137,9 @@ class WatchtowerRelayPublicKeyTests(unittest.TestCase):
     def test_watchtower_cli_is_local_only_and_does_not_load_ledger(self):
         report = {"node": "gway-001", "public_key": KEY, "sha256": "a" * 64}
         with patch("sys.argv", ["gway-remote", "watchtower",
-                                "relay-public-key", "gway-001"]), \\
-             patch.object(relay, "export_public_key", return_value=report) as exporter, \\
-             patch("gway_remote.watchtower_enrollment.Ledger") as ledger, \\
+                                "relay-public-key", "gway-001"]), \
+             patch.object(relay, "export_public_key", return_value=report) as exporter, \
+             patch("gway_remote.watchtower_enrollment.Ledger") as ledger, \
              patch("builtins.print") as output:
             cli.main()
         exporter.assert_called_once_with("gway-001")
