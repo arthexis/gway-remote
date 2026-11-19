@@ -43,3 +43,38 @@ The old interactive standalone flow remains available for controlled manual diag
 ## Acceptance and operator receipt
 
 PR #254 covers code/tests only; merge readiness requires passing PR CI including offline session, HTTP, client, Nginx and deployment checks. #228 separately owns the approved Watchtower deployment and real gway-004 test. Confirm the exact installed SHA, sanitized peer counts, service state, successful fresh external handshake and tunnel reachability, session replay refusal, and continued gway-001 operation. Do not close #228 or claim rollout complete from tests alone.
+
+## Repair-first recovery and post-operation verification (#636)
+
+Use the existing node-bound bootstrap URL and its existing `--repair` purpose
+for an enrolled node with a matching managed WireGuard configuration. Repair
+does not select or migrate the node executor account, change the WireGuard
+peer, override SSH trust, or confer a deployment permission. It attempts the
+authorized repair immediately rather than rejecting it because of an unrelated
+executor-account comparison. Fresh enrollment retains its non-root installer
+gate, and conflicting/unmanaged tunnel state remains a hard stop.
+
+The downloadable client's failure result is a **sanitized category**, not
+the exception message (which could contain bearer URL or key material).
+`invitation` calls for checking the protected URL/session;
+`tunnel_identity_or_config` calls for checking owned configuration and
+server/host identities; `enrollment_or_service` points to enrollment/service
+response; `local_command` points to the failed local tool; and
+`executor_provisioning` concerns only a new install or its executor
+preparation. Investigate the indicated stage **after the failure**, rather
+than requiring every identity to match before an authorized repair.
+
+A local bootstrap success proves only that the local tunnel is configured,
+its interface public key agrees, and any requested enrollment repair was
+acknowledged. It **does not** prove the Watchtower-to-node SSH or MCP
+execution path. The operational acceptance performed separately by an
+authorized operator must check the existing strict-pinned SSH `limits`
+protocol through Watchtower and, if allowed, one fresh correlated
+`node_exec` / `node_result` terminal receipt. Diagnose an SSH failure
+there (host-key trust, authentication, selected receiver identity, or protocol
+version) without treating `already_attested` or `execute_available`
+as successful execution. Never retry an uncertain command with the same ID.
+
+For gway-002, preserve its production inventory and empty
+`remote_managed_repositories` list. This procedure grants no permission to
+apply changes on Watchtower or gway-002.
