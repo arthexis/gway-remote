@@ -1,0 +1,65 @@
+---
+# #636: bounded, operator-invoked package repair ON the selected node console.
+# Reuse the repository's existing atomic package installer; no global role,
+# re-enrollment, SSH policy change, account migration, or Watchtower mutation.
+- name: Repair the installed GWay Remote receiver package locally
+  hosts: localhost
+  connection: local
+  gather_facts: true
+  vars:
+    gway_repair_source: "{{ playbook_dir }}/../.."
+    gway_repair_root: /opt/gway-remote
+  tasks:
+    - name: Require explicit exact local-node target and fixed installation path
+      ansible.builtin.assert:
+        that:
+          - gway_repair_node is defined
+          - gway_repair_node is string
+          - gway_repair_node is match('^gway-[0-9]+$')
+          - ansible_hostname == gway_repair_node
+          - gway_repair_root == '/opt/gway-remote'
+        fail_msg: Run only from an authorized local node console with matching gway_repair_node.
+
+    - name: Confirm committed package source revision
+      ansible.builtin.command:
+        argv: [git, -C, "{{ gway_repair_source }}", rev-parse, --verify, HEAD]
+      changed_when: false
+      register: gway_repair_revision
+
+    - name: Refuse an incomplete source commit
+      ansible.builtin.assert:
+        that:
+          - gway_repair_revision.stdout is match('^[0-9a-f]{40}$')
+
+    - name: Check source package matches the committed checkout
+      ansible.builtin.command:
+        argv: [git, -C, "{{ gway_repair_source }}", status, --porcelain, --untracked-files=all, --, gway_remote]
+      changed_when: false
+      register: gway_repair_dirty
+
+    - name: Refuse dirty package content
+      ansible.builtin.assert:
+        that:
+          - gway_repair_dirty.stdout | trim == ''
+
+    - name: Apply existing content-addressed atomic package installer
+      become: true
+      ansible.builtin.command:
+        argv:
+          - /usr/bin/python3
+          - "{{ gway_repair_source }}/scripts/install-package-archive.py"
+          - --source
+          - "{{ gway_repair_source }}"
+          - --root
+          - "{{ gway_repair_root }}"
+      register: gway_repair_install
+      changed_when: (gway_repair_install.stdout | from_json).changed | bool
+
+    - name: Report package convergence without claiming remote execution health
+      ansible.builtin.debug:
+        msg:
+          node: "{{ gway_repair_node }}"
+          source_revision: "{{ gway_repair_revision.stdout }}"
+          package: "{{ gway_repair_install.stdout | from_json }}"
+          ssh_verified: false
+          terminal_result_verified: false
