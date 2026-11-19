@@ -25,7 +25,7 @@ def fixture():
                 "observed_at": NOW,
                 "status": {"schema": "gway-remote/status/v1",
                            "node": "gway-001", "depth": "deep",
-                           "components": [{"name": "ocpp-csms", "health": "healthy"}]},
+                           "power": {"status": "ok"}, "components": [{"name": "ocpp-csms", "health": "healthy"}]},
             },
             "Watchtower": {
                 "active_revision": SHA, "previous_revision": PREVIOUS,
@@ -76,6 +76,10 @@ class V3Tests(unittest.TestCase):
     def test_health_and_services_do_not_infer_activation(self):
         data = fixture()
         data["nodes"]["gway-001"]["status"]["depth"] = "quick"
+        self.assertIn("gway-001_health_unverified",
+                      operational_acceptance_v3(**data)["reasons"])
+        data = fixture()
+        data["nodes"]["gway-001"]["status"]["power"]["status"] = "unavailable"
         self.assertIn("gway-001_health_unverified",
                       operational_acceptance_v3(**data)["reasons"])
         data = fixture()
