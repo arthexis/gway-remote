@@ -21,7 +21,7 @@ JOBS = re.compile(r"(?m)^  ([a-z][a-z0-9-]*):[ \t]*$")
 
 
 def _check_job_dependencies(workflow):
-    if not workflow.startswith("name: Python checks\n"):
+    if not workflow.startswith("name: CI\n"):
         raise ValueError("unexpected CI workflow")
     if workflow.count("\n  ci:\n") != 1:
         raise ValueError("one aggregate CI job required")
