@@ -31,6 +31,20 @@ class NodeRepairIntegrationContractTests(unittest.TestCase):
         self.assertNotIn("ansible.builtin.user", raw)
         self.assertNotIn("curl ", raw)
 
+    def test_atomic_local_repair_reuses_existing_installer_without_identity_cutover(self):
+        raw = (ROOT / "ansible/playbooks/node-repair-package.yml").read_text()
+        self.assertIn("connection: local", raw)
+        self.assertIn("ansible_hostname == gway_repair_node", raw)
+        self.assertIn("scripts/install-package-archive.py", raw)
+        self.assertIn("changed_when: (gway_repair_install.stdout | from_json).changed | bool", raw)
+        self.assertIn("ssh_verified: false", raw)
+        self.assertNotIn("node-exec-select.yml", raw)
+        self.assertNotIn("node-exec-relay.yml", raw)
+        self.assertNotIn("ansible.builtin.user", raw)
+        self.assertNotIn("ansible.builtin.systemd", raw)
+        self.assertNotIn("authorized_keys", raw)
+        self.assertNotIn("register.gelectriic.com", raw)
+
     def test_node_inventory_remains_production_and_non_deployable(self):
         inventory = (ROOT / "ansible/inventory/deployment.yml").read_text()
         production = inventory.split("    production:\n", 1)[1]
