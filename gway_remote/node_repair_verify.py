@@ -80,7 +80,7 @@ def verify_terminal(authorized, *, principal, node, request_id_factory=None):
                     "status": "failed", "category": "unexpected_host_result"}
         state = result.get("status")
         return {"schema": 1, "node": node, "stage": "terminal",
-                "status": "uncertain" if state not in _TERMINAL else "failed",
+                "status": "failed" if state in {"failed", "cancelled", "timed_out"} else "uncertain",
                 "category": result.get("failure_stage")
                 if result.get("failure_stage") in {"ssh_transport", "worker_readiness"}
                 else ("terminal_" + state if state in _TERMINAL else "terminal_pending")}
