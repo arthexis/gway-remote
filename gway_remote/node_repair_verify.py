@@ -19,10 +19,10 @@ def failure_category(exc):
     """Stable, secret-free stage class for post-failure investigation."""
     if isinstance(exc, SSHTransportFailure):
         return "ssh_transport"
+    if isinstance(exc, PermissionError):
+        return "authorization_or_pin"
     if isinstance(exc, (subprocess.SubprocessError, OSError)):
         return "ssh_transport"
-    if isinstance(exc, (PermissionError,)):
-        return "authorization_or_pin"
     if isinstance(exc, (ValueError, TypeError, KeyError)):
         return "node_protocol"
     return "unavailable"
