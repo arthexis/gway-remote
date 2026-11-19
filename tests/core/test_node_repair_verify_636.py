@@ -82,6 +82,16 @@ class VerifyRepairTests(unittest.TestCase):
         authority.exec.assert_called_once()
         authority.result.assert_called_once()
 
+    def test_unknown_terminal_state_preserves_uncertainty(self):
+        authority = Mock()
+        authority.exec.return_value = {"node": NODE, "request_id": RID, "status": "unknown"}
+        result = verify_terminal(authority, principal="1" * 24, node=NODE,
+                                 request_id_factory=lambda: RID)
+        self.assertEqual(result["status"], "uncertain")
+        self.assertEqual(result["category"], "terminal_unknown")
+        authority.exec.assert_called_once()
+        authority.result.assert_not_called()
+
     def test_terminal_wrong_node_not_accepted(self):
         authority = Mock()
         authority.exec.return_value = {"node": "gway-001", "request_id": RID, "status": "succeeded"}
