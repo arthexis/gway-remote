@@ -41,7 +41,7 @@
   },
   "watchtower --help": {
     "code": 0,
-    "stdout_sha256": "d789751ef70c92c1411196b3ce440c798a1c65695e1c60c4a918666bcbba283e",
+    "stdout_sha256": "48d67573505a801fca001fedcc5d83f1c52e16366b98e7e4cfc264f607e2493a",
     "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
   },
   "bearer issue --help": {
@@ -61,7 +61,7 @@
   },
   "watchtower adopt --help": {
     "code": 0,
-    "stdout_sha256": "d789751ef70c92c1411196b3ce440c798a1c65695e1c60c4a918666bcbba283e",
+    "stdout_sha256": "48d67573505a801fca001fedcc5d83f1c52e16366b98e7e4cfc264f607e2493a",
     "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
   },
   "wireguard wrong": {
@@ -77,7 +77,7 @@
   "watchtower invalid": {
     "code": 2,
     "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
-    "stderr_sha256": "ce6aec145dbc52d403f7673600e6eb5f02cec994ca66052303398fe6136f06e5"
+    "stderr_sha256": "ef9e9bd80ce5315069b5db3af9dfd2a9a91cfb088369176474a1f74607877d03"
   },
   "register": {
     "code": 2,

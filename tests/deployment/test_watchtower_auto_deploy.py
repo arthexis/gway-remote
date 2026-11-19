@@ -16,7 +16,8 @@ class WatchtowerAutoDeployTests(unittest.TestCase):
         self.assertIn("on:\n  push:\n    branches: [main]", workflow)
         self.assertIn("watchtower:\n    name: Deploy Watchtower MCP", workflow)
         job = workflow.split("\n  watchtower:\n", 1)[1]
-        self.assertIn("needs: deploy", job)
+        self.assertIn("needs: [admission, deploy]", job)
+        self.assertIn("needs.admission.outputs.deploy == 'true'", job)
         self.assertIn("always()", job)
         self.assertIn("runs-on: [self-hosted, Linux, ARM64, gway-001]", job)
         self.assertIn("github.ref == 'refs/heads/main'", job)
