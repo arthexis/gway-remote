@@ -19,7 +19,7 @@ def failure_category(exc):
     """Stable, secret-free stage class for post-failure investigation."""
     if isinstance(exc, SSHTransportFailure):
         return "ssh_transport"
-    if isinstance(exc, (subprocess.TimeoutExpired, subprocess.CalledProcessError, OSError)):
+    if isinstance(exc, (subprocess.SubprocessError, OSError)):
         return "ssh_transport"
     if isinstance(exc, (PermissionError,)):
         return "authorization_or_pin"
@@ -47,7 +47,7 @@ def verify_limits(authorized, node, *, request_id_factory=None):
                     "status": "failed", "category": "node_protocol"}
         return {"schema": 1, "node": node, "stage": "limits",
                 "status": "succeeded", "concurrent_jobs_per_node": response["concurrent_jobs_per_node"]}
-    except (OSError, ValueError, TypeError, KeyError, RuntimeError, PermissionError) as exc:
+    except (OSError, subprocess.SubprocessError, ValueError, TypeError, KeyError, RuntimeError, PermissionError) as exc:
         return {"schema": 1, "node": node, "stage": "limits",
                 "status": "failed", "category": failure_category(exc)}
 
