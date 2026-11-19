@@ -88,6 +88,29 @@ class VerifyRepairTests(unittest.TestCase):
         report = verify_terminal(authority, principal="1" * 24, node=NODE,
                                  request_id_factory=lambda: RID)
         self.assertEqual(report["category"], "uncorrelated_result")
+        self.assertEqual(report["status"], "uncertain")
+        authority.result.assert_not_called()
+
+    def test_terminal_missing_correlated_result_remains_uncertain(self):
+        authority = Mock()
+        authority.exec.return_value = {"node": NODE, "request_id": RID, "status": "dispatched"}
+        authority.result.return_value = {"node": "gway-001", "request_id": RID,
+                                         "status": "succeeded"}
+        report = verify_terminal(authority, principal="1" * 24, node=NODE,
+                                 request_id_factory=lambda: RID)
+        self.assertEqual(report["status"], "uncertain")
+        self.assertEqual(report["category"], "uncorrelated_result")
+        authority.exec.assert_called_once()
+        authority.result.assert_called_once()
+
+    def test_terminal_invalid_submit_response_remains_uncertain(self):
+        authority = Mock()
+        authority.exec.return_value = None
+        report = verify_terminal(authority, principal="1" * 24, node=NODE,
+                                 request_id_factory=lambda: RID)
+        self.assertEqual(report["status"], "uncertain")
+        self.assertEqual(report["category"], "uncorrelated_result")
+        authority.exec.assert_called_once()
         authority.result.assert_not_called()
 
     def test_terminal_exception_does_not_replay_or_leak(self):
