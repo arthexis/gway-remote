@@ -98,7 +98,9 @@ def operational_acceptance_v3(*, revision, workflow, nodes, observed_at,
                 or health.get("node") != "gway-001"
                 or health.get("depth") != "deep"
                 or not isinstance(health.get("components"), list)
-                or not health.get("components")):
+                or not health.get("components")
+                or not isinstance(health.get("power"), dict)
+                or health["power"].get("status") != "ok"):
                 reasons.append("gway-001_health_unverified")
         else:
             units = entry.get("services")
