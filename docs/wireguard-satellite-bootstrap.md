@@ -78,3 +78,36 @@ as successful execution. Never retry an uncertain command with the same ID.
 For gway-002, preserve its production inventory and empty
 `remote_managed_repositories` list. This procedure grants no permission to
 apply changes on Watchtower or gway-002.
+
+### Existing Ansible and Watchtower verification path
+
+After an **independently authorized** bootstrap URL repair or standard Ansible
+deployment, run from Watchtower using the existing installed CLI and execution
+pin (no new SSH key, bearer or approval service):
+
+```sh
+gway-remote node verify gway-002 --json
+ansible-playbook ansible/playbooks/node-repair-verify.yml -e gway_repair_node=gway-002
+```
+
+Both commands are **opt-in** and perform only a strict-pinned SSH `limits`
+request. The Ansible playbook is a post-convergence hook; it does not fetch a
+bootstrap bearer, enroll, rewrite an SSH pin, change executor identity, or
+install/restart services. A successful probe is deliberately limited to
+`limits` protocol health, not remote execution.
+
+For an *already authenticated and authorized* execute workflow, the
+`gway_remote.node_repair_verify.verify_terminal` helper accepts the existing
+`AuthorizedExecution` object and its authorized principal. It submits one
+fresh `hostname` job through the existing durable ledger, then inspects its
+correlated `node_result`. A missing result remains `uncertain`; never
+resubmit a possibly dispatched job. This is not exposed as a privileged local
+CLI shortcut, since doing so would bypass the established execute admission.
+
+If the limits probe fails, use `gway-remote node doctor NODE --json` for
+additional *read-only* enrollment/pin evidence. `ssh_transport` may reflect
+transport loss or SSH authentication refusal and does **not** prove a wrong
+Unix executor. `node_protocol` indicates a malformed/rejected protocol
+response; check installed receiver version before considering identity
+migration. `authorization_or_pin` indicates an existing eligibility/trust
+gate failed; it is not an invitation to weaken host-key checking.
