@@ -32,6 +32,9 @@ def register(subparsers, targets, names):
         doctor = node_ops.add_parser("doctor", help="Inspect local enrollment and pin evidence, without SSH")
         doctor.add_argument("node", help="enrolled gway node name")
         doctor.add_argument("--json", action="store_true")
+        verify = node_ops.add_parser("verify", help="Run one read-only pinned SSH limits check after repair")
+        verify.add_argument("node")
+        verify.add_argument("--json", action="store_true")
         plan = node_ops.add_parser("plan", help="Compare inventory with the reviewed repository catalog")
         plan.add_argument("node")
         plan.add_argument("--json", action="store_true")
@@ -58,6 +61,21 @@ def dispatch(args, parser):
             parser.exit(1)
         if report["result"]["state"] == "incomplete":
             parser.exit(2)
+        return True
+    if args.command == "node" and args.node_action == "verify":
+        from ..node_repair_verify import verify_limits
+        from ..watchtower_exec_service import load_service
+        try:
+            authority = load_service()
+            report = verify_limits(authority, args.node)
+        except (OSError, ValueError, TypeError, KeyError, PermissionError):
+            report = {"schema": 1, "node": args.node, "stage": "limits",
+                      "status": "failed", "category": "authorization_or_pin"}
+        print(json.dumps(report, sort_keys=True) if args.json
+              else "Node verification: " + report["status"] +
+                   (" (" + report["category"] + ")" if report["status"] != "succeeded" else ""))
+        if report["status"] != "succeeded":
+            parser.exit(1)
         return True
     if args.command == "node" and args.node_action == "plan":
         from ..node_plan import plan, format_plan

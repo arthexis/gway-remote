@@ -389,6 +389,29 @@ def prepare_dormant_executor(*, run=subprocess.run,
     return {"executor_prepared": True, "execution_enabled": False}
 
 
+def _bootstrap_failure_category(stage, exc):
+    """Return a bounded operational diagnostic, never exception text or secrets.
+
+    The downloaded bootstrap client is standalone; keep classification local.
+    A failure category suggests where to inspect, not which identity to change.
+    """
+    if isinstance(exc, subprocess.CalledProcessError):
+        return "local_command"
+    if isinstance(exc, (PermissionError, FileExistsError)):
+        return "local_permissions_or_conflict"
+    if stage == "invitation":
+        return "invitation"
+    if stage == "executor":
+        return "executor_provisioning"
+    if stage == "tunnel":
+        if isinstance(exc, (HTTPError, URLError)):
+            return "enrollment_transport"
+        if isinstance(exc, RuntimeError):
+            return "enrollment_or_service"
+        return "tunnel_identity_or_config"
+    return "bootstrap"
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(description="Standalone GWAY Remote WireGuard satellite client")
     sub = parser.add_subparsers(dest="action", required=True)
@@ -415,19 +438,26 @@ def main(argv=None):
                 token = getpass.getpass("Watchtower invitation token: ")
             if not re.fullmatch(r"[A-Za-z0-9_-]{32,128}", token):
                 raise ValueError("invalid invitation")
-            # Preflight identity before touching WireGuard or accounts.
+            # A repair URL has its own server-side purpose and preserves the
+            # existing tunnel. Do not gate it on executor account comparisons.
+            # Fresh enrollment still resolves a safe non-root installer before
+            # touching WireGuard; an identity migration is never implicit.
             selected = None
             if not args.repair_host_identity:
+                stage = "executor"
                 selected = resolve_executor_user(sudo_install_user(), args.executor_user)
+            stage = "tunnel"
             result = bootstrap(args.device, args.server_public_key, token,
                                url=args.url,
                                repair_host_identity=args.repair_host_identity)
             if not args.repair_host_identity:
+                stage = "executor"
                 persist_executor_user(selected)
                 result.update(prepare_dormant_executor())
             print(json.dumps(result))
     except (OSError, ValueError, RuntimeError, subprocess.CalledProcessError) as exc:
-        parser.exit(1, "wire bootstrap failed: " + type(exc).__name__ + "\n")
+        category = _bootstrap_failure_category(locals().get("stage", "invitation"), exc)
+        parser.exit(1, "wire bootstrap failed: " + category + "\n")
 
 
 if __name__ == "__main__":
