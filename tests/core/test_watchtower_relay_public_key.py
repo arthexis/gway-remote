@@ -152,6 +152,40 @@ class WatchtowerRelayPublicKeyTests(unittest.TestCase):
                 relay.export_public_key("gway-001", config=self.config_path)
             read.assert_not_called()
 
+    def test_watchtower_isolated_runtime_package_exposes_cli(self):
+        """Watchtower wrapper's -I runtime must include this exact CLI action."""
+        import importlib.util
+        import shutil
+        import subprocess
+        import sys
+
+        root = Path(__file__).resolve().parents[2]
+        stage_script = root / "scripts/stage-mcp-runtime.py"
+        spec = importlib.util.spec_from_file_location("mcp_runtime_stage", stage_script)
+        stage = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(stage)
+
+        source = stage_script.read_text(encoding="utf-8")
+        self.assertIn('"gway_remote", "deploy/mcp-bearer"', source)
+        self.assertIn('runpy.run_module("gway_remote.__main__"', stage.LAUNCHER)
+
+        wrapper = (root / "deploy/mcp-bearer/gway-remote-watchtower-cli").read_text()
+        self.assertIn('/usr/bin/python3 -I /opt/gway-mcp/current/run.py cli "$@"',
+                      wrapper)
+
+        with TemporaryDirectory(prefix="watchtower-runtime-") as isolated:
+            runtime = Path(isolated)
+            shutil.copytree(root / "gway_remote", runtime / "gway_remote")
+            launcher = runtime / "run.py"
+            launcher.write_text(stage.LAUNCHER, encoding="utf-8")
+            process = subprocess.run(
+                [sys.executable, "-I", str(launcher), "cli",
+                 "watchtower", "--help"],
+                capture_output=True, text=True, timeout=15, check=False,
+            )
+        self.assertEqual(process.returncode, 0, process.stderr)
+        self.assertIn("relay-public-key", process.stdout)
+
     def test_watchtower_cli_is_local_only_and_does_not_load_ledger(self):
         report = {"node": "gway-001", "public_key": KEY, "sha256": "a" * 64}
         with patch("sys.argv", ["gway-remote", "watchtower",
