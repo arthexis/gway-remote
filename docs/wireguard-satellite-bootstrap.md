@@ -111,3 +111,27 @@ Unix executor. `node_protocol` indicates a malformed/rejected protocol
 response; check installed receiver version before considering identity
 migration. `authorization_or_pin` indicates an existing eligibility/trust
 gate failed; it is not an invitation to weaken host-key checking.
+
+### Repairing a stale installed receiver without reprovisioning identities
+
+On the **already authorized node's local console**, with a committed,
+clean checkout of `arthexis/gway-remote`, the opt-in Ansible package
+repair uses the repository's existing atomic content-addressed installer:
+
+```sh
+ansible-playbook ansible/playbooks/node-repair-package.yml \\
+  -e gway_repair_node=gway-002 --ask-become-pass
+```
+
+This is *not* a remote Watchtower deployment command or an authorization to
+operate gway-002. The exact node must match the local hostname and the
+operator must independently authorize any production change. There is
+deliberately no preflight agreement check among installer, SSH relay,
+executor and provider owner: the package is converged first, then tested.
+The playbook does not enroll, change SSH trust, provision accounts, migrate
+identity, restart a service or assert operational success. The existing
+bootstrap URL `--repair` remains the separate path for authorized
+host-identity attestation repairs. After the package change, use the
+Watchtower-side `node verify` probe and the existing execute-authorized
+terminal receipt path described above. Failure classification comes
+**after** the attempt, not from guessed account mismatch.
