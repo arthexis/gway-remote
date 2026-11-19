@@ -62,15 +62,16 @@ def verify_terminal(authorized, *, principal, node, request_id_factory=None):
     try:
         result = authorized.exec(principal=principal, request_id=rid, node=node,
                                  command="hostname", wait_seconds=10)
-        if result.get("node") != node or result.get("request_id") != rid:
+        if (type(result) is not dict or result.get("node") != node
+                or result.get("request_id") != rid):
             return {"schema": 1, "node": node, "stage": "terminal",
-                    "status": "failed", "category": "uncorrelated_result"}
+                    "status": "uncertain", "category": "uncorrelated_result"}
         if result.get("status") not in _TERMINAL:
             result = authorized.result(principal=principal, request_id=rid)
         if (type(result) is not dict or result.get("node") != node
                 or result.get("request_id") != rid):
             return {"schema": 1, "node": node, "stage": "terminal",
-                    "status": "failed", "category": "uncorrelated_result"}
+                    "status": "uncertain", "category": "uncorrelated_result"}
         if result.get("status") == "succeeded":
             if (result.get("stdout") == node + "\n" and
                     result.get("exit_code") == 0):
