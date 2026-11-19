@@ -1,4 +1,4 @@
-name: Python checks
+name: CI
 # Validation runs on PRs only. Merges to main are deployment events.
 on:
   pull_request:
