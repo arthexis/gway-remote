@@ -1,0 +1,32 @@
+---
+# #636: opt-in post-repair verification using the EXISTING Watchtower CLI.
+# Run only on Watchtower after a separately authorized bootstrap/Ansible repair.
+# No bootstrap bearer is passed through Ansible and no node is provisioned here.
+- name: Verify a repaired GWay node through existing strict SSH transport
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  tasks:
+    - name: Require an explicitly selected GWay node
+      ansible.builtin.assert:
+        that:
+          - gway_repair_node is defined
+          - gway_repair_node is string
+          - gway_repair_node is match('^gway-[0-9]+$')
+        fail_msg: Specify an existing enrolled gway_repair_node.
+
+    - name: Check real pinned SSH limits after convergence
+      ansible.builtin.command:
+        argv:
+          - gway-remote
+          - node
+          - verify
+          - "{{ gway_repair_node }}"
+          - --json
+      changed_when: false
+      register: gway_repair_limits
+      no_log: true
+
+    - name: Report sanitized verified protocol result
+      ansible.builtin.debug:
+        msg: "{{ gway_repair_limits.stdout | from_json }}"
