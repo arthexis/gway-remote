@@ -151,7 +151,7 @@ class GitHubActionsControlTests(unittest.TestCase):
                          "https://api.github.com/repos/arthexis/gway-remote/actions/workflows/123/dispatches")
         self.assertEqual(json.loads(request.data), {"ref": "main", "inputs": {}})
         self.assertEqual(request.get_header("Authorization"), "Bearer fake-token")
-        self.assertEqual(build.call_args.args[0].__class__.__name__, "_NoRedirect")
+        self.assertEqual(build.call_args.args[0].__name__, "_NoRedirect")
 
     def test_post_http_error_and_unknown_network_outcome(self):
         with patch.dict(actions.os.environ, {"GWAY_MCP_GITHUB_TOKEN": "fake-token"}), \
