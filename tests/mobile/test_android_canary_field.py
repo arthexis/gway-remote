@@ -1,5 +1,6 @@
 """Hermetic guards for the Android canary field consumer (no real adb/gh)."""
 import hashlib
+from contextlib import nullcontext
 from pathlib import Path
 import tempfile
 import unittest
@@ -116,11 +117,48 @@ class RunSelectionTests(unittest.TestCase):
             field.eligible_run(PR)
 
 
+class UsbWakeGuardTests(unittest.TestCase):
+    @patch.object(field, "adb")
+    def test_restores_existing_global_mask_after_failure(self, adb):
+        adb.side_effect = ["USB powered: true", "1", "", "3", "", "1"]
+        with self.assertRaisesRegex(RuntimeError, "test_abort"):
+            with field.keep_usb_screen_on("usb-device"):
+                raise RuntimeError("test_abort")
+        write_calls = [call.args for call in adb.call_args_list
+                       if call.args[1:5] == ("shell", "settings", "put", "global")]
+        self.assertEqual(write_calls[0][-2:], ("stay_on_while_plugged_in", "3"))
+        self.assertEqual(write_calls[-1][-2:], ("stay_on_while_plugged_in", "1"))
+
+    @patch.object(field, "adb")
+    def test_does_not_mutate_if_stay_on_already_configured(self, adb):
+        adb.side_effect = ["USB powered: true", "2"]
+        with field.keep_usb_screen_on("usb-device"):
+            pass
+        self.assertEqual(adb.call_count, 2)
+
+    @patch.object(field, "adb")
+    def test_rejects_unpowered_usb(self, adb):
+        adb.return_value = "USB powered: false"
+        with self.assertRaisesRegex(field.CanaryError, "usb_power_unconfirmed"):
+            with field.keep_usb_screen_on("usb-device"):
+                pass
+        self.assertEqual(adb.call_count, 1)
+
+    @patch.object(field, "adb")
+    def test_restore_missing_original_setting(self, adb):
+        adb.side_effect = ["USB powered: true", "null", "", "2", "", "null"]
+        with field.keep_usb_screen_on("usb-device"):
+            pass
+        self.assertTrue(any(call.args[1:5] == ("shell", "settings", "delete", "global")
+                            for call in adb.call_args_list))
+
+
 class InstrumentationTests(unittest.TestCase):
     @patch.object(field, "adb")
     def test_pass_requires_android_runner_success(self, adb):
         adb.return_value = "OK (6 tests)\nINSTRUMENTATION_CODE: -1\n"
-        self.assertEqual(field.instrument("usb-device"), 6)
+        with patch.object(field, "keep_usb_screen_on", return_value=nullcontext()):
+            self.assertEqual(field.instrument("usb-device"), 6)
         self.assertTrue(any(
             "com.arthexis.gwayremote.canary.test/" in " ".join(map(str, call.args))
             for call in adb.call_args_list
@@ -129,8 +167,9 @@ class InstrumentationTests(unittest.TestCase):
     @patch.object(field, "adb")
     def test_generic_output_is_not_pass(self, adb):
         adb.return_value = "Success"
-        with self.assertRaises(field.CanaryError):
-            field.instrument("usb-device")
+        with patch.object(field, "keep_usb_screen_on", return_value=nullcontext()):
+            with self.assertRaises(field.CanaryError):
+                field.instrument("usb-device")
 
 
 if __name__ == "__main__":
