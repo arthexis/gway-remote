@@ -33,6 +33,8 @@ class CanaryInstallWorkflowTests(unittest.TestCase):
         self.assertIn("apk_sha256:", text)
         self.assertIn("artifact_run_id:", text)
         self.assertIn("Expected exactly one USB device", text)
+        self.assertIn("python3 -c", text)
+        self.assertNotIn("jq -r", text)
         self.assertIn("install -r", text)
         self.assertIn("PRODUCTION_BEFORE", text)
         self.assertIn("PRODUCTION_AFTER", text)
