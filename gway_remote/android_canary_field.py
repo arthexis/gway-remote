@@ -238,9 +238,12 @@ def keep_usb_screen_on(serial):
                 raise CanaryError("usb_stayon_restore_unconfirmed")
 
 
-def instrument(serial):
+def instrument(serial, *, wake=False):
     try:
         with keep_usb_screen_on(serial):
+            # Screen could sleep between post-install preflight and guard activation.
+            # Recheck *after* USB wake protection is active; never unlock.
+            device_ready(serial, wake=wake)
             result = adb(
                 serial, "shell", "am", "instrument", "-w", "-r", "-e", "class", SUITE,
                 f"{TEST}/{RUNNER}", timeout=180
@@ -297,7 +300,7 @@ def run(pr, *, install_enabled=False, reset=False, wake=False, retry=False):
             # Package installation can consume the display timeout. Revalidate
             # a live unlocked screen before starting the Compose runner.
             device_ready(serial, wake=wake)
-            record["tests_passed"] = instrument(serial)
+            record["tests_passed"] = instrument(serial, wake=wake)
             record["status"] = "passed"
         except CanaryError as exc:
             record["reason"] = str(exc)
