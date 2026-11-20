@@ -118,6 +118,9 @@ class GitHubActionsControlTests(unittest.TestCase):
                 with self.subTest(ref=ref), self.assertRaises(ValueError):
                     actions.workflow_dispatch({"repository": REPO, "workflow_id": 1,
                                                "ref": ref})
+            with self.assertRaisesRegex(ValueError, "unsupported_ref"):
+                actions.workflow_dispatch({"repository": REPO, "workflow_id": 1,
+                                           "ref": "feature/unreviewed"})
             for inputs in ({"bad key": "value"}, {"okay": ["not string"]},
                            {"key": "x" * 201}):
                 with self.assertRaisesRegex(ValueError, "invalid_inputs"):
