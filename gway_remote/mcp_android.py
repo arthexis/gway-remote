@@ -10,6 +10,8 @@ import subprocess
 import sys
 import xml.etree.ElementTree as ET
 
+from .android_ui_harness import UiTargetError, condition, point, poll, selector, wait_ms
+
 ADB = "/usr/bin/adb"
 FFMPEG = "/usr/bin/ffmpeg"
 MAX_IMAGE = 140_000
@@ -47,6 +49,24 @@ TOOLS = [
     _tool("text", "Type up to 80 non-secret ASCII characters; never use for passwords or tokens.",
           {"value": {"type": "string", "minLength": 1, "maxLength": 80}}, ("value",)),
 ]
+# Strictly scoped semantic helpers preserve the existing read/execute split.
+_UI_ID = {"type": "string", "minLength": 1, "maxLength": 120}
+_UI_STATE = {"type": "string", "enum": ["present", "absent", "checked", "selected", "focused", "enabled"]}
+_UI_WAIT = {"type": "integer", "minimum": 0, "maximum": 800}
+TOOLS.extend([
+    _tool(
+        "tap_target", "Tap one uniquely identified enabled, clickable UI node.",
+        {"resource_id": _UI_ID, "expect_id": _UI_ID,
+         "expect_state": _UI_STATE, "wait_ms": _UI_WAIT},
+        ("resource_id",),
+    ),
+    _tool(
+        "wait_ui", "Read a bounded settled-state condition without touching the device.",
+        {"resource_id": _UI_ID, "state": _UI_STATE, "wait_ms": _UI_WAIT},
+        ("resource_id", "state"), read=True,
+    ),
+])
+
 _BY_NAME = {tool["name"]: tool for tool in TOOLS}
 
 
@@ -54,7 +74,13 @@ def _required_args(name, arguments):
     if type(arguments) is not dict or name not in _BY_NAME:
         raise AndroidError("invalid_tool")
     schema = _BY_NAME[name]["inputSchema"]
-    if set(arguments) != set(schema["required"]):
+    supplied = set(arguments)
+    if name in ("tap_target", "wait_ui"):
+        if not set(schema["required"]) <= supplied or supplied - set(schema["properties"]):
+            raise AndroidError("invalid_arguments")
+        if name == "tap_target" and (("expect_id" in supplied) != ("expect_state" in supplied)):
+            raise AndroidError("invalid_arguments")
+    elif supplied != set(schema["required"]):
         raise AndroidError("invalid_arguments")
     for key, value in arguments.items():
         spec = schema["properties"][key]
@@ -137,6 +163,43 @@ class Device:
         rotation = (int(orientation.group(1)) * 90) if orientation else None
         return {"screen_on": screen_on, "locked": locked, "rotation": rotation}
 
+    def ui_tree(self, serial):
+        path = "/sdcard/.gway-remote-ui.xml"
+        try:
+            self.adb(serial, "shell", "uiautomator", "dump", path, timeout=9)
+            xml = self.adb(serial, "shell", "cat", path, timeout=6)
+            if len(xml) > MAX_XML:
+                raise AndroidError("ui_tree_too_large")
+            root = ET.fromstring(xml)
+            nodes = []
+            for node in root.iter("node"):
+                attrs = node.attrib
+                if attrs.get("password") == "true":
+                    continue
+                if any(attrs.get(k) for k in ("text", "content-desc", "resource-id")):
+                    nodes.append({
+                        "text": attrs.get("text", "")[:120],
+                        "description": attrs.get("content-desc", "")[:120],
+                        "resource_id": attrs.get("resource-id", "")[:120],
+                        "bounds": attrs.get("bounds", "")[:40],
+                        "clickable": attrs.get("clickable") == "true",
+                        "enabled": attrs.get("enabled") == "true",
+                        "checked": attrs.get("checked") == "true",
+                        "selected": attrs.get("selected") == "true",
+                        "focused": attrs.get("focused") == "true",
+                        "scrollable": attrs.get("scrollable") == "true",
+                    })
+                if len(nodes) >= 100:
+                    break
+            return {"elements": nodes, "truncated": len(nodes) >= 100}
+        except ET.ParseError as exc:
+            raise AndroidError("invalid_ui_tree") from exc
+        finally:
+            try:
+                self.adb(serial, "shell", "rm", "-f", path)
+            except AndroidError:
+                pass
+
     def _point(self, point, size):
         x, y = point
         if not (0 <= x < size[0] and 0 <= y < size[1]):
@@ -155,41 +218,47 @@ class Device:
             return {"usb": "authorized", "width": width, "height": height,
                     "model": model, **self.screen_state(serial)}
         if name == "ui_tree":
-            path = "/sdcard/.gway-remote-ui.xml"
-            try:
-                self.adb(serial, "shell", "uiautomator", "dump", path, timeout=9)
-                xml = self.adb(serial, "shell", "cat", path, timeout=6)
-                if len(xml) > MAX_XML:
-                    raise AndroidError("ui_tree_too_large")
-                root = ET.fromstring(xml)
-                nodes = []
-                for node in root.iter("node"):
-                    attrs = node.attrib
-                    if attrs.get("password") == "true":
-                        continue
-                    if any(attrs.get(k) for k in ("text", "content-desc", "resource-id")):
-                        nodes.append({
-                            "text": attrs.get("text", "")[:120],
-                            "description": attrs.get("content-desc", "")[:120],
-                            "resource_id": attrs.get("resource-id", "")[:120],
-                            "bounds": attrs.get("bounds", "")[:40],
-                            "clickable": attrs.get("clickable") == "true",
-                            "enabled": attrs.get("enabled") == "true",
-                            "checked": attrs.get("checked") == "true",
-                            "selected": attrs.get("selected") == "true",
-                            "focused": attrs.get("focused") == "true",
-                            "scrollable": attrs.get("scrollable") == "true",
-                        })
-                    if len(nodes) >= 100:
-                        break
-                return {"elements": nodes, "truncated": len(nodes) >= 100}
-            except ET.ParseError as exc:
-                raise AndroidError("invalid_ui_tree") from exc
-            finally:
-                try:
-                    self.adb(serial, "shell", "rm", "-f", path)
-                except AndroidError:
-                    pass
+            return self.ui_tree(serial)
+        if name in ("tap_target", "wait_ui"):
+            # Observe immediately before a touch and never wake/unlock implicitly.
+            resource_id = selector(arguments["resource_id"])
+            expected_id = selector(arguments["expect_id"]) if "expect_id" in arguments else None
+            expected_state = condition(arguments["expect_state"]) if "expect_state" in arguments else None
+            if name == "wait_ui":
+                expected_state = condition(arguments["state"])
+                expected_id = resource_id
+            delay = wait_ms(arguments.get("wait_ms", 0))
+            initial = self.screen_state(serial)
+            if (initial.get("screen_on") is not True
+                    or initial.get("locked") is not False
+                    or type(initial.get("rotation")) is not int):
+                if name == "wait_ui":
+                    return {"status": "unknown", "attempts": 0}
+                raise AndroidError("screen_not_safe")
+            width, height = self.size(serial)
+
+            def snapshot():
+                current = self.screen_state(serial)
+                if current != initial or self.size(serial) != (width, height):
+                    raise UiTargetError("screen_changed")
+                return self.ui_tree(serial)
+
+            if name == "wait_ui":
+                return poll(snapshot, resource_id=expected_id,
+                            state=expected_state, wait=delay)
+            # A fresh tree is resolved by exact resource-id, never user text,
+            # XPath, coordinates from a prior capture, or a wildcard selector.
+            target_x, target_y = point(snapshot(), resource_id,
+                                       width=width, height=height)
+            if self.screen_state(serial) != initial:
+                raise AndroidError("screen_changed")
+            self.adb(serial, "shell", "input", "tap", target_x, target_y)
+            if expected_id is None:
+                return {"ok": True, "action": name, "verification": "unverified"}
+            settled = poll(snapshot, resource_id=expected_id,
+                           state=expected_state, wait=delay)
+            return {"ok": True, "action": name, "verification": settled["status"],
+                    "attempts": settled["attempts"]}
         if name == "capture":
             raw = self.adb(serial, "exec-out", "screencap", "-p", timeout=7)
             if len(raw) > MAX_RAW_IMAGE or not raw.startswith(b"\x89PNG\r\n\x1a\n"):

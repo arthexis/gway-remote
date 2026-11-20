@@ -92,3 +92,16 @@ The existing seven MCP tools, USB-only device selection, federated transport,
 No auto-wake, unlock, new tools, authentication, services, scenarios,
 persistent images, or additional device access are introduced.
 
+
+## Stage 3: semantic targeting and settle verification (#339)
+
+The two additional tools run in the existing node-owned USB provider only:
+
+| Tool | Scope | Safety |
+| --- | --- | --- |
+| `android__tap_target` | `gway:execute` | One exact, unique `resource_id`; verifies unlocked, powered screen, rotation, enabled/clickable node and bounds; dispatches one tap only |
+| `android__wait_ui` | `gway:read` | Checks a named state (`present`, `absent`, `checked`, `selected`, `focused`, `enabled`) in at most two fresh UI trees with up to 800 ms delay |
+
+For tap verification, provide `expect_id` and `expect_state` together; optional `wait_ms` controls the single delay before the second observation. Without the expectation, a successful action returns `verification: unverified`, not confirmed. With it, the result is `confirmed`, `timeout` or `unknown`. This API does not retry the tap. A partial tree never proves a target unique or absent, and a locked/off/unknown screen or rotation change rejects a touch.
+
+This is a no-autowake design. Never send sensitive UI identifiers or production screen captures to logs, pull requests or GitHub. The next increment will add operator-reviewed scenario IDs, private receipts and bounded execution; there is no generic ADB shell or browser automation here. Hardware testing is **opt-in**, not CI.
