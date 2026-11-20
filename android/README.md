@@ -53,3 +53,13 @@ Merging any PR to main runs Android tests and attempts to publish a newly versio
 
 The Android screen now shows independently open, reorderable bordered operation panels above the legacy controls, followed by a compact searchable palette of unopened operations. Opening a safe read-only operation fetches it once; Refresh explicitly fetches again. Closing/reopening rejects earlier asynchronous results via UI-2 request IDs. Parameterized and mutating operations remain in the existing controls until UI-4 moves their inputs and execution with parity tests; opening their new panels **does not** execute them. The existing updater, settings, refresh, CSMS, LCD, sound and benchmark controls remain reachable during this bridge phase.
 
+
+## Modular navigation — issue #643 (Draft)
+
+The launcher is an **app home** with local version, update availability and configuration state. A Material 3 hamburger menu opens a floating navigation drawer. Each installed feature is a destination: only one module's UI is visible, so operations, results, inputs, refreshes and local feature panels do not compete for screen position. **Back** returns to Home (or dismisses the drawer), and updates/settings have their own views.
+
+`ModuleRegistry.kt` is the single navigation catalogue. It includes the current allowlisted `FeatureRegistry` entries and the app-owned Home and Settings routes. `OperationRegistry` still owns backend execution policies; a menu item cannot authorize a new server command. The first increment reuses `OperationViewModel` and existing composable panel bodies, while `OperationPalette(showPalette = false)` temporarily hosts an active operation without exposing the old button palette. Existing close controls return Home; panel reordering is no longer user-visible in the app.
+
+The registry can later declare a native feature, a fixed HTTPS link opened by Android's browser/App Links resolver, or a **fixed explicit package** Android App Link. This is **not** runtime code loading, dynamic backend capability discovery or arbitrary URI dispatch; no bearer or credentials are handed to external activities. Dashboards OCPP and Porsche client portfolio are potential separate modules, but this increment does not add a URL, source integration or permission for either.
+
+Next stage: extract module-specific UI and state from `MainActivity` and remove obsolete panel-management code, then physical Android acceptance. PR APK CI can validate the first increment; do not treat a successful build as evidence of field UX or release deployment.
