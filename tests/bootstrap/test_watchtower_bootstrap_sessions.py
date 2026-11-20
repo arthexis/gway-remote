@@ -4,7 +4,8 @@ from urllib.parse import urlsplit
 
 import pytest
 
-from gway_remote.watchtower_enrollment import EnrollmentRejected, Ledger
+from gway_remote.watchtower_enrollment import EnrollmentRejected
+from tests.bootstrap.fakes import MemoryWireGuard
 
 
 @pytest.fixture
@@ -66,24 +67,11 @@ def test_refuse_unsafe_registration_origin(ledger, origin):
 
 
 def test_bootstrap_enroll_retry_completion_and_replay(ledger, tmp_path):
-    from gway_remote.watchtower_enrollment import Provisioner, WireGuard
-
-    class FakeWireGuard(WireGuard):
-        def __init__(self):
-            self.peers = {}
-
-        def set_peer(self, public_key, address):
-            self.peers[public_key] = address
-
-        def has_peer(self, public_key, address):
-            return self.peers.get(public_key) == address
-
-        def remove_peer(self, public_key):
-            raise AssertionError("fail-forward must not remove peers")
+    from gway_remote.watchtower_enrollment import Provisioner
 
     config = tmp_path / "hub.conf"
     config.write_text("[Interface]\\nAddress = 10.90.0.1/24\\n")
-    provisioner = Provisioner(ledger, config, tmp_path / "backups", FakeWireGuard())
+    provisioner = Provisioner(ledger, config, tmp_path / "backups", MemoryWireGuard(refuse_removal=True))
     issued = ledger.register("gway-004", public_url="https://register.gelectriic.com")
     secret = issued["url"].rsplit("/", 1)[-1]
     public_key = "A" * 43 + "="
@@ -126,25 +114,12 @@ def test_http_bootstrap_flow_and_no_store(ledger, tmp_path, monkeypatch):
     from subprocess import CompletedProcess
     from gway_remote import watchtower_enrollment as wt
 
-    class Fake(wt.WireGuard):
-        def __init__(self):
-            self.peers = {}
-
-        def set_peer(self, key, address):
-            self.peers[key] = address
-
-        def has_peer(self, key, address):
-            return self.peers.get(key) == address
-
-        def remove_peer(self, key):
-            raise AssertionError("unexpected peer deletion")
-
     key = base64.b64encode(bytes(range(32))).decode()
     hub_key = base64.b64encode(bytes(range(1, 33))).decode()
     monkeypatch.setattr(wt.subprocess, "run", lambda args, **kwargs: CompletedProcess(args, 0, hub_key + "\n", ""))
     config = tmp_path / "hub.conf"
     config.write_text("[Interface]\\nAddress = 10.90.0.1/24\\n")
-    provisioner = wt.Provisioner(ledger, config, tmp_path / "backups", Fake())
+    provisioner = wt.Provisioner(ledger, config, tmp_path / "backups", MemoryWireGuard(refuse_removal=True))
     invitation = ledger.register("gway-004", public_url="https://register.gelectriic.com")
     secret = invitation["url"].rsplit("/", 1)[-1]
     prefix = "/v1/bootstrap/" + secret

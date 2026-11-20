@@ -11,30 +11,15 @@ from http.server import ThreadingHTTPServer
 from pathlib import Path
 
 from gway_remote.watchtower_enrollment import (
-    EnrollmentFailure, EnrollmentRejected, Ledger, Provisioner, SubprocessWireGuard, WireGuard, make_handler, render_managed_peer,
+    EnrollmentFailure, EnrollmentRejected, Ledger, Provisioner, SubprocessWireGuard, make_handler, render_managed_peer,
 )
+
+from tests.bootstrap.fakes import MemoryWireGuard as FakeWireGuard
 
 
 KEY = base64.b64encode(bytes(range(32))).decode("ascii")
 KEY_TWO = base64.b64encode(bytes(range(1, 33))).decode("ascii")
 ORIGINAL = "[Interface]\nAddress = 10.90.0.1/24\n\n[Peer]\n# existing unmanaged peer\nPublicKey = existing\nAllowedIPs = 10.90.0.2/32\n"
-
-
-class FakeWireGuard(WireGuard):
-    def __init__(self, *, fail_set=False, confirm=True):
-        self.peers = {}
-        self.fail_set, self.confirm = fail_set, confirm
-
-    def set_peer(self, public_key, address):
-        if self.fail_set:
-            raise EnrollmentFailure("fake wg failure")
-        self.peers[public_key] = address
-
-    def has_peer(self, public_key, address):
-        return self.confirm and self.peers.get(public_key) == address
-
-    def remove_peer(self, public_key):
-        self.peers.pop(public_key, None)
 
 
 class WatchtowerEnrollmentTests(unittest.TestCase):
