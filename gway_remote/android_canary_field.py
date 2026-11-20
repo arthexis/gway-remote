@@ -168,18 +168,21 @@ def install(serial, directory, *, allow_canary_reset=False):
         apath = str(Path(directory) / name)
         args = ["adb", "-s", serial, "install", "-r", apath]
         try:
-            outcome = command(args, timeout=100)
-        except CanaryError:
-            # Ephemeral CI debug certs can differ. No implicit deletion of app data.
-            if not allow_canary_reset:
+            result = subprocess.run(args, capture_output=True, text=True, timeout=100)
+        except (OSError, subprocess.TimeoutExpired) as exc:
+            raise CanaryError("canary_install_timeout_or_unavailable") from exc
+        if result.returncode or "Success" not in result.stdout:
+            # Only a *known* canary package signature/version conflict can reset.
+            diagnostic = result.stdout + result.stderr
+            known_conflict = ("INSTALL_FAILED_UPDATE_INCOMPATIBLE" in diagnostic
+                              or "INSTALL_FAILED_VERSION_DOWNGRADE" in diagnostic)
+            if not (allow_canary_reset and known_conflict):
                 raise CanaryError("canary_install_failed_no_reset")
-            installed = adb(serial, "shell", "pm", "path", package)
-            if not installed.startswith("package:"):
-                raise CanaryError("canary_install_failed")
+            if not adb(serial, "shell", "pm", "path", package).startswith("package:"):
+                raise CanaryError("canary_package_not_found_for_reset")
             adb(serial, "uninstall", package, timeout=30)
-            outcome = command(args, timeout=100)
-        if "Success" not in outcome:
-            raise CanaryError("canary_install_unconfirmed")
+            if "Success" not in command(args, timeout=100):
+                raise CanaryError("canary_install_unconfirmed")
     after = adb(serial, "shell", "pm", "path", PRODUCTION)
     if after != before:
         raise CanaryError("production_package_changed")
