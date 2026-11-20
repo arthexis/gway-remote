@@ -45,6 +45,10 @@ def verify(sshd, sudoers, expected_user=None):
     if len(ssh_matches) != 1:
         raise ValueError("ssh_forced_command_count")
     if len(sudo_matches) != 1:
+        # A second root/transport sudo rule must remain an extra-privilege
+        # violation, not be treated as a valid extra executor choice.
+        if any(match.group(1) in FORBIDDEN_EXECUTORS for match in sudo_matches):
+            raise ValueError("sudo_extra_rules")
         raise ValueError("sudo_rule_count")
     ssh_user, ssh_command = ssh_matches[0].groups()
     sudo_user, sudo_command = sudo_matches[0].groups()
