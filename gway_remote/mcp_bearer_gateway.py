@@ -133,9 +133,11 @@ def local_node_result(method, arguments, *, execution=None):
             raise PermissionError("deployment unavailable")
         return execution.deployment_preview(**arguments)
     if method == "node_list" and arguments == {}:
-        return node_registry_inventory.public_nodes(execution_enabled=execution is not None)
+        from .execution_health import project_health
+        return project_health(node_registry_inventory.public_nodes(execution_enabled=execution is not None), execution)
     if method == "node_capabilities" and type(arguments) is dict and set(arguments) == {"node"}:
-        return node_registry_inventory.capabilities(arguments["node"], execution_enabled=execution is not None)
+        from .execution_health import project_health
+        return project_health(node_registry_inventory.capabilities(arguments["node"], execution_enabled=execution is not None), execution)
     if method == "node_exec_preview" and type(arguments) is dict and set(arguments) == {"node", "command"}:
         from .node_exec_contract import preview
         inventory = node_registry_inventory.public_nodes(execution_enabled=execution is not None)
