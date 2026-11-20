@@ -71,6 +71,6 @@ internal fun ModuleActions(
         modifier = Modifier.fillMaxWidth(),
         horizontalArrangement = Arrangement.spacedBy(8.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp),
-        content = content
+        content = { content() }
     )
 }
