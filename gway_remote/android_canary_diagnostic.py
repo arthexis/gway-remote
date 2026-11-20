@@ -9,6 +9,7 @@ import argparse
 import json
 import re
 import tempfile
+import time
 from pathlib import Path
 
 if __package__:
@@ -37,6 +38,9 @@ def summarize(raw: str) -> dict:
     footer = re.search(r"OK \((\d+) tests?\)", raw)
     failure_summary = re.search(r"Tests run:\s*(\d+),\s*Failures:\s*(\d+)", raw)
     result = re.search(r"^INSTRUMENTATION_CODE:\s*(-?\d+)\s*$", raw, re.M)
+    types = sorted(set(re.findall(
+        r"\\b(?:java|androidx|kotlin|android)\\.[A-Za-z0-9_.$]+(?:Exception|Error)\\b", raw
+    )))[:8]
     return {
         "footer_ok": footer is not None,
         "footer_test_count": int(footer.group(1)) if footer else None,
@@ -47,6 +51,7 @@ def summarize(raw: str) -> dict:
         "failed_status": codes.count(-2),
         "other_status_codes": sorted(set(codes) - {0, 1, -2}),
         "failed_tests": sorted(set(seen))[:12],
+        "exception_types": types,
     }
 
 
@@ -54,6 +59,8 @@ def main():
     parser = argparse.ArgumentParser(description="Sanitized USB canary instrumentation")
     parser.add_argument("--reinstall-pr", type=int, choices=(644,),
                         help="reproduce immediate post-install tests for approved PR 644 only")
+    parser.add_argument("--settle-seconds", type=int, choices=(0, 15), default=0,
+                        help="bounded post-install Android initialization interval")
     args = parser.parse_args()
     serial = field.usb()
     was_awake = field.device_ready(serial, wake=True)
@@ -65,6 +72,8 @@ def main():
                                "--name", artifact, "--dir", directory], timeout=70)
                 field.provenance(directory, pr=args.reinstall_pr, sha=sha, run_id=run_id)
                 field.install(serial, directory, allow_canary_reset=False)
+            if args.settle_seconds:
+                time.sleep(args.settle_seconds)
         for pkg in (field.APP, field.TEST):
             if not field.adb(serial, "shell", "pm", "path", pkg).startswith("package:"):
                 raise field.CanaryError("required_canary_package_missing")
@@ -74,6 +83,7 @@ def main():
         )
         safe = summarize(result)
         safe["post_install"] = args.reinstall_pr is not None
+        safe["settle_seconds"] = args.settle_seconds
         p = Path.home() / ".local/state/gway-remote/android-canary-diagnostic.json"
         field.write_state(p, safe)
         print(json.dumps(safe, sort_keys=True))
