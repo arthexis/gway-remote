@@ -131,7 +131,8 @@ def test_repair_bootstrap_http_flow_never_mutates_hub_peer_or_config(tmp_path, m
         script = response.read()
         connection.close()
         assert response.status == 200
-        assert b"--repair-host-identity" in script
+        assert b" --repair " in script
+        assert b"--repair-host-identity" not in script
 
         payload = json.dumps({"device": "gway-005", "public_key": WIRE,
                               "token": secret, "ssh_host_key": HOST,
