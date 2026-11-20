@@ -92,6 +92,7 @@ def main():
                                "--name", artifact, "--dir", directory], timeout=70)
                 field.provenance(directory, pr=args.reinstall_pr, sha=sha, run_id=run_id)
                 field.install(serial, directory, allow_canary_reset=False)
+            field.device_ready(serial, wake=True)
             if args.settle_seconds:
                 time.sleep(args.settle_seconds)
         for pkg in (field.APP, field.TEST):
