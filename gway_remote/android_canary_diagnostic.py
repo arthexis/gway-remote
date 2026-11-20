@@ -97,10 +97,11 @@ def main():
         for pkg in (field.APP, field.TEST):
             if not field.adb(serial, "shell", "pm", "path", pkg).startswith("package:"):
                 raise field.CanaryError("required_canary_package_missing")
-        result = field.adb(
-            serial, "shell", "am", "instrument", "-w", "-r", "-e", "class",
-            field.SUITE, f"{field.TEST}/{field.RUNNER}", timeout=180
-        )
+        with field.keep_usb_screen_on(serial):
+            result = field.adb(
+                serial, "shell", "am", "instrument", "-w", "-r", "-e", "class",
+                field.SUITE, f"{field.TEST}/{field.RUNNER}", timeout=180
+            )
         safe = summarize(result)
         safe["post_install"] = args.reinstall_pr is not None
         safe["settle_seconds"] = args.settle_seconds
