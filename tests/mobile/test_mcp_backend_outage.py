@@ -29,7 +29,7 @@ class HealthyBackend(BaseHTTPRequestHandler):
     def do_POST(self):
         response = {"jsonrpc": "2.0", "id": 1,
                     "result": {"tools": [
-                        {"name": "github_workflow_runs",
+                        {"name": "mcp_source_status",
                          "inputSchema": {"type": "object"},
                          "annotations": {"readOnlyHint": True}}]}}
         data = json.dumps(response).encode()
@@ -114,7 +114,7 @@ class BackendOutageTests(unittest.TestCase):
             params={"name": "agent_submit", "arguments": {}})[0], 403)
         # A backend-only tool never gains local execution or an offline response.
         self.assertEqual(self.call("tools/call",
-            params={"name": "github_workflow_runs", "arguments": {}})[0], 502)
+            params={"name": "mcp_source_status", "arguments": {}})[0], 502)
 
     def test_backend_http_denial_does_not_trigger_fallback(self):
         from unittest.mock import Mock
@@ -130,7 +130,7 @@ class BackendOutageTests(unittest.TestCase):
                 self.gateway.upstream = "http://127.0.0.1:%s/mcp" % backend.server_port
                 status, listed = self.call("tools/list")
                 self.assertEqual(status, 200)
-                self.assertIn("github_workflow_runs",
+                self.assertIn("mcp_source_status",
                     {entry["name"] for entry in listed["result"]["tools"]})
             finally:
                 backend.shutdown()
