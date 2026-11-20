@@ -1,5 +1,7 @@
 package com.arthexis.gwayremote
 
+import com.arthexis.gwayremote.features.operations.ModuleOperationViewModel
+
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.test.runCurrent

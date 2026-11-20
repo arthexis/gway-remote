@@ -1,4 +1,14 @@
-package com.arthexis.gwayremote
+package com.arthexis.gwayremote.ui.shell
+
+import com.arthexis.gwayremote.*
+import com.arthexis.gwayremote.ui.components.ModulePage
+import com.arthexis.gwayremote.features.operations.OperationModulePage
+import com.arthexis.gwayremote.features.benchmark.BenchmarkModule
+import com.arthexis.gwayremote.features.deployments.DeploymentsPanel
+import com.arthexis.gwayremote.features.githubhealth.GitHubHealthPanel
+import com.arthexis.gwayremote.features.odoo.OdooQuotationsPanel
+import com.arthexis.gwayremote.features.mcp.McpAccessPanel
+import com.arthexis.gwayremote.features.updates.rememberAppUpdateController
 
 import android.content.Context
 import android.content.Intent
@@ -111,7 +121,7 @@ fun CompanionScreen(
         ) { padding ->
             Box(Modifier.fillMaxSize().padding(padding)) {
                 when (selectedModuleId) {
-                    ModuleRegistry.HOME -> ModuleScrollPage {
+                    ModuleRegistry.HOME -> ModulePage {
                         ModuleHomePage(
                             installedVersion = installedVersion,
                             configuredEndpoint = configuredHost,
@@ -123,7 +133,7 @@ fun CompanionScreen(
                             onOpenSettings = { navigate(ModuleRegistry.SETTINGS) }
                         )
                     }
-                    ModuleRegistry.SETTINGS -> ModuleScrollPage {
+                    ModuleRegistry.SETTINGS -> ModulePage {
                         ModuleSettingsPage(
                             settings = settings,
                             appearance = appearance,
@@ -144,7 +154,7 @@ fun CompanionScreen(
                             feedback = feedback
                         )
                     }
-                    "app-update" -> ModuleScrollPage {
+                    "app-update" -> ModulePage {
                         ModuleUpdatePage(
                             update = updates.available,
                             updateStatus = updates.status,
@@ -155,36 +165,26 @@ fun CompanionScreen(
                             onInstall = updates.install
                         )
                     }
-                    "benchmark" -> ModuleScrollPage {
+                    "benchmark" -> ModulePage {
                         BenchmarkModule(settings.endpoint, settings.token)
                     }
-                    "odoo-quotations" -> ModuleScrollPage {
+                    "odoo-quotations" -> ModulePage {
                         OdooQuotationsPanel(settings.endpoint, settings.token)
                     }
-                    "deployments" -> ModuleScrollPage {
+                    "deployments" -> ModulePage {
                         DeploymentsPanel(settings.endpoint, settings.token)
                     }
-                    "mcp-access" -> ModuleScrollPage {
+                    "mcp-access" -> ModulePage {
                         McpAccessPanel(onClose = { navigate(ModuleRegistry.HOME) })
                     }
-                    "github-health" -> GitHubHealthPanel(settings.endpoint, settings.token)
+                    "github-health" -> ModulePage { GitHubHealthPanel(settings.endpoint, settings.token) }
                     "system", "csms", "notifications", "agent-ops" ->
                         OperationModulePage(selectedModuleId, settings.endpoint, settings.token)
-                    else -> ModuleScrollPage {
+                    else -> ModulePage {
                         Text("Módulo no disponible", color = MaterialTheme.colorScheme.error)
                     }
                 }
             }
         }
     }
-}
-
-/** Shared viewport padding and scrolling, never a container of multiple modules. */
-@Composable
-private fun ModuleScrollPage(content: @Composable ColumnScope.() -> Unit) {
-    Column(
-        Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp),
-        content = content
-    )
 }

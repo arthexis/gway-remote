@@ -1,4 +1,6 @@
-package com.arthexis.gwayremote
+package com.arthexis.gwayremote.features.operations
+
+import com.arthexis.gwayremote.*
 
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf

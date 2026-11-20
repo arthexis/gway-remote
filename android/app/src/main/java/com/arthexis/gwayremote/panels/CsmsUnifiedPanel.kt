@@ -1,5 +1,8 @@
 package com.arthexis.gwayremote
 
+import com.arthexis.gwayremote.features.operations.CsmsHealthPanel
+import com.arthexis.gwayremote.features.operations.CsmsInspectionPanel
+
 import androidx.compose.foundation.layout.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*

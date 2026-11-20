@@ -1,4 +1,11 @@
-package com.arthexis.gwayremote
+package com.arthexis.gwayremote.features.operations
+
+import com.arthexis.gwayremote.*
+import com.arthexis.gwayremote.ui.components.ModulePage
+import com.arthexis.gwayremote.ui.components.ModuleHeader
+import com.arthexis.gwayremote.ui.components.ModuleLoading
+import com.arthexis.gwayremote.ui.components.ModuleNotice
+import com.arthexis.gwayremote.ui.components.ModuleSectionTitle
 
 import android.content.ClipData
 import android.content.ClipboardManager
@@ -165,7 +172,7 @@ internal fun AgentOpsPanel(
         Text("Agent Ops response unavailable", color = MaterialTheme.colorScheme.error)
         return
     }
-    Text("Issues", style = MaterialTheme.typography.titleSmall)
+    ModuleSectionTitle("Issues")
     if (data.has("issues_error")) {
         Text("Unavailable: ${data.optString("issues_error")}", color = MaterialTheme.colorScheme.error)
     } else {
@@ -274,7 +281,7 @@ internal fun AgentOpsPanel(
         }
     }
     HorizontalDivider()
-    Text("Agent status and budgets", style = MaterialTheme.typography.titleSmall)
+    ModuleSectionTitle("Agent status and budgets")
     if (data.has("status_error")) {
         Text("Unavailable: ${data.optString("status_error")}", color = MaterialTheme.colorScheme.error)
     } else {

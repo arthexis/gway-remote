@@ -1,5 +1,7 @@
 package com.arthexis.gwayremote
 
+import com.arthexis.gwayremote.ui.shell.CompanionScreen
+
 import android.content.Context
 import android.os.Bundle
 import androidx.activity.ComponentActivity

@@ -1,4 +1,11 @@
-package com.arthexis.gwayremote
+package com.arthexis.gwayremote.features.operations
+
+import com.arthexis.gwayremote.*
+import com.arthexis.gwayremote.ui.components.ModulePage
+import com.arthexis.gwayremote.ui.components.ModuleHeader
+import com.arthexis.gwayremote.ui.components.ModuleLoading
+import com.arthexis.gwayremote.ui.components.ModuleNotice
+import com.arthexis.gwayremote.ui.components.ModuleSectionTitle
 
 import android.content.ClipData
 import android.content.ClipboardManager
@@ -71,18 +78,14 @@ internal fun OperationModulePage(id: String, endpoint: String, token: String) {
     val refreshing = panel?.loading == true ||
         (id == "system" && (operations.apiHealth.loading || operations.systemStatus.loading))
     val content: @Composable () -> Unit = {
-        Column(
-            Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp)
-        ) {
+        ModulePage {
+            ModuleHeader(ModuleRegistry.get(id)?.label ?: id)
             if (panel == null) {
-                LinearProgressIndicator(Modifier.fillMaxWidth())
-                return@Column
+                ModuleLoading(true)
+                return@ModulePage
             }
-            if (panel.loading) LinearProgressIndicator(Modifier.fillMaxWidth())
-            panel.error?.takeIf { it.isNotBlank() }?.let {
-                Text(it, color = MaterialTheme.colorScheme.error)
-            }
+            ModuleLoading(panel.loading)
+            ModuleNotice(panel.error, isError = true)
             when (id) {
                 "system" -> ModuleSystemContent(
                     operations.apiHealth, operations.systemStatus, operations::refreshSystem
@@ -151,10 +154,9 @@ internal fun ModuleSystemContent(
         OutlinedButton(onClick = { selected = "api-health" }) { Text("API Health") }
     }
     val check = if (selected == "status") status else api
-    Text(if (selected == "status") "System status" else "API health",
-        style = MaterialTheme.typography.titleSmall)
-    if (check.loading) LinearProgressIndicator(Modifier.fillMaxWidth())
-    check.error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
+    ModuleSectionTitle(if (selected == "status") "System status" else "API health")
+    ModuleLoading(check.loading)
+    ModuleNotice(check.error, isError = true)
     check.output?.let { GenericResultRenderer(it) }
 }
 
@@ -178,7 +180,7 @@ internal fun ModuleNotificationsContent(
     val spec = requireNotNull(OperationRegistry.get(selected))
     PanelActions(spec, OperationPanel(selected, state.inputs, state.loading, state.output, state.error),
         onRefresh = {}, onInput = onInput, onExecute = onExecute, motifs = motifs)
-    if (state.loading) LinearProgressIndicator(Modifier.fillMaxWidth())
-    state.error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
+    ModuleLoading(state.loading)
+    ModuleNotice(state.error, isError = true)
     state.output?.let { GenericResultRenderer(it) }
 }

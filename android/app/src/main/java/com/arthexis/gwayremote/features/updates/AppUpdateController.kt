@@ -1,4 +1,6 @@
-package com.arthexis.gwayremote
+package com.arthexis.gwayremote.features.updates
+
+import com.arthexis.gwayremote.*
 
 import android.content.Context
 import androidx.activity.compose.rememberLauncherForActivityResult

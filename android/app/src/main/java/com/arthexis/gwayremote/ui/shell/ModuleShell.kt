@@ -1,4 +1,11 @@
-package com.arthexis.gwayremote
+package com.arthexis.gwayremote.ui.shell
+
+import com.arthexis.gwayremote.*
+import com.arthexis.gwayremote.ui.components.ModuleHeader
+import com.arthexis.gwayremote.ui.components.ModuleSectionTitle
+import com.arthexis.gwayremote.ui.components.ModuleLoading
+import com.arthexis.gwayremote.ui.components.ModuleNotice
+import com.arthexis.gwayremote.ui.components.ModuleActions
 
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
@@ -58,7 +65,7 @@ internal fun ModuleHomePage(
     onOpenSettings: () -> Unit
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
-        Text("Aplicación", style = MaterialTheme.typography.headlineSmall)
+        ModuleHeader("Aplicación")
         ElevatedCard(Modifier.fillMaxWidth()) {
             Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text("GWay Remote", style = MaterialTheme.typography.titleLarge)
@@ -66,9 +73,9 @@ internal fun ModuleHomePage(
                 Text("API: " + configuredEndpoint)
                 Text(if (availableUpdate == null) "Sin actualización pendiente detectada"
                     else "Actualización disponible: " + availableUpdate.version)
-                if (updating) LinearProgressIndicator(Modifier.fillMaxWidth())
-                if (updateStatus.isNotBlank()) Text(updateStatus, style = MaterialTheme.typography.bodySmall)
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                ModuleLoading(updating)
+                ModuleNotice(updateStatus)
+                ModuleActions {
                     Button(onClick = onOpenUpdate) { Text("Actualizaciones") }
                     OutlinedButton(onClick = onCheckUpdate, enabled = !updating) {
                         Text("Comprobar")
@@ -93,11 +100,11 @@ internal fun ModuleUpdatePage(
     onInstall: () -> Unit
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        Text("Actualizaciones de la aplicación", style = MaterialTheme.typography.titleLarge)
-        if (updating) LinearProgressIndicator(Modifier.fillMaxWidth())
+        ModuleHeader("Actualizaciones de la aplicación")
+        ModuleLoading(updating)
         Text(if (update == null) "No hay una actualización disponible detectada."
             else "Nueva versión: " + update.version)
-        if (updateStatus.isNotBlank()) Text(updateStatus, style = MaterialTheme.typography.bodySmall)
+        ModuleNotice(updateStatus)
         OutlinedButton(onClick = onCheck, enabled = !updating) { Text("Comprobar actualizaciones") }
         if (update != null) {
             Button(onClick = onDownload, enabled = !updating) {
@@ -123,8 +130,8 @@ internal fun ModuleSettingsPage(
     feedback: String
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        Text("Apariencia", style = MaterialTheme.typography.titleMedium)
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        ModuleSectionTitle("Apariencia")
+        ModuleActions {
             AppearanceMode.entries.forEach { mode ->
                 FilterChip(
                     selected = appearance == mode,
@@ -134,7 +141,7 @@ internal fun ModuleSettingsPage(
             }
         }
         HorizontalDivider()
-        Text("API", style = MaterialTheme.typography.titleMedium)
+        ModuleSectionTitle("API")
         OutlinedTextField(settings.endpoint, onEndpointChange, label = { Text("HTTPS endpoint") },
             modifier = Modifier.fillMaxWidth(), singleLine = true)
         OutlinedTextField(settings.token, onTokenChange, label = { Text("Bearer token") },

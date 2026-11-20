@@ -1,4 +1,11 @@
-package com.arthexis.gwayremote
+package com.arthexis.gwayremote.features.benchmark
+
+import com.arthexis.gwayremote.*
+import com.arthexis.gwayremote.ui.components.ModuleHeader
+import com.arthexis.gwayremote.ui.components.ModuleLoading
+import com.arthexis.gwayremote.ui.components.ModuleNotice
+import com.arthexis.gwayremote.ui.components.ModuleActions
+import com.arthexis.gwayremote.ui.components.ModuleSectionTitle
 
 import android.content.ClipData
 import android.content.ClipboardManager
@@ -34,7 +41,7 @@ internal fun BenchmarkModule(endpoint: String, token: String) {
     DisposableEffect(Unit) { onDispose { benchmarkStop.set(true) } }
 
         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Text("Authenticated echo and read-only status · connected node", style = MaterialTheme.typography.bodySmall)
+            ModuleHeader("Benchmark", "Authenticated echo and read-only status · connected node")
             Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                 for (mode in BenchmarkMode.entries) {
                     FilterChip(selected = benchmarkMode == mode, onClick = { benchmarkInput = benchmarkInput.copy(mode = mode) },
@@ -62,7 +69,7 @@ internal fun BenchmarkModule(endpoint: String, token: String) {
                     modifier = Modifier.fillMaxWidth()
                 )
             }
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            ModuleActions {
                 Button(enabled = !benchmarkRunning, onClick = {
                     try {
                         val config = benchmarkInput.config()
@@ -104,7 +111,7 @@ internal fun BenchmarkModule(endpoint: String, token: String) {
                     Text("Cancel")
                 }
             }
-            if (benchmarkError.isNotBlank()) Text(benchmarkError)
+            ModuleNotice(benchmarkError, isError = true)
             benchmarkReport?.let { report ->
                 Text("Run: ${report.runId}")
                 for (item in report.results) {
@@ -113,7 +120,7 @@ internal fun BenchmarkModule(endpoint: String, token: String) {
                     if (item.processingNs.isNotEmpty()) Text("Pi echo: ${item.summary(item.processingNs)}")
                     if (item.executionNs.isNotEmpty()) Text("Pi execution: ${item.summary(item.executionNs)}")
                 }
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                ModuleActions {
                     OutlinedButton(onClick = {
                         val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
                         clipboard.setPrimaryClip(ClipData.newPlainText("GWAY benchmark JSON", report.json().toString(2)))
