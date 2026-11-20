@@ -294,6 +294,9 @@ def run(pr, *, install_enabled=False, reset=False, wake=False, retry=False):
         }
         try:
             install(serial, directory, allow_canary_reset=reset)
+            # Package installation can consume the display timeout. Revalidate
+            # a live unlocked screen before starting the Compose runner.
+            device_ready(serial, wake=wake)
             record["tests_passed"] = instrument(serial)
             record["status"] = "passed"
         except CanaryError as exc:
