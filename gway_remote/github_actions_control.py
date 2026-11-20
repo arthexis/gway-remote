@@ -136,6 +136,11 @@ def workflow_dispatch(args):
     repository = _arguments(args, ("repository", "workflow_id", "ref"), ("inputs",))
     workflow_id = _positive(args["workflow_id"], 10**18)
     ref = _reference(args["ref"])
+    # A caller-selected workflow from an unreviewed branch could execute on
+    # a privileged self-hosted runner. Only the reviewed default branch is
+    # permitted in this initial control surface.
+    if ref != "main":
+        raise ValueError("unsupported_ref")
     inputs = args.get("inputs", {})
     if (type(inputs) is not dict or len(inputs) > MAX_INPUTS
             or any(type(k) is not str or not _INPUT_NAME.fullmatch(k)
