@@ -1,0 +1,137 @@
+"""Hermetic guards for the Android canary field consumer (no real adb/gh)."""
+import hashlib
+from pathlib import Path
+import tempfile
+import unittest
+from unittest.mock import patch
+
+from gway_remote import android_canary_field as field
+
+PR = 644
+SHA = "a" * 40
+RUN = 44789265881
+
+
+class ProvenanceTests(unittest.TestCase):
+    def fixture(self, directory):
+        d = Path(directory)
+        hashes = {}
+        for name in field.FILES:
+            data = b"APK " + name.encode()
+            (d / name).write_bytes(data)
+            hashes[name] = hashlib.sha256(data).hexdigest()
+        (d / "SHA256SUMS").write_text(
+            "".join(f"{hashes[n]}  {n}\n" for n in field.FILES)
+        )
+        values = {
+            "Repository": field.REPO, "Pull-Request": str(PR),
+            "Source-Commit": SHA, "Canary-Overlay": "package-and-label-v1",
+            "Package": field.APP, "Signing": "ephemeral Android debug certificate",
+            "Test-Package": field.TEST, "Test-Runner": field.RUNNER,
+            "Actions-Run": str(RUN),
+        }
+        (d / "PROVENANCE.txt").write_text(
+            "".join(f"{k}: {v}\n" for k, v in values.items())
+        )
+        return d
+
+    def test_exact_pair_passes(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            d = self.fixture(tmp)
+            self.assertEqual(len(field.provenance(d, pr=PR, sha=SHA, run_id=RUN)), 2)
+
+    def test_rejects_changed_sha_or_unlisted_file(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            d = self.fixture(tmp)
+            with self.assertRaises(field.CanaryError):
+                field.provenance(d, pr=PR, sha="b" * 40, run_id=RUN)
+            (d / "secret.txt").write_text("forbidden")
+            with self.assertRaises(field.CanaryError):
+                field.provenance(d, pr=PR, sha=SHA, run_id=RUN)
+
+    def test_rejects_tampered_test_apk(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            d = self.fixture(tmp)
+            (d / field.FILES[1]).write_bytes(b"modified")
+            with self.assertRaises(field.CanaryError):
+                field.provenance(d, pr=PR, sha=SHA, run_id=RUN)
+
+    def test_rejects_symlink(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            d = self.fixture(tmp)
+            p = d / field.FILES[1]
+            p.unlink()
+            p.symlink_to(d / field.FILES[0])
+            with self.assertRaises(field.CanaryError):
+                field.provenance(d, pr=PR, sha=SHA, run_id=RUN)
+
+
+class UsbTests(unittest.TestCase):
+    @patch.object(field, "command")
+    def test_single_usb_and_no_emulator(self, cmd):
+        cmd.side_effect = ["List of devices attached\nabc123 device usb:2-1 model:SM_G950F\n", "0\n"]
+        self.assertEqual(field.usb(), "abc123")
+
+    @patch.object(field, "command")
+    def test_multiple_devices_rejected(self, cmd):
+        cmd.return_value = (
+            "List of devices attached\na device usb:2-1\nb device usb:2-2\n"
+        )
+        with self.assertRaises(field.CanaryError):
+            field.usb()
+        self.assertEqual(cmd.call_count, 1)
+
+    @patch.object(field, "command")
+    def test_tcp_device_rejected(self, cmd):
+        cmd.return_value = "List of devices attached\n10.0.0.1:5555 device model:phone\n"
+        with self.assertRaises(field.CanaryError):
+            field.usb()
+
+    @patch.object(field, "adb")
+    def test_unconfirmed_lock_state_rejected(self, adb):
+        adb.side_effect = ["mWakefulness=Awake", "mCurrentFocus=Launcher"]
+        with self.assertRaisesRegex(field.CanaryError, "lock_state_unknown"):
+            field.device_ready("serial")
+
+
+class RunSelectionTests(unittest.TestCase):
+    @patch.object(field, "gh")
+    def test_only_approved_manual_run_and_current_pr(self, gh):
+        gh.side_effect = [
+            {"state": "open", "head": {
+                "repo": {"full_name": field.REPO}, "sha": SHA}},
+            {"workflow_runs": [
+                {"id": RUN, "event": "workflow_dispatch", "head_branch": "main",
+                 "status": "completed", "conclusion": "success"}]},
+            {"artifacts": [{"name": f"android-canary-pr{PR}-{SHA[:12]}",
+                            "expired": False, "workflow_run": {"id": RUN}}]},
+        ]
+        self.assertEqual(field.eligible_run(PR), (RUN, f"android-canary-pr{PR}-{SHA[:12]}", SHA))
+
+    @patch.object(field, "gh")
+    def test_rejects_pr_from_fork(self, gh):
+        gh.return_value = {"state": "open", "head": {
+            "repo": {"full_name": "attacker/fork"}, "sha": SHA}}
+        with self.assertRaises(field.CanaryError):
+            field.eligible_run(PR)
+
+
+class InstrumentationTests(unittest.TestCase):
+    @patch.object(field, "adb")
+    def test_pass_requires_android_runner_success(self, adb):
+        adb.return_value = "OK (6 tests)\nINSTRUMENTATION_CODE: -1\n"
+        self.assertEqual(field.instrument("usb-device"), 6)
+        self.assertTrue(any(
+            "com.arthexis.gwayremote.canary.test/" in " ".join(map(str, call.args))
+            for call in adb.call_args_list
+        ))
+
+    @patch.object(field, "adb")
+    def test_generic_output_is_not_pass(self, adb):
+        adb.return_value = "Success"
+        with self.assertRaises(field.CanaryError):
+            field.instrument("usb-device")
+
+
+if __name__ == "__main__":
+    unittest.main()

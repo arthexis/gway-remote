@@ -13,14 +13,13 @@ the HEAD before clicking Run workflow).
 
 The job validates that the PR exists, is still open, belongs to this
 repository, and has exactly the supplied HEAD. It then checks out that
-commit and builds **only** Gradle task `:app:assembleDebug` (no test suite,
-emulator, or release signing).
+commit and builds **only** Gradle tasks `:app:assembleDebug` and `:app:assembleDebugAndroidTest` (compilation of instrumented test APK only; no emulator/device execution, no release signing).
 
 The resulting GitHub Actions artifact is named
 `android-canary-pr<PR>-<SHA12>`, retained for **14 days**. It includes:
 
-- `gway-remote-canary.apk` — installable debug APK.
-- `SHA256SUMS` — digest to check before installation.
+- `gway-remote-canary.apk` — installable debug APK.\n- `gway-remote-canary-test.apk` — paired instrumented Compose test APK for the physical USB device.
+- `SHA256SUMS` — digests for both APKs to check before installation.
 - `PROVENANCE.txt` — PR, full commit SHA, run ID, overlay and package name.
 
 ## Isolation and provenance
@@ -34,7 +33,7 @@ untouched binary image of the repository.
 
 The canary has separate app storage and debug signing, and **cannot
 overwrite** production package `com.arthexis.gwayremote`. It is not a
-production updater candidate and no APK is published to GitHub Releases.
+production updater candidate and no APK is published to GitHub Releases. Canary versions are independently labelled `0.0.1-canary.<run_number>-<SHA12>`.
 An ephemeral debug signing key can change between runs, so Android may
 require uninstalling only an older canary before installing another. Do not
 remove or reset the production installation or production credentials.
@@ -54,4 +53,4 @@ change that policy or create a new regular CI job.
 
 The workflow requires only repository read access. It does not access
 release signing secrets, overwrite releases, trigger deployments, install
-an APK onto a device, or start a second Gradle test matrix.
+an APK onto a device, or start a second Gradle test matrix. The instrumented APK is compiled but never run in GitHub CI as part of the canary job; see `USB_CANARY_ACCEPTANCE.md` for opt-in USB execution.
