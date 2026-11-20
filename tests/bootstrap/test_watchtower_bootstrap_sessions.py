@@ -8,12 +8,6 @@ from gway_remote.watchtower_enrollment import EnrollmentRejected
 from tests.bootstrap.fakes import MemoryWireGuard
 
 
-@pytest.fixture
-def ledger(tmp_path):
-    return Ledger(tmp_path / "enrollment.sqlite3", network="10.90.0.0/24",
-                  gateway="10.90.0.1")
-
-
 def test_registration_url_is_separate_from_invitation_and_metadata_has_no_secrets(ledger):
     issued = ledger.register("gway-004", public_url="https://register.gelectriic.com")
     secret = issued["url"].rsplit("/", 1)[-1]

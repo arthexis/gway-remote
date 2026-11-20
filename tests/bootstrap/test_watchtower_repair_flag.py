@@ -5,7 +5,7 @@ ROOT = Path(__file__).resolve().parents[2]
 
 
 def test_repair_flag_is_short_and_does_not_conflict_with_replace():
-    cli = (ROOT / "gway_remote/__main__.py").read_text()
+    cli = (ROOT / "gway_remote/cli/security.py").read_text()
     client = (ROOT / "gway_remote/wireguard_satellite.py").read_text()
     enrollment = (ROOT / "gway_remote/watchtower_enrollment.py").read_text()
     renderer = (ROOT / "gway_remote/bootstrap_script.py").read_text()

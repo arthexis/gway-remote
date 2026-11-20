@@ -15,7 +15,7 @@ def test_attestation_rejects_missing_or_untrusted_identity():
 
 def test_attestation_validates_key_and_lifecycle():
     now = datetime.now(timezone.utc)
-    blob = b"\\x00\\x00\\x00\\x0bssh-ed25519\\x00\\x00\\x00\\x20" + bytes(range(32))
+    blob = bytes((0, 0, 0, 11)) + b"ssh-ed25519" + bytes((0, 0, 0, 32)) + bytes(range(32))
     key = "ssh-ed25519 " + base64.b64encode(blob).decode()
     record = {"schema": 1, "node": "gway-004", "state": "active",
               "rotation_state": "stable", "enrollment_binding": "a" * 64,
