@@ -38,14 +38,15 @@ class ModuleArchitectureTests(unittest.TestCase):
 
     def test_operation_modules_do_not_render_legacy_panel_chrome(self):
         source = (ANDROID / "OperationModulePage.kt").read_text()
-        self.assertIn("SystemUnifiedPanel(", source)
+        self.assertIn("ModuleSystemContent(", source)
         self.assertIn("CsmsUnifiedPanel(", source)
-        self.assertIn("NotificationsUnifiedPanel(", source)
+        self.assertIn("ModuleNotificationsContent(", source)
         self.assertIn("AgentOpsPanel(", source)
         self.assertIn("DisposableEffect(id)", source)
         for legacy in ("OperationPalette(", "OperationPanelHost(", "PanelChrome(", "StandardPanel(", "LocalPanelHost("):
             self.assertNotIn(legacy, source)
         self.assertIn("operations::executeNotification", source)
+        self.assertIn("ModuleOperationViewModel = viewModel()", source)
 
     def test_internal_operations_and_backend_authority_stay_hidden(self):
         operations = (ANDROID / "OperationRegistry.kt").read_text()
