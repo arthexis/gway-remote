@@ -1,12 +1,14 @@
 """Sanitized physical USB Compose instrumentation diagnostic (opt-in only).
 
-Does not install packages, alter production, store screenshots, print raw UI,
+Does not alter production, store screenshots, print raw UI,
 report device serial or publish raw AndroidJUnitRunner output.
 """
 from __future__ import annotations
 
+import argparse
 import json
 import re
+import tempfile
 from pathlib import Path
 
 if __package__:
@@ -49,9 +51,20 @@ def summarize(raw: str) -> dict:
 
 
 def main():
+    parser = argparse.ArgumentParser(description="Sanitized USB canary instrumentation")
+    parser.add_argument("--reinstall-pr", type=int, choices=(644,),
+                        help="reproduce immediate post-install tests for approved PR 644 only")
+    args = parser.parse_args()
     serial = field.usb()
     was_awake = field.device_ready(serial, wake=True)
     try:
+        if args.reinstall_pr is not None:
+            run_id, artifact, sha = field.eligible_run(args.reinstall_pr)
+            with tempfile.TemporaryDirectory(prefix="gway-canary-probe-") as directory:
+                field.command(["gh", "run", "download", str(run_id), "-R", field.REPO,
+                               "--name", artifact, "--dir", directory], timeout=70)
+                field.provenance(directory, pr=args.reinstall_pr, sha=sha, run_id=run_id)
+                field.install(serial, directory, allow_canary_reset=False)
         for pkg in (field.APP, field.TEST):
             if not field.adb(serial, "shell", "pm", "path", pkg).startswith("package:"):
                 raise field.CanaryError("required_canary_package_missing")
@@ -60,6 +73,7 @@ def main():
             field.SUITE, f"{field.TEST}/{field.RUNNER}", timeout=180
         )
         safe = summarize(result)
+        safe["post_install"] = args.reinstall_pr is not None
         p = Path.home() / ".local/state/gway-remote/android-canary-diagnostic.json"
         field.write_state(p, safe)
         print(json.dumps(safe, sort_keys=True))
