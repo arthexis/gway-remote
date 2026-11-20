@@ -149,7 +149,8 @@ def test_fresh_bootstrap_writes_config_and_activates(tmp_path, monkeypatch, root
     assert "PrivateKey = private" in config.read_text()
     assert f"PublicKey = {OTHER}" in config.read_text()
     assert config.stat().st_mode & 0o777 == 0o600
-    assert commands[-1][0] == ("systemctl", "enable", "--now", "wg-quick@gway.service")
+    assert commands[-2][0] == ("systemctl", "enable", "--now", "wg-quick@gway.service")
+    assert commands[-1][0] == ("wg", "show", "gway", "public-key")
 
 
 def test_invalid_response_does_not_install_or_activate(tmp_path, monkeypatch, root, commands, enrollment):
