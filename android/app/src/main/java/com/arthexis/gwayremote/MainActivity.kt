@@ -12,6 +12,7 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.compose.setContent
+import androidx.activity.compose.BackHandler
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.layout.FlowRow
@@ -27,6 +28,9 @@ import androidx.compose.ui.graphics.toArgb
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsControllerCompat
 import androidx.compose.material3.*
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Menu
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -409,153 +413,203 @@ fun CompanionScreen(store: SecretStore, appearance: AppearanceMode = AppearanceM
         }
     }
 
-    PullToRefreshBox(isRefreshing = refreshing, onRefresh = { refreshAll() },
-        modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background).statusBarsPadding().navigationBarsPadding()) {
-    Column(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background).imePadding().verticalScroll(rememberScrollState()).padding(20.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-            Text("GWay Remote", style = MaterialTheme.typography.headlineMedium)
-            IconButton(onClick = { settings = settings.toggle() },
-                modifier = Modifier.semantics { contentDescription = "API settings" }) {
-                Text("⚙", style = MaterialTheme.typography.headlineMedium)
+    var selectedModuleId by remember { mutableStateOf(ModuleRegistry.HOME) }
+    var moduleFeedback by remember { mutableStateOf("") }
+    val drawerState = rememberDrawerState(initialValue = DrawerValue.Closed)
+
+    /**
+     * A module switch owns the whole content region. Old in-flight operation
+     * responses are invalidated by OperationViewModel.close, not displayed in
+     * some other module. Navigation never invokes a mutating operation.
+     */
+    fun navigateToModule(id: String) {
+        val destination = ModuleRegistry.get(id)?.destination ?: return
+        if (destination !is ModuleDestination.Screen) {
+            val intent = when (destination) {
+                is ModuleDestination.HttpsLink -> Intent(Intent.ACTION_VIEW, Uri.parse(destination.url))
+                is ModuleDestination.AndroidAppLink ->
+                    Intent(Intent.ACTION_VIEW, Uri.parse(destination.url)).setPackage(destination.packageName)
+                else -> return
             }
-        }
-        if (settingsOpen) {
-            HorizontalDivider()
-            Text("Appearance", style = MaterialTheme.typography.titleMedium)
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                AppearanceMode.entries.forEach { mode ->
-                    FilterChip(selected = appearance == mode, onClick = { onAppearanceChange(mode) }, label = { Text(mode.label) })
-                }
+            try {
+                context.startActivity(intent)
+            } catch (_: android.content.ActivityNotFoundException) {
+                moduleFeedback = "La aplicación externa no está disponible"
+            } catch (_: SecurityException) {
+                moduleFeedback = "No se puede abrir este módulo externo"
             }
-            Text("API settings", style = MaterialTheme.typography.titleMedium)
-            OutlinedTextField(endpoint, { settings = settings.copy(endpoint = it) }, label = { Text("HTTPS endpoint") },
-                modifier = Modifier.fillMaxWidth(), singleLine = true)
-            OutlinedTextField(token, { settings = settings.copy(token = it) }, label = { Text("Bearer token") },
-                visualTransformation = androidx.compose.ui.text.input.PasswordVisualTransformation(),
-                modifier = Modifier.fillMaxWidth(), singleLine = true)
-            Button(onClick = {
-                try {
-                    ApiClient(endpoint.trim(), token)
-                    store.endpoint = endpoint.trim()
-                    store.token = token
-                    settings = settings.saved()
-                    commandState = commandState.displayed("Connection settings saved")
-                } catch (e: Exception) { commandState = commandState.displayed(e.message ?: "Invalid settings") }
-            }) { Text("Save settings") }
-        }
-        if (update != null) {
-            Text("Update available: ${update!!.version}", style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.primary)
-        }
-        val unmatchedCommands = emptyList<String>() // Discovered commands are not palette actions
-        OperationPalette(
-            state = panelState,
-            onOpen = operationModel::open,
-            onClose = operationModel::close,
-            onMove = operationModel::move,
-            onRefresh = operationModel::refresh,
-            onCsmsInspect = operationModel::inspectCsms,
-            csmsView = operationModel.csmsView,
-            onSelectCsmsView = operationModel::selectCsmsView,
-            apiHealth = operationModel.apiHealth,
-            systemStatus = operationModel.systemStatus,
-            onRefreshSystem = operationModel::refreshSystem,
-            agentAssignments = agentIssues,
-            agentInstance = agentModel.localAgent,
-            agentAssignmentsLoading = agentIssuesLoading,
-            agentAssignmentsError = agentIssuesError,
-            onRefreshAgentAssignments = agentModel::refreshAssignments,
-            onAgentAssignmentsError = agentModel::reportAssignmentsError,
-            agentAssignmentsExpanded = agentAssignmentsExpanded,
-            onAgentAssignmentsExpanded = { agentAssignmentsExpanded = it },
-            agentSendLoading = agentSendLoading,
-            agentSendResult = agentSendResult,
-            agentSendError = agentSendError,
-            agentObserveLoading = agentObserveLoading,
-            agentObserveResult = agentObserveResult,
-            agentObserveError = agentObserveError,
-            onAgentObserve = agentModel::observe,
-            onAgentCopyPrompt = { ref ->
-                agentModel.preview(ref) { prompt ->
-                    val clipboard = agentUiContext.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-                    clipboard.setPrimaryClip(ClipData.newPlainText("Agent issue prompt", prompt))
-                }
-            },
-            onAgentSend = agentModel::send,
-            benchmarkContent = benchmarkPanelContent,
-            motifs = soundMotifs.available,
-            lcdNotification = operationModel.lcdNotification,
-            soundNotification = operationModel.soundNotification,
-            onNotificationInput = operationModel::notificationInput,
-            onExecuteNotification = operationModel::executeNotification,
-            onInput = operationModel::input,
-            onExecute = operationModel::execute,
-            extraActions = listOf(
-                PaletteAction(
-                    id = "odoo-quotations",
-                    label = if (quotationsOpen) "Ocultar Cotizaciones" else "Cotizaciones",
-                    icon = "file-text",
-                    onClick = { quotationsOpen = !quotationsOpen }
-                ),
-                PaletteAction(
-                    id = "deployments",
-                    label = "Deployments",
-                    icon = "rocket",
-                    onClick = { localPanels = localPanels.toggle("deployments") }
-                ),
-                PaletteAction(
-                    id = "mcp-access",
-                    label = "MCP Access",
-                    icon = "key-round",
-                    onClick = { localPanels = localPanels.toggle("mcp-access") }
-                ),
-                PaletteAction(
-                    id = "github-health",
-                    label = "GitHub Health",
-                    icon = "github",
-                    onClick = { localPanels = localPanels.toggle("github-health") }
-                ),
-                PaletteAction(
-                    id = "app-update",
-                    label = if (updating) "Updating…" else "App update",
-                    icon = "update",
-                    onClick = { if (update == null) checkUpdates() else downloadUpdate() },
-                    enabled = !updating,
-                    attention = update != null
-                )
-            ) + unmatchedCommands.map { name ->
-                PaletteAction("server-" + name, name, "list", { perform("/api/v1/execute", name) }, !busy)
-            }
-        )
-        LocalPanelHost(
-            state = localPanels, endpoint = endpoint, token = token,
-            onClose = { localPanels = localPanels.close(it) },
-            onMove = { id, index -> localPanels = localPanels.move(id, index) }
-        )
-        if (quotationsOpen) {
-            OdooQuotationsPanel(endpoint = endpoint, token = token)
-        }
-        HorizontalDivider()
-        if (refreshStatus.isNotBlank()) Text(refreshStatus, style = MaterialTheme.typography.bodySmall)
-        if (updateStatus.isNotBlank() && !updateStatus.startsWith("App is up to date") &&
-            !updateStatus.startsWith("Update available:")) {
-            Text(updateStatus, style = MaterialTheme.typography.bodySmall)
+            scope.launch { drawerState.close() }
+            return
         }
 
-        if (busy) LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically) {
-            Text("Response", style = MaterialTheme.typography.titleMedium)
-            IconButton(enabled = result.isNotBlank(), onClick = {
-                val clipboard = agentUiContext.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-                clipboard.setPrimaryClip(ClipData.newPlainText("GWay Remote response", result))
-            }, modifier = Modifier.semantics { contentDescription = "Copy response" }) {
-                Text("⧉", style = MaterialTheme.typography.titleLarge)
+        if (selectedModuleId != id) {
+            if (FeatureRegistry.get(selectedModuleId)?.kind == FeatureKind.OPERATION) {
+                operationModel.close(selectedModuleId)
+            }
+            localPanels = LocalPanelState()
+            when {
+                FeatureRegistry.get(id)?.kind == FeatureKind.OPERATION -> operationModel.open(id)
+                id != "odoo-quotations" && LocalPanelState.isPanel(id) ->
+                    localPanels = localPanels.open(id)
+            }
+            selectedModuleId = id
+        }
+        scope.launch { drawerState.close() }
+    }
+
+    BackHandler(enabled = drawerState.isOpen || selectedModuleId != ModuleRegistry.HOME) {
+        if (drawerState.isOpen) scope.launch { drawerState.close() }
+        else navigateToModule(ModuleRegistry.HOME)
+    }
+
+    val installedVersion = remember(context) {
+        runCatching {
+            @Suppress("DEPRECATION")
+            context.packageManager.getPackageInfo(context.packageName, 0).versionName ?: "unknown"
+        }.getOrDefault("unknown")
+    }
+    val configuredHost = remember(endpoint, token) {
+        if (token.isBlank()) "pendiente de token"
+        else runCatching { java.net.URI(endpoint.trim()).host }.getOrNull() ?: "pendiente de configuración"
+    }
+
+    ModalNavigationDrawer(
+        drawerState = drawerState,
+        drawerContent = {
+            ModuleDrawerContent(
+                selectedId = selectedModuleId,
+                updateAvailable = update != null,
+                onSelect = ::navigateToModule
+            )
+        }
+    ) {
+        Scaffold(
+            modifier = Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding(),
+            topBar = {
+                TopAppBar(
+                    title = { Text(ModuleRegistry.get(selectedModuleId)?.label ?: "GWay Remote") },
+                    navigationIcon = {
+                        IconButton(onClick = { scope.launch { drawerState.open() } },
+                            modifier = Modifier.semantics { contentDescription = "Abrir menú de módulos" }) {
+                            Icon(Icons.Filled.Menu, contentDescription = null)
+                        }
+                    },
+                    actions = {
+                        if (FeatureRegistry.get(selectedModuleId)?.operation?.policy == ExecutionPolicy.AUTO_READ) {
+                            IconButton(onClick = { operationModel.refresh(selectedModuleId) }) {
+                                Icon(Icons.Filled.Refresh, contentDescription = "Actualizar módulo")
+                            }
+                        }
+                    }
+                )
+            }
+        ) { contentPadding ->
+            Column(
+                Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)
+                    .padding(contentPadding).imePadding().verticalScroll(rememberScrollState())
+                    .padding(16.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                when (selectedModuleId) {
+                    ModuleRegistry.HOME -> ModuleHomePage(
+                        installedVersion = installedVersion,
+                        configuredEndpoint = configuredHost,
+                        availableUpdate = update,
+                        updateStatus = updateStatus,
+                        updating = updating,
+                        onOpenUpdate = { navigateToModule("app-update") },
+                        onCheckUpdate = ::checkUpdates,
+                        onOpenSettings = { navigateToModule(ModuleRegistry.SETTINGS) }
+                    )
+                    ModuleRegistry.SETTINGS -> ModuleSettingsPage(
+                        settings = settings,
+                        appearance = appearance,
+                        onAppearanceChange = onAppearanceChange,
+                        onEndpointChange = { settings = settings.copy(endpoint = it) },
+                        onTokenChange = { settings = settings.copy(token = it) },
+                        onSave = {
+                            try {
+                                ApiClient(endpoint.trim(), token)
+                                store.endpoint = endpoint.trim()
+                                store.token = token
+                                settings = settings.saved()
+                                moduleFeedback = "Configuración guardada"
+                            } catch (e: Exception) {
+                                moduleFeedback = e.message ?: "Configuración inválida"
+                            }
+                        },
+                        feedback = moduleFeedback
+                    )
+                    "app-update" -> ModuleUpdatePage(
+                        update = update,
+                        updateStatus = updateStatus,
+                        updating = updating,
+                        apkReady = apk?.isFile == true,
+                        onCheck = ::checkUpdates,
+                        onDownload = ::downloadUpdate,
+                        onInstall = ::requestInstall
+                    )
+                    "odoo-quotations" -> OdooQuotationsPanel(endpoint = endpoint, token = token)
+                    "deployments", "mcp-access", "github-health" -> LocalPanelHost(
+                        state = localPanels,
+                        endpoint = endpoint,
+                        token = token,
+                        onClose = { navigateToModule(ModuleRegistry.HOME) },
+                        onMove = { id, index -> localPanels = localPanels.move(id, index) }
+                    )
+                    else -> if (FeatureRegistry.get(selectedModuleId)?.kind == FeatureKind.OPERATION) {
+                        // Only the selected operation exists in the content region.
+                        OperationPalette(
+                            state = panelState.copy(panels = panelState.panels.filter { it.id == selectedModuleId }),
+                            onOpen = operationModel::open,
+                            onClose = { navigateToModule(ModuleRegistry.HOME) },
+                            onMove = operationModel::move,
+                            onRefresh = operationModel::refresh,
+                            onCsmsInspect = operationModel::inspectCsms,
+                            csmsView = operationModel.csmsView,
+                            onSelectCsmsView = operationModel::selectCsmsView,
+                            apiHealth = operationModel.apiHealth,
+                            systemStatus = operationModel.systemStatus,
+                            onRefreshSystem = operationModel::refreshSystem,
+                            agentAssignments = agentIssues,
+                            agentInstance = agentModel.localAgent,
+                            agentAssignmentsLoading = agentIssuesLoading,
+                            agentAssignmentsError = agentIssuesError,
+                            onRefreshAgentAssignments = agentModel::refreshAssignments,
+                            onAgentAssignmentsError = agentModel::reportAssignmentsError,
+                            agentAssignmentsExpanded = agentAssignmentsExpanded,
+                            onAgentAssignmentsExpanded = { agentAssignmentsExpanded = it },
+                            agentSendLoading = agentSendLoading,
+                            agentSendResult = agentSendResult,
+                            agentSendError = agentSendError,
+                            agentObserveLoading = agentObserveLoading,
+                            agentObserveResult = agentObserveResult,
+                            agentObserveError = agentObserveError,
+                            onAgentObserve = agentModel::observe,
+                            onAgentCopyPrompt = { ref ->
+                                agentModel.preview(ref) { prompt ->
+                                    val clipboard = agentUiContext.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                                    clipboard.setPrimaryClip(ClipData.newPlainText("Agent issue prompt", prompt))
+                                }
+                            },
+                            onAgentSend = agentModel::send,
+                            benchmarkContent = benchmarkPanelContent,
+                            motifs = soundMotifs.available,
+                            lcdNotification = operationModel.lcdNotification,
+                            soundNotification = operationModel.soundNotification,
+                            onNotificationInput = operationModel::notificationInput,
+                            onExecuteNotification = operationModel::executeNotification,
+                            onInput = operationModel::input,
+                            onExecute = operationModel::execute,
+                            showPalette = false
+                        )
+                    }
+                }
+                if (moduleFeedback.isNotBlank() && selectedModuleId != ModuleRegistry.SETTINGS) {
+                    Text(moduleFeedback, color = MaterialTheme.colorScheme.error,
+                        style = MaterialTheme.typography.bodySmall)
+                }
             }
         }
-        Text(result)
-        Spacer(Modifier.height(LocalConfiguration.current.screenHeightDp.dp / 2))
-    }
     }
 }
