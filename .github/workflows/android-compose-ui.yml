@@ -1,8 +1,6 @@
 name: Android Compose UI Tests
 
 on:
-  pull_request:
-    paths: ['android/**', '.github/workflows/android-compose-ui.yml']
   workflow_dispatch:
     inputs:
       profile:
