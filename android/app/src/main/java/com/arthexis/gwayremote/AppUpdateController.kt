@@ -27,13 +27,6 @@ internal data class AppUpdateController(
 internal fun rememberAppUpdateController(): AppUpdateController {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
-    var update by remember { mutableStateOf<AvailableUpdate?>(null) }
-    var updateState by remember { mutableStateOf(CompanionUpdateState()) }
-    val updating = updateState.running
-    var apk by remember {
-        mutableStateOf(java.io.File(context.cacheDir, "gway-remote-update.apk").takeIf { it.isFile })
-    }
-    var installPermissionState by remember { mutableStateOf(CompanionInstallPermissionState()) }
     val notificationPermissionLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission()
     ) { /* Background checks continue; alerts require permission. */ }
