@@ -78,6 +78,10 @@ class GitHubActionsControlTests(unittest.TestCase):
             result = actions.workflow_health({"repository": REPO})
         self.assertEqual(result["state"], "unknown")
 
+    def test_declarations_align_with_dispatch_indices(self):
+        self.assertEqual([tool["name"] for tool in mcp_agent.TOOLS],
+                         list(mcp_agent._HANDLERS))
+
     def test_read_tool_scope_and_write_denied_before_network(self):
         names = {t["name"]: t for t in mcp_agent.TOOLS}
         self.assertEqual(names["github_workflow_list"]["annotations"]["readOnlyHint"], True)
