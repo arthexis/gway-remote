@@ -45,9 +45,9 @@ def summarize(raw: str) -> dict:
     # Only framework/test-class identifiers from stack frames; no messages,
     # app logs, parameter values, serial numbers or original stack strings.
     frame_pattern = re.compile(
-        r"(?m)^\\s*at ((?:androidx\\.(?:compose|test)\\.[A-Za-z0-9_.$]+"
-        r"|com\\.arthexis\\.gwayremote\\.[A-Za-z0-9_.$]+"
-        r"|java\\.lang\\.[A-Za-z0-9_.$]+))\\([A-Za-z0-9_.$]+\\.\\w+:\\d+\\)"
+        r"(?m)^\s*at ((?:androidx\.(?:compose|test)\.[A-Za-z0-9_.$]+"
+        r"|com\.arthexis\\.gwayremote\.[A-Za-z0-9_.$]+"
+        r"|java\.lang\.[A-Za-z0-9_.$]+))\([A-Za-z0-9_.$]+\.\w+:\d+\)"
     )
     frames = list(dict.fromkeys(frame_pattern.findall(raw)))[:14]
     return {
