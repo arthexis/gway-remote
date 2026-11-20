@@ -11,6 +11,7 @@ import sys
 import xml.etree.ElementTree as ET
 
 from .android_ui_harness import UiTargetError, condition, point, poll, selector, wait_ms
+from . import android_scenario_runner as scenarios
 
 ADB = "/usr/bin/adb"
 FFMPEG = "/usr/bin/ffmpeg"
@@ -67,6 +68,23 @@ TOOLS.extend([
     ),
 ])
 
+# Scenario ids are immutable and reviewed in the installed release.
+_SCENARIO_ID = {"type": "string", "enum": sorted(scenarios.SCENARIOS)}
+_RECEIPT_ID = {"type": "string", "minLength": 32, "maxLength": 32}
+TOOLS.extend([
+    _tool(
+        "scenario_preview", "Preview one approved, immutable Android scenario.",
+        {"scenario_id": _SCENARIO_ID}, ("scenario_id",), read=True,
+    ),
+    _tool(
+        "scenario_run", "Run one approved scenario with a private sanitized receipt.",
+        {"scenario_id": _SCENARIO_ID}, ("scenario_id",),
+    ),
+    _tool(
+        "scenario_result", "Read a private sanitized receipt by opaque id.",
+        {"receipt_id": _RECEIPT_ID}, ("receipt_id",), read=True,
+    ),
+])
 _BY_NAME = {tool["name"]: tool for tool in TOOLS}
 
 
@@ -210,6 +228,12 @@ class Device:
         if name == "text" and not re.fullmatch(
                 r"[A-Za-z0-9 .,_@/-]{1,80}", arguments["value"], flags=re.ASCII):
             raise AndroidError("unsafe_text")
+        if name == "scenario_preview":
+            return scenarios.preview(arguments["scenario_id"])
+        if name == "scenario_result":
+            return scenarios.result(arguments["receipt_id"])
+        if name == "scenario_run":
+            return scenarios.run(arguments["scenario_id"], device=self)
         serial = self.serial()
         if name == "status":
             width, height = self.size(serial)
@@ -325,6 +349,9 @@ def call_tool(name, arguments, *, device=None):
     except (AndroidError, ValueError) as exc:
         code = str(exc) if isinstance(exc, AndroidError) else "invalid_arguments"
         return {"content": [{"type": "text", "text": json.dumps({"error": code})}], "isError": True}
+    except (OSError, RuntimeError):
+        return {"content": [{"type": "text", "text": '{"error":"scenario_unavailable"}'}],
+                "isError": True}
 
 
 def handle_rpc(request, *, device=None):
