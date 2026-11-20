@@ -65,7 +65,7 @@ internal fun ModuleNotice(message: String?, isError: Boolean = false) {
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 internal fun ModuleActions(
-    content: @Composable FlowRowScope.() -> Unit
+    content: @Composable () -> Unit
 ) {
     FlowRow(
         modifier = Modifier.fillMaxWidth(),
