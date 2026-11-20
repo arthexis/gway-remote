@@ -27,8 +27,8 @@ def validated_account(user):
         account = pwd.getpwnam(user)
     except KeyError as exc:
         raise PermissionError("executor account missing") from exc
-    if account.pw_uid == 0 or account.pw_name != user:
-        raise PermissionError("root/ambiguous executor denied")
+    if account.pw_uid == 0 or account.pw_name != user or user == "gway-relay":
+        raise PermissionError("root/transport/ambiguous executor denied")
     return account
 
 

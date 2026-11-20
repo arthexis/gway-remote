@@ -28,7 +28,7 @@ class ExecutorIdentityTests(unittest.TestCase):
 
         from types import SimpleNamespace
         with (patch.object(Path, "lstat", autospec=True, side_effect=root_owned),
-              patch.object(identity.pwd, "getpwnam", side_effect=lambda u: SimpleNamespace(pw_uid={"arthe": 1000, "gway-exec": 999}[u], pw_name=u, pw_dir="/home/" + u))):
+              patch.object(identity.pwd, "getpwnam", side_effect=lambda u: SimpleNamespace(pw_uid={"arthe": 1000, "gway-exec": 999, "gway-relay": 998}[u], pw_name=u, pw_dir="/home/" + u))):
             return identity.selected_user(self.policy, hostname=node)
 
     def test_default_and_explicit_pilot(self):
@@ -41,7 +41,7 @@ class ExecutorIdentityTests(unittest.TestCase):
         self.assertEqual(self.read_policy("gway-exec", "gway-001"), "gway-exec")
 
     def test_unrecognized_users_rejected(self):
-        for user in ("root", "../escape", "", None):
+        for user in ("root", "gway-relay", "../escape", "", None):
             with self.subTest(user=user), self.assertRaises(PermissionError):
                 self.read_policy(user, "gway-001")
 

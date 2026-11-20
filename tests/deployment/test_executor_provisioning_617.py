@@ -10,7 +10,7 @@ from gway_remote import wireguard_satellite as bootstrap
 
 
 def account(name):
-    mapping = {"alice": 1001, "bob": 1002, "gway-exec": 998}
+    mapping = {"alice": 1001, "bob": 1002, "gway-exec": 998, "gway-relay": 997}
     if name not in mapping:
         raise KeyError(name)
     return SimpleNamespace(pw_name=name, pw_uid=mapping[name], pw_dir="/home/" + name)
@@ -36,10 +36,10 @@ class ProvisioningIdentityTests(unittest.TestCase):
             bootstrap.select_executor_user("bob", "bob", legacy=True)
 
     def test_root_missing_malformed_unknown_and_ambiguous_users_fail(self):
-        for installer in (None, "", "root", "missing", "../alice", "ALICE"):
+        for installer in (None, "", "root", "gway-relay", "missing", "../alice", "ALICE"):
             with self.subTest(installer=installer), self.assertRaises(ValueError):
                 bootstrap.select_executor_user(installer)
-        for override in ("root", "missing", "../bob", 123, False):
+        for override in ("root", "gway-relay", "missing", "../bob", 123, False):
             with self.subTest(override=override), self.assertRaises(ValueError):
                 bootstrap.select_executor_user("alice", override)
         with patch("pwd.getpwnam", return_value=SimpleNamespace(pw_name="alice", pw_uid=0)):
