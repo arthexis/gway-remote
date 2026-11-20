@@ -46,8 +46,8 @@ def summarize(raw: str) -> dict:
     # app logs, parameter values, serial numbers or original stack strings.
     # Tolerate runner prefixes and source-less Android stack frames.
     frame_pattern = re.compile(
-        r"\\bat\\s+((?:androidx\\.(?:compose|test)\\.|com\\.arthexis\\.gwayremote\\.|java\\.lang\\.)"
-        r"[A-Za-z0-9_.$]{1,180})\\("
+        r"\bat\s+((?:androidx\.(?:compose|test)\.|com\.arthexis\.gwayremote\.|java\.lang\.)"
+        r"[A-Za-z0-9_.$]{1,180})\("
     )
     frames = list(dict.fromkeys(frame_pattern.findall(raw)))[:14]
     categories = {
