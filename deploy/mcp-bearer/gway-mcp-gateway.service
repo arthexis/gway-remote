@@ -1,6 +1,8 @@
 [Unit]
 Description=Private GWA MCP bearer gateway
 After=network-online.target
+# Inventory and node reachability can become ready after the initial boot burst.
+StartLimitIntervalSec=0
 [Service]
 Type=simple
 User=gway-mcp-gateway
@@ -14,6 +16,7 @@ ProtectControlGroups=true
 RestrictSUIDSGID=true
 ExecStart=/usr/bin/python3 -I /opt/gway-mcp/current/run.py mcp_bearer_gateway --database /var/lib/gway-mcp-auth/credentials.sqlite3 --port 19010 --upstream http://127.0.0.1:19011/mcp
 Restart=on-failure
+RestartSec=30s
 NoNewPrivileges=true
 ProtectSystem=strict
 ProtectHome=true

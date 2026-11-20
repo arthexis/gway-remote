@@ -52,6 +52,12 @@ was approved, remove ONLY the new /mcp location, validate nginx -t and reload.
 Leave Agent Ops and existing Watchtower services untouched. Preserve DB
 for revocation/audit and follow approved secure backup retention.
 
+When execution is enabled, gateway startup requires current node attestation.
+Inventory and node reachability may arrive after boot. The gateway retries a
+failed start every 30 seconds without a systemd start limit; it does not bypass
+attestation. Persistent failures remain visible in the service journal and
+should be investigated. A successful retry does not prove an MCP client call.
+
 IMPORTANT: private-plugin fixed bearer storage and real ChatGPT tool calls
 remain separate acceptance tests; do not infer support from a manifest alone.
 
