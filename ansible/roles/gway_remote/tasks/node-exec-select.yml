@@ -16,6 +16,42 @@
     database: passwd
     key: "{{ gway_remote_exec_run_user }}"
 
+# Converge the selected non-root manager before changing identity policy or SSH.
+- name: Enable linger for the selected non-root executor
+  ansible.builtin.command:
+    argv: [loginctl, enable-linger, "{{ gway_remote_exec_run_user }}"]
+    creates: "/var/lib/systemd/linger/{{ gway_remote_exec_run_user }}"
+
+- name: Start selected executor user manager without restarting active sessions
+  ansible.builtin.systemd:
+    name: "user@{{ getent_passwd[gway_remote_exec_run_user][1] }}.service"
+    state: started
+
+- name: Inspect selected executor runtime without following links
+  ansible.builtin.stat:
+    path: "/run/user/{{ getent_passwd[gway_remote_exec_run_user][1] }}"
+    follow: false
+  register: exec_selected_runtime
+
+- name: Refuse unsafe or foreign-owned executor runtime
+  ansible.builtin.assert:
+    that:
+      - exec_selected_runtime.stat.isdir | default(false)
+      - not (exec_selected_runtime.stat.islnk | default(false))
+      - exec_selected_runtime.stat.pw_name == gway_remote_exec_run_user
+      - exec_selected_runtime.stat.mode in ['0700', '0770']
+    fail_msg: Unsafe executor runtime; refusing policy cutover.
+
+# Some older satellites had mode 0770. Change only the verified directory mode,
+# not its UID, bus, children or running user session.
+- name: Restrict selected executor runtime directory to mode 0700
+  ansible.builtin.file:
+    path: "/run/user/{{ getent_passwd[gway_remote_exec_run_user][1] }}"
+    state: directory
+    mode: '0700'
+    follow: false
+  when: exec_selected_runtime.stat.mode != '0700'
+
 - name: Verify selected executor user manager exists
   ansible.builtin.stat:
     path: "/run/user/{{ getent_passwd[gway_remote_exec_run_user][1] }}/bus"
@@ -26,6 +62,7 @@
   ansible.builtin.assert:
     that:
       - exec_selected_bus.stat.issock | default(false)
+      - not (exec_selected_bus.stat.islnk | default(false))
       - exec_selected_bus.stat.pw_name == gway_remote_exec_run_user
     fail_msg: Selected executor user bus is unavailable; do not change the live relay identity.
 
@@ -126,7 +163,7 @@
   register: exec_file_reader_old
   when:
     - (ansible_hostname | default('')) == 'gway-001'
-    - gway_remote_exec_run_user == 'arthe'
+    - gway_remote_exec_run_user != gway_remote_exec_user
 
 - name: Reject unsafe pre-existing file reader policy
   ansible.builtin.assert:
@@ -135,7 +172,7 @@
       - not (exec_file_reader_old.stat.exists | default(false)) or (exec_file_reader_old.stat.isreg and exec_file_reader_old.stat.pw_name == 'root' and exec_file_reader_old.stat.mode == '0440')
   when:
     - (ansible_hostname | default('')) == 'gway-001'
-    - gway_remote_exec_run_user == 'arthe'
+    - gway_remote_exec_run_user != gway_remote_exec_user
 
 - name: Capture previous isolated file reader policy for rollback
   ansible.builtin.slurp:
@@ -143,7 +180,7 @@
   register: exec_file_reader_original
   when:
     - (ansible_hostname | default('')) == 'gway-001'
-    - gway_remote_exec_run_user == 'arthe'
+    - gway_remote_exec_run_user != gway_remote_exec_user
     - exec_file_reader_old.stat.exists | default(false)
 
 - name: Activate selected execution identity and update only existing relay
@@ -165,10 +202,10 @@
         mode: '0440'
         validate: /usr/sbin/visudo -cf %s
         content: |
-          arthe ALL=(gway-exec) NOPASSWD: /usr/bin/env PYTHONPATH=/opt/gway-remote /usr/bin/python3 -m gway_remote.node_file_reader
+          {{ gway_remote_exec_run_user }} ALL=(gway-exec) NOPASSWD: /usr/bin/env PYTHONPATH=/opt/gway-remote /usr/bin/python3 -m gway_remote.node_file_reader
       when:
         - (ansible_hostname | default('')) == 'gway-001'
-        - gway_remote_exec_run_user == 'arthe'
+        - gway_remote_exec_run_user != gway_remote_exec_user
 
     - name: Update narrowly permitted relay protocol target account
       ansible.builtin.copy:
@@ -242,7 +279,7 @@
         content: "{{ exec_file_reader_original.content | b64decode }}"
       when:
         - (ansible_hostname | default('')) == 'gway-001'
-        - gway_remote_exec_run_user == 'arthe'
+        - gway_remote_exec_run_user != gway_remote_exec_user
         - exec_file_reader_old.stat.exists | default(false)
 
     - name: Remove newly installed isolated file reader policy after failure
@@ -251,7 +288,7 @@
         state: absent
       when:
         - (ansible_hostname | default('')) == 'gway-001'
-        - gway_remote_exec_run_user == 'arthe'
+        - gway_remote_exec_run_user != gway_remote_exec_user
         - not (exec_file_reader_old.stat.exists | default(false))
 
     - name: Restore previous restricted relay sudoers
