@@ -1,0 +1,148 @@
+name: Android Canary APK (manual)
+
+# On demand only. The reviewed workflow runs on main; the code comes from a PR.
+on:
+  workflow_dispatch:
+    inputs:
+      pr_number:
+        description: "Open same-repository PR number (e.g. 644)"
+        required: true
+        type: string
+      expected_sha:
+        description: "Exact 40-character lowercase PR HEAD SHA"
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  pull-requests: read
+
+concurrency:
+  group: android-canary-pr-${{ inputs.pr_number }}
+  cancel-in-progress: false
+
+jobs:
+  canary:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - name: Validate PR identity and pinned HEAD before checkout
+        id: source
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ inputs.pr_number }}
+          EXPECTED_SHA: ${{ inputs.expected_sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "$PR_NUMBER" =~ ^[1-9][0-9]{0,6}$ ]] || { echo "::error::Invalid PR number"; exit 1; }
+          [[ "$EXPECTED_SHA" =~ ^[0-9a-f]{40}$ ]] || { echo "::error::Invalid expected SHA"; exit 1; }
+          PR_JSON=$(gh api "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER")
+          [[ "$(jq -r .state <<<"$PR_JSON")" == "open" ]] || { echo "::error::PR is not open"; exit 1; }
+          [[ "$(jq -r .head.repo.full_name <<<"$PR_JSON")" == "$GITHUB_REPOSITORY" ]] || {
+            echo "::error::Only same-repository PR heads are supported"; exit 1;
+          }
+          [[ "$(jq -r .head.sha <<<"$PR_JSON")" == "$EXPECTED_SHA" ]] || {
+            echo "::error::PR HEAD moved; provide current SHA"; exit 1;
+          }
+          SHORT_SHA=$(printf '%s' "$EXPECTED_SHA" | cut -c1-12)
+          echo "sha=$EXPECTED_SHA" >> "$GITHUB_OUTPUT"
+          echo "short_sha=$SHORT_SHA" >> "$GITHUB_OUTPUT"
+          echo "GWAY_ANDROID_VERSION_CODE=$GITHUB_RUN_NUMBER" >> "$GITHUB_ENV"
+          echo "GWAY_ANDROID_VERSION_NAME=canary-$GITHUB_RUN_NUMBER-$SHORT_SHA" >> "$GITHUB_ENV"
+
+      - name: Checkout the exact PR head
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ steps.source.outputs.sha }}
+          persist-credentials: false
+
+      - name: Verify checked out revision
+        env:
+          EXPECTED_SHA: ${{ steps.source.outputs.sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "$(git rev-parse HEAD)" == "$EXPECTED_SHA" ]] || { echo "::error::Checkout moved"; exit 1; }
+
+      - name: Apply fail-closed canary-only package overlay
+        shell: bash
+        run: |
+          # No need to amend every Android feature branch just for canary signing.
+          python3 - <<'PY'
+          from pathlib import Path
+          changes = (
+              (Path("android/app/build.gradle.kts"),
+               'applicationId = "com.arthexis.gwayremote"',
+               'applicationId = "com.arthexis.gwayremote.canary"'),
+              (Path("android/app/src/main/AndroidManifest.xml"),
+               'android:label="GWay Remote"',
+               'android:label="GWay Remote Canary"'),
+          )
+          for path, before, after in changes:
+              content = path.read_text(encoding="utf-8")
+              if content.count(before) != 1 or after in content:
+                  raise SystemExit(f"Canary overlay contract changed: {path}")
+              path.write_text(content.replace(before, after), encoding="utf-8")
+          print("Canary overlay: separate package and launcher label")
+          PY
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Use preinstalled Android SDK
+        shell: bash
+        run: |
+          set -euo pipefail
+          SDK_ROOT="$ANDROID_HOME"
+          if [[ -z "$SDK_ROOT" ]]; then SDK_ROOT="$ANDROID_SDK_ROOT"; fi
+          if [[ -z "$SDK_ROOT" ]]; then SDK_ROOT=/usr/local/lib/android/sdk; fi
+          test -f "$SDK_ROOT/platforms/android-35/android.jar"
+          test -x "$SDK_ROOT/build-tools/35.0.0/apksigner"
+          test -x "$SDK_ROOT/build-tools/35.0.0/aapt"
+          echo "ANDROID_HOME=$SDK_ROOT" >> "$GITHUB_ENV"
+          echo "ANDROID_SDK_ROOT=$SDK_ROOT" >> "$GITHUB_ENV"
+
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.10.2'
+          cache-read-only: true
+
+      - name: Build only a debug canary APK
+        working-directory: android
+        shell: bash
+        run: gradle :app:assembleDebug --no-daemon
+
+      - name: Verify signature, package and SHA256 provenance
+        env:
+          PR_NUMBER: ${{ inputs.pr_number }}
+          SOURCE_SHA: ${{ steps.source.outputs.sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          APK=android/app/build/outputs/apk/debug/app-debug.apk
+          test -s "$APK"
+          "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --verbose "$APK"
+          BADGING=$("$ANDROID_HOME/build-tools/35.0.0/aapt" dump badging "$APK")
+          grep -q "^package: name='com.arthexis.gwayremote.canary' " <<< "$BADGING"
+          DEST="$RUNNER_TEMP/gway-canary"
+          mkdir -p "$DEST"
+          cp "$APK" "$DEST/gway-remote-canary.apk"
+          (cd "$DEST" && sha256sum gway-remote-canary.apk > SHA256SUMS)
+          printf 'Repository: %s\nPull-Request: %s\nSource-Commit: %s\nCanary-Overlay: package-and-label-v1\nPackage: com.arthexis.gwayremote.canary\nSigning: ephemeral Android debug certificate\nActions-Run: %s\n' \
+            "$GITHUB_REPOSITORY" "$PR_NUMBER" "$SOURCE_SHA" "$GITHUB_RUN_ID" > "$DEST/PROVENANCE.txt"
+          echo "### Android canary for PR #$PR_NUMBER" >> "$GITHUB_STEP_SUMMARY"
+          echo "Full source commit: $SOURCE_SHA" >> "$GITHUB_STEP_SUMMARY"
+          echo "Package: com.arthexis.gwayremote.canary" >> "$GITHUB_STEP_SUMMARY"
+          cat "$DEST/SHA256SUMS" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload downloadable APK and provenance
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-canary-pr${{ inputs.pr_number }}-${{ steps.source.outputs.short_sha }}
+          path: ${{ runner.temp }}/gway-canary/
+          if-no-files-found: error
+          retention-days: 14

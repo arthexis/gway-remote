@@ -294,7 +294,7 @@ class SSHTransport:
                   "cancel":{"operation","node","request_id"},
                    "limits":{"operation","node","request_id"},
                   "provider_list":{"operation","node","request_id"},
-                  "provider_call":{"operation","node","request_id","provider","tool","arguments","authorized_scope"},
+                  "provider_call":{"operation","node","request_id","provider","tool","arguments"},
                   "provider_read":{"operation","node","request_id","provider","tool","arguments"},
                   "file_read":{"operation","node","request_id","filename","offset"},
                   "workspace_inspect":{"operation","node","request_id","repository"},
@@ -303,11 +303,8 @@ class SSHTransport:
                   "deployment_run":{"operation","node","request_id","application","expected_revision"}}
         actual_fields = set(payload)
         expected_fields = fields[payload["operation"]]
-        # Stage B (#586): sender may emit the unscoped provider_call shape.
-        # All other operations, and legacy scoped calls, keep exact fields.
-        if (actual_fields != expected_fields and not
-                (payload["operation"] == "provider_call" and
-                 actual_fields == expected_fields - {"authorized_scope"})):
+        # Scoped legacy SSH messages are not accepted.
+        if actual_fields != expected_fields:
             raise ValueError("unexpected transport arguments")
         if payload["operation"] == "deployment_run" and (type(payload["expected_revision"]) is not str or not re.fullmatch(r"[0-9a-f]{40}", payload["expected_revision"])):
             raise ValueError("invalid expected deployment revision")

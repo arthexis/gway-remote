@@ -15,7 +15,7 @@ class FederationCatalogFixture:
         for tool in self.tools:
             name = tool['name']
             routes[name] = (self.node, self.source,
-                            self.route_names.get(name, name), required_scope(tool))
+                            self.route_names.get(name, name), required_scope(tool), True)
         return catalog, routes
 
 
