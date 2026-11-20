@@ -96,10 +96,12 @@ class SessionBridgeDispatch:
                 raise PermissionError("uncorrelated workspace inspection")
             return response["result"]
         if operation == "inventory.list" and args == {}:
-            return self.inventory.public_nodes(execution_enabled=self.execution is not None)
+            from .execution_health import project_health
+            return project_health(self.inventory.public_nodes(execution_enabled=self.execution is not None), self.execution)
         if operation == "inventory.capabilities" and set(args) == {"node"}:
-            return self.inventory.capabilities(args["node"],
-                execution_enabled=self.execution is not None)
+            from .execution_health import project_health
+            return project_health(self.inventory.capabilities(args["node"],
+                execution_enabled=self.execution is not None), self.execution)
         if operation == "execution.preview" and set(args) == {"node", "command"}:
             from .mcp_bearer_gateway import local_node_result
             return local_node_result("node_exec_preview", args, execution=self.execution)
