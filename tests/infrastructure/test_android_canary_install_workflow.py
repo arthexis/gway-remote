@@ -23,8 +23,8 @@ class CanaryInstallWorkflowTests(unittest.TestCase):
 
     def test_provenance_before_install(self):
         text = WORKFLOW.read_text()
-        for item in (".head.sha", ".head.repo.full_name", "actions/runs/",
-                     ".conclusion", ".path", "SHA256SUMS", "sha256sum --check",
+        for item in ('p["head"]["sha"]', 'p["head"]["repo"]["full_name"]', "actions/runs/",
+                     'r["conclusion"]', 'r["path"]', "SHA256SUMS", "sha256sum --check",
                      "PROVENANCE.txt", "com.arthexis.gwayremote.canary",
                      "Canary-Overlay: package-and-label-v1",
                      "Install ONLY isolated canary"):
@@ -33,6 +33,8 @@ class CanaryInstallWorkflowTests(unittest.TestCase):
         self.assertIn("apk_sha256:", text)
         self.assertIn("artifact_run_id:", text)
         self.assertIn("Expected exactly one USB device", text)
+        self.assertIn("python3 -c", text)
+        self.assertNotIn("jq -r", text)
         self.assertIn("install -r", text)
         self.assertIn("PRODUCTION_BEFORE", text)
         self.assertIn("PRODUCTION_AFTER", text)

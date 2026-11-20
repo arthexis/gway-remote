@@ -54,15 +54,9 @@ jobs:
           [[ "$ARTIFACT_RUN" =~ ^[1-9][0-9]{0,11}$ ]] || exit 1
           [[ "$EXPECTED_DIGEST" =~ ^[0-9a-f]{64}$ ]] || exit 1
           PR=$(gh api "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER")
-          [[ "$(jq -r '.state' <<<"$PR")" == "open" ]] || exit 1
-          [[ "$(jq -r '.head.repo.full_name' <<<"$PR")" == "$GITHUB_REPOSITORY" ]] || exit 1
-          [[ "$(jq -r '.head.sha' <<<"$PR")" == "$EXPECTED_SHA" ]] || exit 1
+          printf '%s' "$PR" | python3 -c 'import json, os, sys; p=json.load(sys.stdin); assert p["state"] == "open" and p["head"]["repo"]["full_name"] == os.environ["GITHUB_REPOSITORY"] and p["head"]["sha"] == os.environ["EXPECTED_SHA"], "PR identity mismatch"'
           SOURCE_RUN=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$ARTIFACT_RUN")
-          [[ "$(jq -r '.name' <<<"$SOURCE_RUN")" == "Android Canary APK (manual)" ]] || exit 1
-          [[ "$(jq -r '.path' <<<"$SOURCE_RUN")" == ".github/workflows/android-canary.yml" ]] || exit 1
-          [[ "$(jq -r '.event' <<<"$SOURCE_RUN")" == "workflow_dispatch" ]] || exit 1
-          [[ "$(jq -r '.head_branch' <<<"$SOURCE_RUN")" == "main" ]] || exit 1
-          [[ "$(jq -r '.conclusion' <<<"$SOURCE_RUN")" == "success" ]] || exit 1
+          printf '%s' "$SOURCE_RUN" | python3 -c 'import json, sys; r=json.load(sys.stdin); assert r["name"] == "Android Canary APK (manual)" and r["path"] == ".github/workflows/android-canary.yml" and r["event"] == "workflow_dispatch" and r["head_branch"] == "main" and r["conclusion"] == "success", "Source workflow mismatch"'
           ARTIFACT="android-canary-pr$PR_NUMBER-$(printf '%s' "$EXPECTED_SHA" | cut -c1-12)"
           DEST="$RUNNER_TEMP/android-canary-install-$GITHUB_RUN_ID"
           mkdir -m 700 "$DEST"
