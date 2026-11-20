@@ -101,6 +101,8 @@ def main():
             if not field.adb(serial, "shell", "pm", "path", pkg).startswith("package:"):
                 raise field.CanaryError("required_canary_package_missing")
         with field.keep_usb_screen_on(serial):
+            # A screen timeout between install and instrumentation is fatal to Compose roots.
+            field.device_ready(serial, wake=True)
             result = field.adb(
                 serial, "shell", "am", "instrument", "-w", "-r", "-e", "class",
                 field.SUITE, f"{field.TEST}/{field.RUNNER}", timeout=args.test_timeout
