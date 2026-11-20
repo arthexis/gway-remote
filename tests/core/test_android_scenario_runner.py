@@ -54,7 +54,7 @@ class ScenarioContracts(unittest.TestCase):
         dev = FakeDevice()
         result = runner.run("usb-readiness-v1", device=dev, receipt_root=self.root)
         self.assertEqual(result["status"], "passed")
-        self.assertEqual(result["actions_dispatched"], 0)
+        self.assertEqual(result["action_invocations"], 0)
         self.assertEqual(dev.calls, [("status", {})])
         self.assertEqual(stat.S_IMODE(self.root.stat().st_mode), 0o700)
         name = result["receipt_id"] + ".json"
@@ -74,7 +74,7 @@ class ScenarioContracts(unittest.TestCase):
         dev = FakeDevice(authorized=False)
         result = runner.run("usb-readiness-v1", device=dev, receipt_root=self.root)
         self.assertEqual(result["status"], "failed")
-        self.assertEqual(result["actions_dispatched"], 0)
+        self.assertEqual(result["action_invocations"], 0)
         self.assertEqual(dev.calls, [("status", {})])
 
     def test_reviewed_navigation_succeeds_only_when_screen_safe(self):
@@ -82,7 +82,7 @@ class ScenarioContracts(unittest.TestCase):
         receipt = runner.run("home-screen-stability-v1",
                              device=dev, receipt_root=self.root)
         self.assertEqual(receipt["status"], "passed")
-        self.assertEqual(receipt["actions_dispatched"], 1)
+        self.assertEqual(receipt["action_invocations"], 1)
         self.assertEqual([x[0] for x in dev.calls], ["status", "key", "status"])
         self.assertEqual(dev.calls[1], ("key", {"key": "HOME"}))
         unsafe = FakeDevice(screen_on=False)
