@@ -44,12 +44,21 @@ def summarize(raw: str) -> dict:
 
     # Only framework/test-class identifiers from stack frames; no messages,
     # app logs, parameter values, serial numbers or original stack strings.
+    # Tolerate runner prefixes and source-less Android stack frames.
     frame_pattern = re.compile(
-        r"(?m)^\s*at ((?:androidx\.(?:compose|test)\.[A-Za-z0-9_.$]+"
-        r"|com\.arthexis\.gwayremote\.[A-Za-z0-9_.$]+"
-        r"|java\.lang\.[A-Za-z0-9_.$]+))\([A-Za-z0-9_.$]+\.\w+:\d+\)"
+        r"\\bat\\s+((?:androidx\\.(?:compose|test)\\.|com\\.arthexis\\.gwayremote\\.|java\\.lang\\.)"
+        r"[A-Za-z0-9_.$]{1,180})\\("
     )
     frames = list(dict.fromkeys(frame_pattern.findall(raw)))[:14]
+    categories = {
+        "no_compose_roots": "No compose hierarchies found",
+        "activity_not_launched": "Activity was not set",
+        "activity_scenario": "ActivityScenario",
+        "ui_not_idle": "idle",
+        "content_already_set": "already set content",
+    }
+    category = next((key for key, needle in categories.items()
+                     if needle.lower() in raw.lower()), "other_illegal_state")
     return {
         "footer_ok": footer is not None,
         "footer_test_count": int(footer.group(1)) if footer else None,
@@ -62,6 +71,7 @@ def summarize(raw: str) -> dict:
         "failed_tests": sorted(set(seen))[:12],
         "exception_types": types,
         "allowlisted_stack_frames": frames,
+        "illegal_state_category": category,
     }
 
 
