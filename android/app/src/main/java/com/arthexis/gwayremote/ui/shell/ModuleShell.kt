@@ -74,7 +74,7 @@ internal fun ModuleHomePage(
                 Text(if (availableUpdate == null) "Sin actualización pendiente detectada"
                     else "Actualización disponible: " + availableUpdate.version)
                 ModuleLoading(updating)
-                ModuleNotice(updateStatus)
+                ModuleNotice(updateStatus, isError = updateStatus.startsWith("Update check failed"))
                 ModuleActions {
                     Button(onClick = onOpenUpdate) { Text("Actualizaciones") }
                     OutlinedButton(onClick = onCheckUpdate, enabled = !updating) {
@@ -104,7 +104,7 @@ internal fun ModuleUpdatePage(
         ModuleLoading(updating)
         Text(if (update == null) "No hay una actualización disponible detectada."
             else "Nueva versión: " + update.version)
-        ModuleNotice(updateStatus)
+        ModuleNotice(updateStatus, isError = updateStatus.startsWith("Update check failed"))
         OutlinedButton(onClick = onCheck, enabled = !updating) { Text("Comprobar actualizaciones") }
         if (update != null) {
             Button(onClick = onDownload, enabled = !updating) {
@@ -148,6 +148,6 @@ internal fun ModuleSettingsPage(
             visualTransformation = PasswordVisualTransformation(),
             modifier = Modifier.fillMaxWidth(), singleLine = true)
         Button(onClick = onSave) { Text("Guardar configuración") }
-        if (feedback.isNotBlank()) Text(feedback, style = MaterialTheme.typography.bodySmall)
+        ModuleNotice(feedback, isError = feedback != "Configuración guardada")
     }
 }

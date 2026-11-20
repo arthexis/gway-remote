@@ -94,7 +94,6 @@ internal fun McpAccessPanel(onClose: () -> Unit) {
     }
 
     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-        HorizontalDivider()
         ModuleHeader("MCP Access")
         ModuleActions { TextButton(onClick = onClose) { Text("Close") } }
         Text("Watchtower passkey authentication is required for each sensitive action.")
@@ -163,7 +162,10 @@ internal fun McpAccessPanel(onClose: () -> Unit) {
             issuedId = ""
             status = if (revoked) "Bearer revoked" else "Bearer already absent or revoked"
         } }) { Text("Revoke bearer with passkey") }
-        if (busy) ModuleLoading(true)
+        if (busy) {
+            ModuleLoading(true)
+            ModuleNotice("Waiting for passkey verification…")
+        }
         ModuleNotice(status)
     }
 }
