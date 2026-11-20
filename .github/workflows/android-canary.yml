@@ -75,7 +75,7 @@ jobs:
           changes = (
               (Path("android/app/build.gradle.kts"),
                'applicationId = "com.arthexis.gwayremote"',
-               'applicationId = "com.arthexis.gwayremote.canary"'),
+               'applicationId = "com.arthexis.gwayremote.canary"\n        testApplicationId = "com.arthexis.gwayremote.canary.test"'),
               (Path("android/app/src/main/AndroidManifest.xml"),
                'android:label="GWay Remote"',
                'android:label="GWay Remote Canary"'),
@@ -133,7 +133,9 @@ jobs:
           grep -q "^package: name='com.arthexis.gwayremote.canary' " <<< "$BADGING"
           TEST_BADGING=$("$ANDROID_HOME/build-tools/35.0.0/aapt" dump badging "$TEST_APK")
           grep -q "^package: name='com.arthexis.gwayremote.canary.test' " <<< "$TEST_BADGING"
-          grep -q "targetPackage='com.arthexis.gwayremote.canary'" <<< "$TEST_BADGING"
+          TEST_MANIFEST=$("$ANDROID_HOME/build-tools/35.0.0/aapt" dump xmltree "$TEST_APK" AndroidManifest.xml)
+          grep -Fq "com.arthexis.gwayremote.canary" <<< "$TEST_MANIFEST" || { echo "::error::AndroidTest target package not verified"; exit 1; }
+          grep -Fq "androidx.test.runner.AndroidJUnitRunner" <<< "$TEST_MANIFEST" || { echo "::error::AndroidTest runner not verified"; exit 1; }
           DEST="$RUNNER_TEMP/gway-canary"
           mkdir -p "$DEST"
           cp "$APK" "$DEST/gway-remote-canary.apk"
