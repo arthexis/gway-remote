@@ -39,7 +39,7 @@ def summarize(raw: str) -> dict:
     failure_summary = re.search(r"Tests run:\s*(\d+),\s*Failures:\s*(\d+)", raw)
     result = re.search(r"^INSTRUMENTATION_CODE:\s*(-?\d+)\s*$", raw, re.M)
     types = sorted(set(re.findall(
-        r"\\b(?:java|androidx|kotlin|android)\\.[A-Za-z0-9_.$]+(?:Exception|Error)\\b", raw
+        r"\b(?:java|androidx|kotlin|android)\.[A-Za-z0-9_.$]+(?:Exception|Error)\b", raw
     )))[:8]
     return {
         "footer_ok": footer is not None,
