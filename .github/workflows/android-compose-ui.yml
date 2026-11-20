@@ -30,11 +30,12 @@ jobs:
           distribution: temurin
           java-version: '17'
       - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.10.2'
       - name: Enable KVM
         run: |
-          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
-          sudo udevadm control --reload-rules
-          sudo udevadm trigger --name-match=kvm
+          test -c /dev/kvm || { echo '::error::Runner has no KVM device'; exit 1; }
+          sudo chmod a+rw /dev/kvm
           test -w /dev/kvm
       - uses: reactivecircus/android-emulator-runner@v2
         with:
