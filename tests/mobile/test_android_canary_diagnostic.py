@@ -25,6 +25,21 @@ class AndroidCanaryDiagnosticsTests(unittest.TestCase):
         ])
         self.assertNotIn("Private UI", str(data))
 
+    def test_stack_frames_include_only_safe_symbols(self):
+        sample = (
+            "INSTRUMENTATION_STATUS: stack=java.lang.IllegalStateException: private message 123\\n"
+            "  at androidx.compose.ui.test.junit4.AndroidComposeTestRule.runTest(AndroidComposeTestRule.kt:123)\\n"
+            "  at com.arthexis.gwayremote.ModulePageComposeTest.testOne(ModulePageComposeTest.kt:45)\\n"
+            "  at com.private.IdentifyingClass.privateMethod(Private.kt:7)\\n"
+            "  at androidx.compose.ui.test.junit4.AndroidComposeTestRule.runTest(AndroidComposeTestRule.kt:123)\\n"
+        )
+        parsed = summarize(sample)
+        self.assertEqual(parsed["allowlisted_stack_frames"], [
+            "androidx.compose.ui.test.junit4.AndroidComposeTestRule.runTest",
+            "com.arthexis.gwayremote.ModulePageComposeTest.testOne",
+        ])
+        self.assertNotIn("private", str(parsed))
+
     def test_success_and_unknown_test_are_bounded(self):
         sample = (
             "INSTRUMENTATION_STATUS: class=com.example.Unknown\n"
