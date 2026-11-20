@@ -81,6 +81,8 @@ def main():
                         help="reproduce immediate post-install tests for approved PR 644 only")
     parser.add_argument("--settle-seconds", type=int, choices=(0, 15), default=0,
                         help="bounded post-install Android initialization interval")
+    parser.add_argument("--test-timeout", type=int, choices=(25, 180), default=180,
+                        help="bounded instrumentation timeout for short remote executor")
     args = parser.parse_args()
     serial = field.usb()
     was_awake = field.device_ready(serial, wake=True)
@@ -101,7 +103,7 @@ def main():
         with field.keep_usb_screen_on(serial):
             result = field.adb(
                 serial, "shell", "am", "instrument", "-w", "-r", "-e", "class",
-                field.SUITE, f"{field.TEST}/{field.RUNNER}", timeout=180
+                field.SUITE, f"{field.TEST}/{field.RUNNER}", timeout=args.test_timeout
             )
         safe = summarize(result)
         safe["post_install"] = args.reinstall_pr is not None
