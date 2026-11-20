@@ -203,7 +203,7 @@ def keep_usb_screen_on(serial):
     """
     key = "stay_on_while_plugged_in"
     battery = adb(serial, "shell", "dumpsys", "battery", timeout=10)
-    if not re.search(r"(?mi)^\\s*USB powered:\\s*true\\s*$", battery):
+    if not re.search(r"(?mi)^\s*USB powered:\s*true\s*$", battery):
         raise CanaryError("usb_power_unconfirmed")
     original = adb(serial, "shell", "settings", "get", "global", key, timeout=10).strip()
     if original == "null":
