@@ -112,9 +112,12 @@ class BackendOutageTests(unittest.TestCase):
         self.assertEqual(self.call("initialize", params={"protocolVersion": 3})[0], 400)
         self.assertEqual(self.call("tools/call",
             params={"name": "agent_submit", "arguments": {}})[0], 403)
-        # A backend-only tool never gains local execution or an offline response.
+        # Retired GitHub builtins cannot reach a private backend, even when down.
         self.assertEqual(self.call("tools/call",
-            params={"name": "mcp_source_status", "arguments": {}})[0], 502)
+            params={"name": "github_workflow_runs", "arguments": {}})[0], 403)
+        # Source diagnostics is gateway-owned and remains available offline.
+        self.assertEqual(self.call("tools/call",
+            params={"name": "mcp_source_status", "arguments": {}})[0], 200)
 
     def test_backend_http_denial_does_not_trigger_fallback(self):
         from unittest.mock import Mock
