@@ -41,6 +41,15 @@ def summarize(raw: str) -> dict:
     types = sorted(set(re.findall(
         r"\b(?:java|androidx|kotlin|android)\.[A-Za-z0-9_.$]+(?:Exception|Error)\b", raw
     )))[:8]
+
+    # Only framework/test-class identifiers from stack frames; no messages,
+    # app logs, parameter values, serial numbers or original stack strings.
+    frame_pattern = re.compile(
+        r"(?m)^\\s*at ((?:androidx\\.(?:compose|test)\\.[A-Za-z0-9_.$]+"
+        r"|com\\.arthexis\\.gwayremote\\.[A-Za-z0-9_.$]+"
+        r"|java\\.lang\\.[A-Za-z0-9_.$]+))\\([A-Za-z0-9_.$]+\\.\\w+:\\d+\\)"
+    )
+    frames = list(dict.fromkeys(frame_pattern.findall(raw)))[:14]
     return {
         "footer_ok": footer is not None,
         "footer_test_count": int(footer.group(1)) if footer else None,
@@ -52,6 +61,7 @@ def summarize(raw: str) -> dict:
         "other_status_codes": sorted(set(codes) - {0, 1, -2}),
         "failed_tests": sorted(set(seen))[:12],
         "exception_types": types,
+        "allowlisted_stack_frames": frames,
     }
 
 
