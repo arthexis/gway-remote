@@ -32,6 +32,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.semantics.contentDescription
@@ -413,7 +414,7 @@ fun CompanionScreen(store: SecretStore, appearance: AppearanceMode = AppearanceM
         }
     }
 
-    var selectedModuleId by remember { mutableStateOf(ModuleRegistry.HOME) }
+    var selectedModuleId by rememberSaveable { mutableStateOf(ModuleRegistry.HOME) }
     var moduleFeedback by remember { mutableStateOf("") }
     val drawerState = rememberDrawerState(initialValue = DrawerValue.Closed)
 
@@ -455,6 +456,17 @@ fun CompanionScreen(store: SecretStore, appearance: AppearanceMode = AppearanceM
             selectedModuleId = id
         }
         scope.launch { drawerState.close() }
+    }
+
+    // Restore an interrupted native view without restoring any privileged action.
+    LaunchedEffect(selectedModuleId) {
+        if (FeatureRegistry.get(selectedModuleId)?.kind == FeatureKind.OPERATION &&
+            operationModel.panels.panels.none { it.id == selectedModuleId }) {
+            operationModel.open(selectedModuleId) // only AUTO_READ may run on open
+        } else if (selectedModuleId != "odoo-quotations" && LocalPanelState.isPanel(selectedModuleId) &&
+            selectedModuleId !in localPanels.openIds) {
+            localPanels = localPanels.open(selectedModuleId)
+        }
     }
 
     BackHandler(enabled = drawerState.isOpen || selectedModuleId != ModuleRegistry.HOME) {
@@ -504,10 +516,14 @@ fun CompanionScreen(store: SecretStore, appearance: AppearanceMode = AppearanceM
                 )
             }
         ) { contentPadding ->
+            val canPullRefresh = selectedModuleId == ModuleRegistry.HOME ||
+                selectedModuleId == "app-update" ||
+                FeatureRegistry.get(selectedModuleId)?.operation?.policy == ExecutionPolicy.AUTO_READ
+            val selectedLoading = panelState.panels.firstOrNull { it.id == selectedModuleId }?.loading == true
+            val pageContent: @Composable () -> Unit = {
             Column(
                 Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)
-                    .padding(contentPadding).imePadding().verticalScroll(rememberScrollState())
-                    .padding(16.dp),
+                    .imePadding().verticalScroll(rememberScrollState()).padding(16.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
                 when (selectedModuleId) {
@@ -609,6 +625,20 @@ fun CompanionScreen(store: SecretStore, appearance: AppearanceMode = AppearanceM
                     Text(moduleFeedback, color = MaterialTheme.colorScheme.error,
                         style = MaterialTheme.typography.bodySmall)
                 }
+            }
+            }
+            if (canPullRefresh) {
+                PullToRefreshBox(
+                    isRefreshing = if (selectedModuleId == ModuleRegistry.HOME ||
+                        selectedModuleId == "app-update") updating else selectedLoading,
+                    onRefresh = {
+                        if (selectedModuleId == ModuleRegistry.HOME || selectedModuleId == "app-update") checkUpdates()
+                        else operationModel.refresh(selectedModuleId)
+                    },
+                    modifier = Modifier.fillMaxSize().padding(contentPadding)
+                ) { pageContent() }
+            } else {
+                Box(Modifier.fillMaxSize().padding(contentPadding)) { pageContent() }
             }
         }
     }
