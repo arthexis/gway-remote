@@ -9,7 +9,10 @@ import json
 import re
 from pathlib import Path
 
-if __package__:\n    from . import android_canary_field as field\nelse:\n    import android_canary_field as field
+if __package__:
+    from . import android_canary_field as field
+else:
+    import android_canary_field as field
 
 
 def summarize(raw: str) -> dict:
