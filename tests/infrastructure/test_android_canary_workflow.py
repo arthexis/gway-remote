@@ -35,7 +35,7 @@ class CanaryWorkflowTests(unittest.TestCase):
 
     def test_artifact_is_retrievable_and_checksum_verified(self):
         content = CANARY.read_text()
-        for required in ("gradle :app:assembleDebug --no-daemon",
+        for required in ("gradle :app:assembleDebug :app:assembleDebugAndroidTest --no-daemon",
                          "apksigner", "aapt", "PROVENANCE.txt", "SHA256SUMS",
                          "upload-artifact@v4", "retention-days: 14",
                          "if-no-files-found: error"):
