@@ -22,7 +22,9 @@ class MCPTransportTests(unittest.TestCase):
         self.assertIsNone(error)
         self.assertIn("mcp_source_status", {tool["name"] for tool in result["tools"]})
         self.assertEqual(len({tool["name"] for tool in result["tools"]}), len(result["tools"]))
-        self.assertTrue(all(t["annotations"]["readOnlyHint"] for t in result["tools"] if t["name"] != "agent_submit"))
+        self.assertEqual({t["name"] for t in result["tools"]
+                          if t["annotations"].get("readOnlyHint") is not True},
+                         {"github_workflow_dispatch", "github_workflow_cancel"})
         _, error, _ = mcp_http.handle({"jsonrpc": "2.0", "id": 2, "method": "agent_submit"})
         self.assertEqual(error, -32601)
 
