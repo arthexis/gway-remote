@@ -85,7 +85,7 @@ def preview(scenario_id):
         "spec_sha256": digest,
         "step_types": [step["op"] for step in steps],
         "actions": actions,
-        "requires_scope": "gway:execute" if actions else "gway:read",
+        "run_scope": "gway:execute", "contains_actions": bool(actions),
         "screenshots": "not_collected",
         "execution": "not_started",
     }
@@ -162,9 +162,13 @@ def run(scenario_id, *, device, receipt_root=None, clock=time.monotonic):
     started = clock()
     traces = []
     outcome = "passed"
-    dispatched = 0
+    invocations = 0
     for step in steps:
         # Five steps only; no CLI, remote input payload, arbitrary shell or loop.
+        if clock() - started > 7:
+            traces.append({"operation": "deadline", "outcome": "unknown"})
+            outcome = "failed"
+            break
         name = step["op"]
         verdict = "failed"
         try:
@@ -176,7 +180,7 @@ def run(scenario_id, *, device, receipt_root=None, clock=time.monotonic):
                 ) else "failed")
             else:
                 if name in ("tap_target", "key"):
-                    dispatched += 1
+                    invocations += 1
                 observed = device.invoke(name, dict(step["args"]))
                 if name == "tap_target":
                     verdict = "passed" if observed.get("verification") == "confirmed" else "failed"
@@ -195,10 +199,10 @@ def run(scenario_id, *, device, receipt_root=None, clock=time.monotonic):
     manifest = {
         "schema": RECEIPT_SCHEMA, "scenario_id": scenario_id,
         "spec_sha256": digest, "status": outcome,
-        "operations": traces, "actions_dispatched": dispatched,
+        "operations": traces, "action_invocations": invocations,
         "duration_ms": elapsed, "screenshots": "not_collected",
     }
     receipt_id, digest = _write(root, manifest)
     return {"status": outcome, "receipt_id": receipt_id,
             "receipt_sha256": digest, "steps_completed": len(traces),
-            "actions_dispatched": dispatched, "screenshots": "not_collected"}
+            "action_invocations": invocations, "screenshots": "not_collected"}
