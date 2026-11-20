@@ -1,0 +1,51 @@
+"""Guard manual Android canary artifact isolation and routine build cost."""
+from pathlib import Path
+import unittest
+
+ROOT = Path(__file__).resolve().parents[2]
+CANARY = ROOT / ".github/workflows/android-canary.yml"
+ANDROID = ROOT / ".github/workflows/android.yml"
+GRADLE = ROOT / "android/app/build.gradle.kts"
+MANIFEST = ROOT / "android/app/src/main/AndroidManifest.xml"
+
+
+class CanaryWorkflowTests(unittest.TestCase):
+    def test_only_manually_requested_with_read_permissions(self):
+        content = CANARY.read_text()
+        self.assertIn("on:\n  workflow_dispatch:\n", content)
+        self.assertNotIn("\n  push:", content)
+        self.assertNotIn("\n  pull_request:", content)
+        self.assertIn("contents: read", content)
+        self.assertIn("pull-requests: read", content)
+        self.assertIn("github.ref == 'refs/heads/main'", content)
+        for unsafe in ("secrets.", "gh release create", "assembleRelease",
+                       "testDebugUnitTest", "android-emulator-runner", "deployment"):
+            self.assertNotIn(unsafe, content)
+
+    def test_build_proves_exact_open_pr_revision_and_isolates_package(self):
+        content = CANARY.read_text()
+        for required in ("EXPECTED_SHA", "gh api", ".head.sha", ".head.repo.full_name",
+                         "ref: ${{ steps.source.outputs.sha }}",
+                         "git rev-parse HEAD", "com.arthexis.gwayremote.canary",
+                         'android:label="GWay Remote Canary"',
+                         "ephemeral Android debug certificate"):
+            self.assertIn(required, content)
+        self.assertIn('applicationId = "com.arthexis.gwayremote"', GRADLE.read_text())
+        self.assertIn('android:label="GWay Remote"', MANIFEST.read_text())
+
+    def test_artifact_is_retrievable_and_checksum_verified(self):
+        content = CANARY.read_text()
+        for required in ("gradle :app:assembleDebug --no-daemon",
+                         "apksigner", "aapt", "PROVENANCE.txt", "SHA256SUMS",
+                         "upload-artifact@v4", "retention-days: 14",
+                         "if-no-files-found: error"):
+            self.assertIn(required, content)
+
+    def test_existing_android_workflow_is_path_filtered(self):
+        content = ANDROID.read_text()
+        self.assertIn("paths: ['android/**', '.github/workflows/android.yml']", content)
+        self.assertIn("branches: [main]", content)
+
+
+if __name__ == "__main__":
+    unittest.main()
