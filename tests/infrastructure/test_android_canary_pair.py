@@ -16,7 +16,8 @@ class AndroidCanaryPairTests(unittest.TestCase):
             "gradle :app:assembleDebug :app:assembleDebugAndroidTest --no-daemon",
             "gway-remote-canary-test.apk", "SHA256SUMS", "PROVENANCE.txt",
             "com.arthexis.gwayremote.canary.test",
-            "targetPackage='com.arthexis.gwayremote.canary'",
+            "aapt\" dump xmltree",
+            "testApplicationId = \"com.arthexis.gwayremote.canary.test\"",
             "0.0.1-canary.$GITHUB_RUN_NUMBER",
             "retention-days: 14",
         ):
