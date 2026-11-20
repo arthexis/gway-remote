@@ -82,13 +82,20 @@ STEP = ("name", "number", "status", "conclusion", "started_at", "completed_at")
 
 
 def runs(args):
-    if type(args) is not dict or set(args) - {"repository", "branch", "status", "event", "limit"}:
+    """Existing run listing, extended with opt-in stable page metadata."""
+    allowed_keys = {"repository", "branch", "status", "event", "limit", "page", "workflow_id"}
+    if type(args) is not dict or set(args) - allowed_keys:
         raise ValueError("invalid_arguments")
     limit = _positive(args.get("limit", 10), 20)
+    page = _positive(args.get("page", 1), 50)
+    if "workflow_id" in args and "repository" not in args:
+        raise ValueError("repository_required_for_workflow")
+    workflow_id = (_positive(args["workflow_id"], 10**18)
+                   if "workflow_id" in args else None)
     repos = [args["repository"]] if "repository" in args else _repositories()
     for repo in repos:
         _allowed(repo)
-    params = {"per_page": limit, "page": 1}
+    params = {"per_page": limit, "page": page}
     for key in ("branch", "event"):
         if key in args:
             v = args[key]
@@ -96,20 +103,33 @@ def runs(args):
                 raise ValueError("invalid_filter")
             params[key] = v
     if "status" in args:
-        if type(args["status"]) is not str or args["status"] not in ("queued", "in_progress", "completed", "success",
-                                   "failure", "cancelled", "timed_out", "neutral"):
+        if type(args["status"]) is not str or args["status"] not in (
+                "queued", "in_progress", "completed", "success", "failure",
+                "cancelled", "timed_out", "neutral"):
             raise ValueError("invalid_filter")
         params["status"] = args["status"]
     results = []
+    pagination = []
     for repo in repos:
-        _allowed(repo)
-        data = _request(repo, "runs", params)
+        path = ("workflows/" + str(workflow_id) + "/runs"
+                if workflow_id is not None else "runs")
+        data = _request(repo, path, params)
         items = data.get("workflow_runs")
-        if not isinstance(items, list):
+        if not isinstance(items, list) or len(items) > limit:
             raise WorkflowError("github_invalid_response")
-        results.extend({"repository": repo, **_fields(x, RUN)} for x in items[:limit])
-    return {"source": "github_live", "runs": results}
-
+        results.extend({"repository": repo, **_fields(x, RUN)} for x in items)
+        if "page" in args or workflow_id is not None:
+            total = data.get("total_count")
+            if type(total) is not int or total < 0:
+                raise WorkflowError("github_invalid_response")
+            pagination.append({"repository": repo, "page": page,
+                               "per_page": limit, "total_count": total,
+                               "has_more": page * limit < total})
+    output = {"source": "github_live", "runs": results}
+    if pagination:
+        output["pagination"] = {"by_repository": pagination,
+                                "has_more": any(p["has_more"] for p in pagination)}
+    return output
 
 def status(args):
     if type(args) is not dict or set(args) != {"repository", "run_id"}:

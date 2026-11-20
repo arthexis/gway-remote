@@ -3,7 +3,7 @@
 This is a transport-independent core. It MUST NOT be exposed over public
 HTTP without an authenticated MCP transport and operator authorization.
 """
-from . import github_workflows_mcp, github_read_mcp
+from . import github_workflows_mcp, github_read_mcp, github_actions_control
 from .mcp_catalog import compose_catalog
 from .mcp_source_registry import compose_source_catalog
 from .mcp_source_stdio import call_source_tool, list_source_tools
@@ -12,7 +12,7 @@ from .mcp_tool_scope import required_scope
 
 TOOLS = (
     {"name": "github_workflow_runs", "description": "Read recent GitHub Actions runs across allowed repositories.",
-     "inputSchema": {"type": "object", "properties": {"repository": {"type": "string"}, "branch": {"type": "string"}, "status": {"type": "string"}, "event": {"type": "string"}, "limit": {"type": "integer"}}, "additionalProperties": False}, "annotations": {"readOnlyHint": True}},
+     "inputSchema": {"type": "object", "properties": {"repository": {"type": "string"}, "branch": {"type": "string"}, "status": {"type": "string"}, "event": {"type": "string"}, "limit": {"type": "integer"}, "page": {"type": "integer"}, "workflow_id": {"type": "integer"}}, "additionalProperties": False}, "annotations": {"readOnlyHint": True}},
     {"name": "github_workflow_status", "description": "Read one workflow run, jobs and steps.",
      "inputSchema": {"type": "object", "properties": {"repository": {"type": "string"}, "run_id": {"type": "integer"}}, "required": ["repository", "run_id"], "additionalProperties": False}, "annotations": {"readOnlyHint": True}},
     {"name": "github_branch_effective_rules", "description": "Read effective branch rules from GitHub.",
@@ -22,6 +22,14 @@ TOOLS = (
     {"name": "mcp_source_status", "description": "Diagnose registered MCP source discovery without revealing secrets or source configuration.",
      "inputSchema": {"type": "object", "properties": {}, "additionalProperties": False},
      "annotations": {"readOnlyHint": True}},
+    {"name": "github_workflow_list", "description": "Page through allowlisted GitHub Actions workflows.",
+     "inputSchema": {"type": "object", "properties": {"repository": {"type": "string"}, "page": {"type": "integer"}, "limit": {"type": "integer"}}, "required": ["repository"], "additionalProperties": False}, "annotations": {"readOnlyHint": True}},
+    {"name": "github_workflow_health", "description": "Summarize sampled recent GitHub Actions outcomes; older executions are explicitly unchecked.",
+     "inputSchema": {"type": "object", "properties": {"repository": {"type": "string"}, "branch": {"type": "string"}, "limit": {"type": "integer"}}, "required": ["repository"], "additionalProperties": False}, "annotations": {"readOnlyHint": True}},
+    {"name": "github_workflow_dispatch", "description": "Request GitHub Actions workflow_dispatch; requires existing execute scope and Actions write token.",
+     "inputSchema": {"type": "object", "properties": {"repository": {"type": "string"}, "workflow_id": {"type": "integer"}, "ref": {"type": "string"}, "inputs": {"type": "object", "additionalProperties": {"type": "string"}}}, "required": ["repository", "workflow_id", "ref"], "additionalProperties": False}, "annotations": {"readOnlyHint": False, "destructiveHint": True, "idempotentHint": False}},
+    {"name": "github_workflow_cancel", "description": "Request cancellation of an Actions run; requires existing execute scope and Actions write token.",
+     "inputSchema": {"type": "object", "properties": {"repository": {"type": "string"}, "run_id": {"type": "integer"}}, "required": ["repository", "run_id"], "additionalProperties": False}, "annotations": {"readOnlyHint": False, "destructiveHint": True, "idempotentHint": False}},
     {"name": "github_workflow_errors", "description": "Read failed job/step metadata; unsafe build logs are withheld.",
      "inputSchema": {"type": "object", "properties": {"repository": {"type": "string"}, "run_id": {"type": "integer"}, "job_id": {"type": "integer"}, "limit": {"type": "integer"}}, "required": ["repository", "run_id"], "additionalProperties": False}, "annotations": {"readOnlyHint": True}},
 )
@@ -33,6 +41,10 @@ _HANDLERS = {
     "github_commit_checks": github_read_mcp.commit_checks,
     "mcp_source_status": lambda arguments: source_status(),
     "github_workflow_errors": github_workflows_mcp.errors,
+    "github_workflow_list": github_actions_control.workflow_list,
+    "github_workflow_health": github_actions_control.workflow_health,
+    "github_workflow_dispatch": github_actions_control.workflow_dispatch,
+    "github_workflow_cancel": github_actions_control.workflow_cancel,
 }
 
 
