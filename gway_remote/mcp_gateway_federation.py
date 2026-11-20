@@ -40,3 +40,51 @@ class FederatedProviders:
         return route_provider_call(routes, name, arguments,
                                    authorized_scope=authorized_scope,
                                    invoke=self.transport.invoke)
+
+
+def federated_tool_result(selected):
+    """Preserve bounded MCP images; keep all existing text provider output unchanged.
+
+    The gateway historically wraps provider results as JSON text. Only a
+    well-formed, single JPEG image travels as actual MCP image content.
+    An optional bounded structuredContent map adds only capture coordinates.
+    """
+    import base64
+    import json
+
+    if (type(selected) is dict and type(selected.get("content")) is list
+            and any(type(item) is dict and item.get("type") == "image"
+                    for item in selected["content"])):
+        if set(selected) not in ({"content"}, {"content", "structuredContent"}) or len(selected["content"]) != 1:
+            raise ValueError("invalid_provider_image")
+        if "structuredContent" in selected:
+            metadata = selected["structuredContent"]
+            if type(metadata) is not dict or set(metadata) != {
+                    "native_width", "native_height", "capture_width",
+                    "capture_height", "scale_x", "scale_y"}:
+                raise ValueError("invalid_provider_image")
+            for field in ("native_width", "native_height", "capture_width", "capture_height"):
+                value = metadata[field]
+                if type(value) is not int or not 0 < value <= 4096:
+                    raise ValueError("invalid_provider_image")
+            if metadata["capture_width"] != 480 or metadata["capture_height"] % 2:
+                raise ValueError("invalid_provider_image")
+            for axis, native, capture in (("x", "native_width", "capture_width"),
+                                          ("y", "native_height", "capture_height")):
+                value = metadata["scale_" + axis]
+                if type(value) not in (float, int) or not 0 < value <= 4096 or (
+                        abs(value - metadata[native] / metadata[capture]) > 1e-9):
+                    raise ValueError("invalid_provider_image")
+        item = selected["content"][0]
+        if type(item) is not dict or set(item) != {"type", "mimeType", "data"} or (
+                item["type"] != "image" or item["mimeType"] != "image/jpeg"
+                or type(item["data"]) is not str or len(item["data"]) > 190_000):
+            raise ValueError("invalid_provider_image")
+        try:
+            payload = base64.b64decode(item["data"], validate=True)
+        except (ValueError, base64.binascii.Error) as exc:
+            raise ValueError("invalid_provider_image") from exc
+        if not 0 < len(payload) <= 140_000 or not payload.startswith(b"\xff\xd8"):
+            raise ValueError("invalid_provider_image")
+        return selected
+    return {"content": [{"type": "text", "text": json.dumps(selected, separators=(",", ":"))}]}

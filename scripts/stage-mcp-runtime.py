@@ -31,11 +31,13 @@ elif command == "node_inventory":
     runpy.run_module("gway_remote.node_registry_inventory", run_name="__main__")
 elif command == "exec_eligibility":
     runpy.run_module("gway_remote.watchtower_exec_eligibility", run_name="__main__")
+elif command == "android_provider":
+    runpy.run_module("gway_remote.mcp_android", run_name="__main__")
 elif command == "bearer":
     sys.argv.insert(1, "bearer")
     runpy.run_module("gway_remote.__main__", run_name="__main__")
 else:
-    raise SystemExit("Expected --check, bearer or an MCP service module")
+    raise SystemExit("Expected --check, bearer, android_provider or an MCP service module")
 '''
 
 

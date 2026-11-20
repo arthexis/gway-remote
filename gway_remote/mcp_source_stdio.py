@@ -3,6 +3,7 @@ import json
 import os
 import pwd
 import re
+import stat
 from pathlib import Path
 import selectors
 import subprocess
@@ -24,6 +25,40 @@ class SourceProtocolError(RuntimeError):
 
 _MAX_MESSAGE = 262144
 _PROTOCOL = "2025-03-26"
+
+
+def _codex_binary_directory(value):
+    """Validate an explicit owner-managed Codex CLI before extending PATH.
+
+    The root-owned policy may point at a same-user symlink (common for CLI
+    installations), but the resolved executable and both containing
+    directories must be owned by root or this node owner and not writable by
+    other users. No shell is invoked and ambient PATH is never inherited.
+    """
+    path = Path(value)
+    try:
+        entry = path.lstat()
+        resolved = path.resolve(strict=True)
+        executable = resolved.stat()
+        parent = path.parent.stat()
+        target_parent = resolved.parent.stat()
+    except (OSError, RuntimeError) as exc:
+        raise SourceProtocolError("invalid_provider_runtime") from exc
+    owners = (0, os.geteuid())
+    if (path.name != "codex" or not (stat.S_ISREG(entry.st_mode)
+                                    or stat.S_ISLNK(entry.st_mode))
+            or entry.st_uid not in owners
+            or not stat.S_ISREG(executable.st_mode)
+            or executable.st_uid not in owners
+            or executable.st_mode & 0o022
+            or not executable.st_mode & 0o111
+            or not os.access(path, os.X_OK)
+            or any(not stat.S_ISDIR(info.st_mode)
+                   or info.st_uid not in owners or info.st_mode & 0o022
+                   for info in (parent, target_parent))
+            or path.parent.is_symlink() or resolved.parent.is_symlink()):
+        raise SourceProtocolError("invalid_provider_runtime")
+    return str(path.parent)
 
 
 def _provider_environment(registration):
@@ -58,7 +93,9 @@ def _provider_environment(registration):
                 settings = json.loads(runtime.read_text(encoding="utf-8"))
             except (ValueError, UnicodeError) as exc:
                 raise SourceProtocolError("invalid_provider_runtime") from exc
-            if (type(settings) is not dict or set(settings) != {"workspace", "agent_executable"}
+            if (type(settings) is not dict or
+                    set(settings) not in ({"workspace", "agent_executable"},
+                                         {"workspace", "agent_executable", "codex_executable"})
                     or any(type(value) is not str or not value.startswith("/")
                            or ".." in value.split("/") for value in settings.values())):
                 raise SourceProtocolError("invalid_provider_runtime")
@@ -71,7 +108,11 @@ def _provider_environment(registration):
                     or not os.access(agent, os.X_OK) or agent.name != "agent"):
                 raise SourceProtocolError("invalid_provider_runtime")
             env["GWAY_AGENT_WORKSPACE_ROOT"] = str(workspace)
-            env["PATH"] = str(agent.parent) + ":" + env["PATH"]
+            # AgentOps remains first; an independently installed Codex CLI is
+            # added only when a protected provider policy names it explicitly.
+            codex_dir = (_codex_binary_directory(settings["codex_executable"])
+                         if "codex_executable" in settings else None)
+            env["PATH"] = str(agent.parent) + (":" + codex_dir if codex_dir else "") + ":" + env["PATH"]
             runtime_dir = Path("/run/user") / str(os.geteuid())
             if (runtime_dir.is_dir() and not runtime_dir.is_symlink()
                     and runtime_dir.stat().st_uid == os.geteuid()

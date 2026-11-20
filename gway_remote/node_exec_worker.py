@@ -22,8 +22,8 @@ import sys
 import time
 
 from .node_exec_contract import DEFAULT_LIMITS, validate_command, validate_transition
-from .node_exec_identity import (DEFAULT_USER, COMMON_PATH, OPERATOR_PATH,
-                                 command_environment, selected_user, state_dir)
+from .node_exec_identity import (DEFAULT_USER, command_environment,
+                                 executor_path, selected_user, state_dir)
 
 ACCOUNT = DEFAULT_USER
 DEFAULT_STATE = Path("/var/lib/gway-exec/jobs.sqlite3")
@@ -66,7 +66,7 @@ def user_manager_env():
             or not stat.S_ISSOCK(bus.st_mode) or bus.st_uid != uid):
         raise RuntimeError("executor user manager unavailable")
     return {
-        "PATH": OPERATOR_PATH if account.pw_name == "arthe" else COMMON_PATH,
+        "PATH": executor_path(account.pw_name),
         "HOME": account.pw_dir,
         "USER": account.pw_name,
         "LOGNAME": account.pw_name,

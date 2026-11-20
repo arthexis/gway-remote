@@ -26,7 +26,9 @@ class ExecutorIdentityTests(unittest.TestCase):
                 return type("Stat", (), {"st_mode": meta.st_mode, "st_uid": 0})()
             return meta
 
-        with patch.object(Path, "lstat", autospec=True, side_effect=root_owned):
+        from types import SimpleNamespace
+        with (patch.object(Path, "lstat", autospec=True, side_effect=root_owned),
+              patch.object(identity.pwd, "getpwnam", side_effect=lambda u: SimpleNamespace(pw_uid={"arthe": 1000, "gway-exec": 999}[u], pw_name=u, pw_dir="/home/" + u))):
             return identity.selected_user(self.policy, hostname=node)
 
     def test_default_and_explicit_pilot(self):
@@ -34,12 +36,12 @@ class ExecutorIdentityTests(unittest.TestCase):
         self.assertEqual(self.read_policy("arthe", "gway-001"), "arthe")
         self.assertEqual(self.read_policy("gway-exec", "gway-005"), "gway-exec")
 
-    def test_operator_is_rejected_on_other_nodes(self):
-        with self.assertRaises(PermissionError):
-            self.read_policy("arthe", "gway-005")
+    def test_installed_policy_is_node_local_not_hostname_allowlisted(self):
+        self.assertEqual(self.read_policy("arthe", "gway-005"), "arthe")
+        self.assertEqual(self.read_policy("gway-exec", "gway-001"), "gway-exec")
 
     def test_unrecognized_users_rejected(self):
-        for user in ("root", "ubuntu", "", None):
+        for user in ("root", "../escape", "", None):
             with self.subTest(user=user), self.assertRaises(PermissionError):
                 self.read_policy(user, "gway-001")
 
@@ -63,7 +65,7 @@ class ExecutorIdentityTests(unittest.TestCase):
 
     def test_missing_bastion_socket_does_not_inherit_untrusted_agent(self):
         from types import SimpleNamespace
-        account = SimpleNamespace(pw_uid=1234, pw_dir="/home/arthe")
+        account = SimpleNamespace(pw_uid=1234, pw_dir="/home/arthe", pw_name="arthe")
         with (patch.object(identity.pwd, "getpwnam", return_value=account),
               patch.object(identity.os, "geteuid", return_value=1234),
               patch.object(Path, "lstat", autospec=True, side_effect=FileNotFoundError),
@@ -75,7 +77,7 @@ class ExecutorIdentityTests(unittest.TestCase):
 
     def test_bastion_socket_requires_correct_owner_and_mode(self):
         from types import SimpleNamespace
-        account = SimpleNamespace(pw_uid=1234, pw_dir="/home/arthe")
+        account = SimpleNamespace(pw_uid=1234, pw_dir="/home/arthe", pw_name="arthe")
         with (patch.object(identity.pwd, "getpwnam", return_value=account),
               patch.object(identity.os, "geteuid", return_value=1234)):
             for owner, mode, authorized in ((1234, stat.S_IFSOCK | 0o600, True),

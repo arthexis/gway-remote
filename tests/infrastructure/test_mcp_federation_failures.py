@@ -24,11 +24,14 @@ class FederationFailureTests(unittest.TestCase):
             FederatedProviders(transport=transport,
                                nodes=lambda: ("gway-001",)).discover()
 
-    def test_duplicate_provider_across_nodes_is_rejected(self):
-        with self.assertRaises(FederationError):
-            catalog_from_nodes([], {"gway-001": reply("gway-001"),
-                                    "gway-002": reply("gway-002", tools=[{
-                                        "name": "update", "inputSchema": {"type": "object"}}])})
+    def test_duplicate_provider_across_nodes_has_unambiguous_routes(self):
+        tools, routes = catalog_from_nodes([], {"gway-001": reply("gway-001"),
+                                   "gway-002": reply("gway-002", tools=[{
+                                       "name": "update", "inputSchema": {"type": "object"}}])})
+        self.assertEqual({t["name"] for t in tools},
+                         {"odoo__list", "gway_002_odoo__update"})
+        self.assertEqual(routes["gway_002_odoo__update"][:3],
+                         ("gway-002", "odoo", "update"))
 
     def test_invalid_tool_schema_rejected(self):
         with self.assertRaises(FederationError):

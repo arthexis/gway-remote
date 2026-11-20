@@ -25,7 +25,7 @@ Developer agents are assigned implementation, refactoring, testing, and PR work.
   agent is not responsible for developing or fixing the feature.**
 
 
-## Trusted internal operations — issue #586 (Stages A–C compatibility decision)
+## Trusted internal operations — issue #586 / Stage C (#595)
 
 - Watchtower owns OAuth bearer authentication and the public `gway:read` /
   `gway:execute` admission decision. Do not duplicate OAuth identity or
@@ -36,19 +36,14 @@ Developer agents are assigned implementation, refactoring, testing, and PR work.
 - The node/provider owns actual operation validation: registered tools,
   bounded arguments, allowed destinations, application state, concurrency,
   idempotency and safe error handling. Retain these controls.
-- Stage B (#589) is merged and deployed: execute uses unscoped
-  `provider_call`; read uses the operation-bound `provider_read` when the
-  authenticated node catalog advertises `supports_provider_read`.
-  Watchtower uses one discovery snapshot to authorize and route each call.
-- Stage C retirement candidate (new explicit owner request): remove the
-  legacy read sender/receiver wire format. Read exclusively uses `provider_read`
-  and an advertised `supports_provider_read=true`, otherwise fail closed.
-  Execute uses the exact unscoped `provider_call` form.
-- **Activation remains gated:** independent Watchtower or node rollback to a
-  pre-B release can break reads. Do not Ready, merge, or activate this candidate
-  until a minimum B-compatible rollback floor is independently demonstrated
-  on both endpoints and mixed-version regression passes. The #586/#592 A/B
-  policy stays in effect until then. Respect receiver-first deployment.
+- Stage C (#595): read uses only `provider_read` with an authenticated
+  `supports_provider_read=true` capability, otherwise fails closed before SSH.
+  Execute uses unscoped `provider_call`; the SSH receiver rejects the legacy
+  `authorized_scope` field. Watchtower retains one discovery snapshot.
+- The owner retired backward compatibility with the Stage A wire. Do not
+  reintroduce fallback or legacy rollback floors; retain CI, branch protection
+  and operational validation for changes to the live trust boundary.
+- The separate private HTTP `X-Gway-Caller-Scope` is not part of this removal.
 - Do not ask each feature PR to re-prove unchanged OpenSSH, credentials,
   installation identity or OAuth implementation. A PR that changes an
   external endpoint, an OS privilege, or a trust boundary needs explicit

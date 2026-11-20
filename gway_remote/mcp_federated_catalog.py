@@ -28,9 +28,9 @@ def catalog_from_nodes(builtins, node_catalogs):
         raise FederationError("invalid_node_catalogs")
     routes = {}
     declarations = []
-    # Source names are global MCP names. A collision across nodes is ambiguous
-    # even when their individual tool names do not overlap.
-    owners = {}
+    # Node-local provider IDs may repeat. Keep the historic gway-001 public
+    # names stable; qualify all other nodes to prevent ambiguous dispatch.
+    owners = set()
     for node, response in sorted(node_catalogs.items()):
         if type(node) is not str or not _NODE.fullmatch(node) or type(response) is not dict or set(response) != {"node", "providers"} or response["node"] != node or type(response["providers"]) is not list:
             raise FederationError("invalid_node_catalog")
@@ -40,8 +40,7 @@ def catalog_from_nodes(builtins, node_catalogs):
         for provider in providers:
             if type(provider) is not dict or not {"provider", "node", "revision", "status", "tools"} <= set(provider) or provider["node"] != node or provider["status"] not in ("available", "unavailable") or type(provider["revision"]) is not str:
                 raise FederationError("invalid_provider")
-            # Old nodes may omit capability; their reads now fail closed
-            # rather than falling back to a scoped execute verb.
+            # No fallback: a receiver without read support fails closed.
             if ("supports_provider_read" in provider and
                     type(provider["supports_provider_read"]) is not bool):
                 raise FederationError("invalid_provider_capability")
@@ -50,9 +49,12 @@ def catalog_from_nodes(builtins, node_catalogs):
                 raise FederationError("invalid_provider")
             if type(provider["tools"]) is not list or len(provider["tools"]) > 64:
                 raise FederationError("invalid_tools")
-            if source in owners:
+            if (node, source) in owners:
                 raise FederationError("ambiguous_provider")
-            owners[source] = node
+            owners.add((node, source))
+            public_source = source if node == "gway-001" else node.replace("-", "_") + "_" + source
+            if not _PROVIDER.fullmatch(public_source):
+                raise FederationError("invalid_public_provider")
             if provider["status"] != "available":
                 continue
             for tool in provider["tools"]:
@@ -61,7 +63,7 @@ def catalog_from_nodes(builtins, node_catalogs):
                 if (type(tool.get("inputSchema")) is not dict
                         or tool["inputSchema"].get("type") != "object"):
                     raise FederationError("invalid_tool_schema")
-                name = source + "__" + tool["name"]
+                name = public_source + "__" + tool["name"]
                 if name in routes:
                     raise FederationError("ambiguous_provider")
                 routes[name] = (node, source, tool["name"], required_scope(tool),
@@ -84,7 +86,7 @@ def route_provider_call(routes, name, arguments, *, authorized_scope, invoke):
         raise PermissionError("mcp_execute_scope_required")
     if authorized_scope not in ("read", "execute"):
         raise PermissionError("invalid_scope")
-    # No legacy scoped-read RPC: deny unknown or pre-B receiver capability.
+    # Reject unsupported reads instead of downgrading to an execute-shaped RPC.
     if authorized_scope == "read" and not (len(route) > 4 and route[4] is True):
         raise FederationError("provider_read_receiver_unsupported")
     operation = "provider_read" if authorized_scope == "read" else "provider_call"

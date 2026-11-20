@@ -43,3 +43,95 @@ The old interactive standalone flow remains available for controlled manual diag
 ## Acceptance and operator receipt
 
 PR #254 covers code/tests only; merge readiness requires passing PR CI including offline session, HTTP, client, Nginx and deployment checks. #228 separately owns the approved Watchtower deployment and real gway-004 test. Confirm the exact installed SHA, sanitized peer counts, service state, successful fresh external handshake and tunnel reachability, session replay refusal, and continued gway-001 operation. Do not close #228 or claim rollout complete from tests alone.
+
+## Repair-first recovery and post-operation verification (#636)
+
+Use the existing node-bound bootstrap URL and its existing `--repair` purpose
+for an enrolled node with a matching managed WireGuard configuration. Repair
+does not select or migrate the node executor account, change the WireGuard
+peer, override SSH trust, or confer a deployment permission. It attempts the
+authorized repair immediately rather than rejecting it because of an unrelated
+executor-account comparison. Fresh enrollment retains its non-root installer
+gate, and conflicting/unmanaged tunnel state remains a hard stop.
+
+The downloadable client's failure result is a **sanitized category**, not
+the exception message (which could contain bearer URL or key material).
+`invitation` calls for checking the protected URL/session;
+`tunnel_identity_or_config` calls for checking owned configuration and
+server/host identities; `enrollment_or_service` points to enrollment/service
+response; `local_command` points to the failed local tool; and
+`executor_provisioning` concerns only a new install or its executor
+preparation. Investigate the indicated stage **after the failure**, rather
+than requiring every identity to match before an authorized repair.
+
+A local bootstrap success proves only that the local tunnel is configured,
+its interface public key agrees, and any requested enrollment repair was
+acknowledged. It **does not** prove the Watchtower-to-node SSH or MCP
+execution path. The operational acceptance performed separately by an
+authorized operator must check the existing strict-pinned SSH `limits`
+protocol through Watchtower and, if allowed, one fresh correlated
+`node_exec` / `node_result` terminal receipt. Diagnose an SSH failure
+there (host-key trust, authentication, selected receiver identity, or protocol
+version) without treating `already_attested` or `execute_available`
+as successful execution. Never retry an uncertain command with the same ID.
+
+For gway-002, preserve its production inventory and empty
+`remote_managed_repositories` list. This procedure grants no permission to
+apply changes on Watchtower or gway-002.
+
+### Existing Ansible and Watchtower verification path
+
+After an **independently authorized** bootstrap URL repair or standard Ansible
+deployment, run from Watchtower using the existing installed CLI and execution
+pin (no new SSH key, bearer or approval service):
+
+```sh
+gway-remote node verify gway-002 --json
+ansible-playbook ansible/playbooks/node-repair-verify.yml -e gway_repair_node=gway-002
+```
+
+Both commands are **opt-in** and perform only a strict-pinned SSH `limits`
+request. The Ansible playbook is a post-convergence hook; it does not fetch a
+bootstrap bearer, enroll, rewrite an SSH pin, change executor identity, or
+install/restart services. A successful probe is deliberately limited to
+`limits` protocol health, not remote execution.
+
+For an *already authenticated and authorized* execute workflow, the
+`gway_remote.node_repair_verify.verify_terminal` helper accepts the existing
+`AuthorizedExecution` object and its authorized principal. It submits one
+fresh `hostname` job through the existing durable ledger, then inspects its
+correlated `node_result`. A missing result remains `uncertain`; never
+resubmit a possibly dispatched job. This is not exposed as a privileged local
+CLI shortcut, since doing so would bypass the established execute admission.
+
+If the limits probe fails, use `gway-remote node doctor NODE --json` for
+additional *read-only* enrollment/pin evidence. `ssh_transport` may reflect
+transport loss or SSH authentication refusal and does **not** prove a wrong
+Unix executor. `node_protocol` indicates a malformed/rejected protocol
+response; check installed receiver version before considering identity
+migration. `authorization_or_pin` indicates an existing eligibility/trust
+gate failed; it is not an invitation to weaken host-key checking.
+
+### Repairing a stale installed receiver without reprovisioning identities
+
+On the **already authorized node's local console**, with a committed,
+clean checkout of `arthexis/gway-remote`, the opt-in Ansible package
+repair uses the repository's existing atomic content-addressed installer:
+
+```sh
+ansible-playbook ansible/playbooks/node-repair-package.yml \\
+  -e gway_repair_node=gway-002 --ask-become-pass
+```
+
+This is *not* a remote Watchtower deployment command or an authorization to
+operate gway-002. The exact node must match the local hostname and the
+operator must independently authorize any production change. There is
+deliberately no preflight agreement check among installer, SSH relay,
+executor and provider owner: the package is converged first, then tested.
+The playbook does not enroll, change SSH trust, provision accounts, migrate
+identity, restart a service or assert operational success. The existing
+bootstrap URL `--repair` remains the separate path for authorized
+host-identity attestation repairs. After the package change, use the
+Watchtower-side `node verify` probe and the existing execute-authorized
+terminal receipt path described above. Failure classification comes
+**after** the attempt, not from guessed account mismatch.

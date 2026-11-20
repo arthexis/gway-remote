@@ -34,6 +34,41 @@
           - prerequisites.results[0].stat.islnk | default(false)
           - prerequisites.results[1].stat.isreg | default(false)
           - not (prerequisites.results[1].stat.islnk | default(false))
+    # The restricted Watchtower SSH tunnel must not inhibit a normal reboot.
+    - name: Inspect PAM common-session for MCP forwarding exception
+      become: true
+      ansible.builtin.stat:
+        path: /etc/pam.d/common-session
+        follow: false
+      register: mcp_pam_stat
+    - name: Require root-owned regular PAM file
+      ansible.builtin.assert:
+        that:
+          - mcp_pam_stat.stat.isreg | default(false)
+          - not (mcp_pam_stat.stat.islnk | default(false))
+          - mcp_pam_stat.stat.pw_name == 'root'
+    - name: Read current PAM session configuration
+      become: true
+      ansible.builtin.slurp:
+        src: /etc/pam.d/common-session
+      register: mcp_pam_content
+    - name: Require unique systemd session rule and no duplicate exemption
+      ansible.builtin.assert:
+        that:
+          - >-
+            (mcp_pam_content.content | b64decode | regex_findall('(?m)^session\s+optional\s+pam_systemd[.]so\s*$') | length) == 1
+          - >-
+            (mcp_pam_content.content | b64decode | regex_findall('(?m)^session \[success=1 default=ignore\] pam_succeed_if[.]so quiet user = gway-mcp-forward$') | length) <= 1
+    - name: Exempt MCP forward-only SSH user from logind sessions
+      become: true
+      ansible.builtin.lineinfile:
+        path: /etc/pam.d/common-session
+        regexp: '^session \[success=1 default=ignore\] pam_succeed_if[.]so quiet user = gway-mcp-forward$'
+        insertbefore: '^session\s+optional\s+pam_systemd[.]so\s*$'
+        line: 'session [success=1 default=ignore] pam_succeed_if.so quiet user = gway-mcp-forward'
+        state: present
+        backup: true
+      # No sshd restart or tunnel interruption; effective on next login.
     - name: Inspect existing operator-approved MCP source policy
       become: true
       ansible.builtin.stat:
@@ -142,3 +177,15 @@
         - name: Abort deployment on failed MCP runtime
           ansible.builtin.fail:
             msg: Isolated MCP update failed; previous release was restored.
+
+    # This manifest is owned by GWay Remote itself; unlike Odoo/AgentOps,
+    # Remote may publish only its own "android" provider after staging.
+    # It references an immutable SHA, never the mutable current symlink.
+    - name: Publish reviewed Android MCP provider for gway-001
+      become: true
+      ansible.builtin.copy:
+        dest: /etc/gway-mcp-providers/android.json
+        owner: root
+        group: root
+        mode: "0644"
+        content: "{{ {'source_id': 'android', 'revision': mcp_target_sha, 'executable': '/usr/bin/python3.11', 'argv': ['/usr/bin/python3.11', '-I', '/opt/gway-mcp/releases/' ~ mcp_target_sha ~ '/run.py', 'android_provider']} | to_json }}\n"

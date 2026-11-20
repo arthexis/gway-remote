@@ -42,3 +42,33 @@ For the intended customer host, the proposed identity is `ocpp-abb-1` and DNS na
 - `gway_remote/__main__.py`: current CLI parser and operator command implementation
 - `gway_remote/wireguard_enrollment_contract.py`: current accepted node identifier syntax
 - `ansible/inventory/deployment.yml`: current management inventory and repository allowlists
+
+## Review a node repository plan
+
+`gway-remote node plan NODE --json` compares the installed deployment inventory
+with the reviewed deployment target catalog. It reports unknown and duplicate
+entries and suggested Agent Ops repository additions. Suggestions do not grant
+permissions; Agent Ops admission depends on its installed version and policy.
+Repositories outside the deployment catalog are reported for review, not
+implicitly rejected. This is an inventory-only report: it does not contact the
+node or verify enrollment, runtime, provider installation, or deployment.
+Use `gway-remote node doctor NODE --json` separately for available local
+enrollment and SSH pin evidence.
+
+## Runtime execution health in MCP inventory
+
+`execute_available` still reports enrollment, attestation, reachability and
+execution eligibility, not a successful command. The live authenticated
+`node_list` and `node_capabilities` interfaces additionally project
+`execution_health=verified` when the existing private Watchtower receipt
+ledger contains a successful terminal result for an exact `hostname` or
+`id -un` probe within the previous 15 minutes, bound to the configured
+pinned SSH host key. A recent terminal failed/timed-out probe is `degraded`.
+Missing, stale, uncertain or inaccessible evidence remains `unverified`.
+
+The optional `last_health_probe` contains only status, time and age; no
+principal, command, request ID, private output or SSH credential is exposed.
+Inventory reads never run remote probes or modify jobs. Success of unrelated
+commands and historical receipts does not establish current execution health.
+Read-only standalone enrollment inventory without the running execution
+service retains the safe `unverified` default.
