@@ -1,6 +1,6 @@
 """Hermetic guards for the Android canary field consumer (no real adb/gh)."""
 import hashlib
-from contextlib import nullcontext
+from contextlib import nullcontext, contextmanager
 from pathlib import Path
 import tempfile
 import unittest
@@ -157,19 +157,47 @@ class InstrumentationTests(unittest.TestCase):
     @patch.object(field, "adb")
     def test_pass_requires_android_runner_success(self, adb):
         adb.return_value = "OK (6 tests)\nINSTRUMENTATION_CODE: -1\n"
-        with patch.object(field, "keep_usb_screen_on", return_value=nullcontext()):
-            self.assertEqual(field.instrument("usb-device"), 6)
+        with patch.object(field, "keep_usb_screen_on", return_value=nullcontext()) as guard:
+            with patch.object(field, "device_ready", return_value=True) as ready:
+                self.assertEqual(field.instrument("usb-device", wake=True), 6)
+        guard.assert_called_once_with("usb-device")
+        ready.assert_called_once_with("usb-device", wake=True)
         self.assertTrue(any(
             "com.arthexis.gwayremote.canary.test/" in " ".join(map(str, call.args))
             for call in adb.call_args_list
         ))
 
+    def test_rechecks_screen_inside_guard_before_instrumentation(self):
+        calls = []
+        @contextmanager
+        def guard(serial):
+            calls.append("guard_enter")
+            try:
+                yield
+            finally:
+                calls.append("guard_exit")
+        def ready(serial, *, wake=False):
+            calls.append("device_ready")
+            self.assertTrue(wake)
+            return False
+        def adb(serial, *args, **kwargs):
+            if args[:3] == ("shell", "am", "instrument"):
+                calls.append("instrument")
+                return "OK (6 tests)\\nINSTRUMENTATION_CODE: -1\\n"
+            return ""
+        with patch.object(field, "keep_usb_screen_on", side_effect=guard):
+            with patch.object(field, "device_ready", side_effect=ready):
+                with patch.object(field, "adb", side_effect=adb):
+                    self.assertEqual(field.instrument("usb-device", wake=True), 6)
+        self.assertEqual(calls, ["guard_enter", "device_ready", "instrument", "guard_exit"])
+
     @patch.object(field, "adb")
     def test_generic_output_is_not_pass(self, adb):
         adb.return_value = "Success"
         with patch.object(field, "keep_usb_screen_on", return_value=nullcontext()):
-            with self.assertRaises(field.CanaryError):
-                field.instrument("usb-device")
+            with patch.object(field, "device_ready", return_value=True):
+                with self.assertRaises(field.CanaryError):
+                    field.instrument("usb-device")
 
 
 if __name__ == "__main__":
