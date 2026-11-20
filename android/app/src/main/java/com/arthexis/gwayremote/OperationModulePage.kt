@@ -27,7 +27,7 @@ import org.json.JSONObject
 internal fun OperationModulePage(id: String, endpoint: String, token: String) {
     require(id in setOf("system", "csms", "notifications", "agent-ops"))
     val context = LocalContext.current
-    val operations: OperationViewModel = viewModel()
+    val operations: ModuleOperationViewModel = viewModel()
     val agent: AgentOpsViewModel = viewModel()
     operations.bindCredentials { endpoint to token }
     agent.bindCredentials { endpoint to token }
@@ -40,7 +40,7 @@ internal fun OperationModulePage(id: String, endpoint: String, token: String) {
         operations.open(id)
     }
     DisposableEffect(id) {
-        onDispose { operations.close(id) }
+        onDispose { operations.close() }
     }
     LaunchedEffect(id, endpoint, token) {
         if (id == "notifications" && endpoint.isNotBlank() && token.isNotBlank()) {
@@ -56,7 +56,7 @@ internal fun OperationModulePage(id: String, endpoint: String, token: String) {
         }
     }
 
-    val panel = operations.panels.panels.firstOrNull { it.id == id }
+    val panel = operations.current?.takeIf { it.id == id }
     fun refresh() {
         when (id) {
             "system" -> operations.refreshSystem()
@@ -70,10 +70,7 @@ internal fun OperationModulePage(id: String, endpoint: String, token: String) {
     }
     val refreshing = panel?.loading == true ||
         (id == "system" && (operations.apiHealth.loading || operations.systemStatus.loading))
-    PullToRefreshBox(
-        isRefreshing = refreshing, onRefresh = { refresh() },
-        modifier = Modifier.fillMaxSize()
-    ) {
+    val content: @Composable () -> Unit = {
         Column(
             Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)
@@ -87,14 +84,14 @@ internal fun OperationModulePage(id: String, endpoint: String, token: String) {
                 Text(it, color = MaterialTheme.colorScheme.error)
             }
             when (id) {
-                "system" -> SystemUnifiedPanel(
+                "system" -> ModuleSystemContent(
                     operations.apiHealth, operations.systemStatus, operations::refreshSystem
                 )
                 "csms" -> CsmsUnifiedPanel(
                     panel, operations::refresh, operations::inspectCsms,
                     operations.csmsView, operations::selectCsmsView
                 )
-                "notifications" -> NotificationsUnifiedPanel(
+                "notifications" -> ModuleNotificationsContent(
                     operations.lcdNotification, operations.soundNotification,
                     soundMotifs.available, operations::notificationInput,
                     operations::executeNotification
@@ -131,4 +128,57 @@ internal fun OperationModulePage(id: String, endpoint: String, token: String) {
             }
         }
     }
+    if (id == "notifications") {
+        content()
+    } else {
+        PullToRefreshBox(
+            isRefreshing = refreshing, onRefresh = { refresh() },
+            modifier = Modifier.fillMaxSize()
+        ) { content() }
+    }
+}
+
+/** Native System result view; no dependency on the legacy panel manager. */
+@Composable
+internal fun ModuleSystemContent(
+    api: ModuleOperationViewModel.SystemCheck,
+    status: ModuleOperationViewModel.SystemCheck,
+    refresh: (String?) -> Unit
+) {
+    var selected by remember { mutableStateOf("status") }
+    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        OutlinedButton(onClick = { selected = "status" }) { Text("Status") }
+        OutlinedButton(onClick = { selected = "api-health" }) { Text("API Health") }
+    }
+    val check = if (selected == "status") status else api
+    Text(if (selected == "status") "System status" else "API health",
+        style = MaterialTheme.typography.titleSmall)
+    if (check.loading) LinearProgressIndicator(Modifier.fillMaxWidth())
+    check.error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
+    check.output?.let { GenericResultRenderer(it) }
+}
+
+/** Sound/LCD request state lives in the active Notifications module only. */
+@Composable
+internal fun ModuleNotificationsContent(
+    lcd: ModuleOperationViewModel.NotificationRun,
+    sound: ModuleOperationViewModel.NotificationRun,
+    motifs: List<String>,
+    onInput: (String, String, String) -> Unit,
+    onExecute: (String, Map<String, String>) -> Unit
+) {
+    var selected by remember { mutableStateOf("sound") }
+    TabRow(selectedTabIndex = if (selected == "sound") 0 else 1) {
+        Tab(selected = selected == "sound", onClick = { selected = "sound" },
+            text = { Text("Sound") })
+        Tab(selected = selected == "lcd", onClick = { selected = "lcd" },
+            text = { Text("LCD message") })
+    }
+    val state = if (selected == "sound") sound else lcd
+    val spec = requireNotNull(OperationRegistry.get(selected))
+    PanelActions(spec, OperationPanel(selected, state.inputs, state.loading, state.output, state.error),
+        onRefresh = {}, onInput = onInput, onExecute = onExecute, motifs = motifs)
+    if (state.loading) LinearProgressIndicator(Modifier.fillMaxWidth())
+    state.error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
+    state.output?.let { GenericResultRenderer(it) }
 }
