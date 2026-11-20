@@ -19,17 +19,21 @@ class PanelHostStructureTests(unittest.TestCase):
         self.assertIn("PanelActions(", host)
         self.assertNotIn("simulator", host.lower())
 
-    def test_home_local_panel_actions_are_wired(self):
+    def test_installed_local_modules_are_wired_to_isolated_pages(self):
         main = (ANDROID / "MainActivity.kt").read_text()
         registry = (ANDROID / "FeatureRegistry.kt").read_text()
-        for feature in ("deployments", "github-health"):
-            self.assertIn(f'id = "{feature}"', main)
+        modules = (ANDROID / "ModuleRegistry.kt").read_text()
+        shell = (ANDROID / "ModuleShell.kt").read_text()
+        for feature in ("deployments", "github-health", "mcp-access", "odoo-quotations"):
             self.assertIn(f'FeatureSpec("{feature}"', registry)
-        self.assertIn('localPanels.toggle("deployments")', main)
-        self.assertIn('localPanels.toggle("github-health")', main)
-        self.assertIn('localPanels.toggle("mcp-access")', main)
+        self.assertIn("FeatureRegistry.features.filter", modules)
+        self.assertIn("ModuleRegistry.modules.forEach", shell)
+        self.assertIn("ModalNavigationDrawer(", main)
+        self.assertIn("selectedModuleId = id", main)
+        self.assertIn("localPanels = localPanels.open(id)", main)
         self.assertIn("LocalPanelHost(", main)
-        self.assertNotIn("if (deploymentsOpen)", main)
+        self.assertNotIn("localPanels.toggle(", main)
+        self.assertNotIn("quotationsOpen", main.split("ModalNavigationDrawer(")[1])
         local_host = (ANDROID / "panels/LocalPanelHost.kt").read_text()
         self.assertIn("PanelChrome(", local_host)
         self.assertIn('"deployments" -> DeploymentsPanel(endpoint, token)', local_host)
@@ -42,17 +46,17 @@ class PanelHostStructureTests(unittest.TestCase):
         self.assertNotIn('"task-detail" to', source)
         self.assertIn('"agent-ops" to', source)
 
-    def test_search_and_actions_remain_in_palette(self):
+    def test_palette_remains_a_non_visible_compatibility_host(self):
+        main = (ANDROID / "MainActivity.kt").read_text()
         palette = (ANDROID / "OperationPalette.kt").read_text()
-        self.assertIn("FeatureRegistry.visible(filter, showSecondary)", palette)
-        self.assertIn("showSecondary = !showSecondary", palette)
-        self.assertIn("More tools and settings", palette)
+        self.assertIn("showPalette = false", main)
+        self.assertIn("if (showPalette)", palette)
+        self.assertIn("OperationPanelHost(", palette)
+        self.assertNotIn("extraActions = listOf(", main)
+        self.assertNotIn("Text(\"Response\")", main.split("ModalNavigationDrawer(")[1])
         registry = (ANDROID / "FeatureRegistry.kt").read_text()
         self.assertIn("search(query).filter", registry)
-        self.assertIn("query.isNotBlank() || showSecondary", registry)
-        self.assertIn("PaletteActionRows(actions + dynamicActions, columns)", palette)
-        self.assertIn("FeatureRegistry.get(action.id) == null", palette)
-        self.assertIn("action.label.contains(filter, ignoreCase = true)", palette)
+
 
 
 if __name__ == "__main__":
