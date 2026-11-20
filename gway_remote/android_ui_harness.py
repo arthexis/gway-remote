@@ -99,8 +99,8 @@ def poll(read_snapshot, *, resource_id, state, wait=0, pause=time.sleep):
     condition(state)
     wait_ms(wait)
     for attempt in (1, 2):
-        snapshot = read_snapshot()
         try:
+            snapshot = read_snapshot()
             if check(snapshot, resource_id, state):
                 return {"status": "confirmed", "attempts": attempt}
         except UiTargetError:
