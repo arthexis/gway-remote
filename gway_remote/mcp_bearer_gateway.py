@@ -19,7 +19,7 @@ UPSTREAM_TIMEOUT = 30
 # Discovery must recover promptly when the legacy gway-001 backend is offline.
 DISCOVERY_TIMEOUT = 3
 ALLOWED_METHODS = frozenset({"server/discover", "initialize", "notifications/initialized", "tools/list", "tools/call"})
-ALLOWED_TOOLS = frozenset({"github_workflow_runs", "github_workflow_status", "github_workflow_errors", "mcp_source_status",
+ALLOWED_TOOLS = frozenset({"mcp_source_status",
     "node_list", "node_capabilities", "node_file_download", "node_exec_preview",
     "node_exec", "node_result", "node_cancel", "node_deploy", "node_deploy_status",
     "node_deploy_preview", "workspace_inspect", "mcp_catalog_inspect", "node_exec_diagnostic"})
