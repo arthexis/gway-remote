@@ -24,7 +24,7 @@ class CanaryInstallWorkflowTests(unittest.TestCase):
     def test_provenance_before_install(self):
         text = WORKFLOW.read_text()
         for item in ('p["head"]["sha"]', 'p["head"]["repo"]["full_name"]', "actions/runs/",
-                     ".conclusion", ".path", "SHA256SUMS", "sha256sum --check",
+                     'r["conclusion"]', 'r["path"]', "SHA256SUMS", "sha256sum --check",
                      "PROVENANCE.txt", "com.arthexis.gwayremote.canary",
                      "Canary-Overlay: package-and-label-v1",
                      "Install ONLY isolated canary"):
