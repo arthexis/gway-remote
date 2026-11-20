@@ -40,11 +40,11 @@ _HANDLERS = {
     "github_branch_effective_rules": github_read_mcp.branch_effective_rules,
     "github_commit_checks": github_read_mcp.commit_checks,
     "mcp_source_status": lambda arguments: source_status(),
-    "github_workflow_errors": github_workflows_mcp.errors,
     "github_workflow_list": github_actions_control.workflow_list,
     "github_workflow_health": github_actions_control.workflow_health,
     "github_workflow_dispatch": github_actions_control.workflow_dispatch,
     "github_workflow_cancel": github_actions_control.workflow_cancel,
+    "github_workflow_errors": github_workflows_mcp.errors,
 }
 
 
