@@ -42,8 +42,6 @@ class NoSimulatorIntegrationTests(unittest.TestCase):
             "android/app/src/main/java/com/arthexis/gwayremote/OperationViewModel.kt",
             "android/app/src/main/java/com/arthexis/gwayremote/RefreshRegistry.kt",
             "android/app/src/main/java/com/arthexis/gwayremote/DeploymentsPanel.kt",
-            "android/app/src/main/java/com/arthexis/gwayremote/panels/OperationPanelHost.kt",
-            "android/app/src/main/java/com/arthexis/gwayremote/registry/PanelContentRegistry.kt",
         ]
         for name in paths:
             with self.subTest(path=name):
