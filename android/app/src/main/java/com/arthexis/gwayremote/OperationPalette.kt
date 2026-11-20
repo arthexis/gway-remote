@@ -58,7 +58,8 @@ fun OperationPalette(
     agentObserveResult: String?,
     agentObserveError: String?,
     onAgentObserve: (String, String) -> Unit,
-    extraActions: List<PaletteAction> = emptyList()
+    extraActions: List<PaletteAction> = emptyList(),
+    showPalette: Boolean = true
 ) {
     var filter by remember { mutableStateOf("") }
     var showSecondary by remember { mutableStateOf(false) }
@@ -91,6 +92,7 @@ fun OperationPalette(
             agentObserveError = agentObserveError,
             onAgentObserve = onAgentObserve
         )
+        if (showPalette) {
         OutlinedTextField(
             value = filter, onValueChange = { filter = it },
             label = { Text("Filter operations") }, singleLine = true,
@@ -123,6 +125,7 @@ fun OperationPalette(
             // Use a conservative minimum button width to avoid tiny targets.
             val columns = paletteColumns(maxWidth.value)
             PaletteActionRows(actions + dynamicActions, columns)
+        }
         }
     }
 }
