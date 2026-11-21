@@ -29,6 +29,9 @@ jobs:
       - name: Exercise root-level workspace inspect security suite
         if: matrix.group == 'core'
         run: python -m pytest tests/test_workspace_inspect_mcp.py -v
+      - name: Exercise root-level Android MCP security and federation contracts
+        if: matrix.group == 'core'
+        run: python -m pytest tests/test_mcp_android_device.py -v
 
   bootstrap:
     name: Bootstrap / enrollment, repair and host trust
