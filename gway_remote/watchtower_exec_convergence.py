@@ -8,6 +8,7 @@ grants until explicitly recovered.
 from __future__ import annotations
 
 import base64
+import fcntl
 import hashlib
 import ipaddress
 import json
@@ -41,6 +42,34 @@ class ConvergenceRefused(ValueError):
 
 def _digest(raw):
     return hashlib.sha256(raw).hexdigest()
+
+
+def _operator_lease(state_root, *, owner=0):
+    """A process-lifetime nonblocking lock across grant, revoke and recovery.
+
+    The durable .active directory is a crash journal marker, not proof that a
+    process is still alive. flock adds this distinction without another service
+    or ledger; the permanent private file never carries credentials.
+    """
+    root = Path(state_root)
+    _directory(root, owner=owner)
+    if stat.S_IMODE(root.lstat().st_mode) != 0o700:
+        raise ConvergenceRefused("transaction directory must be private")
+    fd = os.open(root / ".operator-lock",
+                 os.O_CREAT | os.O_RDWR | os.O_CLOEXEC | os.O_NOFOLLOW, 0o600)
+    try:
+        info = os.fstat(fd)
+        if (not stat.S_ISREG(info.st_mode) or info.st_uid != owner
+                or info.st_nlink != 1 or info.st_mode & 0o077):
+            raise ConvergenceRefused("unsafe operator lock file")
+        try:
+            fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError as exc:
+            raise ConvergenceRefused("another operator transaction is active") from exc
+        return fd
+    except BaseException:
+        os.close(fd)
+        raise
 
 
 def _entry_and_bytes(node, enabled, config, known, snapshot):
@@ -282,7 +311,12 @@ def converge(action, node, *, config=CONFIG, ledger=LEDGER, state_root=STATE,
     # for a different node, and a pending journal could be silently bypassed.
     stage = state_root / node
     global_lock = state_root / ".active"
-    os.mkdir(global_lock, mode=0o700)
+    operator_fd = _operator_lease(state_root)
+    try:
+        os.mkdir(global_lock, mode=0o700)
+    except BaseException:
+        os.close(operator_fd)
+        raise
     try:
         if stage.exists():
             raise ConvergenceRefused("pending transaction requires operator recovery")
@@ -340,31 +374,42 @@ def converge(action, node, *, config=CONFIG, ledger=LEDGER, state_root=STATE,
     finally:
         # Release only when no unresolved journal remains. This also covers
         # read-only planning failures and successful idempotent operations.
-        if not stage.exists():
-            global_lock.rmdir()
+        try:
+            if not stage.exists():
+                global_lock.rmdir()
+        finally:
+            os.close(operator_fd)
 
 
 def recover(node, *, state_root=STATE, ledger=LEDGER,
             set_grant=set_eligibility, inventory_builder=build, publisher=publish,
             runner=subprocess.run):
-    """Root-only, operator-requested recovery; never guesses unknown file edits."""
+    """Operator-only rollback, mutually exclusive with a still-running grant."""
     if os.geteuid() != 0 or not isinstance(node, str) or not NODE.fullmatch(node):
         raise ConvergenceRefused("root and exact node required")
-    stage = Path(state_root) / node
-    _directory(stage, owner=0)
-    data = json.loads((stage / "journal.json").read_text())
-    if data.get("schema") != 1 or data.get("node") != node:
-        raise ConvergenceRefused("invalid recovery journal")
-    _restore_files(stage, node)
-    # Restore the exact pre-transaction eligibility; never silently change
-    # a prior operator grant to a different state.
-    set_grant(node, data["prior_eligible"], ledger=ledger)
-    publisher(inventory_builder(ledger=ledger, probe=True))
-    runner(["systemctl", "restart", GATEWAY], capture_output=True,
-           text=True, timeout=90, check=True)
-    _finish_stage(stage)
-    active = Path(state_root) / ".active"
-    if active.exists():
-        _directory(active, owner=0)
+    state_root = Path(state_root)
+    # Recovery can reconstruct a missing crash marker, but never operate while
+    # a grant/revoke/recovery is active. The operator lease is kernel-released
+    # on process death, unlike the durable crash journal marker.
+    fd = _operator_lease(state_root)
+    try:
+        active = state_root / ".active"
+        if not active.exists():
+            active.mkdir(mode=0o700)
+        else:
+            _directory(active, owner=0)
+        stage = state_root / node
+        _directory(stage, owner=0)
+        data = json.loads((stage / "journal.json").read_text())
+        if data.get("schema") != 1 or data.get("node") != node:
+            raise ConvergenceRefused("invalid recovery journal")
+        _restore_files(stage, node)
+        set_grant(node, data["prior_eligible"], ledger=ledger)
+        publisher(inventory_builder(ledger=ledger, probe=True))
+        runner(["systemctl", "restart", GATEWAY], capture_output=True,
+               text=True, timeout=90, check=True)
+        _finish_stage(stage)
         active.rmdir()
-    return {"node": node, "recovered": True, "eligible": data["prior_eligible"]}
+        return {"node": node, "recovered": True, "eligible": data["prior_eligible"]}
+    finally:
+        os.close(fd)
