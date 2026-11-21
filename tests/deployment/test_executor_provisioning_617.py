@@ -10,7 +10,7 @@ from gway_remote import wireguard_satellite as bootstrap
 
 
 def account(name):
-    mapping = {"alice": 1001, "bob": 1002, "gway-exec": 998}
+    mapping = {"alice": 1001, "bob": 1002, "gway-exec": 998, "gway-relay": 997}
     if name not in mapping:
         raise KeyError(name)
     return SimpleNamespace(pw_name=name, pw_uid=mapping[name], pw_dir="/home/" + name)
@@ -36,10 +36,10 @@ class ProvisioningIdentityTests(unittest.TestCase):
             bootstrap.select_executor_user("bob", "bob", legacy=True)
 
     def test_root_missing_malformed_unknown_and_ambiguous_users_fail(self):
-        for installer in (None, "", "root", "missing", "../alice", "ALICE"):
+        for installer in (None, "", "root", "gway-relay", "missing", "../alice", "ALICE"):
             with self.subTest(installer=installer), self.assertRaises(ValueError):
                 bootstrap.select_executor_user(installer)
-        for override in ("root", "missing", "../bob", 123, False):
+        for override in ("root", "gway-relay", "missing", "../bob", 123, False):
             with self.subTest(override=override), self.assertRaises(ValueError):
                 bootstrap.select_executor_user("alice", override)
         with patch("pwd.getpwnam", return_value=SimpleNamespace(pw_name="alice", pw_uid=0)):
@@ -96,6 +96,22 @@ class ProvisioningIdentityTests(unittest.TestCase):
             source = (root / "ansible/roles/gway_remote/tasks" / path).read_text()
             self.assertIn('group: "{{ getent_passwd[gway_remote_exec_run_user][2] }}"', source)
             self.assertNotIn('group: "{{ gway_remote_exec_run_user }}"', source)
+
+    def test_ansible_prepares_selected_user_manager_before_cutover(self):
+        root = Path(__file__).resolve().parents[2]
+        yml = (root / "ansible/roles/gway_remote/tasks/node-exec-select.yml").read_text()
+        self.assertIn('loginctl, enable-linger, "{{ gway_remote_exec_run_user }}"', yml)
+        self.assertIn('name: "user@{{ getent_passwd[gway_remote_exec_run_user][1] }}.service"', yml)
+        self.assertIn("exec_selected_runtime.stat.mode in ['0700', '0770']", yml)
+        self.assertIn("not (exec_selected_runtime.stat.islnk | default(false))", yml)
+        self.assertIn("not (exec_selected_bus.stat.islnk | default(false))", yml)
+        self.assertLess(yml.index("Enable linger for the selected non-root executor"),
+                        yml.index("Install root-controlled selected executor identity"))
+        self.assertLess(yml.index("Refuse unsafe or foreign-owned executor runtime"),
+                        yml.index("Restrict selected executor runtime directory to mode 0700"))
+        self.assertIn('{{ gway_remote_exec_run_user }} ALL=(gway-exec)', yml)
+        self.assertNotIn("gway_remote_exec_run_user == 'arthe'", yml)
+        self.assertIn("(ansible_hostname | default('')) == 'gway-001'", yml)
 
     def test_root_owned_policy_idempotence_and_symlink_fail_closed(self):
         import stat

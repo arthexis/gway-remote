@@ -14,11 +14,9 @@ import stat
 
 IDENTITY_CONFIG = Path("/etc/gway-remote/executor-identity.json")
 DEFAULT_USER = "gway-exec"
-OPERATOR_USER = "arthe"
 DEFAULT_STATE_DIR = Path("/var/lib/gway-exec")
 OPERATOR_AGENT = Path("/run/bastion-ssh/agent.sock")
 COMMON_PATH = "/usr/local/libexec/gway-remote-tools:/usr/local/bin:/usr/bin:/bin"
-OPERATOR_PATH = "/home/arthe/.local/bin:/home/arthe/.local/libexec:/usr/local/sbin:" + COMMON_PATH
 ACCOUNT_RE = re.compile(r"^[a-z_][a-z0-9_-]*$")
 
 
@@ -29,8 +27,8 @@ def validated_account(user):
         account = pwd.getpwnam(user)
     except KeyError as exc:
         raise PermissionError("executor account missing") from exc
-    if account.pw_uid == 0 or account.pw_name != user:
-        raise PermissionError("root/ambiguous executor denied")
+    if account.pw_uid == 0 or account.pw_name != user or user == "gway-relay":
+        raise PermissionError("root/transport/ambiguous executor denied")
     return account
 
 
@@ -79,9 +77,9 @@ def command_environment(user=None):
     env = {"PATH": executor_path(user),
            "HOME": account.pw_dir, "USER": user, "LOGNAME": user,
            "LANG": "C.UTF-8"}
-    if user == OPERATOR_USER:
-        # Missing Bastion key is normal. Never connect through a user-supplied
-        # socket or inherit SSH_AUTH_SOCK from the SSH relay environment.
+    if user != DEFAULT_USER:
+        # Expose only a fixed, private Bastion socket owned by the selected UID;
+        # never inherit SSH_AUTH_SOCK or share it with the legacy gway-exec UID.
         try:
             info = OPERATOR_AGENT.lstat()
             if (stat.S_ISSOCK(info.st_mode) and info.st_uid == account.pw_uid

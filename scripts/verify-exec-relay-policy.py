@@ -14,8 +14,11 @@ import stat
 SSHD_CONFIG = Path("/etc/ssh/sshd_config.d/40-gway-exec-relay.conf")
 SUDOERS_CONFIG = Path("/etc/sudoers.d/gway-exec-relay")
 PROTOCOL = "/usr/bin/env PYTHONPATH=/opt/gway-remote GWAY_MCP_SOURCE_POLICY=/etc/gway-mcp-gateway/sources.json /usr/bin/python3 -m gway_remote.node_exec_protocol"
-FORCE = re.compile(r"\s*ForceCommand /usr/bin/sudo -n -u (gway-exec|arthe) (.*)")
-ALLOW = re.compile(r"gway-relay ALL=\((gway-exec|arthe)\) NOPASSWD: (.*)")
+ACCOUNT_PATTERN = r"([a-z_][a-z0-9_-]*)"
+ACCOUNT_NAME = re.compile(r"^[a-z_][a-z0-9_-]*$")
+FORBIDDEN_EXECUTORS = {"root", "gway-relay"}
+FORCE = re.compile(r"\s*ForceCommand /usr/bin/sudo -n -u " + ACCOUNT_PATTERN + r" (.*)")
+ALLOW = re.compile(r"gway-relay ALL=\(" + ACCOUNT_PATTERN + r"\) NOPASSWD: (.*)")
 
 
 def _protected_regular(path):
@@ -42,11 +45,22 @@ def verify(sshd, sudoers, expected_user=None):
     if len(ssh_matches) != 1:
         raise ValueError("ssh_forced_command_count")
     if len(sudo_matches) != 1:
+        # A second root/transport sudo rule must remain an extra-privilege
+        # violation, not be treated as a valid extra executor choice.
+        if any(match.group(1) in FORBIDDEN_EXECUTORS for match in sudo_matches):
+            raise ValueError("sudo_extra_rules")
         raise ValueError("sudo_rule_count")
     ssh_user, ssh_command = ssh_matches[0].groups()
     sudo_user, sudo_command = sudo_matches[0].groups()
     if ssh_user != sudo_user:
         raise ValueError("relay_identity_mismatch")
+    if ssh_user in FORBIDDEN_EXECUTORS:
+        raise ValueError("relay_forbidden_executor")
+    if expected_user is not None and (
+            type(expected_user) is not str or
+            ACCOUNT_NAME.fullmatch(expected_user) is None or
+            expected_user in FORBIDDEN_EXECUTORS):
+        raise ValueError("invalid_expected_executor")
     if ssh_command != PROTOCOL:
         raise ValueError("ssh_protocol_mismatch")
     if sudo_command != PROTOCOL:
@@ -63,7 +77,7 @@ def verify(sshd, sudoers, expected_user=None):
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--user", choices=("gway-exec", "arthe"))
+    parser.add_argument("--user", help="expected provisioned non-root executor account")
     args = parser.parse_args()
     try:
         ssh = _protected_regular(SSHD_CONFIG)

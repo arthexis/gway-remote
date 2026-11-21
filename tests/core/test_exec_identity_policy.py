@@ -28,7 +28,7 @@ class ExecutorIdentityTests(unittest.TestCase):
 
         from types import SimpleNamespace
         with (patch.object(Path, "lstat", autospec=True, side_effect=root_owned),
-              patch.object(identity.pwd, "getpwnam", side_effect=lambda u: SimpleNamespace(pw_uid={"arthe": 1000, "gway-exec": 999}[u], pw_name=u, pw_dir="/home/" + u))):
+              patch.object(identity.pwd, "getpwnam", side_effect=lambda u: SimpleNamespace(pw_uid={"arthe": 1000, "gway-exec": 999, "gway-relay": 998}[u], pw_name=u, pw_dir="/home/" + u))):
             return identity.selected_user(self.policy, hostname=node)
 
     def test_default_and_explicit_pilot(self):
@@ -41,7 +41,7 @@ class ExecutorIdentityTests(unittest.TestCase):
         self.assertEqual(self.read_policy("gway-exec", "gway-001"), "gway-exec")
 
     def test_unrecognized_users_rejected(self):
-        for user in ("root", "../escape", "", None):
+        for user in ("root", "gway-relay", "../escape", "", None):
             with self.subTest(user=user), self.assertRaises(PermissionError):
                 self.read_policy(user, "gway-001")
 
@@ -74,6 +74,22 @@ class ExecutorIdentityTests(unittest.TestCase):
         self.assertNotIn("SSH_AUTH_SOCK", env)
         self.assertEqual(env["HOME"], "/home/arthe")
         self.assertIn("/home/arthe/.local/bin", env["PATH"])
+
+    def test_other_installer_may_use_its_own_fixed_bastion_socket(self):
+        from types import SimpleNamespace
+        account = SimpleNamespace(pw_uid=1500, pw_name="rth", pw_dir="/home/rth")
+        with (patch.object(identity.pwd, "getpwnam", return_value=account),
+              patch.object(identity.os, "geteuid", return_value=1500),
+              patch.object(Path, "lstat", autospec=True,
+                           return_value=SimpleNamespace(st_uid=1500, st_mode=stat.S_IFSOCK | 0o600))):
+            self.assertEqual(identity.command_environment("rth")["SSH_AUTH_SOCK"],
+                             str(identity.OPERATOR_AGENT))
+        locked = SimpleNamespace(pw_uid=999, pw_name="gway-exec", pw_dir="/var/lib/gway-exec")
+        with (patch.object(identity.pwd, "getpwnam", return_value=locked),
+              patch.object(identity.os, "geteuid", return_value=999),
+              patch.object(Path, "lstat", autospec=True,
+                           return_value=SimpleNamespace(st_uid=999, st_mode=stat.S_IFSOCK | 0o600))):
+            self.assertNotIn("SSH_AUTH_SOCK", identity.command_environment("gway-exec"))
 
     def test_bastion_socket_requires_correct_owner_and_mode(self):
         from types import SimpleNamespace
