@@ -97,12 +97,18 @@ def test_success_does_not_claim_remote_execution(fake_host):
     env, events = fake_host
     result = _execute(_render(), env)
     assert result.returncode == 0, result.stderr.decode()
-    text = events.read_text()
-    assert text.index("/client.py") < text.index("git -C")
-    assert text.index("git -C") < text.index("vars ")
-    assert text.index("vars ") < text.index("client ")
-    assert text.index("client ") < text.index("ansible ")
-    assert text.index("ansible ") < text.index("/complete")
+    lines = events.read_text().splitlines()
+    def event(prefix):
+        return next(i for i, line in enumerate(lines) if line.startswith(prefix))
+    client_fetch = next(i for i, line in enumerate(lines) if
+                        line.startswith("curl ") and "/client.py" in line)
+    complete = next(i for i, line in enumerate(lines) if
+                    line.startswith("curl ") and "/complete" in line)
+    assert client_fetch < event("git -C")
+    assert event("git -C") < event("vars ")
+    assert event("vars ") < event("client ")
+    assert event("client ") < event("ansible ")
+    assert event("ansible ") < complete
     assert b"REMOTE_EXECUTION_UNVERIFIED" in result.stdout
     assert b"LOCAL_BOOTSTRAP_READY" not in result.stdout
 
@@ -123,7 +129,7 @@ def test_bad_client_digest_blocks_any_provisioning(fake_host):
     text = events.read_text()
     assert "/client.py" in text
     assert "git -C" not in text
-    assert "ansible " not in text
+    assert not any(line.startswith("ansible ") for line in text.splitlines())
     assert "/complete" not in text
 
 
