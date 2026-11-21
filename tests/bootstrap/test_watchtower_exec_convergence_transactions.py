@@ -325,3 +325,49 @@ def test_uncertain_rollback_keeps_journal_and_blocks_retries(monkeypatch, tmp_pa
         cv.converge("grant", "gway-005", state_root=tmp_path,
                     set_grant=eligibility, inventory_builder=inventory,
                     publisher=publish, runner=runner)
+
+
+def test_recovery_validates_journal_before_creating_crash_marker(monkeypatch, tmp_path):
+    from gway_remote import watchtower_exec_convergence as cv
+    tmp_path.chmod(0o700)
+    stage = tmp_path / "gway-005"
+    stage.mkdir(mode=0o700)
+    (stage / "journal.json").write_text('{"schema":1,"node":"other"}')
+    monkeypatch.setattr(cv.os, "geteuid", lambda: 0)
+    monkeypatch.setattr(cv, "_directory", lambda *a, **kw: None)
+    with pytest.raises(ConvergenceRefused, match="invalid recovery journal"):
+        cv.recover("gway-005", state_root=tmp_path)
+    assert not (tmp_path / ".active").exists()
+
+
+def test_operator_recovery_restores_eligibility_and_restarts_once(monkeypatch, tmp_path):
+    from subprocess import CompletedProcess
+    from gway_remote import watchtower_exec_convergence as cv
+    tmp_path.chmod(0o700)
+    stage = tmp_path / "gway-005"
+    stage.mkdir(mode=0o700)
+    (stage / "journal.json").write_text(json.dumps({
+        "schema": 1, "node": "gway-005", "prior_eligible": False,
+    }))
+    monkeypatch.setattr(cv.os, "geteuid", lambda: 0)
+    monkeypatch.setattr(cv, "_directory", lambda *a, **kw: None)
+    events = []
+    monkeypatch.setattr(cv, "_restore_files", lambda *args: events.append("restore"))
+    def eligibility(node, enabled, *, ledger):
+        assert node == "gway-005" and enabled is False
+        events.append("eligible")
+    def inventory(*, ledger, probe):
+        return {"nodes": []}
+    def publish(data):
+        events.append("publish")
+    def run(argv, **kwargs):
+        assert argv[:2] == ["systemctl", "restart"]
+        events.append("restart")
+        return CompletedProcess(argv, 0, "", "")
+    result = cv.recover("gway-005", state_root=tmp_path,
+                        set_grant=eligibility, inventory_builder=inventory,
+                        publisher=publish, runner=run)
+    assert result == {"node": "gway-005", "recovered": True, "eligible": False}
+    assert events == ["restore", "eligible", "publish", "restart"]
+    assert not stage.exists()
+    assert not (tmp_path / ".active").exists()
