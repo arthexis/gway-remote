@@ -28,7 +28,12 @@ def validate_artifact(*, pr, sha, run_id, directory):
         raise ProvisionError("invalid_source_identity")
     request = field.gh(f"repos/{field.REPO}/pulls/{pr}")
     head = request.get("head") or {}
-    if (request.get("state") != "open"
+    # A reviewed artifact is normally built while its source PR is open.
+    # After a successful merge that same immutable artifact remains eligible.
+    state_ok = request.get("state") == "open" or (
+        request.get("state") == "closed" and request.get("merged") is True
+    )
+    if (not state_ok
             or head.get("sha") != sha
             or (head.get("repo") or {}).get("full_name") != field.REPO):
         raise ProvisionError("source_pr_changed_or_untrusted")
