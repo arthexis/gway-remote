@@ -98,7 +98,7 @@ class AndroidCanaryInstallPolicyTests(unittest.TestCase):
             if argv[-5:] == ["shell", "pm", "list", "packages",
                              "com.arthexis.gwayremote.canary"]:
                 return CompletedProcess(argv, 0,
-                    "package:com.arthexis.gwayremote.canary\\n", "")
+                    "package:com.arthexis.gwayremote.canary", "")
             return original(argv, timeout)
         with self.assertRaisesRegex(InstallBlocked, "reset_not_confirmed"):
             install(str(self.apk), reset_allowed=True, call=stale_listing)
