@@ -21,6 +21,24 @@ def test_registration_url_is_separate_from_invitation_and_metadata_has_no_secret
     assert secret not in (invitation, session)
 
 
+def test_expired_completion_fails_even_after_peer_is_active(ledger, tmp_path):
+    from gway_remote.watchtower_enrollment import Provisioner
+    config = tmp_path / "hub.conf"
+    config.write_text("[Interface]\\nAddress = 10.90.0.1/24\\n")
+    provisioner = Provisioner(ledger, config, tmp_path / "backups",
+                              MemoryWireGuard(refuse_removal=True))
+    issued = ledger.register("gway-004", public_url="https://register.gelectriic.com")
+    secret = issued["url"].rsplit("/", 1)[-1]
+    key = "A" * 43 + "="
+    provisioner.enroll("gway-004", key, secret)
+    with ledger._transaction() as db:
+        db.execute("UPDATE bootstrap_sessions SET expires_at=? WHERE id=?",
+                   ((datetime.now(timezone.utc)-timedelta(seconds=1)).isoformat(),
+                    issued["id"]))
+    with pytest.raises(EnrollmentRejected):
+        ledger.complete_bootstrap(secret, "gway-004", key)
+
+
 def test_repair_registration_is_marked_in_the_private_bootstrap_session(ledger):
     issued = ledger.register("gway-004", public_url="https://register.gelectriic.com",
                              repair_host_identity=True)
@@ -118,7 +136,10 @@ def test_http_bootstrap_flow_and_no_store(ledger, tmp_path, monkeypatch):
     secret = invitation["url"].rsplit("/", 1)[-1]
     prefix = "/v1/bootstrap/" + secret
     handler = wt.make_handler(provisioner, public_url="https://register.gelectriic.com",
-                              wireguard_endpoint="register.gelectriic.com:51820")
+                              wireguard_endpoint="register.gelectriic.com:51820",
+                              release_provider=lambda: {
+                                  "revision": "a" * 40, "client_sha256": "b" * 64,
+                                  "relay_public_key": "ssh-ed25519 " + "A" * 43 + "="})
     server = ThreadingHTTPServer(("127.0.0.1", 0), handler)
     worker = threading.Thread(target=server.serve_forever, daemon=True)
     worker.start()
@@ -150,9 +171,23 @@ def test_http_bootstrap_flow_and_no_store(ledger, tmp_path, monkeypatch):
         assert status == 200
         assert json.loads(reply)["server_public_key"] == hub_key
 
-        status, _, _ = request("POST", prefix + "/complete",
-                               json.dumps({"device": "gway-004", "public_key": key}))
+        stages = ["wireguard", "package", "user_manager", "restricted_relay", "receiver"]
+        status, _, bad = request("POST", prefix + "/complete",
+                                 json.dumps({"device": "gway-004", "public_key": key,
+                                             "revision": "c" * 40, "stages": stages}))
+        assert status == 400
+        assert "invalid_request" in bad.decode()
+        assert ledger.bootstrap_session(secret)["device"] == "gway-004"
+        status, _, completed = request("POST", prefix + "/complete",
+                                       json.dumps({"device": "gway-004", "public_key": key,
+                                                   "revision": "a" * 40,
+                                                   "stages": stages}))
         assert status == 200
+        body = json.loads(completed)
+        assert body["complete"] is True
+        assert body["local_setup_reported"] is True
+        assert body["local_ready_verified"] is False
+        assert body["remote_execution_verified"] is False
         status, _, _ = request("GET", prefix)
         assert status == 404
         status, _, _ = request("POST", "/v1/enroll", payload)
