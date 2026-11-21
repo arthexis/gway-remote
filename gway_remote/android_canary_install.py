@@ -60,6 +60,18 @@ def install(apk: str, *, reset_allowed: bool = False, call=run_command):
     def package_path(package):
         return require_success(adb("shell", "pm", "path", package), "package_inspection_failed")
 
+    def canary_absent():
+        # On some Android versions, "pm path" returns exit 1 for a package
+        # that is correctly absent. Use a successful package listing instead.
+        output = require_success(
+            adb("shell", "pm", "list", "packages", CANARY),
+            "canary_absence_inspection_failed",
+        )
+        lines = [line.strip() for line in output.splitlines() if line.strip()]
+        if any(not line.startswith("package:") for line in lines):
+            raise InstallBlocked("canary_absence_inspection_unexpected")
+        return f"package:{CANARY}" not in lines
+
     before = package_path(PRODUCTION)
     outcome = None
     try:
@@ -73,17 +85,14 @@ def install(apk: str, *, reset_allowed: bool = False, call=run_command):
             ) is not None
             if not reset_allowed or not conflict:
                 raise InstallBlocked("canary_install_rejected_no_reset")
-            existing = package_path(CANARY)
-            if not existing.startswith("package:") or not all(
-                line.startswith("package:") for line in existing.splitlines()
-            ):
+            if canary_absent():
                 raise InstallBlocked("canary_not_installed_for_reset")
             if before != package_path(PRODUCTION):
                 raise InstallBlocked("production_path_changed")
             removed = adb("uninstall", CANARY, timeout=45)
             if removed.returncode != 0 or removed.stdout.strip() != "Success":
                 raise InstallBlocked("canary_reset_failed")
-            if package_path(CANARY):
+            if not canary_absent():
                 raise InstallBlocked("canary_reset_not_confirmed")
             second = adb("install", "-r", str(file), timeout=100)
             if second.returncode != 0 or second.stdout.strip() != "Success":
