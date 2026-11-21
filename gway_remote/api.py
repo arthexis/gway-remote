@@ -9,13 +9,14 @@ from ipaddress import ip_address
 
 from . import mobile, github_health, mobile_odoo_quotations
 from .agent_ops_adapter import AgentOpsError
+from .mobile_device_tokens import DeviceCredentials
 
 WIREGUARD_BIND_ADDRESS = "10.90.0.2"
 MAX_BODY = 8192
 MAX_RESPONSE = 1024 * 1024
 
 
-def handler_for(token):
+def handler_for(token, device_credentials=None):
     if not isinstance(token, str) or not token:
         raise ValueError("A nonempty API token is required")
 
@@ -39,11 +40,16 @@ def handler_for(token):
 
         def authorized(self):
             supplied = self.headers.get("Authorization", "")
-            expected = "Bearer " + token
-            if not hmac.compare_digest(supplied.encode("utf-8"), expected.encode("utf-8")):
+            if not supplied.startswith("Bearer ") or len(supplied) > 160:
                 self.respond(401, {"error": "unauthorized"})
-                return False
-            return True
+                return None
+            credential = supplied[7:]
+            if hmac.compare_digest(credential.encode("utf-8"), token.encode("utf-8")):
+                return "execute"  # existing mobile API bearer
+            scope = device_credentials.verify(credential) if device_credentials is not None else None
+            if scope is None:
+                self.respond(401, {"error": "unauthorized"})
+            return scope
 
         def do_GET(self):
             match = re.fullmatch(r"/api/v1/odoo/quotations/([1-9][0-9]{0,9})/pdf", self.path)
@@ -51,7 +57,7 @@ def handler_for(token):
             if not match and self.path not in allowed:
                 self.respond(404, {"error": "not_found"})
                 return
-            if not self.authorized():
+            if self.authorized() is None:
                 return
             if match:
                 try:
@@ -83,7 +89,8 @@ def handler_for(token):
             if self.path != "/api/v1/execute":
                 self.respond(404, {"error": "not_found"})
                 return
-            if not self.authorized():
+            permission = self.authorized()
+            if permission is None:
                 return
             length = self.headers.get("Content-Length")
             if length is None or not length.isascii() or not length.isdecimal():
@@ -102,6 +109,12 @@ def handler_for(token):
                 return
             if not isinstance(request, dict) or set(request) != {"command", "arguments"}:
                 self.respond(400, {"error": "invalid_request"})
+                return
+            if permission == "read" and not any(
+                spec.get("name") == request["command"] and spec.get("read_only") is True
+                for spec in mobile.commands()
+            ):
+                self.respond(403, {"error": "read_only_credential"})
                 return
             try:
                 started_ns = perf_counter_ns()
@@ -137,5 +150,5 @@ def serve(host="127.0.0.1", port=8765, token=None):
     if not (ip_address(host).is_loopback or host == WIREGUARD_BIND_ADDRESS):
         raise ValueError("API must bind to loopback or the configured WireGuard address")
     token = token if token is not None else os.environ.get("GWAY_REMOTE_API_TOKEN")
-    with ThreadingHTTPServer((host, port), handler_for(token)) as server:
+    with ThreadingHTTPServer((host, port), handler_for(token, DeviceCredentials())) as server:
         server.serve_forever()
