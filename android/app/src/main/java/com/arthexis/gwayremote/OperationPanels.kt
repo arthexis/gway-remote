@@ -4,14 +4,6 @@ package com.arthexis.gwayremote
  * UI-2: pure immutable state for independently open operation panels.
  * No network, Android lifecycle or execution side effects live in this manager.
  */
-data class OperationPanel(
-    val id: String,
-    val inputs: Map<String, String> = emptyMap(),
-    val loading: Boolean = false,
-    val output: String? = null,
-    val error: String? = null,
-    val revision: Long = 0L
-)
 
 data class OpenPanelResult(
     val state: OperationPanelState,
@@ -81,14 +73,3 @@ data class OperationPanelState(
 }
 
 /** Controller boundary: confirmation and input validation are not delegated to the panel UI. */
-object PanelExecution {
-    fun canRun(id: String, explicit: Boolean, confirmed: Boolean, inputsValid: Boolean): Boolean {
-        val spec = OperationRegistry.get(id) ?: return false
-        if (!inputsValid) return false
-        return when (spec.policy) {
-            ExecutionPolicy.AUTO_READ -> true
-            ExecutionPolicy.EXPLICIT_INPUT -> explicit
-            ExecutionPolicy.CONFIRM -> explicit && confirmed
-        }
-    }
-}

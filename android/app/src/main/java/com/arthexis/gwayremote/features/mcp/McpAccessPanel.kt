@@ -1,4 +1,11 @@
-package com.arthexis.gwayremote
+package com.arthexis.gwayremote.features.mcp
+
+import com.arthexis.gwayremote.*
+import com.arthexis.gwayremote.ui.components.ModuleHeader
+import com.arthexis.gwayremote.ui.components.ModuleLoading
+import com.arthexis.gwayremote.ui.components.ModuleNotice
+import com.arthexis.gwayremote.ui.components.ModuleActions
+import com.arthexis.gwayremote.ui.components.ModuleSectionTitle
 
 import android.content.ClipData
 import android.content.ClipboardManager
@@ -87,12 +94,8 @@ internal fun McpAccessPanel(onClose: () -> Unit) {
     }
 
     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-        HorizontalDivider()
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            Text("MCP Access", style = MaterialTheme.typography.titleMedium,
-                modifier = Modifier.weight(1f))
-            TextButton(onClick = onClose) { Text("Close") }
-        }
+        ModuleHeader("MCP Access")
+        ModuleActions { TextButton(onClick = onClose) { Text("Close") } }
         Text("Watchtower passkey authentication is required for each sensitive action.")
         Text(if (loading) "Checking administrative access…"
             else if (enabled) "Passkey issuer available"
@@ -159,7 +162,10 @@ internal fun McpAccessPanel(onClose: () -> Unit) {
             issuedId = ""
             status = if (revoked) "Bearer revoked" else "Bearer already absent or revoked"
         } }) { Text("Revoke bearer with passkey") }
-        if (busy) Text("Waiting for passkey verification…")
-        if (status.isNotBlank()) Text(status)
+        if (busy) {
+            ModuleLoading(true)
+            ModuleNotice("Waiting for passkey verification…")
+        }
+        ModuleNotice(status)
     }
 }

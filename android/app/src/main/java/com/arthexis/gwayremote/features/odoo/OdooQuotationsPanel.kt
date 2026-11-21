@@ -1,4 +1,11 @@
-package com.arthexis.gwayremote
+package com.arthexis.gwayremote.features.odoo
+
+import com.arthexis.gwayremote.*
+import com.arthexis.gwayremote.ui.components.ModuleHeader
+import com.arthexis.gwayremote.ui.components.ModuleLoading
+import com.arthexis.gwayremote.ui.components.ModuleNotice
+import com.arthexis.gwayremote.ui.components.ModuleActions
+import com.arthexis.gwayremote.ui.components.ModuleSectionTitle
 
 import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -102,15 +109,13 @@ fun OdooQuotationsPanel(endpoint: String, token: String) {
     }
 
     Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-        Text("Cotizaciones · Odoo", style = MaterialTheme.typography.titleMedium)
-        Text("Busca por folio o cliente y guarda el PDF oficial con su nombre en Odoo.",
-            style = MaterialTheme.typography.bodySmall)
+        ModuleHeader("Cotizaciones · Odoo", "Busca por folio o cliente y guarda el PDF oficial con su nombre en Odoo.")
         OutlinedTextField(
             value = query, onValueChange = { query = it.take(80) },
             label = { Text("Folio o cliente") }, singleLine = true,
             modifier = Modifier.fillMaxWidth()
         )
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        ModuleActions {
             Button(onClick = {
                 submittedQuery = query.trim()
                 page = 1
@@ -127,8 +132,8 @@ fun OdooQuotationsPanel(endpoint: String, token: String) {
                 Text("Recientes")
             }
         }
-        if (loading || downloading) LinearProgressIndicator(Modifier.fillMaxWidth())
-        if (status.isNotBlank()) Text(status, style = MaterialTheme.typography.bodySmall)
+        ModuleLoading(loading || downloading)
+        ModuleNotice(status, isError = status.startsWith("No se pudieron") || status.startsWith("Descarga fallida") || status.startsWith("Configura"))
         records.forEach { row ->
             HorizontalDivider()
             Row(

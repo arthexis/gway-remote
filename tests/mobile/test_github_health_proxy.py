@@ -15,7 +15,7 @@ class GitHubHealthProxyTests(unittest.TestCase):
             self.assertIn("proxy_set_header Authorization $http_authorization;", block)
 
     def test_android_uses_the_proxied_api_route(self):
-        client = (ROOT / "android/app/src/main/java/com/arthexis/gwayremote/GitHubHealthPanel.kt").read_text()
+        client = (ROOT / "android/app/src/main/java/com/arthexis/gwayremote/features/githubhealth/GitHubHealthPanel.kt").read_text()
         self.assertIn('request("/api/v1/github-health")', client)
 
 

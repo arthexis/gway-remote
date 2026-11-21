@@ -39,4 +39,4 @@ collect_evidence() {
 }
 trap collect_evidence EXIT
 cd android
-bash ./gradlew connectedDebugAndroidTest --stacktrace
+gradle :app:connectedDebugAndroidTest --no-daemon --stacktrace
