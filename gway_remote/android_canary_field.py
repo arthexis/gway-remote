@@ -15,6 +15,7 @@ import re
 import subprocess
 import tempfile
 import time
+from contextlib import contextmanager
 from datetime import datetime, timezone
 
 REPO = "arthexis/gway-remote"
@@ -192,12 +193,61 @@ def install(serial, directory, *, allow_canary_reset=False):
         raise CanaryError("test_package_missing")
 
 
-def instrument(serial):
+@contextmanager
+def keep_usb_screen_on(serial):
+    """Temporarily prevent USB screen timeout during physical instrumentation.
+
+    Preserve the exact old Android global setting, including an absent key.
+    Fail closed if USB power cannot be confirmed; restore even on test failure.
+    No persistent screen, network, or production-app changes.
+    """
+    key = "stay_on_while_plugged_in"
+    battery = adb(serial, "shell", "dumpsys", "battery", timeout=10)
+    if not re.search(r"(?mi)^\s*USB powered:\s*true\s*$", battery):
+        raise CanaryError("usb_power_unconfirmed")
+    original = adb(serial, "shell", "settings", "get", "global", key, timeout=10).strip()
+    if original == "null":
+        old = 0
+    elif re.fullmatch(r"[0-9]{1,2}", original) and 0 <= int(original) <= 15:
+        old = int(original)
+    else:
+        raise CanaryError("usb_stayon_unknown_initial_setting")
+    target = old | 2  # BatteryManager.BATTERY_PLUGGED_USB
+    changed = target != old
     try:
-        result = adb(
-            serial, "shell", "am", "instrument", "-w", "-r", "-e", "class", SUITE,
-            f"{TEST}/{RUNNER}", timeout=180
-        )
+        if changed:
+            adb(serial, "shell", "settings", "put", "global", key, str(target), timeout=10)
+            readback = adb(serial, "shell", "settings", "get", "global", key, timeout=10).strip()
+            if readback != str(target):
+                raise CanaryError("usb_stayon_set_unconfirmed")
+        yield
+    finally:
+        if changed:
+            try:
+                if original == "null":
+                    adb(serial, "shell", "settings", "delete", "global", key, timeout=10)
+                    restored = adb(serial, "shell", "settings", "get", "global", key, timeout=10).strip()
+                    valid = restored == "null"
+                else:
+                    adb(serial, "shell", "settings", "put", "global", key, original, timeout=10)
+                    restored = adb(serial, "shell", "settings", "get", "global", key, timeout=10).strip()
+                    valid = restored == original
+            except CanaryError as exc:
+                raise CanaryError("usb_stayon_restore_failed") from exc
+            if not valid:
+                raise CanaryError("usb_stayon_restore_unconfirmed")
+
+
+def instrument(serial, *, wake=False):
+    try:
+        with keep_usb_screen_on(serial):
+            # Screen could sleep between post-install preflight and guard activation.
+            # Recheck *after* USB wake protection is active; never unlock.
+            device_ready(serial, wake=wake)
+            result = adb(
+                serial, "shell", "am", "instrument", "-w", "-r", "-e", "class", SUITE,
+                f"{TEST}/{RUNNER}", timeout=180
+            )
         m = re.search(r"OK \((\d+) tests?\)", result)
         if "INSTRUMENTATION_CODE: -1" not in result or not m or int(m.group(1)) < 3:
             raise CanaryError("instrumentation_failed")
@@ -247,7 +297,10 @@ def run(pr, *, install_enabled=False, reset=False, wake=False, retry=False):
         }
         try:
             install(serial, directory, allow_canary_reset=reset)
-            record["tests_passed"] = instrument(serial)
+            # Package installation can consume the display timeout. Revalidate
+            # a live unlocked screen before starting the Compose runner.
+            device_ready(serial, wake=wake)
+            record["tests_passed"] = instrument(serial, wake=wake)
             record["status"] = "passed"
         except CanaryError as exc:
             record["reason"] = str(exc)

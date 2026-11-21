@@ -18,6 +18,30 @@ The field consumer needs `python3`, an authenticated GitHub CLI `gh` capable of 
 6. Review the receipt at `~/.local/state/gway-remote/android-canary.json` and do a separate visual acceptance of the actual app's shell, drawer, Back and navigation. The component Compose tests **do not** constitute complete end-to-end acceptance of the installed UI.
 7. If later canaries use different ephemeral debug certificates, an operator may explicitly enable `--allow-canary-reset`, which permits uninstall/reinstall **only** the isolated canary packages and only after a recognized signature/version-conflict error. This discards *canary-only* app data. Never use that option where the canary contains valuable data.
 
+## Physical screen stability and receipt validation
+
+On an authorized USB Android, a successful package install alone is **not** enough to
+prove that Compose instrumented tests can run. A sleeping or dozing display may
+cause `java.lang.IllegalStateException: No compose hierarchies found in the app`
+even when the same APK subsequently passes every component test.
+
+The local field runner rechecks the awake/unlocked state **after installation**
+and again immediately before AndroidJUnitRunner. During instrumentation it
+temporarily enables the Android global `stay_on_while_plugged_in` USB bit (2)
+**only if USB power is confirmed**. It reads the previous value, restores that
+same value (including absence), and verifies restoration before reporting
+success. No permanent Android developer setting is required, and the runner
+never unlocks a phone. Do not activate periodic polling if this restoration or
+the lock-state check is unverified.
+
+The physical regression for PR #661 was accepted on the authorized USB device
+with a provenance-verified #644 canary from Actions run #44827589525:
+**6/6 PASS immediately after reinstall** and **6/6 PASS on an independent
+second instrumentation run**. These are hermetic component assertions, not
+full interactive acceptance of the installed drawer, Back behavior or module
+navigation. Keep #644 and issue #647 open until those visual behaviors are
+independently verified; keep the unattended timer opt-in.
+
 ## Opt-in periodic polling
 
 The user service and timer are templates in `deploy/systemd/user/`, and are **not enabled automatically**. After successful one-shot physical acceptance, install them in the installation user's systemd user directory, review the configured PR allowlist and `ExecStart`, create `~/.config/gway-remote/android-canary-enabled` intentionally, and enable/start the timer with `systemctl --user`.

@@ -1,6 +1,8 @@
 """No-device tests of privacy-preserving Android canary instrumentation receipts."""
 import unittest
+from unittest.mock import patch
 
+from gway_remote import android_canary_diagnostic
 from gway_remote.android_canary_diagnostic import summarize
 
 
@@ -23,6 +25,21 @@ class AndroidCanaryDiagnosticsTests(unittest.TestCase):
         ])
         self.assertNotIn("Private UI", str(data))
 
+    def test_stack_frames_include_only_safe_symbols(self):
+        sample = (
+            "INSTRUMENTATION_STATUS: stack=java.lang.IllegalStateException: private message 123\\n"
+            "  at androidx.compose.ui.test.junit4.AndroidComposeTestRule.runTest(AndroidComposeTestRule.kt:123)\\n"
+            "  at com.arthexis.gwayremote.ModulePageComposeTest.testOne(ModulePageComposeTest.kt:45)\\n"
+            "  at com.private.IdentifyingClass.privateMethod(Private.kt:7)\\n"
+            "  at androidx.compose.ui.test.junit4.AndroidComposeTestRule.runTest(AndroidComposeTestRule.kt:123)\\n"
+        )
+        parsed = summarize(sample)
+        self.assertEqual(parsed["allowlisted_stack_frames"], [
+            "androidx.compose.ui.test.junit4.AndroidComposeTestRule.runTest",
+            "com.arthexis.gwayremote.ModulePageComposeTest.testOne",
+        ])
+        self.assertNotIn("private", str(parsed))
+
     def test_success_and_unknown_test_are_bounded(self):
         sample = (
             "INSTRUMENTATION_STATUS: class=com.example.Unknown\n"
@@ -34,6 +51,15 @@ class AndroidCanaryDiagnosticsTests(unittest.TestCase):
         self.assertEqual(data["footer_test_count"], 4)
         self.assertEqual(data["failed_tests"], ["unidentified_test_failure"])
         self.assertEqual(data["instrumentation_code"], -1)
+
+
+class DiagnosticSourceGuardTests(unittest.TestCase):
+    def test_unallowlisted_pr_is_rejected_without_device_access(self):
+        with patch("sys.argv", ["android-canary-diagnostic", "--reinstall-pr", "999"]):
+            with patch.object(android_canary_diagnostic.field, "usb") as usb:
+                with self.assertRaises(SystemExit):
+                    android_canary_diagnostic.main()
+                usb.assert_not_called()
 
 
 if __name__ == "__main__":
