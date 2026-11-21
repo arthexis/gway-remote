@@ -91,7 +91,8 @@ def run(*, pr, sha, run_id, directory):
             # Instrumentation itself consumes/delete the private seed and probes
             # the real HTTPS endpoint with the imported AndroidKeystore bearer.
             result = field.adb(
-                serial, "shell", "am", "instrument", "-w", "-r", "-e", "class",
+                serial, "shell", "am", "instrument", "-w", "-r",
+                "-e", "gway_usb_provision", "v1", "-e", "class",
                 PROVISION_TEST, f"{field.TEST}/{field.RUNNER}", timeout=100,
             )
             if ("OK (1 test)" not in result
