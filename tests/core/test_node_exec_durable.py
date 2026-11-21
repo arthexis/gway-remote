@@ -70,6 +70,57 @@ class DurableRequestTests(unittest.TestCase):
         self.submit(jobs, "3" * 32)
         self.assertEqual(len(self.launches), 3)
 
+    def test_stale_job_frees_capacity_without_resubmission(self):
+        jobs = Jobs(self.database, max_active=1)
+        old = "5" * 32
+        new = "6" * 32
+        self.submit(jobs, old)
+        with jobs.connection() as db:
+            db.execute("UPDATE jobs SET created_at='2026-01-01T00:00:00+00:00' WHERE id=?", (old,))
+        def lost_unit(rid):
+            self.assertEqual(rid, old)
+            with jobs.connection() as db:
+                db.execute("UPDATE jobs SET status='unknown' WHERE id=?", (rid,))
+            return "unknown"
+        with patch.object(jobs, "reconcile", side_effect=lost_unit) as reconcile:
+            self.assertEqual(self.submit(jobs, new), new)
+            reconcile.assert_called_once_with(old)
+        self.assertEqual(jobs.row(old)["status"], "unknown")
+        self.assertEqual(jobs.row(new)["status"], "queued")
+        self.assertEqual(len(self.launches), 2)
+
+    def test_fresh_job_never_probed_while_capacity_full(self):
+        jobs = Jobs(self.database, max_active=1)
+        self.submit(jobs, "7" * 32)
+        with patch.object(jobs, "reconcile") as reconcile:
+            with self.assertRaisesRegex(RuntimeError, "executor busy"):
+                self.submit(jobs, "8" * 32)
+            reconcile.assert_not_called()
+
+    def test_stale_but_active_unit_keeps_its_slot(self):
+        jobs = Jobs(self.database, max_active=1)
+        old = "9" * 32
+        self.submit(jobs, old)
+        with jobs.connection() as db:
+            db.execute("UPDATE jobs SET created_at='2026-01-01T00:00:00+00:00' WHERE id=?", (old,))
+        with patch.object(jobs, "reconcile", return_value="queued") as reconcile:
+            with self.assertRaisesRegex(RuntimeError, "executor busy"):
+                self.submit(jobs, "a" * 32)
+            reconcile.assert_called_once_with(old)
+        self.assertEqual(jobs.row(old)["status"], "queued")
+        self.assertEqual(len(self.launches), 1)
+
+    def test_malformed_stale_timestamp_fails_closed(self):
+        jobs = Jobs(self.database, max_active=1)
+        old = "b" * 32
+        self.submit(jobs, old)
+        with jobs.connection() as db:
+            db.execute("UPDATE jobs SET created_at='invalid' WHERE id=?", (old,))
+        with patch.object(jobs, "reconcile") as reconcile:
+            with self.assertRaisesRegex(RuntimeError, "executor busy"):
+                self.submit(jobs, "c" * 32)
+            reconcile.assert_not_called()
+
     def test_invalid_request_ids_cannot_launch(self):
         jobs = Jobs(self.database, max_active=1)
         for rid in ("f" * 31, "f" * 33, "G" * 32, "", 0, True):
