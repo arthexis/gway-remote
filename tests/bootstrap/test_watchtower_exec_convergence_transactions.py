@@ -335,6 +335,7 @@ def test_recovery_validates_journal_before_creating_crash_marker(monkeypatch, tm
     (stage / "journal.json").write_text('{"schema":1,"node":"other"}')
     monkeypatch.setattr(cv.os, "geteuid", lambda: 0)
     monkeypatch.setattr(cv, "_directory", lambda *a, **kw: None)
+    monkeypatch.setattr(cv, "_file", lambda path, **kw: (path.read_bytes(), None))
     with pytest.raises(ConvergenceRefused, match="invalid recovery journal"):
         cv.recover("gway-005", state_root=tmp_path)
     assert not (tmp_path / ".active").exists()
@@ -351,6 +352,7 @@ def test_operator_recovery_restores_eligibility_and_restarts_once(monkeypatch, t
     }))
     monkeypatch.setattr(cv.os, "geteuid", lambda: 0)
     monkeypatch.setattr(cv, "_directory", lambda *a, **kw: None)
+    monkeypatch.setattr(cv, "_file", lambda path, **kw: (path.read_bytes(), None))
     events = []
     monkeypatch.setattr(cv, "_restore_files", lambda *args: events.append("restore"))
     def eligibility(node, enabled, *, ledger):
