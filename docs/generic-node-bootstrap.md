@@ -46,3 +46,14 @@ An unaccepted transaction can be recovered only by an administrative
 `python3 -m gway_remote.watchtower_exec_eligibility recover gway-NNN`
 from the installed Watchtower owner after manual journal reconciliation.
 No public bootstrap token may invoke grant or recovery.
+
+## Compatibility boundary: named standalone satellites
+
+The complete package+relay installer and central grant are deliberately
+scoped to `gway-NNN` nodes. The registry also permits named satellites
+such as `ocpp-abb-1`; those retain the byte-identical pre-#641 standalone
+WireGuard bootstrap, without pretending the receiver/relay was installed.
+Their legacy completion reports `local_setup_reported=false` and
+`remote_execution_verified=false`. Expanding named satellites into the
+restricted SSH execution program requires a separately reviewed policy and
+real field acceptance. This change does not alter their previous behavior.

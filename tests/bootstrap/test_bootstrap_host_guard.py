@@ -42,6 +42,14 @@ class BootstrapHostGuardTests(unittest.TestCase):
                                         "relay_public_key": RELEASE["relay_public_key"],
                                         "client_sha256": RELEASE["client_sha256"]})
 
+    def test_named_satellite_keeps_original_wireguard_only_contract(self):
+        script = render_bootstrap_script("a" * 40, "ocpp-abb-1", "b" * 44).decode()
+        self.assertIn("apt-get install -y -qq python3 curl wireguard-tools", script)
+        self.assertNotIn("ansible-playbook", script)
+        self.assertNotIn("bootstrap-node.yml", script)
+        self.assertNotIn("local_setup_reported", script)
+        self.assertIn("/complete", script)
+
     def test_shell_artifacts_have_valid_syntax_without_execution(self):
         for repair in (False, True):
             with self.subTest(repair=repair):
