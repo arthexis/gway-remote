@@ -133,7 +133,8 @@ fun CompanionScreen(
                             updating = updates.running,
                             onOpenUpdate = { navigate("app-update") },
                             onCheckUpdate = updates.check,
-                            onOpenSettings = { navigate(ModuleRegistry.SETTINGS) }
+                            onOpenSettings = { navigate(ModuleRegistry.SETTINGS) },
+                            updatesEnabled = updates.updatesEnabled
                         )
                     }
                     ModuleRegistry.SETTINGS -> ModulePage {
@@ -165,7 +166,8 @@ fun CompanionScreen(
                             apkReady = updates.apkReady,
                             onCheck = updates.check,
                             onDownload = updates.download,
-                            onInstall = updates.install
+                            onInstall = updates.install,
+                            updatesEnabled = updates.updatesEnabled
                         )
                     }
                     "benchmark" -> ModulePage {
