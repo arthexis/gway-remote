@@ -1,8 +1,6 @@
 package com.arthexis.gwayremote
 
-import androidx.compose.runtime.Composable
-
-/** Navigation for local panels, deliberately separate from backend execution policies. */
+/** Legacy local panel state maintained for regression contract; no runtime host uses it. */
 data class LocalPanelState(val openIds: List<String> = emptyList()) {
     init {
         require(openIds.distinct().size == openIds.size)
@@ -34,22 +32,3 @@ data class LocalPanelState(val openIds: List<String> = emptyList()) {
     }
 }
 
-@Composable
-internal fun LocalPanelHost(
-    state: LocalPanelState,
-    endpoint: String,
-    token: String,
-    onClose: (String) -> Unit,
-    onMove: (String, Int) -> Unit
-) {
-    state.openIds.forEachIndexed { index, id ->
-        val title = FeatureRegistry.get(id)?.label ?: return@forEachIndexed
-        PanelChrome(id, title, index, state.openIds.size, onMove, onClose) {
-            when (id) {
-                "deployments" -> DeploymentsPanel(endpoint, token)
-                "mcp-access" -> McpAccessPanel(onClose = { onClose(id) })
-                "github-health" -> GitHubHealthPanel(endpoint, token)
-            }
-        }
-    }
-}

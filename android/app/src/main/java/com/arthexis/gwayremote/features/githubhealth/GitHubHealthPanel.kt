@@ -1,4 +1,11 @@
-package com.arthexis.gwayremote
+package com.arthexis.gwayremote.features.githubhealth
+
+import com.arthexis.gwayremote.*
+import com.arthexis.gwayremote.ui.components.ModuleHeader
+import com.arthexis.gwayremote.ui.components.ModuleLoading
+import com.arthexis.gwayremote.ui.components.ModuleNotice
+import com.arthexis.gwayremote.ui.components.ModuleActions
+import com.arthexis.gwayremote.ui.components.ModuleSectionTitle
 
 import android.content.Intent
 import android.net.Uri
@@ -57,12 +64,11 @@ fun GitHubHealthPanel(endpoint: String, token: String) {
     LaunchedEffect(endpoint, token) { refresh() }
 
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        Text("GitHub Health · cached hourly watch", style = MaterialTheme.typography.titleMedium)
-        Text("Read-only. Refresh does not run checks or deploy.", style = MaterialTheme.typography.bodySmall)
+        ModuleHeader("GitHub Health", "Cached hourly watch · Read-only. Refresh does not run checks or deploy.")
         OutlinedButton(onClick = { refresh() }, enabled = !loading) {
             Text(if (loading) "Loading…" else "Refresh report")
         }
-        if (error != null) Text("Unavailable: $error", color = MaterialTheme.colorScheme.error)
+        ModuleNotice(error?.let { "Unavailable: $it" }, isError = true)
         val data = snapshot
         if (data != null) {
             if (data.optString("status") != "available") {

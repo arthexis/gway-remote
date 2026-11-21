@@ -1,4 +1,11 @@
-package com.arthexis.gwayremote
+package com.arthexis.gwayremote.features.deployments
+
+import com.arthexis.gwayremote.*
+import com.arthexis.gwayremote.ui.components.ModuleHeader
+import com.arthexis.gwayremote.ui.components.ModuleLoading
+import com.arthexis.gwayremote.ui.components.ModuleNotice
+import com.arthexis.gwayremote.ui.components.ModuleActions
+import com.arthexis.gwayremote.ui.components.ModuleSectionTitle
 
 import androidx.compose.foundation.layout.*
 import androidx.compose.material3.*
@@ -32,9 +39,9 @@ fun DeploymentsPanel(endpoint: String, token: String) {
     val error = model.error
     val busy = model.busy
     Column(verticalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {
-        Text("Deployments · GWAY-001", style = MaterialTheme.typography.titleMedium)
+        ModuleHeader("Deployments", "GWAY-001 · Seguimiento y despacho explícito")
         val controller = overview?.optJSONObject("controller")
-        Text("GWAY Remote server (automatic)", style = MaterialTheme.typography.labelLarge)
+        ModuleSectionTitle("GWAY Remote server (automatic)")
         Text("Updated: " + (controller?.optString("last_successful_update")?.takeIf { it.isNotBlank() && it != "null" } ?: "Unknown"))
         Text("Revision: " + (controller?.optString("installed_sha")?.takeIf { it.isNotBlank() && it != "null" }?.take(12) ?: "Unknown"))
         ExposedDropdownMenuBox(expanded = expanded, onExpandedChange = { expanded = it }) {
@@ -78,6 +85,6 @@ fun DeploymentsPanel(endpoint: String, token: String) {
             if (follow?.optString("state") == "completed")
                 OutlinedButton(onClick = { model.clear { prefs.edit().remove("request_id").apply() } }) { Text("Start new deployment") }
         }
-        if (error != null) Text(error!!, color = MaterialTheme.colorScheme.error)
+        ModuleNotice(error, isError = true)
     }
 }

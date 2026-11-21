@@ -1,5 +1,8 @@
 package com.arthexis.gwayremote
 
+import com.arthexis.gwayremote.features.operations.agentIssueLabels
+import com.arthexis.gwayremote.features.operations.agentIssueMatchesInstance
+
 import org.json.JSONObject
 import org.junit.Assert.*
 import org.junit.Test

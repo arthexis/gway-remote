@@ -1,132 +1,26 @@
-package com.arthexis.gwayremote
+package com.arthexis.gwayremote.features.operations
 
-import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.layout.FlowRow
-import androidx.compose.foundation.layout.ExperimentalLayoutApi
-import androidx.compose.material3.*
-import androidx.compose.runtime.*
-import androidx.compose.ui.platform.LocalContext
-import android.content.Context
+import com.arthexis.gwayremote.*
+import com.arthexis.gwayremote.ui.components.ModulePage
+import com.arthexis.gwayremote.ui.components.ModuleHeader
+import com.arthexis.gwayremote.ui.components.ModuleLoading
+import com.arthexis.gwayremote.ui.components.ModuleNotice
+import com.arthexis.gwayremote.ui.components.ModuleSectionTitle
+
 import android.content.ClipData
 import android.content.ClipboardManager
+import android.content.Context
 import android.content.Intent
 import android.net.Uri
+import androidx.compose.foundation.layout.*
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import org.json.JSONObject
 
-/**
- * UI-3: presentation only. UI-4 will migrate full parameterized
- * operations. Existing controls remain accessible during transition.
- */
-@OptIn(ExperimentalLayoutApi::class)
-@Composable
-fun OperationPalette(
-    state: OperationPanelState,
-    onOpen: (String) -> Unit,
-    onClose: (String) -> Unit,
-    onMove: (String, Int) -> Unit,
-    onRefresh: (String) -> Unit,
-    onCsmsInspect: (String) -> Unit,
-    csmsView: String?,
-    onSelectCsmsView: (String) -> Unit,
-    apiHealth: OperationViewModel.SystemCheck,
-    systemStatus: OperationViewModel.SystemCheck,
-    onRefreshSystem: (String?) -> Unit,
-    onInput: (String, String, String) -> Unit,
-    onExecute: (String, Map<String, String>) -> Unit,
-    motifs: List<String>,
-    lcdNotification: OperationViewModel.NotificationRun,
-    soundNotification: OperationViewModel.NotificationRun,
-    onNotificationInput: (String, String, String) -> Unit,
-    onExecuteNotification: (String, Map<String, String>) -> Unit,
-    benchmarkContent: @Composable () -> Unit,
-    agentAssignments: List<JSONObject>,
-    agentInstance: String,
-    agentAssignmentsLoading: Boolean,
-    agentAssignmentsError: String,
-    onRefreshAgentAssignments: () -> Unit,
-    onAgentAssignmentsError: (String) -> Unit,
-    agentAssignmentsExpanded: Boolean,
-    onAgentAssignmentsExpanded: (Boolean) -> Unit,
-    agentSendLoading: Boolean,
-    agentSendResult: String?,
-    agentSendError: String?,
-    onAgentSend: (String, String) -> Unit,
-    onAgentCopyPrompt: (String) -> Unit,
-    agentObserveLoading: Boolean,
-    agentObserveResult: String?,
-    agentObserveError: String?,
-    onAgentObserve: (String, String) -> Unit,
-    extraActions: List<PaletteAction> = emptyList()
-) {
-    var filter by remember { mutableStateOf("") }
-    var showSecondary by remember { mutableStateOf(false) }
-    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-        OperationPanelHost(
-            state = state, onClose = onClose, onMove = onMove,
-            onRefresh = onRefresh, onCsmsInspect = onCsmsInspect,
-            csmsView = csmsView, onSelectCsmsView = onSelectCsmsView,
-            apiHealth = apiHealth, systemStatus = systemStatus, onRefreshSystem = onRefreshSystem,
-            onInput = onInput, onExecute = onExecute,
-            motifs = motifs,
-            lcdNotification = lcdNotification, soundNotification = soundNotification,
-            onNotificationInput = onNotificationInput, onExecuteNotification = onExecuteNotification,
-            benchmarkContent = benchmarkContent,
-            agentAssignments = agentAssignments,
-            agentInstance = agentInstance,
-            agentAssignmentsLoading = agentAssignmentsLoading,
-            agentAssignmentsError = agentAssignmentsError,
-            onRefreshAgentAssignments = onRefreshAgentAssignments,
-            onAgentAssignmentsError = onAgentAssignmentsError,
-            agentAssignmentsExpanded = agentAssignmentsExpanded,
-            onAgentAssignmentsExpanded = onAgentAssignmentsExpanded,
-            agentSendLoading = agentSendLoading,
-            agentSendResult = agentSendResult,
-            agentSendError = agentSendError,
-            onAgentSend = onAgentSend,
-            onAgentCopyPrompt = onAgentCopyPrompt,
-            agentObserveLoading = agentObserveLoading,
-            agentObserveResult = agentObserveResult,
-            agentObserveError = agentObserveError,
-            onAgentObserve = onAgentObserve
-        )
-        OutlinedTextField(
-            value = filter, onValueChange = { filter = it },
-            label = { Text("Filter operations") }, singleLine = true,
-            modifier = Modifier.fillMaxWidth()
-        )
-        if (filter.isBlank()) {
-            TextButton(onClick = { showSecondary = !showSecondary }) {
-                Text(if (showSecondary) "Hide extra tools" else "More tools and settings")
-            }
-        }
-        val unopenedIds = state.unopened("").map { it.id }.toSet()
-        val localActions = extraActions.associateBy { it.id }
-        val actions = FeatureRegistry.visible(filter, showSecondary).mapNotNull { feature ->
-            when (feature.kind) {
-                FeatureKind.OPERATION -> {
-                    if (feature.id !in unopenedIds) null
-                    else PaletteAction(feature.id, feature.label, feature.icon,
-                        { onOpen(feature.id) })
-                }
-                FeatureKind.LOCAL_PANEL -> localActions[feature.id]?.let { action ->
-                    action.copy(icon = feature.icon)
-                }
-            }
-        }
-        val dynamicActions = extraActions.filter { action ->
-            FeatureRegistry.get(action.id) == null &&
-                (filter.isBlank() || action.label.contains(filter, ignoreCase = true))
-        }
-        BoxWithConstraints(Modifier.fillMaxWidth()) {
-            // Use a conservative minimum button width to avoid tiny targets.
-            val columns = paletteColumns(maxWidth.value)
-            PaletteActionRows(actions + dynamicActions, columns)
-        }
-    }
-}
-
+/** Specialized module results, independent of the former operation palette. */
 @Composable
 internal fun CsmsHealthPanel(output: String?) {
     if (output == null) {
@@ -278,7 +172,7 @@ internal fun AgentOpsPanel(
         Text("Agent Ops response unavailable", color = MaterialTheme.colorScheme.error)
         return
     }
-    Text("Issues", style = MaterialTheme.typography.titleSmall)
+    ModuleSectionTitle("Issues")
     if (data.has("issues_error")) {
         Text("Unavailable: ${data.optString("issues_error")}", color = MaterialTheme.colorScheme.error)
     } else {
@@ -387,7 +281,7 @@ internal fun AgentOpsPanel(
         }
     }
     HorizontalDivider()
-    Text("Agent status and budgets", style = MaterialTheme.typography.titleSmall)
+    ModuleSectionTitle("Agent status and budgets")
     if (data.has("status_error")) {
         Text("Unavailable: ${data.optString("status_error")}", color = MaterialTheme.colorScheme.error)
     } else {
@@ -434,13 +328,6 @@ private fun agentBudgetRemaining(window: JSONObject?): String {
     val remaining = if (available) "${percent}%" else "unavailable"
     val reset = window?.optString("resets_at")?.takeIf { available && it.isNotBlank() && it != "null" }
     return if (reset == null) remaining else "$remaining (resets $reset)"
-}
-
-/** Use two buttons per row on ordinary phones, falling back only on very narrow layouts. */
-internal fun paletteColumns(availableWidthDp: Float): Int = when {
-    availableWidthDp >= 840f -> 3
-    availableWidthDp >= 320f -> 2
-    else -> 1
 }
 
 /** Normalize the canonical Agent Ops label projection without treating object labels as missing. */
