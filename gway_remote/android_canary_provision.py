@@ -59,7 +59,7 @@ def pipe_to_canary(serial, credential):
         raise ProvisionError("invalid_mobile_device_credential")
     command = [
         "adb", "-s", serial, "exec-in", "run-as", field.APP,
-        "sh", "-c", f"umask 077; test -d files && cat > {PROVISION_FILE}",
+        "sh", "-c", f"umask 077; mkdir -p files && chmod 700 files && cat > {PROVISION_FILE}",
     ]
     try:
         result = subprocess.run(
