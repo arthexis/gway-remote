@@ -16,7 +16,8 @@ AGENT_REPOSITORY = "arthexis/gway-agent-ops"
 KIOSK_REPOSITORY = "arthexis/gway-ap-kiosk"
 RFID_REPOSITORY = "arthexis/gway-rfid"
 BASTION_REPOSITORY = "arthexis/gway-bastion"
-TASKS = ("system-health", "lcd-sound-deploy", "ocpp-csms-deploy", "ocpp-reports-deploy", "agent-ops-deploy", "ap-kiosk-deploy", "rfid-deploy", "bastion-deploy")
+AEON_REPOSITORY = "arthexis/aeon-mud"
+TASKS = ("system-health", "lcd-sound-deploy", "ocpp-csms-deploy", "ocpp-reports-deploy", "agent-ops-deploy", "ap-kiosk-deploy", "rfid-deploy", "bastion-deploy", "aeon-mud-deploy")
 
 
 def validate(task: str, repository: str = "", sha: str = "") -> None:
@@ -31,6 +32,7 @@ def validate(task: str, repository: str = "", sha: str = "") -> None:
                 "ap-kiosk-deploy": KIOSK_REPOSITORY,
                 "rfid-deploy": RFID_REPOSITORY,
                 "bastion-deploy": BASTION_REPOSITORY,
+                "aeon-mud-deploy": AEON_REPOSITORY,
                 "ocpp-reports-deploy": REPORTS_REPOSITORY}.get(task, ALLOWED_REPOSITORY)
     if repository != expected:
         raise ValueError("Repository not allowed")
@@ -49,7 +51,7 @@ def run(task: str, repository: str = "", sha: str = "") -> None:
         }, sort_keys=True))
         return
 
-    if task in ("lcd-sound-deploy", "ocpp-csms-deploy", "ocpp-reports-deploy", "agent-ops-deploy", "ap-kiosk-deploy", "rfid-deploy", "bastion-deploy"):
+    if task in ("lcd-sound-deploy", "ocpp-csms-deploy", "ocpp-reports-deploy", "agent-ops-deploy", "ap-kiosk-deploy", "rfid-deploy", "bastion-deploy", "aeon-mud-deploy"):
         from .best_effort import manual_execute
         from .github_state import GitHub
         installer = {
@@ -60,6 +62,7 @@ def run(task: str, repository: str = "", sha: str = "") -> None:
             "ap-kiosk-deploy": deploy_ap_kiosk,
             "rfid-deploy": deploy_rfid,
             "bastion-deploy": deploy_bastion,
+            "aeon-mud-deploy": deploy_aeon_mud,
         }[task]
         name = {"lcd-sound-deploy": "gway-lcd-sound",
                 "ocpp-csms-deploy": "ocpp-csms",
@@ -67,7 +70,8 @@ def run(task: str, repository: str = "", sha: str = "") -> None:
                 "agent-ops-deploy": "gway-agent-ops",
                 "ap-kiosk-deploy": "gway-ap-kiosk",
                 "rfid-deploy": "gway-rfid",
-                "bastion-deploy": "gway-bastion"}[task]
+                "bastion-deploy": "gway-bastion",
+                "aeon-mud-deploy": "aeon-mud"}[task]
         print(json.dumps(manual_execute(GitHub(), name, sha, installer), sort_keys=True))
         return
 
@@ -214,6 +218,37 @@ def deploy_bastion(sha: str) -> None:
         print("Bastion release staged only; active runtime unchanged", flush=True)
 
 
+
+def deploy_aeon_mud(sha: str) -> None:
+    """Install the reviewed aeon-mud console CLI on gway-001 only.
+
+    Its owner Ansible deployment enforces local host identity, the installed
+    operator user, SHA pinning and immutable-release activation/rollback.
+    No process, service or scheduled game session is started.
+    """
+    with tempfile.TemporaryDirectory(prefix="aeon-mud-deploy-") as directory:
+        source = Path(directory) / "source"
+        subprocess.run(["git", "clone", "--quiet", "--no-checkout",
+                        "https://github.com/arthexis/aeon-mud.git", str(source)],
+                       check=True, timeout=180)
+        subprocess.run(["git", "-C", str(source), "checkout", "--detach", sha],
+                       check=True, timeout=60)
+        actual = subprocess.check_output(["git", "-C", str(source), "rev-parse", "HEAD"],
+                                         text=True, timeout=20).strip()
+        if actual.lower() != sha.lower():
+            raise ValueError("aeon-mud checkout SHA mismatch")
+        if not (source / "deploy.sh").is_file():
+            raise RuntimeError("aeon-mud canonical deploy.sh unavailable")
+        subprocess.run(["sh", "./deploy.sh", "--expected-sha", sha.lower()],
+                       cwd=source, check=True, timeout=600)
+        from .status import installed_revision
+        if installed_revision("aeon-mud") != sha.lower():
+            raise RuntimeError("aeon-mud installed revision does not match pinned SHA")
+        executable = Path.home() / ".local/bin/aeon-mud"
+        subprocess.run([str(executable), "--help"], check=True, timeout=30,
+                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+
 def user_systemd_env() -> dict[str, str]:
     """Locate the persistent user's systemd bus in a non-login runner service."""
     runtime = Path(f"/run/user/{os.getuid()}")
@@ -269,7 +304,7 @@ def main() -> None:
         "ocpp-csms": deploy_csms, "ocpp-reports": deploy_reports,
         "gway-lcd-sound": deploy_lcd_sound, "gway-agent-ops": deploy_agent_ops,
         "gway-ap-kiosk": deploy_ap_kiosk, "gway-rfid": deploy_rfid,
-        "gway-bastion": deploy_bastion,
+        "gway-bastion": deploy_bastion, "aeon-mud": deploy_aeon_mud,
     })
 
 
