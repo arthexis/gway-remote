@@ -110,8 +110,8 @@ def test_wrong_or_failed_gateway_receipt_is_not_accepted(result):
         verify_gateway_limits("gway-005", runner=run)
 
 
-@pytest.mark.parametrize("changed", [False, True])
-def test_pending_global_lock_blocks_noop_and_mutating_grants(monkeypatch, tmp_path, changed):
+@pytest.mark.parametrize("action", ["grant", "revoke"])
+def test_pending_global_lock_blocks_grant_and_revoke(monkeypatch, tmp_path, action):
     """Even an apparently idempotent grant may not bypass an unresolved journal."""
     from gway_remote import watchtower_exec_convergence as cv
     from gway_remote import node_registry_inventory
@@ -125,7 +125,7 @@ def test_pending_global_lock_blocks_noop_and_mutating_grants(monkeypatch, tmp_pa
         raise AssertionError("planning or probing must not run before lock")
     monkeypatch.setattr(cv, "plan", reject)
     with pytest.raises(FileExistsError):
-        cv.converge("grant", "gway-005", state_root=tmp_path,
+        cv.converge(action, "gway-005", state_root=tmp_path,
                     set_grant=reject, publisher=reject, runner=reject)
 
 
