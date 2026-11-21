@@ -87,3 +87,68 @@ def test_revoke_works_for_inactive_previously_enrolled_node():
     reduced, pin_after = _entry_and_bytes("gway-005", False, configured, pinned, snapshot)
     assert len(json.loads(reduced)["nodes"]) == 1
     assert pin_after == pinned
+
+def test_cas_updates_known_hosts_before_config_and_never_overwrites_edits(monkeypatch):
+    import stat
+    from pathlib import Path
+    from types import SimpleNamespace
+    from gway_remote import watchtower_exec_convergence as cv
+    meta = SimpleNamespace(st_uid=0, st_gid=0, st_mode=stat.S_IFREG | 0o600, st_ino=19)
+    contents = {"/tmp/known": b"known_old", "/tmp/execute": b"config_old"}
+    records = {"known": (Path("/tmp/known"), b"known_old", b"known_new", meta),
+               "config": (Path("/tmp/execute"), b"config_old", b"config_new", meta)}
+    writes = []
+    def read(path, **kwargs):
+        return contents[str(path)], meta
+    def apply(path, data, info):
+        writes.append(str(path))
+        contents[str(path)] = data
+    monkeypatch.setattr(cv, "_file", read)
+    monkeypatch.setattr(cv, "_atomic_file", apply)
+    cv._activate_files(records)
+    assert writes == ["/tmp/known", "/tmp/execute"]
+    contents["/tmp/execute"] = b"foreign"
+    with pytest.raises(cv.ConvergenceRefused):
+        cv._activate_files(records)
+    assert writes == ["/tmp/known", "/tmp/execute"]
+
+
+def test_idempotent_grant_never_restarts_gateway_or_writes(monkeypatch, tmp_path):
+    from pathlib import Path
+    from types import SimpleNamespace
+    from gway_remote import watchtower_exec_convergence as cv
+    from gway_remote import node_registry_inventory
+    tmp_path.chmod(0o700)
+    path = Path("/tmp/example")
+    same = (path, b"stable", b"stable", SimpleNamespace())
+    monkeypatch.setattr(cv, "plan", lambda *a, **kw:
+                        {"known": same, "config": same, "node": "gway-005"})
+    monkeypatch.setattr(cv, "_directory", lambda *a, **kw: None)
+    monkeypatch.setattr(cv.os, "geteuid", lambda: 0)
+    monkeypatch.setattr(node_registry_inventory, "_grants",
+                        lambda *_: {"gway-005": ("key", True)})
+    def reject(*args, **kwargs):
+        raise AssertionError("idempotent grant must have no side effects")
+    result = cv.converge("grant", "gway-005", state_root=tmp_path,
+                         set_grant=reject, publisher=reject, runner=reject)
+    assert result["changed"] is False
+
+
+def test_two_nodes_cannot_mutate_shared_pin_files_in_parallel(monkeypatch, tmp_path):
+    from pathlib import Path
+    from types import SimpleNamespace
+    from gway_remote import watchtower_exec_convergence as cv
+    from gway_remote import node_registry_inventory
+    tmp_path.chmod(0o700)
+    (tmp_path / ".active").mkdir(mode=0o700)
+    changed = (Path("/tmp/config"), b"old", b"new", SimpleNamespace())
+    monkeypatch.setattr(cv, "plan", lambda *a, **kw:
+                        {"known": changed, "config": changed, "node": "gway-007"})
+    monkeypatch.setattr(cv, "_directory", lambda *a, **kw: None)
+    monkeypatch.setattr(cv.os, "geteuid", lambda: 0)
+    monkeypatch.setattr(node_registry_inventory, "_grants", lambda *_: {})
+    def reject(*args, **kwargs):
+        raise AssertionError("no mutation before shared lock is acquired")
+    with pytest.raises(FileExistsError):
+        cv.converge("grant", "gway-007", state_root=tmp_path,
+                    set_grant=reject, publisher=reject, runner=reject)
