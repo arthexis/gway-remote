@@ -51,11 +51,13 @@ def _entry_and_bytes(node, enabled, config, known, snapshot):
     if not isinstance(snapshot, dict) or snapshot.get("schema") != 2:
         raise ConvergenceRefused("invalid authoritative enrollment snapshot")
     enrolled = [r for r in snapshot.get("nodes", []) if
-                isinstance(r, dict) and r.get("node") == node and r.get("state") == "active"]
+                isinstance(r, dict) and r.get("node") == node]
     if len(enrolled) != 1:
-        raise ConvergenceRefused("node not actively enrolled")
+        raise ConvergenceRefused("node is missing or ambiguous")
     current = enrolled[0]
     if enabled:
+        if current.get("state") != "active":
+            raise ConvergenceRefused("node not actively enrolled")
         binding = validate_attestation(current.get("host_identity"), node=node)
         host_key = binding["host_key"]
         address = ipaddress.ip_interface(current["address"])
@@ -149,14 +151,18 @@ def plan(node, enabled, *, config=CONFIG, ledger=LEDGER):
 
 def _restore_files(stage, node):
     record = json.loads((stage / "journal.json").read_text())
-    if record.get("node") != node or record.get("schema") != 1:
+    if (record.get("node") != node or record.get("schema") != 1
+            or type(record.get("prior_eligible")) is not bool
+            or record.get("state") != "prepared"
+            or set(record.get("targets", {})) != {"config", "known"}):
         raise ConvergenceRefused("untrusted transaction journal")
     snapshots = {}
     for kind in ("config", "known"):
         item = record["targets"][kind]
         file = Path(item["path"])
-        if kind == "config" and file != CONFIG:
-            raise ConvergenceRefused("config rollback path mismatch")
+        if (not file.is_absolute() or ".." in file.parts
+                or (kind == "config" and file != CONFIG)):
+            raise ConvergenceRefused("rollback target path mismatch")
         before, _ = _file(stage / (kind + ".before"), uid=0,
                            maximum=MAX_CONFIG if kind == "config" else MAX_KNOWN,
                            private=True)
@@ -178,7 +184,7 @@ def _restore_files(stage, node):
             _atomic_file(path, before, info)
 
 
-def _claim(plan_data, state):
+def _claim(plan_data, state, *, prior_eligible):
     _directory(state.parent, owner=0)
     os.mkdir(state, mode=0o700)  # Exclusive; stale journal must be recovered.
     _sync_dir(state.parent)
@@ -192,7 +198,8 @@ def _claim(plan_data, state):
                          "before": _digest(before), "after": _digest(after)}
     _sync_dir(state)
     _journal(state, {"schema": 1, "node": plan_data["node"],
-                     "state": "prepared", "targets": targets})
+                     "state": "prepared", "prior_eligible": prior_eligible,
+                     "targets": targets})
 
 
 def _activate_files(plan_data):
@@ -232,12 +239,18 @@ def converge(action, node, *, config=CONFIG, ledger=LEDGER, state_root=STATE,
         _directory(state_root.parent, owner=0)
         state_root.mkdir(mode=0o700)
     _directory(state_root, owner=0)
+    if stat.S_IMODE(state_root.lstat().st_mode) != 0o700:
+        raise ConvergenceRefused("transaction directory must be private")
+    from .node_registry_inventory import _grants
+    prior = _grants(ledger).get(node, ("", False))[1]
+    changed = any(p[kind][1] != p[kind][2] for kind in ("config", "known"))
+    if not changed and prior == enable:
+        return {"node": node, "eligible": enable, "transport_configured": enable,
+                "terminal_execution_verified": False, "changed": False}
     stage = state_root / node
     # A failed transaction must be reconciled by an operator before retry.
-    _claim(p, stage)
+    _claim(p, stage, prior_eligible=prior)
     try:
-        from .node_registry_inventory import _grants
-        prior = _grants(ledger).get(node, ("", False))[1]
         if enable:
             set_grant(node, True, ledger=ledger)
         _activate_files(p)
@@ -278,8 +291,9 @@ def recover(node, *, state_root=STATE, ledger=LEDGER,
     if data.get("schema") != 1 or data.get("node") != node:
         raise ConvergenceRefused("invalid recovery journal")
     _restore_files(stage, node)
-    # Fail closed for uncertain transaction rather than auto-grant.
-    set_grant(node, False, ledger=ledger)
+    # Restore the exact pre-transaction eligibility; never silently change
+    # a prior operator grant to a different state.
+    set_grant(node, data["prior_eligible"], ledger=ledger)
     publisher(inventory_builder(ledger=ledger, probe=True))
     runner(["systemctl", "restart", GATEWAY], capture_output=True,
            text=True, timeout=90, check=True)

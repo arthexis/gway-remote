@@ -38,8 +38,8 @@ def set_eligibility(node, enabled, *, ledger=LEDGER, operator="root"):
         db.execute("BEGIN IMMEDIATE")
         db.execute(DDL)
         device = db.execute("SELECT state FROM devices WHERE device=?", (node,)).fetchone()
-        if device is None or device[0] != "active":
-            raise PermissionError("node must be actively enrolled")
+        if device is None or (enabled and device[0] != "active"):
+            raise PermissionError("grant requires an actively enrolled node")
         identity = db.execute(
             "SELECT host_public_key, state, valid_until FROM host_identities WHERE device=?",
             (node,)).fetchone()

@@ -63,8 +63,8 @@ def test_unattested_or_removed_node_is_denied():
     with pytest.raises(ValueError):
         _entry_and_bytes("gway-005", True, config, known, snapshot)
     snapshot["nodes"][0]["state"] = "revoked"
-    with pytest.raises(ConvergenceRefused):
-        _entry_and_bytes("gway-005", False, config, known, snapshot)
+    assert _entry_and_bytes("gway-005", False, config, known, snapshot) == (
+        config, known)
 
 
 def test_unknown_preexisting_pin_is_not_replaced():
@@ -79,3 +79,11 @@ def test_revoke_only_other_transport_is_denied():
     snapshot["nodes"][0]["node"] = "gway-001"
     with pytest.raises(ConvergenceRefused):
         _entry_and_bytes("gway-001", False, config, known, snapshot)
+
+def test_revoke_works_for_inactive_previously_enrolled_node():
+    config, known, snapshot = before()
+    configured, pinned = _entry_and_bytes("gway-005", True, config, known, snapshot)
+    snapshot["nodes"][0]["state"] = "revoked"
+    reduced, pin_after = _entry_and_bytes("gway-005", False, configured, pinned, snapshot)
+    assert len(json.loads(reduced)["nodes"]) == 1
+    assert pin_after == pinned
