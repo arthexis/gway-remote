@@ -264,7 +264,7 @@ def converge(action, node, *, config=CONFIG, ledger=LEDGER, state_root=STATE,
              set_grant=set_eligibility, inventory_builder=build, publisher=publish,
              runner=subprocess.run):
     """One serialized operator transaction; no TOFU or unattended recovery."""
-    if action not in ("grant", "revoke") or type(node) is not str:
+    if action not in ("grant", "revoke") or type(node) is not str or not NODE.fullmatch(node):
         raise ConvergenceRefused("invalid execution action")
     if os.geteuid() != 0:
         raise ConvergenceRefused("root required")
