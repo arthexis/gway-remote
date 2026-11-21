@@ -8,9 +8,11 @@ import json
 import re
 import subprocess
 import sys
+import time
 import xml.etree.ElementTree as ET
 
 from .android_ui_harness import UiTargetError, condition, point, poll, selector, wait_ms
+from . import android_scenario_runner as scenarios
 
 ADB = "/usr/bin/adb"
 FFMPEG = "/usr/bin/ffmpeg"
@@ -67,6 +69,23 @@ TOOLS.extend([
     ),
 ])
 
+# Scenario ids are immutable and reviewed in the installed release.
+_SCENARIO_ID = {"type": "string", "enum": sorted(scenarios.SCENARIOS)}
+_RECEIPT_ID = {"type": "string", "minLength": 32, "maxLength": 32}
+TOOLS.extend([
+    _tool(
+        "scenario_preview", "Preview one approved, immutable Android scenario.",
+        {"scenario_id": _SCENARIO_ID}, ("scenario_id",), read=True,
+    ),
+    _tool(
+        "scenario_run", "Run one approved scenario with a private sanitized receipt.",
+        {"scenario_id": _SCENARIO_ID}, ("scenario_id",),
+    ),
+    _tool(
+        "scenario_result", "Read a private sanitized receipt by opaque id.",
+        {"receipt_id": _RECEIPT_ID}, ("receipt_id",), read=True,
+    ),
+])
 _BY_NAME = {tool["name"]: tool for tool in TOOLS}
 
 
@@ -163,6 +182,31 @@ class Device:
         rotation = (int(orientation.group(1)) * 90) if orientation else None
         return {"screen_on": screen_on, "locked": locked, "rotation": rotation}
 
+    def wake_if_needed(self, *, serial=None):
+        """Wake one authorized USB device at most once; never unlock it.
+
+        This internal execute-only helper is not an MCP tool. An unknown
+        power state fails closed; any uncertain wake result is not retried.
+        """
+        serial = self.serial() if serial is None else serial
+        initial = self.screen_state(serial)
+        if initial.get("screen_on") not in (True, False):
+            raise AndroidError("screen_state_unknown")
+        woke = initial["screen_on"] is False
+        if woke:
+            self.adb(serial, "shell", "input", "keyevent", "KEYCODE_WAKEUP")
+            observed = self.screen_state(serial)
+            if observed.get("screen_on") is not True:
+                time.sleep(0.35)
+                observed = self.screen_state(serial)
+        else:
+            observed = initial
+        if observed.get("screen_on") is not True:
+            raise AndroidError("screen_not_ready")
+        if observed.get("locked") is not False or type(observed.get("rotation")) is not int:
+            raise AndroidError("screen_not_safe")
+        return {"ok": True, "woke": woke}
+
     def ui_tree(self, serial):
         path = "/sdcard/.gway-remote-ui.xml"
         try:
@@ -210,6 +254,12 @@ class Device:
         if name == "text" and not re.fullmatch(
                 r"[A-Za-z0-9 .,_@/-]{1,80}", arguments["value"], flags=re.ASCII):
             raise AndroidError("unsafe_text")
+        if name == "scenario_preview":
+            return scenarios.preview(arguments["scenario_id"])
+        if name == "scenario_result":
+            return scenarios.result(arguments["receipt_id"])
+        if name == "scenario_run":
+            return scenarios.run(arguments["scenario_id"], device=self)
         serial = self.serial()
         if name == "status":
             width, height = self.size(serial)
@@ -220,7 +270,7 @@ class Device:
         if name == "ui_tree":
             return self.ui_tree(serial)
         if name in ("tap_target", "wait_ui"):
-            # Observe immediately before a touch and never wake/unlock implicitly.
+            # Semantic execute taps may wake once; read-only waits never wake.
             resource_id = selector(arguments["resource_id"])
             expected_id = selector(arguments["expect_id"]) if "expect_id" in arguments else None
             expected_state = condition(arguments["expect_state"]) if "expect_state" in arguments else None
@@ -228,6 +278,7 @@ class Device:
                 expected_state = condition(arguments["state"])
                 expected_id = resource_id
             delay = wait_ms(arguments.get("wait_ms", 0))
+            wake = self.wake_if_needed(serial=serial) if name == "tap_target" else None
             initial = self.screen_state(serial)
             if (initial.get("screen_on") is not True
                     or initial.get("locked") is not False
@@ -254,11 +305,13 @@ class Device:
                 raise AndroidError("screen_changed")
             self.adb(serial, "shell", "input", "tap", target_x, target_y)
             if expected_id is None:
-                return {"ok": True, "action": name, "verification": "unverified"}
+                return {"ok": True, "action": name, "verification": "unverified",
+                        "wake_invocations": int(wake["woke"])}
             settled = poll(snapshot, resource_id=expected_id,
                            state=expected_state, wait=delay)
             return {"ok": True, "action": name, "verification": settled["status"],
-                    "attempts": settled["attempts"]}
+                    "attempts": settled["attempts"],
+                    "wake_invocations": int(wake["woke"])}
         if name == "capture":
             raw = self.adb(serial, "exec-out", "screencap", "-p", timeout=7)
             if len(raw) > MAX_RAW_IMAGE or not raw.startswith(b"\x89PNG\r\n\x1a\n"):
@@ -325,6 +378,9 @@ def call_tool(name, arguments, *, device=None):
     except (AndroidError, ValueError) as exc:
         code = str(exc) if isinstance(exc, AndroidError) else "invalid_arguments"
         return {"content": [{"type": "text", "text": json.dumps({"error": code})}], "isError": True}
+    except (OSError, RuntimeError):
+        return {"content": [{"type": "text", "text": '{"error":"scenario_unavailable"}'}],
+                "isError": True}
 
 
 def handle_rpc(request, *, device=None):

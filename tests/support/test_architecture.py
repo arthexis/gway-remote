@@ -19,6 +19,18 @@ class TestArchitecture(unittest.TestCase):
                 with self.subTest(path=str(path.relative_to(ROOT))):
                     self.assertEqual(functions, [], "Top-level test functions are not run by unittest")
 
+    def test_bootstrap_has_dedicated_ci_and_no_orphan_root_tests(self):
+        workflow = (ROOT / ".github/workflows/ci.yml").read_text()
+        self.assertIn("python -m pytest tests/bootstrap -v", workflow)
+        self.assertGreaterEqual(len(list((TESTS / "bootstrap").glob("test_*.py"))), 20)
+        patterns = ("test_bootstrap_*.py", "test_host_identity*.py",
+                    "test_host_rotation*.py", "test_watchtower_bootstrap*.py",
+                    "test_wireguard_*.py")
+        for pattern in patterns:
+            with self.subTest(pattern=pattern):
+                self.assertEqual(list(TESTS.glob(pattern)), [])
+
+
     def test_simulator_subsystem_has_been_removed(self):
         # Ownership of simulator behavior belongs to arthexis/ocpp-simulator.
         self.assertFalse((ROOT / "tests/simulator").exists())

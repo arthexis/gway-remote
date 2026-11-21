@@ -5,7 +5,7 @@ on:
   workflow_dispatch:
     inputs:
       pr_number:
-        description: "Open same-repository PR number (e.g. 644)"
+        description: "Open or merged same-repository PR number (e.g. 670)"
         required: true
         type: string
       expected_sha:
@@ -39,7 +39,11 @@ jobs:
           [[ "$PR_NUMBER" =~ ^[1-9][0-9]{0,6}$ ]] || { echo "::error::Invalid PR number"; exit 1; }
           [[ "$EXPECTED_SHA" =~ ^[0-9a-f]{40}$ ]] || { echo "::error::Invalid expected SHA"; exit 1; }
           PR_JSON=$(gh api "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER")
-          [[ "$(jq -r .state <<<"$PR_JSON")" == "open" ]] || { echo "::error::PR is not open"; exit 1; }
+          PR_STATE=$(jq -r .state <<<"$PR_JSON")
+          PR_MERGED=$(jq -r .merged <<<"$PR_JSON")
+          [[ "$PR_STATE" == "open" || ( "$PR_STATE" == "closed" && "$PR_MERGED" == "true" ) ]] || {
+            echo "::error::PR is neither open nor merged"; exit 1;
+          }
           [[ "$(jq -r .head.repo.full_name <<<"$PR_JSON")" == "$GITHUB_REPOSITORY" ]] || {
             echo "::error::Only same-repository PR heads are supported"; exit 1;
           }
@@ -50,7 +54,7 @@ jobs:
           echo "sha=$EXPECTED_SHA" >> "$GITHUB_OUTPUT"
           echo "short_sha=$SHORT_SHA" >> "$GITHUB_OUTPUT"
           echo "GWAY_ANDROID_VERSION_CODE=$GITHUB_RUN_NUMBER" >> "$GITHUB_ENV"
-          echo "GWAY_ANDROID_VERSION_NAME=canary-$GITHUB_RUN_NUMBER-$SHORT_SHA" >> "$GITHUB_ENV"
+          echo "GWAY_ANDROID_VERSION_NAME=0.0.1-canary.$GITHUB_RUN_NUMBER-$SHORT_SHA" >> "$GITHUB_ENV"
 
       - name: Checkout the exact PR head
         uses: actions/checkout@v4
@@ -75,7 +79,7 @@ jobs:
           changes = (
               (Path("android/app/build.gradle.kts"),
                'applicationId = "com.arthexis.gwayremote"',
-               'applicationId = "com.arthexis.gwayremote.canary"'),
+               'applicationId = "com.arthexis.gwayremote.canary"\n        testApplicationId = "com.arthexis.gwayremote.canary.test"'),
               (Path("android/app/src/main/AndroidManifest.xml"),
                'android:label="GWay Remote"',
                'android:label="GWay Remote Canary"'),
@@ -114,7 +118,25 @@ jobs:
       - name: Build only a debug canary APK
         working-directory: android
         shell: bash
-        run: gradle :app:assembleDebug --no-daemon
+        run: |
+          set -euo pipefail
+          build_log="$RUNNER_TEMP/android-canary-gradle.log"
+          for attempt in 1 2 3; do
+            if gradle :app:assembleDebug :app:assembleDebugAndroidTest --no-daemon >"$build_log" 2>&1; then
+              tail -n 18 "$build_log"
+              exit 0
+            fi
+            if ! grep -Eq 'Received status code 429|Too Many Requests|HTTP/1.1 429' "$build_log"; then
+              cat "$build_log"
+              exit 1
+            fi
+            if [[ "$attempt" -eq 3 ]]; then
+              cat "$build_log"
+              exit 1
+            fi
+            echo "::warning::Maven rate-limited AndroidTest dependencies (429); bounded retry"
+            sleep "$((15 * attempt))"
+          done
 
       - name: Verify signature, package and SHA256 provenance
         env:
@@ -124,15 +146,24 @@ jobs:
         run: |
           set -euo pipefail
           APK=android/app/build/outputs/apk/debug/app-debug.apk
+          TEST_APK=android/app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk
           test -s "$APK"
+          test -s "$TEST_APK"
           "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --verbose "$APK"
+          "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --verbose "$TEST_APK"
           BADGING=$("$ANDROID_HOME/build-tools/35.0.0/aapt" dump badging "$APK")
           grep -q "^package: name='com.arthexis.gwayremote.canary' " <<< "$BADGING"
+          TEST_BADGING=$("$ANDROID_HOME/build-tools/35.0.0/aapt" dump badging "$TEST_APK")
+          grep -q "^package: name='com.arthexis.gwayremote.canary.test' " <<< "$TEST_BADGING"
+          TEST_MANIFEST=$("$ANDROID_HOME/build-tools/35.0.0/aapt" dump xmltree "$TEST_APK" AndroidManifest.xml)
+          grep -Fq "com.arthexis.gwayremote.canary" <<< "$TEST_MANIFEST" || { echo "::error::AndroidTest target package not verified"; exit 1; }
+          grep -Fq "androidx.test.runner.AndroidJUnitRunner" <<< "$TEST_MANIFEST" || { echo "::error::AndroidTest runner not verified"; exit 1; }
           DEST="$RUNNER_TEMP/gway-canary"
           mkdir -p "$DEST"
           cp "$APK" "$DEST/gway-remote-canary.apk"
-          (cd "$DEST" && sha256sum gway-remote-canary.apk > SHA256SUMS)
-          printf 'Repository: %s\nPull-Request: %s\nSource-Commit: %s\nCanary-Overlay: package-and-label-v1\nPackage: com.arthexis.gwayremote.canary\nSigning: ephemeral Android debug certificate\nActions-Run: %s\n' \
+          cp "$TEST_APK" "$DEST/gway-remote-canary-test.apk"
+          (cd "$DEST" && sha256sum gway-remote-canary.apk gway-remote-canary-test.apk > SHA256SUMS)
+          printf 'Repository: %s\nPull-Request: %s\nSource-Commit: %s\nCanary-Overlay: package-and-label-v1\nPackage: com.arthexis.gwayremote.canary\nSigning: ephemeral Android debug certificate\nTest-Package: com.arthexis.gwayremote.canary.test\nTest-Runner: androidx.test.runner.AndroidJUnitRunner\nActions-Run: %s\n' \
             "$GITHUB_REPOSITORY" "$PR_NUMBER" "$SOURCE_SHA" "$GITHUB_RUN_ID" > "$DEST/PROVENANCE.txt"
           echo "### Android canary for PR #$PR_NUMBER" >> "$GITHUB_STEP_SUMMARY"
           echo "Full source commit: $SOURCE_SHA" >> "$GITHUB_STEP_SUMMARY"

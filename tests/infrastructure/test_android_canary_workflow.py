@@ -22,7 +22,7 @@ class CanaryWorkflowTests(unittest.TestCase):
                        "testDebugUnitTest", "android-emulator-runner", "deployment"):
             self.assertNotIn(unsafe, content)
 
-    def test_build_proves_exact_open_pr_revision_and_isolates_package(self):
+    def test_build_proves_exact_open_or_merged_pr_and_isolates_package(self):
         content = CANARY.read_text()
         for required in ("EXPECTED_SHA", "gh api", ".head.sha", ".head.repo.full_name",
                          "ref: ${{ steps.source.outputs.sha }}",
@@ -30,12 +30,19 @@ class CanaryWorkflowTests(unittest.TestCase):
                          'android:label="GWay Remote Canary"',
                          "ephemeral Android debug certificate"):
             self.assertIn(required, content)
+        self.assertIn("PR_MERGED=$(jq -r .merged", content)
+        self.assertIn('"$PR_MERGED" == "true"', content)
+        self.assertIn('PR_STATE" == "open"', content)
+        self.assertIn('PR_STATE" == "closed"', content)
+        self.assertIn('Received status code 429', content)
+        self.assertIn('for attempt in 1 2 3', content)
+        self.assertIn('if ! grep -Eq', content)
         self.assertIn('applicationId = "com.arthexis.gwayremote"', GRADLE.read_text())
         self.assertIn('android:label="GWay Remote"', MANIFEST.read_text())
 
     def test_artifact_is_retrievable_and_checksum_verified(self):
         content = CANARY.read_text()
-        for required in ("gradle :app:assembleDebug --no-daemon",
+        for required in ("gradle :app:assembleDebug :app:assembleDebugAndroidTest --no-daemon",
                          "apksigner", "aapt", "PROVENANCE.txt", "SHA256SUMS",
                          "upload-artifact@v4", "retention-days: 14",
                          "if-no-files-found: error"):

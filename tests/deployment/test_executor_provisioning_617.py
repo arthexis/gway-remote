@@ -149,7 +149,7 @@ class ProvisioningIdentityTests(unittest.TestCase):
         from pathlib import Path
         root = Path(__file__).resolve().parents[2]
         role = (root / "ansible/roles/gway_remote/tasks/main.yml").read_text()
-        stage = (root / "gway_remote/watchtower_enrollment.py").read_text()
+        stage = (root / "gway_remote/bootstrap_script.py").read_text()
         self.assertIn("scripts/resolve-executor-user.py", role)
         self.assertIn('"$@"', stage)
         self.assertNotIn("node_exec_preview", (root / "scripts/resolve-executor-user.py").read_text())

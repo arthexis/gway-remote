@@ -23,9 +23,11 @@ def tree(*items, truncated=False):
 
 class FakeDevice(Device):
     """No ADB process or real USB access is ever attempted."""
-    def __init__(self, snapshots, *, screen_on=True, locked=False, rotation=0):
+    def __init__(self, snapshots, *, screen_on=True, locked=False, rotation=0,
+                 wake_succeeds=True):
         self.snapshots = list(snapshots)
         self.actions = []
+        self.wake_succeeds = wake_succeeds
         self.states = []
         self.base_state = {"screen_on": screen_on, "locked": locked,
                            "rotation": rotation}
@@ -48,6 +50,8 @@ class FakeDevice(Device):
 
     def adb(self, serial, *args, timeout=6):
         self.actions.append(args)
+        if args == ("shell", "input", "keyevent", "KEYCODE_WAKEUP") and self.wake_succeeds:
+            self.base_state["screen_on"] = True
         return b""
 
 
@@ -102,8 +106,15 @@ class SemanticContracts(unittest.TestCase):
         self.assertEqual(result["verification"], "unverified")
         self.assertEqual(dev.actions, [("shell", "input", "tap", 150, 250)])
 
+        woke = FakeDevice([tree(node(uid))], screen_on=False)
+        accepted = woke.invoke("tap_target", {"resource_id": uid})
+        self.assertEqual(accepted["wake_invocations"], 1)
+        self.assertEqual(woke.actions, [
+            ("shell", "input", "keyevent", "KEYCODE_WAKEUP"),
+            ("shell", "input", "tap", 150, 250),
+        ])
+
         for kwargs in (
-            {"screen_on": False},
             {"locked": True},
             {"locked": None},
             {"rotation": None},
@@ -113,6 +124,22 @@ class SemanticContracts(unittest.TestCase):
                 with self.assertRaisesRegex(ValueError, "screen_not_safe"):
                     device.invoke("tap_target", {"resource_id": uid})
                 self.assertEqual(device.actions, [])
+
+        # A failed/uncertain wake never dispatches a tap or repeats WAKEUP.
+        failed = FakeDevice([tree(node(uid))], screen_on=False, wake_succeeds=False)
+        with self.assertRaisesRegex(ValueError, "screen_not_ready"):
+            failed.invoke("tap_target", {"resource_id": uid})
+        self.assertEqual(failed.actions,
+                         [("shell", "input", "keyevent", "KEYCODE_WAKEUP")])
+        unknown = FakeDevice([tree(node(uid))], screen_on=None)
+        with self.assertRaisesRegex(ValueError, "screen_state_unknown"):
+            unknown.invoke("tap_target", {"resource_id": uid})
+        self.assertEqual(unknown.actions, [])
+        locked = FakeDevice([tree(node(uid))], screen_on=False, locked=True)
+        with self.assertRaisesRegex(ValueError, "screen_not_safe"):
+            locked.invoke("tap_target", {"resource_id": uid})
+        self.assertEqual(locked.actions,
+                         [("shell", "input", "keyevent", "KEYCODE_WAKEUP")])
 
         device = FakeDevice([tree(node(uid))])
         device.states = [
@@ -154,9 +181,9 @@ class SemanticContracts(unittest.TestCase):
         scopes = {t["name"]: required_scope(t) for t in TOOLS}
         self.assertEqual(scopes["tap_target"], "execute")
         self.assertEqual(scopes["wait_ui"], "read")
-        self.assertEqual(len(TOOLS), 9)
+        self.assertEqual(len(TOOLS), 12)
         self.assertEqual(len(handle_rpc({"jsonrpc":"2.0","id":1,
-                                         "method":"tools/list","params":{}})["tools"]), 9)
+                                         "method":"tools/list","params":{}})["tools"]), 12)
         invalid = (
             {"resource_id": "abc", "expect_id": "def"},
             {"resource_id": "abc", "expect_state": "present"},

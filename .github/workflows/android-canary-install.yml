@@ -20,6 +20,14 @@ on:
         description: "Previously verified 64-character APK digest"
         type: string
         required: true
+      canary_reset:
+        description: "Allow deleting ONLY the isolated canary's local data after a signing conflict"
+        type: choice
+        options:
+          - "no"
+          - "RESET_CANARY_ONLY"
+        default: "no"
+        required: true
 
 permissions:
   contents: read
@@ -82,28 +90,19 @@ jobs:
 
       - name: Install ONLY isolated canary on one authorized USB Android
         shell: bash
+        env:
+          CANARY_RESET: ${{ inputs.canary_reset }}
         run: |
           set -euo pipefail
-          # Not a general Android command proxy. Explicitly select one USB device.
-          test -x /usr/bin/adb
-          DEVICES=$(/usr/bin/adb devices -l | awk 'NR>1 && NF {print}')
-          [[ "$(printf '%s\n' "$DEVICES" | grep -c .)" -eq 1 ]] || {
-            echo "::error::Expected exactly one USB device"; exit 1;
-          }
-          read -r SERIAL STATE _ <<< "$DEVICES"
-          [[ "$STATE" == "device" && "$DEVICES" == *"usb:"* ]] || {
-            echo "::error::No single authorized USB Android"; exit 1;
-          }
-          # Read-only comparison proves production APK was not replaced.
-          PRODUCTION_BEFORE=$(/usr/bin/adb -s "$SERIAL" shell pm path com.arthexis.gwayremote | tr -d '\r')
-          /usr/bin/adb -s "$SERIAL" install -r "$CANARY_APK"
-          /usr/bin/adb -s "$SERIAL" shell pm path com.arthexis.gwayremote.canary | grep -q '^package:'
-          PRODUCTION_AFTER=$(/usr/bin/adb -s "$SERIAL" shell pm path com.arthexis.gwayremote | tr -d '\r')
-          [[ "$PRODUCTION_BEFORE" == "$PRODUCTION_AFTER" ]] || {
-            echo "::error::Production package path unexpectedly changed"; exit 1;
-          }
+          case "$CANARY_RESET" in
+            no) python3 -m gway_remote.android_canary_install --apk "$CANARY_APK" ;;
+            RESET_CANARY_ONLY)
+              # Explicit, per-run opt-in. May discard ONLY canary-local data.
+              python3 -m gway_remote.android_canary_install --apk "$CANARY_APK" --reset-canary ;;
+            *) echo "::error::Unexpected canary reset selection"; exit 1 ;;
+          esac
           echo "### Canary installed on gway-001 USB Android" >> "$GITHUB_STEP_SUMMARY"
           echo "Package: com.arthexis.gwayremote.canary" >> "$GITHUB_STEP_SUMMARY"
           echo "PR source SHA: $CANARY_SHA" >> "$GITHUB_STEP_SUMMARY"
           echo "APK SHA256: $CANARY_DIGEST" >> "$GITHUB_STEP_SUMMARY"
-          echo "Production package path unchanged; no launch or UI actions performed." >> "$GITHUB_STEP_SUMMARY"
+          echo "Production package path verified unchanged; no app launch or UI actions." >> "$GITHUB_STEP_SUMMARY"

@@ -1,0 +1,16 @@
+[Unit]
+Description=GWay Remote physical USB Android canary acceptance
+After=network-online.target
+Wants=network-online.target
+# Explicit operator opt-in: never enabled merely by deploying code.
+ConditionPathExists=%h/.config/gway-remote/android-canary-enabled
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/env python3 -m gway_remote.android_canary_field --pr 644 --install --allow-canary-reset --wake
+TimeoutStartSec=300
+NoNewPrivileges=true
+PrivateTmp=true
+UMask=0077
+Environment=PYTHONDONTWRITEBYTECODE=1
+# This service must run as the installation user on gway-001, not Watchtower.

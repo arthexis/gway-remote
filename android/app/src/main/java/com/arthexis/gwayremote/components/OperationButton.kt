@@ -105,3 +105,10 @@ fun PaletteActionRows(actions: List<PaletteAction>, columns: Int) {
 fun OperationButton(spec: OperationSpec, onOpen: (String) -> Unit, enabled: Boolean = true) {
     FeatureButton(PaletteAction(spec.id, spec.label, spec.icon, { onOpen(spec.id) }, enabled))
 }
+
+/** Use two buttons per row on ordinary phones, falling back only on very narrow layouts. */
+internal fun paletteColumns(availableWidthDp: Float): Int = when {
+    availableWidthDp >= 840f -> 3
+    availableWidthDp >= 320f -> 2
+    else -> 1
+}

@@ -180,6 +180,42 @@ class Jobs:
         finally:
             db.close()
 
+    def reconcile_stale_capacity(self):
+        """Recover lost systemd units only when the bounded job pool is full.
+
+        A just-queued worker may not have launched its systemd unit yet.
+        Never probe those jobs, never re-submit a command, and never touch
+        rows when the bus/worker state cannot be confirmed.
+        """
+        with self.connection() as db:
+            active = db.execute(
+                "SELECT count(*) FROM jobs WHERE status IN ('queued','running')"
+            ).fetchone()[0]
+            if active < self.max_active:
+                return 0
+            # Limit systemd probes: each may cost up to five seconds and the
+            # relay has a fifteen-second SSH deadline.
+            candidates = db.execute(
+                "SELECT id,created_at FROM jobs WHERE status IN ('queued','running') "
+                "ORDER BY created_at,id LIMIT 2"
+            ).fetchall()
+        cutoff = datetime.now(timezone.utc) - timedelta(seconds=JOB_TIMEOUT + 30)
+        changed = 0
+        for row in candidates:
+            try:
+                created = datetime.fromisoformat(row["created_at"])
+            except (TypeError, ValueError):
+                continue
+            if created.tzinfo is None or created > cutoff:
+                continue
+            original = self.row(row["id"])["status"]
+            if original not in ("queued", "running"):
+                continue
+            final = self.reconcile(row["id"])
+            if final not in ("queued", "running"):
+                changed += 1
+        return changed
+
     def submit(self, node, command, *, request_id=None, execute=subprocess.run, python=sys.executable):
         validate_command(node, command)
         # Avoid fallback to root, system manager or a shell on the submitting host.
@@ -187,6 +223,10 @@ class Jobs:
         # The upstream relay owns a stable request ID across retries. Reusing
         # it with different command bytes/node is an error, never another job.
         job_id = validate_request_id(request_id) if request_id is not None else secrets.token_hex(16)
+        # Old queued/running rows without an actual systemd unit must not
+        # consume capacity forever. Reconcile only aged rows, before the
+        # admission transaction, so we never nest SQLite write locks.
+        self.reconcile_stale_capacity()
         with self.connection() as db:
             db.execute("BEGIN IMMEDIATE")
             existing = db.execute("SELECT node, command FROM jobs WHERE id=?", (job_id,)).fetchone()

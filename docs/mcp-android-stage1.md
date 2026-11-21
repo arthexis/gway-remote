@@ -105,3 +105,65 @@ The two additional tools run in the existing node-owned USB provider only:
 For tap verification, provide `expect_id` and `expect_state` together; optional `wait_ms` controls the single delay before the second observation. Without the expectation, a successful action returns `verification: unverified`, not confirmed. With it, the result is `confirmed`, `timeout` or `unknown`. This API does not retry the tap. A partial tree never proves a target unique or absent, and a locked/off/unknown screen or rotation change rejects a touch.
 
 This is a no-autowake design. Never send sensitive UI identifiers or production screen captures to logs, pull requests or GitHub. The next increment will add operator-reviewed scenario IDs, private receipts and bounded execution; there is no generic ADB shell or browser automation here. Hardware testing is **opt-in**, not CI.
+
+## Stage 4: reviewed scenario runner and private receipts (#339)
+
+The installed Android node-owned MCP provider now also exposes:
+
+| Tool | Scope | Contract |
+| --- | --- | --- |
+| `android__scenario_preview` | `gway:read` | Only an immutable, reviewed scenario ID; metadata and spec SHA-256, no device action |
+| `android__scenario_run` | `gway:execute` | Execute one reviewed scenario with preconditions and a bounded action count; no caller-supplied steps |
+| `android__scenario_result` | `gway:read` | Read one private, sanitized receipt by an exact 32-character opaque receipt ID |
+
+The current reviewed catalog is deliberately small:
+`usb-readiness-v1` (read-only USB health check) and
+`home-screen-stability-v1` (one `HOME` key action only if the screen is
+already awake and unlocked, followed by re-observation).
+The latter is a **screen stability check**, not proof that any particular
+app or dashboard opened.
+
+Each `scenario_run` call has at most five immutable steps, at most two
+actions, and never retries an action. The installed Python operation layer
+continues to enforce USB-only device discovery, screen state, bounds and
+strict ADB command allowlists. No arbitrary arguments, URLs, additional ADB
+commands, external scenario files or shell access are accepted from ChatGPT.
+
+A JSON receipt has a versioned schema, scenario ID, manifest SHA-256, coarse
+step outcomes, action attempts, durations and a receipt hash. It is stored
+at a fixed private location under the node installation user's home with
+a 0700 directory / 0600 file and a bounded receipt count. The MCP response
+exposes only the opaque receipt ID and hash. A caller may retrieve its
+sanitized content with `scenario_result`. **No screenshots, UI strings,
+serials, credentials, or other private device content are persisted.**
+Screenshots must remain disabled until a separately reviewed redaction
+policy exists; no generated artifacts are automatically uploaded to GitHub.
+
+CI uses fakes and exercises both benign and denied scenarios. It never
+moves or wakes the physical Android. Field acceptance remains an explicitly
+observed separate step, not triggered by a PR merge. Real UI-specific
+scenarios should be added only after obtaining a current, safe target ID
+and reviewing the scenario source.
+
+
+## On-demand USB wake (post-#339)
+
+The single authorized physical USB device on `gway-001` is available even
+when its screen is initially off. Execute-only `android__tap_target` and the
+reviewed `home-screen-stability-v2` scenario may dispatch **one**
+`KEYCODE_WAKEUP` when `screen_on=false`. After waking, the provider reads
+screen power, lock and rotation again, then applies the usual unique-target,
+clickability and bounds checks. A failed/unknown wake is **never retried**;
+no PIN, credential, lock bypass, app install or network ADB is permitted.
+
+`android__status`, `android__wait_ui`, capture and UI-tree inspection remain
+read-only and never wake the phone. Existing scenario IDs, especially
+`home-screen-stability-v1`, retain identical immutable steps and hashes.
+The v2 preview advertises **at most two actions**: one conditional wake and
+one `HOME`. A private receipt records actual successful wake invocations;
+if a wake attempt returns an uncertain error, the attempt is conservatively
+counted as one possible action. No screenshots or private UI text are stored.
+
+CI tests use only fakes for awake, asleep, locked, unknown, wake failure,
+changed display and no-repeat behavior. Real USB actions are operator-driven,
+not part of PR CI. This does not create new OAuth scopes, MCP tools or services.

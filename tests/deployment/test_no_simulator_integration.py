@@ -34,13 +34,14 @@ class NoSimulatorIntegrationTests(unittest.TestCase):
             ".github/workflows/remote.yml",
             ".github/workflows/appliance-deploy.yml",
             "android/app/src/main/java/com/arthexis/gwayremote/MainActivity.kt",
-            "android/app/src/main/java/com/arthexis/gwayremote/OperationPalette.kt",
+            "android/app/src/main/java/com/arthexis/gwayremote/ui/shell/CompanionScreen.kt",
+            "android/app/src/main/java/com/arthexis/gwayremote/ModuleRegistry.kt",
+            "android/app/src/main/java/com/arthexis/gwayremote/features/operations/OperationModulePage.kt",
+            "android/app/src/main/java/com/arthexis/gwayremote/features/operations/ModuleOperationViewModel.kt",
             "android/app/src/main/java/com/arthexis/gwayremote/OperationRegistry.kt",
             "android/app/src/main/java/com/arthexis/gwayremote/OperationViewModel.kt",
             "android/app/src/main/java/com/arthexis/gwayremote/RefreshRegistry.kt",
-            "android/app/src/main/java/com/arthexis/gwayremote/DeploymentsPanel.kt",
-            "android/app/src/main/java/com/arthexis/gwayremote/panels/OperationPanelHost.kt",
-            "android/app/src/main/java/com/arthexis/gwayremote/registry/PanelContentRegistry.kt",
+            "android/app/src/main/java/com/arthexis/gwayremote/features/deployments/DeploymentsPanel.kt",
         ]
         for name in paths:
             with self.subTest(path=name):

@@ -3,6 +3,7 @@ from pathlib import Path
 import unittest
 
 WORKFLOW = Path(__file__).resolve().parents[2] / ".github/workflows/android-canary-install.yml"
+INSTALLER = Path(__file__).resolve().parents[2] / "gway_remote/android_canary_install.py"
 
 class CanaryInstallWorkflowTests(unittest.TestCase):
     def test_on_demand_only_authorized_runner(self):
@@ -32,9 +33,19 @@ class CanaryInstallWorkflowTests(unittest.TestCase):
         self.assertIn("expected_sha:", text)
         self.assertIn("apk_sha256:", text)
         self.assertIn("artifact_run_id:", text)
-        self.assertIn("Expected exactly one USB device", text)
         self.assertIn("python3 -c", text)
         self.assertNotIn("jq -r", text)
-        self.assertIn("install -r", text)
-        self.assertIn("PRODUCTION_BEFORE", text)
-        self.assertIn("PRODUCTION_AFTER", text)
+        self.assertIn("gway_remote.android_canary_install", text)
+        self.assertIn("RESET_CANARY_ONLY", text)
+        self.assertIn('default: "no"', text)
+        self.assertIn("--reset-canary", text)
+
+        installer = INSTALLER.read_text()
+        self.assertIn('"devices", "-l"', installer)
+        self.assertIn('item.startswith("usb:")', installer)
+        self.assertIn('serial.startswith("emulator-")', installer)
+        self.assertIn('"install", "-r"', installer)
+        self.assertIn('SIGNATURE_CONFLICT', installer)
+        self.assertIn('adb("uninstall", CANARY', installer)
+        self.assertIn('if package_path(PRODUCTION) != before:', installer)
+        self.assertNotIn('adb("uninstall", PRODUCTION', installer)

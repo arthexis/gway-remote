@@ -56,14 +56,15 @@ class RequiredCIGateTests(unittest.TestCase):
     def test_all_defined_validation_jobs_are_required(self):
         needs, _ = _check_job_dependencies(WORKFLOW.read_text())
         self.assertIn("mcp-provider-lifecycle-ansible", needs)
-        self.assertGreaterEqual(len(needs), 6)
+        self.assertIn("bootstrap", needs)
+        self.assertGreaterEqual(len(needs), 7)
 
     def test_omitted_new_job_or_duplicate_needs_fails_closed(self):
         workflow = WORKFLOW.read_text()
         needs, _ = _check_job_dependencies(workflow)
         self.assertIn("mcp-provider-lifecycle-ansible", needs)
         missing = workflow.replace(
-            "unit, mcp-provider-lifecycle-ansible, ",
+            "unit, bootstrap, ",
             "unit, ",
             1,
         )

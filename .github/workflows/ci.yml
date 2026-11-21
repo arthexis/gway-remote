@@ -29,6 +29,22 @@ jobs:
       - name: Exercise root-level workspace inspect security suite
         if: matrix.group == 'core'
         run: python -m pytest tests/test_workspace_inspect_mcp.py -v
+      - name: Exercise root-level Android MCP security and federation contracts
+        if: matrix.group == 'core'
+        run: python -m pytest tests/test_mcp_android_device.py -v
+
+  bootstrap:
+    name: Bootstrap / enrollment, repair and host trust
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install pytest
+        run: python -m pip install 'pytest>=8,<10'
+      - name: Run all bootstrap and identity regressions
+        run: python -m pytest tests/bootstrap -v --durations=0 --durations-min=0
 
   mcp-provider-lifecycle-ansible:
     name: MCP provider lifecycle / Ansible idempotence
@@ -144,7 +160,7 @@ jobs:
     name: CI
     if: always()
     # Every independent PR validation job must be required here; see tests/support/test_ci_gate.py.
-    needs: [unit, mcp-provider-lifecycle-ansible, webauthn-python310, validation, ansible-core-2-12, ssh-config]
+    needs: [unit, bootstrap, mcp-provider-lifecycle-ansible, webauthn-python310, validation, ansible-core-2-12, ssh-config]
     runs-on: ubuntu-latest
     steps:
       - name: Require all pull request checks

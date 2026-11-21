@@ -53,3 +53,27 @@ Merging any PR to main runs Android tests and attempts to publish a newly versio
 
 The Android screen now shows independently open, reorderable bordered operation panels above the legacy controls, followed by a compact searchable palette of unopened operations. Opening a safe read-only operation fetches it once; Refresh explicitly fetches again. Closing/reopening rejects earlier asynchronous results via UI-2 request IDs. Parameterized and mutating operations remain in the existing controls until UI-4 moves their inputs and execution with parity tests; opening their new panels **does not** execute them. The existing updater, settings, refresh, CSMS, LCD, sound and benchmark controls remain reachable during this bridge phase.
 
+
+## Modular navigation — issue #643 (Draft PR #644)
+
+The application launches into **app-owned Home**, showing installed version, update availability and the configured API host. A Material 3 hamburger drawer overlays the selected page, with every registered feature and app settings available as a separate destination.
+
+`CompanionScreen.kt` owns **only** navigation, local settings and selected route. `MainActivity.kt` only installs the Android theme and lifecycle. Screens own their input and results: `BenchmarkModule.kt`, `AppUpdateController.kt`, `ModuleOperationViewModel.kt`, `OperationModulePage.kt` and existing dedicated Deployments, GitHub Health, MCP Access and Odoo Quotations composables. Navigating away closes the operation session and invalidates in-flight responses, instead of displaying or rearranging multiple panels.
+
+`OperationPalette.kt`, `OperationPanelHost`, `PanelChrome` and their multipanel presentation host have been retired. Internal `OperationPanelState` and `OperationViewModel` remain as compatibility/test models only, **not** referenced by the new runtime screen. `OperationRequests` and `ExecutionPolicy` remain the sole allowlisted backend dispatch policy; a module selection never adds backend command authority. Notification operations still require explicit input, while only allowlisted safe reads can load on entry.
+
+`ModuleRegistry` contains the installed native modules. The strictly bounded destination model supports future static HTTPS links and package-specific Android App Links without handing GWay's bearer or any request arguments to third-party applications. Dashboard and Porsche customer modules are not connected in this increment.
+
+Validation gates: backend CI, Android JVM and instrumentation test compilation, Compose emulator testing where runner hardware permits, and physical acceptance **on an APK built from this exact HEAD** before merge or production APK publication. Successful PR APK builds are not themselves release or device acceptance.
+
+## Package layout (Android modular shell, #643)
+
+Kotlin source is grouped by responsibility rather than a flat activity-oriented package:
+
+- `ui/shell`: navigation, drawer and Home/Settings/Update page chrome; no backend dispatch.
+- `ui/components`: shared responsive page layout, section headings, progress and error/notice widgets.
+- `features/operations`: System, CSMS, Notifications and AgentOps pages and their isolated controller.
+- `features/benchmark`, `features/deployments`, `features/githubhealth`, `features/odoo`, `features/mcp`, `features/updates`: independent feature entrypoints.
+- Root package: shared contracts, existing allowlisted requests, common API/secret-store clients and legacy unit-test compatibility. Moving a UI file does not enlarge its command policy.
+
+New module pages should use the shared `ModulePage`, `ModuleHeader`, `ModuleLoading` and `ModuleNotice` composables, avoid redundant nested scrolling, preserve native Back behavior and keep all sensitive data within its owning module. The top app bar is the global module name; module header is the local page heading or explanatory context.
