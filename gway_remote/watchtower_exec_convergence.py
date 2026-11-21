@@ -1,0 +1,287 @@
+"""Root-only central execution pin and grant convergence.
+
+No remote bootstrap or TOFU. Trust flows only from Watchtower's authoritative
+enrollment ledger and the existing private gateway SSH material. Snapshot writes
+are compare-and-swap and journalled; unaccepted transactions block further
+grants until explicitly recovered.
+"""
+from __future__ import annotations
+
+import base64
+import hashlib
+import ipaddress
+import json
+import os
+from pathlib import Path
+import shutil
+import stat
+import subprocess
+
+from .host_identity import validate_attestation
+from .node_inspection import snapshot_from_path
+from .node_registry_inventory import LEDGER, NODE, build, publish
+from .watchtower_exec_service import CONFIG
+from .watchtower_exec_eligibility import set_eligibility
+from .watchtower_pin_002 import (
+    _atomic_file, _directory, _file, _metadata, _parse_config,
+    _key_for_alias, _new_private, _journal, _sync_dir,
+    MAX_CONFIG, MAX_KNOWN,
+)
+
+STATE = Path("/var/lib/gway-remote/watchtower-exec-convergence")
+GATEWAY = "gway-mcp-gateway.service"
+FIELDS = {"node", "address", "ssh_host_alias", "known_hosts",
+          "identity_file", "host_key_sha256", "remote_user"}
+
+
+class ConvergenceRefused(ValueError):
+    """No config/trust/eligibility mutation can be justified."""
+
+
+def _digest(raw):
+    return hashlib.sha256(raw).hexdigest()
+
+
+def _entry_and_bytes(node, enabled, config, known, snapshot):
+    """Pure multi-node plan. All inputs are from trusted local files."""
+    if type(node) is not str or not NODE.fullmatch(node):
+        raise ConvergenceRefused("invalid enrolled node")
+    settings = _parse_config(config)
+    rows = settings["nodes"]
+    if not isinstance(snapshot, dict) or snapshot.get("schema") != 2:
+        raise ConvergenceRefused("invalid authoritative enrollment snapshot")
+    enrolled = [r for r in snapshot.get("nodes", []) if
+                isinstance(r, dict) and r.get("node") == node and r.get("state") == "active"]
+    if len(enrolled) != 1:
+        raise ConvergenceRefused("node not actively enrolled")
+    current = enrolled[0]
+    if enabled:
+        binding = validate_attestation(current.get("host_identity"), node=node)
+        host_key = binding["host_key"]
+        address = ipaddress.ip_interface(current["address"])
+        if (address.version != 4 or address.network.prefixlen != 32
+                or not address.ip.is_private):
+            raise ConvergenceRefused("invalid verified management address")
+        digest = _digest(base64.b64decode(host_key.split()[1], validate=True))
+    else:
+        host_key = None
+        digest = None
+        address = None
+
+    known_lines = known.decode("ascii").splitlines()
+    for entry in rows:
+        if type(entry) is not dict or set(entry) != FIELDS or entry["ssh_host_alias"] != entry["node"]:
+            raise ConvergenceRefused("unsafe pinned node entry")
+        if _key_for_alias(known, entry["node"]) != entry["host_key_sha256"]:
+            raise ConvergenceRefused("existing host pin mismatch")
+
+    matches = [r for r in rows if r["node"] == node]
+    if len(matches) > 1:
+        raise ConvergenceRefused("ambiguous existing transport")
+    prior = matches[0] if matches else None
+    if enabled:
+        shared_known = {r["known_hosts"] for r in rows}
+        shared_identity = {r["identity_file"] for r in rows}
+        if len(shared_known) != 1 or len(shared_identity) != 1:
+            raise ConvergenceRefused("mixed gateway SSH authorities")
+        path_known, path_identity = next(iter(shared_known)), next(iter(shared_identity))
+        if prior and (prior["host_key_sha256"] != digest or
+                      prior["address"] != str(address.ip) or
+                      prior["remote_user"] != "gway-relay"):
+            raise ConvergenceRefused("pinned node changed; explicit rotation required")
+        entries = [line.split() for line in known_lines if line and
+                   not line.lstrip().startswith("#") and line.split()]
+        aliases = [parts for parts in entries if
+                   parts[0] == node or node in parts[0].split(",")]
+        if aliases:
+            if len(aliases) != 1 or _key_for_alias(known, node) != digest:
+                raise ConvergenceRefused("existing node host pin differs")
+            new_known = known
+        else:
+            new_known = known + (b"" if known.endswith(b"\n") else b"\n") + (
+                node + " " + host_key + "\n").encode("ascii")
+        if not prior:
+            rows.append({
+                "node": node, "address": str(address.ip), "ssh_host_alias": node,
+                "known_hosts": path_known, "identity_file": path_identity,
+                "host_key_sha256": digest, "remote_user": "gway-relay",
+            })
+    else:
+        if prior and len(rows) <= 1:
+            raise ConvergenceRefused("refuse to remove last active gateway transport")
+        settings["nodes"] = [r for r in rows if r["node"] != node]
+        new_known = known  # Keep historical pin for explicit rotation detection.
+
+    new_config = (json.dumps(settings, separators=(",", ":"), sort_keys=True)
+                  + "\n").encode("utf-8") if (not prior and enabled) or (prior and not enabled) else config
+    if len(new_config) > MAX_CONFIG or len(new_known) > MAX_KNOWN:
+        raise ConvergenceRefused("configuration size limit")
+    return new_config, new_known
+
+
+def plan(node, enabled, *, config=CONFIG, ledger=LEDGER):
+    if os.geteuid() != 0 or type(enabled) is not bool:
+        raise ConvergenceRefused("root and explicit action required")
+    snapshot = snapshot_from_path(ledger)
+    original, config_stat = _file(Path(config), uid=0, maximum=MAX_CONFIG)
+    settings = _parse_config(original)
+    paths = {r["known_hosts"] for r in settings["nodes"]}
+    identities = {r["identity_file"] for r in settings["nodes"]}
+    if len(paths) != 1 or len(identities) != 1:
+        raise ConvergenceRefused("gateway identity mismatch")
+    known_path = Path(next(iter(paths)))
+    identity_path = Path(next(iter(identities)))
+    if any(not p.is_absolute() or ".." in p.parts for p in (known_path, identity_path)):
+        raise ConvergenceRefused("untrusted gateway SSH paths")
+    known_stat = known_path.lstat()
+    if known_stat.st_uid <= 0:
+        raise ConvergenceRefused("private SSH material must belong to gateway user")
+    known, known_stat = _file(known_path, uid=known_stat.st_uid,
+                             maximum=MAX_KNOWN, private=True)
+    identity_stat = _metadata(identity_path, uid=known_stat.st_uid)
+    if identity_stat.st_mode & 0o077:
+        raise ConvergenceRefused("gateway identity must be private")
+    new_config, new_known = _entry_and_bytes(node, enabled, original, known, snapshot)
+    return {"config": (Path(config), original, new_config, config_stat),
+            "known": (known_path, known, new_known, known_stat),
+            "node": node, "enabled": enabled}
+
+
+def _restore_files(stage, node):
+    record = json.loads((stage / "journal.json").read_text())
+    if record.get("node") != node or record.get("schema") != 1:
+        raise ConvergenceRefused("untrusted transaction journal")
+    snapshots = {}
+    for kind in ("config", "known"):
+        item = record["targets"][kind]
+        file = Path(item["path"])
+        if kind == "config" and file != CONFIG:
+            raise ConvergenceRefused("config rollback path mismatch")
+        before, _ = _file(stage / (kind + ".before"), uid=0,
+                           maximum=MAX_CONFIG if kind == "config" else MAX_KNOWN,
+                           private=True)
+        after, _ = _file(stage / (kind + ".after"), uid=0,
+                          maximum=MAX_CONFIG if kind == "config" else MAX_KNOWN,
+                          private=True)
+        if _digest(before) != item["before"] or _digest(after) != item["after"]:
+            raise ConvergenceRefused("untrusted before/after image")
+        latest, info = _file(file, uid=item["uid"],
+                             maximum=MAX_CONFIG if kind == "config" else MAX_KNOWN,
+                             private=kind == "known")
+        if (_digest(latest) not in (item["before"], item["after"]) or
+                stat.S_IMODE(info.st_mode) != item["mode"] or info.st_gid != item["gid"]):
+            raise ConvergenceRefused("concurrent edit requires manual reconciliation")
+        snapshots[kind] = file, before, latest, info
+    for kind in ("config", "known"):
+        path, before, latest, info = snapshots[kind]
+        if before != latest:
+            _atomic_file(path, before, info)
+
+
+def _claim(plan_data, state):
+    _directory(state.parent, owner=0)
+    os.mkdir(state, mode=0o700)  # Exclusive; stale journal must be recovered.
+    _sync_dir(state.parent)
+    targets = {}
+    for kind in ("config", "known"):
+        path, before, after, info = plan_data[kind]
+        _new_private(state / (kind + ".before"), before)
+        _new_private(state / (kind + ".after"), after)
+        targets[kind] = {"path": str(path), "uid": info.st_uid, "gid": info.st_gid,
+                         "mode": stat.S_IMODE(info.st_mode),
+                         "before": _digest(before), "after": _digest(after)}
+    _sync_dir(state)
+    _journal(state, {"schema": 1, "node": plan_data["node"],
+                     "state": "prepared", "targets": targets})
+
+
+def _activate_files(plan_data):
+    for kind in ("known", "config"):
+        path, before, after, info = plan_data[kind]
+        latest, current = _file(path, uid=info.st_uid,
+                                maximum=MAX_CONFIG if kind == "config" else MAX_KNOWN,
+                                private=kind == "known")
+        if (latest != before or current.st_ino != info.st_ino or
+                current.st_gid != info.st_gid or
+                stat.S_IMODE(current.st_mode) != stat.S_IMODE(info.st_mode)):
+            raise ConvergenceRefused("concurrent gateway config modification")
+        if before != after:
+            _atomic_file(path, after, info)
+
+
+def _finish_stage(stage):
+    # All children created by our own root-owned exclusive transaction.
+    for filename in ("journal.json", "config.before", "config.after",
+                     "known.before", "known.after"):
+        (stage / filename).unlink(missing_ok=True)
+    stage.rmdir()
+
+
+def converge(action, node, *, config=CONFIG, ledger=LEDGER, state_root=STATE,
+             set_grant=set_eligibility, inventory_builder=build, publisher=publish,
+             runner=subprocess.run):
+    """One operator command; no MCP invocation, no private-key copy, no TOFU."""
+    if action not in ("grant", "revoke") or type(node) is not str:
+        raise ConvergenceRefused("invalid execution action")
+    enable = action == "grant"
+    p = plan(node, enable, config=config, ledger=ledger)
+    if os.geteuid() != 0:
+        raise ConvergenceRefused("root required")
+    state_root = Path(state_root)
+    if not state_root.exists():
+        _directory(state_root.parent, owner=0)
+        state_root.mkdir(mode=0o700)
+    _directory(state_root, owner=0)
+    stage = state_root / node
+    # A failed transaction must be reconciled by an operator before retry.
+    _claim(p, stage)
+    try:
+        from .node_registry_inventory import _grants
+        prior = _grants(ledger).get(node, ("", False))[1]
+        if enable:
+            set_grant(node, True, ledger=ledger)
+        _activate_files(p)
+        if not enable:
+            set_grant(node, False, ledger=ledger)
+        publisher(inventory_builder(ledger=ledger, probe=True))
+        runner(["systemctl", "restart", GATEWAY], capture_output=True,
+               text=True, timeout=90, check=True)
+        runner(["systemctl", "is-active", "--quiet", GATEWAY],
+               capture_output=True, text=True, timeout=10, check=True)
+        _finish_stage(stage)
+        return {"node": node, "eligible": enable, "transport_configured": enable,
+                "terminal_execution_verified": False}
+    except Exception:
+        # A crash keeps the protected journal for explicit inspection; a
+        # synchronous failure attempts byte-faithful rollback.
+        try:
+            _restore_files(stage, node)
+            set_grant(node, prior, ledger=ledger)
+            publisher(inventory_builder(ledger=ledger, probe=True))
+            runner(["systemctl", "restart", GATEWAY], capture_output=True,
+                   text=True, timeout=90, check=True)
+            _finish_stage(stage)
+        except Exception:
+            pass  # Leave journal and require explicit recovery; never erase it.
+        raise
+
+
+def recover(node, *, state_root=STATE, ledger=LEDGER,
+            set_grant=set_eligibility, inventory_builder=build, publisher=publish,
+            runner=subprocess.run):
+    """Root-only, operator-requested recovery; never guesses unknown file edits."""
+    if os.geteuid() != 0 or not isinstance(node, str) or not NODE.fullmatch(node):
+        raise ConvergenceRefused("root and exact node required")
+    stage = Path(state_root) / node
+    _directory(stage, owner=0)
+    data = json.loads((stage / "journal.json").read_text())
+    if data.get("schema") != 1 or data.get("node") != node:
+        raise ConvergenceRefused("invalid recovery journal")
+    _restore_files(stage, node)
+    # Fail closed for uncertain transaction rather than auto-grant.
+    set_grant(node, False, ledger=ledger)
+    publisher(inventory_builder(ledger=ledger, probe=True))
+    runner(["systemctl", "restart", GATEWAY], capture_output=True,
+           text=True, timeout=90, check=True)
+    _finish_stage(stage)
+    return {"node": node, "recovered": True, "eligible": False}

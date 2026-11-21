@@ -17,7 +17,7 @@ def register(subparsers, names):
     if "exec" in names:
         exec_parser = subparsers.add_parser("exec", help="Root-only Watchtower execution eligibility")
         exec_actions = exec_parser.add_subparsers(dest="exec_action", required=True)
-        for action in ("grant", "revoke", "status"):
+        for action in ("grant", "revoke", "status", "recover"):
             exec_action = exec_actions.add_parser(action, help=f"{action} enrollment execution eligibility")
             exec_action.add_argument("node", help="enrolled gway node name")
     if "host-key" in names:
