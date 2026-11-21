@@ -193,3 +193,109 @@ def test_invalid_node_cannot_construct_transaction_paths(monkeypatch, tmp_path, 
     with pytest.raises(ConvergenceRefused, match="invalid execution action"):
         cv.converge("grant", node, state_root=tmp_path)
     assert not (tmp_path / ".active").exists()
+
+
+def _convergence_flow(monkeypatch, tmp_path, *, limits_failure=False, rollback_failure=False):
+    """Simulate the complete central transaction without touching host services."""
+    from pathlib import Path
+    from types import SimpleNamespace
+    from subprocess import CompletedProcess, CalledProcessError
+    from gway_remote import watchtower_exec_convergence as cv
+    from gway_remote import node_registry_inventory
+
+    events = []
+    tmp_path.chmod(0o700)
+    target = Path("/tmp/never-used-gway-convergence")
+    image = (target, b"old", b"new", SimpleNamespace())
+    def plan(*args, **kwargs):
+        assert (tmp_path / ".active").is_dir()
+        events.append("plan")
+        return {"known": image, "config": image, "node": "gway-005"}
+    monkeypatch.setattr(cv, "plan", plan)
+    monkeypatch.setattr(cv, "_directory", lambda *a, **kw: None)
+    monkeypatch.setattr(cv.os, "geteuid", lambda: 0)
+    monkeypatch.setattr(node_registry_inventory, "_grants", lambda *_: {})
+    def claim(data, stage, *, prior_eligible):
+        assert prior_eligible is False
+        events.append("claim")
+        stage.mkdir(mode=0o700)
+    def activate(data):
+        events.append("activate")
+    def restore(stage, node):
+        events.append("restore")
+        if rollback_failure:
+            raise OSError("manual recovery required")
+    def finish(stage):
+        events.append("finish")
+        stage.rmdir()
+    def eligibility(node, enabled, *, ledger):
+        events.append("eligible:" + str(enabled))
+    def inventory(*, ledger, probe):
+        return {"nodes": []}
+    def publish(data):
+        events.append("publish")
+    def runner(argv, **kwargs):
+        if argv[0] == "/usr/bin/sudo":
+            events.append("limits")
+            if limits_failure:
+                raise CalledProcessError(1, argv)
+            return CompletedProcess(argv, 0, json.dumps({
+                "schema": 1, "node": "gway-005", "stage": "limits",
+                "status": "succeeded", "concurrent_jobs_per_node": 3}), "")
+        if argv[:2] == ["systemctl", "restart"]:
+            events.append("restart")
+        elif argv[:2] == ["systemctl", "is-active"]:
+            events.append("active")
+        else:
+            raise AssertionError("unexpected host command")
+        return CompletedProcess(argv, 0, "", "")
+    monkeypatch.setattr(cv, "_claim", claim)
+    monkeypatch.setattr(cv, "_activate_files", activate)
+    monkeypatch.setattr(cv, "_restore_files", restore)
+    monkeypatch.setattr(cv, "_finish_stage", finish)
+    return cv, events, eligibility, inventory, publish, runner
+
+
+def test_central_grant_orders_state_and_verifies_service_identity(monkeypatch, tmp_path):
+    cv, events, eligibility, inventory, publish, runner = _convergence_flow(
+        monkeypatch, tmp_path)
+    result = cv.converge("grant", "gway-005", state_root=tmp_path,
+                         set_grant=eligibility, inventory_builder=inventory,
+                         publisher=publish, runner=runner)
+    assert result["eligible"] is True
+    assert result["limits_verified"] is True
+    assert result["terminal_execution_verified"] is False
+    assert events == ["plan", "claim", "eligible:True", "activate", "publish",
+                      "restart", "active", "limits", "finish"]
+    assert not (tmp_path / ".active").exists()
+
+
+def test_strict_limits_failure_rolls_back_and_drops_lock(monkeypatch, tmp_path):
+    from subprocess import CalledProcessError
+    cv, events, eligibility, inventory, publish, runner = _convergence_flow(
+        monkeypatch, tmp_path, limits_failure=True)
+    with pytest.raises(CalledProcessError):
+        cv.converge("grant", "gway-005", state_root=tmp_path,
+                    set_grant=eligibility, inventory_builder=inventory,
+                    publisher=publish, runner=runner)
+    assert events == ["plan", "claim", "eligible:True", "activate", "publish",
+                      "restart", "active", "limits", "restore", "eligible:False",
+                      "publish", "restart", "finish"]
+    assert not (tmp_path / ".active").exists()
+
+
+def test_uncertain_rollback_keeps_journal_and_blocks_retries(monkeypatch, tmp_path):
+    from subprocess import CalledProcessError
+    cv, events, eligibility, inventory, publish, runner = _convergence_flow(
+        monkeypatch, tmp_path, limits_failure=True, rollback_failure=True)
+    with pytest.raises(CalledProcessError):
+        cv.converge("grant", "gway-005", state_root=tmp_path,
+                    set_grant=eligibility, inventory_builder=inventory,
+                    publisher=publish, runner=runner)
+    assert "restore" in events
+    assert (tmp_path / "gway-005").is_dir()
+    assert (tmp_path / ".active").is_dir()
+    with pytest.raises(FileExistsError):
+        cv.converge("grant", "gway-005", state_root=tmp_path,
+                    set_grant=eligibility, inventory_builder=inventory,
+                    publisher=publish, runner=runner)
