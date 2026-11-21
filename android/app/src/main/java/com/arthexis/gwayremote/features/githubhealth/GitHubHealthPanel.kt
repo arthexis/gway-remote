@@ -27,6 +27,10 @@ private val allowedRepos = listOf(
     "arthexis/gway-rfid", "arthexis/gway-ap-kiosk"
 )
 
+/** Reports may legitimately cover a monitored subset; never accept unknown repositories. */
+internal fun isSupportedHealthScope(names: Set<String>): Boolean =
+    names.isNotEmpty() && names.all { it in allowedRepos }
+
 @Composable
 fun GitHubHealthPanel(endpoint: String, token: String) {
     val scope = rememberCoroutineScope()
@@ -83,7 +87,7 @@ fun GitHubHealthPanel(endpoint: String, token: String) {
                 val repos = data.optJSONArray("repositories")
                 val names = if (repos == null) emptySet() else
                     (0 until repos.length()).mapNotNull { repos.optJSONObject(it)?.optString("name") }.toSet()
-                if (names != allowedRepos.toSet()) {
+                if (!isSupportedHealthScope(names)) {
                     Text("Incomplete or unexpected repository scope", color = MaterialTheme.colorScheme.error)
                 } else {
                     val alerts = data.optJSONArray("alerts")
@@ -96,16 +100,15 @@ fun GitHubHealthPanel(endpoint: String, token: String) {
                             label = { Text("Resolved") })
                     }
                     // Keep the selector compact; no additional GitHub requests.
-                    val choices = listOf("All") + allowedRepos
-                    choices.chunked(2).forEach { chunk ->
-                        Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                            chunk.forEach { repo ->
-                                FilterChip(selected = filter == repo, onClick = { filter = repo },
-                                    label = { Text(if (repo == "All") repo else repo.substringAfter('/')) })
-                            }
+                    val choices = listOf("All") + allowedRepos.filter { it in names }
+                    ModuleActions {
+                        choices.forEach { repo ->
+                            FilterChip(selected = filter == repo, onClick = { filter = repo },
+                                label = { Text(if (repo == "All") repo else repo.substringAfter('/')) })
                         }
                     }
                     val visible = entries.filter {
+                        it.optString("repository") in names &&
                         it.optString("state") == (if (showResolved) "RESOLVED" else "ACTIVE") &&
                             (filter == "All" || it.optString("repository") == filter)
                     }
