@@ -29,6 +29,21 @@ class RepositoryOnboardingContractTests(unittest.TestCase):
                 self.assertIn(f'"{job}": "{name}"', workflow)
         self.assertNotIn("schedule:", workflow)
 
+    def test_aeon_mud_admitted_only_on_gway001(self):
+        inventory = (ROOT / "ansible/inventory/deployment.yml").read_text()
+        controller = inventory.split("        gway-001:\n", 1)[1].split("    quality:\n", 1)[0]
+        other_nodes = inventory.split("    quality:\n", 1)[1]
+        self.assertEqual(controller.count("            - aeon-mud\n"), 1)
+        self.assertNotIn("            - aeon-mud", other_nodes)
+        self.assertEqual(dict(TARGETS)["aeon-mud"], "arthexis/aeon-mud")
+        self.assertEqual(INSTALLERS["aeon-mud"], "deploy_aeon_mud")
+        from gway_remote.probe_registry import PROBES
+        self.assertEqual(PROBES["aeon-mud"].kind, "executable")
+        self.assertTrue(PROBES["aeon-mud"].revision_from_executable)
+        from gway_remote.deploy_dispatch import dispatch
+        with self.assertRaises(ValueError):
+            dispatch("aeon-mud", node="gway-002")
+
     def test_reports_admitted_on_gway001_only(self):
         inventory = (ROOT / "ansible/inventory/deployment.yml").read_text()
         pilot = inventory.split("        gway-001:\n", 1)[1].split("    quality:\n", 1)[0]
