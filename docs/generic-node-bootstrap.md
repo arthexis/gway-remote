@@ -22,3 +22,27 @@ The playbook is located in `ansible/` (rather than `ansible/playbooks/`) to
 preserve the existing role task contracts using `{{ playbook_dir }}/../scripts`.
 Do not run the full `gway_remote` role for a new satellite; it includes other
 controller-specific provider, repository and reporting configuration.
+
+## Central operator acceptance (not a public endpoint)
+
+Only an authenticated root operator on Watchtower can run
+`gway-remote exec grant gway-NNN`. This command validates the currently
+active host key from the Watchtower enrollment ledger, requires existing
+gateway private SSH material, stages the exact public pin and execute.json
+under a root-only transaction journal, updates the same ledger eligibility
+table and restarts the existing gateway. It then runs a **strict read-only
+SSH limits check as gway-mcp-gateway**, not root. If any stage fails it
+attempts byte-for-byte rollback; an uncertain crash blocks further updates
+until explicit operator recovery. It creates no credentials, no new services
+and does not enable deployments or providers.
+
+`gway-remote exec revoke gway-NNN` removes the configured transport and
+eligibility together, preserving the historical public pin. The command
+never returns a terminal node_exec receipt; a separate authorized
+`node_exec hostname` and correlated `node_result` are required for
+end-to-end acceptance. Do not retry uncertain request IDs.
+
+An unaccepted transaction can be recovered only by an administrative
+`python3 -m gway_remote.watchtower_exec_eligibility recover gway-NNN`
+from the installed Watchtower owner after manual journal reconciliation.
+No public bootstrap token may invoke grant or recovery.

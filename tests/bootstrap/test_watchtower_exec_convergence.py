@@ -152,3 +152,36 @@ def test_two_nodes_cannot_mutate_shared_pin_files_in_parallel(monkeypatch, tmp_p
     with pytest.raises(FileExistsError):
         cv.converge("grant", "gway-007", state_root=tmp_path,
                     set_grant=reject, publisher=reject, runner=reject)
+
+def test_strict_limits_uses_only_existing_unprivileged_gateway_identity():
+    from subprocess import CompletedProcess
+    from gway_remote.watchtower_exec_convergence import verify_gateway_limits
+    observed = []
+    def run(argv, **kwargs):
+        observed.append(argv)
+        return CompletedProcess(argv, 0,
+                                json.dumps({"schema": 1, "node": "gway-005",
+                                            "stage": "limits", "status": "succeeded",
+                                            "concurrent_jobs_per_node": 3}), "")
+    assert verify_gateway_limits("gway-005", runner=run) is True
+    assert len(observed) == 1
+    assert observed[0][:4] == ["/usr/bin/sudo", "-n", "-u", "gway-mcp-gateway"]
+    assert observed[0][-4:] == ["node", "verify", "gway-005", "--json"]
+    assert "ssh-keyscan" not in " ".join(observed[0])
+
+
+@pytest.mark.parametrize("result", [
+    {"schema": 1, "node": "gway-002", "stage": "limits",
+     "status": "succeeded", "concurrent_jobs_per_node": 3},
+    {"schema": 1, "node": "gway-005", "stage": "limits",
+     "status": "failed", "concurrent_jobs_per_node": 3},
+    {"schema": 1, "node": "gway-005", "stage": "limits",
+     "status": "succeeded", "concurrent_jobs_per_node": True},
+])
+def test_wrong_or_failed_gateway_receipt_is_not_accepted(result):
+    from subprocess import CompletedProcess
+    from gway_remote.watchtower_exec_convergence import verify_gateway_limits
+    def run(argv, **kwargs):
+        return CompletedProcess(argv, 0, json.dumps(result), "")
+    with pytest.raises(ConvergenceRefused):
+        verify_gateway_limits("gway-005", runner=run)

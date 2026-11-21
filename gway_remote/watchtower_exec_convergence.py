@@ -224,6 +224,37 @@ def _finish_stage(stage):
     stage.rmdir()
 
 
+def verify_gateway_limits(node, *, runner=subprocess.run):
+    """Probe strict SSH as the actual unprivileged gateway service user.
+
+    Root-run checks are insufficient: its pinned identity may have different
+    file ownership and produce false negatives. The command is fixed and
+    returns a bounded, correlated, read-only limits result.
+    """
+    if type(node) is not str or not NODE.fullmatch(node):
+        raise ConvergenceRefused("invalid limits target")
+    result = runner(
+        ["/usr/bin/sudo", "-n", "-u", "gway-mcp-gateway",
+         "/usr/bin/env", "PYTHONPATH=/opt/gway-mcp/current",
+         "/usr/bin/python3", "-m", "gway_remote",
+         "node", "verify", node, "--json"],
+        capture_output=True, text=True, timeout=25, check=True,
+    )
+    if type(result.stdout) is not str or len(result.stdout) > 4096:
+        raise ConvergenceRefused("invalid gateway limits result")
+    try:
+        report = json.loads(result.stdout)
+    except (ValueError, TypeError) as exc:
+        raise ConvergenceRefused("invalid gateway limits JSON") from exc
+    if (type(report) is not dict or report.get("node") != node
+            or report.get("schema") != 1 or report.get("stage") != "limits"
+            or report.get("status") != "succeeded"
+            or type(report.get("concurrent_jobs_per_node")) is not int
+            or not 1 <= report["concurrent_jobs_per_node"] <= 8):
+        raise ConvergenceRefused("strict-pinned gateway limits failed")
+    return True
+
+
 def converge(action, node, *, config=CONFIG, ledger=LEDGER, state_root=STATE,
              set_grant=set_eligibility, inventory_builder=build, publisher=publish,
              runner=subprocess.run):
@@ -246,7 +277,8 @@ def converge(action, node, *, config=CONFIG, ledger=LEDGER, state_root=STATE,
     changed = any(p[kind][1] != p[kind][2] for kind in ("config", "known"))
     if not changed and prior == enable:
         return {"node": node, "eligible": enable, "transport_configured": enable,
-                "terminal_execution_verified": False, "changed": False}
+                "limits_verified": False, "terminal_execution_verified": False,
+                "changed": False}
     stage = state_root / node
     # A shared exclusive lock protects execute.json + known_hosts against
     # concurrent grants of different node IDs. Crash residue is fail closed.
@@ -270,10 +302,12 @@ def converge(action, node, *, config=CONFIG, ledger=LEDGER, state_root=STATE,
                text=True, timeout=90, check=True)
         runner(["systemctl", "is-active", "--quiet", GATEWAY],
                capture_output=True, text=True, timeout=10, check=True)
+        if enable:
+            verify_gateway_limits(node, runner=runner)
         _finish_stage(stage)
         global_lock.rmdir()
         return {"node": node, "eligible": enable, "transport_configured": enable,
-                "terminal_execution_verified": False}
+                "limits_verified": enable, "terminal_execution_verified": False}
     except Exception:
         # A crash keeps the protected journal for explicit inspection; a
         # synchronous failure attempts byte-faithful rollback.
