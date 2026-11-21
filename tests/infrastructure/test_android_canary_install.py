@@ -30,7 +30,11 @@ class FakeAdb:
             package = args[3]
             value = self.production if package == "com.arthexis.gwayremote" else (
                 "package:/data/app/canary/base.apk" if self.installed else "")
-            return CompletedProcess(argv, 0, value + "\n", "")
+            # Real Android can return status 1 for an absent package.
+            return CompletedProcess(argv, 0 if value else 1, value + "\n", "")
+        if args[:4] == ["shell", "pm", "list", "packages"]:
+            return CompletedProcess(argv, 0,
+                "package:com.arthexis.gwayremote.canary\n" if self.installed else "", "")
         if args[:2] == ["install", "-r"]:
             self.attempts += 1
             if self.conflict and self.attempts == 1:
@@ -86,6 +90,20 @@ class AndroidCanaryInstallPolicyTests(unittest.TestCase):
             install(str(self.apk), reset_allowed=True, call=fake)
         self.assertEqual(fake.attempts, 2)
         self.assertEqual(fake.uninstalled, ["com.arthexis.gwayremote.canary"])
+
+    def test_package_listing_must_confirm_absence_after_uninstall(self):
+        fake = FakeAdb()
+        original = fake.__call__
+        def stale_listing(argv, timeout=40):
+            if argv[-5:] == ["shell", "pm", "list", "packages",
+                             "com.arthexis.gwayremote.canary"]:
+                return CompletedProcess(argv, 0,
+                    "package:com.arthexis.gwayremote.canary\\n", "")
+            return original(argv, timeout)
+        with self.assertRaisesRegex(InstallBlocked, "reset_not_confirmed"):
+            install(str(self.apk), reset_allowed=True, call=stale_listing)
+        self.assertEqual(fake.uninstalled, ["com.arthexis.gwayremote.canary"])
+        self.assertEqual(fake.attempts, 1)
 
     def test_missing_canary_is_never_uninstalled(self):
         fake = FakeAdb(installed=False)
