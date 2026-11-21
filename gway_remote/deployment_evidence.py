@@ -37,7 +37,7 @@ def adapt_component(row: dict, *, observed_at: str | None, depth: str = "deep",
         installation = "unknown"
     # AgentOps is an on-demand CLI: --help probes installation, not a daemon.
     # Reports also has an executable, but its role/warehouse readiness is required.
-    runtime_required = name != "gway-agent-ops"
+    runtime_required = name not in ("gway-agent-ops", "aeon-mud")
     runtime = row.get("health", "unknown")
     if depth != "deep" and not bastion:
         runtime = "unknown"
