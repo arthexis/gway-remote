@@ -14,8 +14,10 @@ from gway_remote.mcp_tool_scope import required_scope
 
 
 class FakeDevice:
-    def __init__(self, *, authorized=True, screen_on=True, locked=False):
+    def __init__(self, *, authorized=True, screen_on=True, locked=False,
+                 wake_succeeds=True):
         self.calls = []
+        self.wake_succeeds = wake_succeeds
         self.state = {"usb": "authorized" if authorized else "unauthorized",
                       "screen_on": screen_on, "locked": locked}
 
@@ -30,6 +32,20 @@ class FakeDevice:
         if name == "wait_ui":
             return {"status": "confirmed"}
         raise ValueError("bad operation")
+
+    def wake_if_needed(self):
+        self.calls.append(("wake_if_needed", {}))
+        state = self.state
+        if state["screen_on"] is None:
+            raise ValueError("screen_state_unknown")
+        woke = state["screen_on"] is False
+        if woke and not self.wake_succeeds:
+            raise ValueError("screen_not_ready")
+        if woke:
+            state["screen_on"] = True
+        if state["locked"] is not False:
+            raise ValueError("screen_not_safe")
+        return {"ok": True, "woke": woke}
 
 
 class ScenarioContracts(unittest.TestCase):
@@ -90,6 +106,50 @@ class ScenarioContracts(unittest.TestCase):
                              device=unsafe, receipt_root=self.root)
         self.assertEqual(receipt["status"], "failed")
         self.assertEqual([x[0] for x in unsafe.calls], ["status"])
+
+    def test_home_stability_v2_wakes_only_when_needed_and_preserves_v1(self):
+        old = runner.preview("home-screen-stability-v1")
+        self.assertEqual(old["step_types"], ["status", "key", "status"])
+        self.assertEqual(old["actions"], 1)
+        v2 = runner.preview("home-screen-stability-v2")
+        self.assertEqual(v2["step_types"],
+                         ["status", "wake_if_needed", "status", "key", "status"])
+        self.assertEqual(v2["actions"], 2)
+        self.assertNotEqual(v2["spec_sha256"], old["spec_sha256"])
+
+        asleep = FakeDevice(screen_on=False)
+        result = runner.run("home-screen-stability-v2", device=asleep,
+                            receipt_root=self.root)
+        self.assertEqual(result["status"], "passed")
+        self.assertEqual(result["action_invocations"], 2)
+        self.assertEqual([x[0] for x in asleep.calls],
+                         ["status", "wake_if_needed", "status", "key", "status"])
+        receipt = runner.result(result["receipt_id"], root=self.root)
+        self.assertEqual(receipt["sha256"], result["receipt_sha256"])
+        self.assertEqual(receipt["manifest"]["action_invocations"], 2)
+        self.assertEqual(receipt["manifest"]["screenshots"], "not_collected")
+        self.assertNotIn("password", json.dumps(receipt["manifest"]))
+        self.assertEqual(runner.preview("home-screen-stability-v1")["spec_sha256"],
+                         old["spec_sha256"])
+
+        awake = FakeDevice()
+        result = runner.run("home-screen-stability-v2", device=awake,
+                            receipt_root=self.root)
+        self.assertEqual(result["status"], "passed")
+        self.assertEqual(result["action_invocations"], 1)
+
+    def test_v2_rejects_unsafe_states_without_home_or_retry(self):
+        for dev in (FakeDevice(authorized=False, screen_on=False),
+                    FakeDevice(screen_on=None), FakeDevice(screen_on=False,
+                                                          wake_succeeds=False),
+                    FakeDevice(screen_on=False, locked=True),
+                    FakeDevice(screen_on=True, locked=True)):
+            with self.subTest(state=dev.state):
+                result = runner.run("home-screen-stability-v2", device=dev,
+                                    receipt_root=self.root)
+                self.assertEqual(result["status"], "failed")
+                self.assertFalse(any(name == "key" for name, _ in dev.calls))
+                self.assertLessEqual(sum(name == "wake_if_needed" for name, _ in dev.calls), 1)
 
     def test_explicit_read_execute_scope_and_strict_scenario_ids(self):
         scopes = {t["name"]: required_scope(t) for t in TOOLS}
