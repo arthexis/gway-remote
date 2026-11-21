@@ -19,6 +19,7 @@ TARGETS = (
     ("gway-ap-kiosk", "arthexis/gway-ap-kiosk"),
     ("gway-rfid", "arthexis/gway-rfid"),
     ("gway-bastion", "arthexis/gway-bastion"),
+    ("aeon-mud", "arthexis/aeon-mud"),
 )
 _SHA = re.compile(r"[0-9a-fA-F]{40}")
 _GOOD_CI = "success"
