@@ -26,9 +26,9 @@ ROOT = Path(__file__).resolve().parents[2]
 RESOURCE = ROOT / "gway_remote" / "data" / "appliance-targets.v1.json"
 KNOWN = (
     "ocpp-csms", "ocpp-reports", "gway-lcd-sound", "gway-agent-ops",
-    "gway-ap-kiosk", "gway-rfid", "gway-bastion",
+    "gway-ap-kiosk", "gway-rfid", "gway-bastion", "aeon-mud",
 )
-REVISION = "f602ee0234e4232246c67aa8cd02bd52fc4bff8b"
+REVISION = "062991471026c7856984b47dca030067a74a0457"
 STAGED = "c" * 40
 ATTEMPTS = {
     "ocpp-csms": {"status": "installed", "sha": "a" * 40,
@@ -147,7 +147,7 @@ class StatusCatalogP3B1Tests(unittest.TestCase):
     def test_bastion_stage_only_never_claims_activation(self):
         for depth in ("deep", "quick"):
             report, _, _, _ = self._snapshot(depth)
-            bastion = report["components"][-1]
+            bastion = next(row for row in report["components"] if row["name"] == "gway-bastion")
             self.assertEqual(bastion["name"], "gway-bastion")
             self.assertEqual(bastion["staged_sha"], STAGED)
             self.assertIsNone(bastion["installed_sha"])
@@ -215,7 +215,7 @@ class StatusCatalogP3B1Tests(unittest.TestCase):
             report, calls, deep, _ = self._snapshot()
         self.assertEqual(calls, 1)
         self.assertEqual(deep, list(KNOWN))
-        self.assertEqual(len(report["components"]), 7)
+        self.assertEqual(len(report["components"]), 8)
 
     def test_public_export_and_code_only_rollback_parity(self):
         # A revert to the old TARGETS enumeration yields the same status

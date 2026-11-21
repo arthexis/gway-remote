@@ -19,6 +19,7 @@ INSTALLERS = {
     "gway-ap-kiosk": "deploy_ap_kiosk",
     "gway-rfid": "deploy_rfid",
     "gway-bastion": "deploy_bastion",
+    "aeon-mud": "deploy_aeon_mud",
 }
 
 

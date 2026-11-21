@@ -49,12 +49,12 @@ class PurePolicyCatalogP3C2Tests(unittest.TestCase):
                 rows[i] = replace(row, **changes[row.name])
         return tuple(rows)
 
-    def test_checked_catalog_still_matches_immutable_seven(self):
+    def test_checked_catalog_still_matches_reviewed_eight(self):
         self.assertEqual(
             tuple((t.id, t.repository) for t in load_catalog().targets),
             reconcile.TARGETS,
         )
-        self.assertEqual(len(self.names), 7)
+        self.assertEqual(len(self.names), 8)
         self.assertNotIn("ocpp-simulator", self.names)
 
     def test_attempt_policy_ready_order_and_managed_filter(self):

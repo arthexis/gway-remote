@@ -22,7 +22,7 @@ from gway_remote import best_effort, catalog_shadow, probe_registry, reconcile
 from gway_remote.target_export import export_targets
 
 ROOT = Path(__file__).resolve().parents[2]
-REVISION = "f602ee0234e4232246c67aa8cd02bd52fc4bff8b"
+REVISION = "062991471026c7856984b47dca030067a74a0457"
 LEGACY = (
     ("ocpp-csms", "arthexis/ocpp-csms"),
     ("ocpp-reports", "arthexis/ocpp-reports"),
@@ -31,9 +31,10 @@ LEGACY = (
     ("gway-ap-kiosk", "arthexis/gway-ap-kiosk"),
     ("gway-rfid", "arthexis/gway-rfid"),
     ("gway-bastion", "arthexis/gway-bastion"),
+    ("aeon-mud", "arthexis/aeon-mud"),
 )
 GOLDEN = (
-    b'{"revision":"f602ee0234e4232246c67aa8cd02bd52fc4bff8b",'
+    b'{"revision":"062991471026c7856984b47dca030067a74a0457",'
     b'"schema":1,"targets":['
     b'{"name":"ocpp-csms","repository":"arthexis/ocpp-csms"},'
     b'{"name":"ocpp-reports","repository":"arthexis/ocpp-reports"},'
@@ -41,7 +42,8 @@ GOLDEN = (
     b'{"name":"gway-agent-ops","repository":"arthexis/gway-agent-ops"},'
     b'{"name":"gway-ap-kiosk","repository":"arthexis/gway-ap-kiosk"},'
     b'{"name":"gway-rfid","repository":"arthexis/gway-rfid"},'
-    b'{"name":"gway-bastion","repository":"arthexis/gway-bastion"}]}'
+    b'{"name":"gway-bastion","repository":"arthexis/gway-bastion"},'
+    b'{"name":"aeon-mud","repository":"arthexis/aeon-mud"}]}'
 )
 
 
@@ -89,8 +91,8 @@ class CatalogExportP3ATests(unittest.TestCase):
             pure = catalog_shadow.load_catalog_data()
         self.assertEqual(tuple(x.id for x in pure.targets),
                          tuple(name for name, _ in LEGACY))
-        self.assertEqual(pure.targets[-1].release_mode, "stage_only")
-        self.assertIsNone(pure.targets[-1].probe_id)
+        self.assertEqual(pure.targets[-2].release_mode, "stage_only")
+        self.assertIsNone(pure.targets[-2].probe_id)
         self.assertEqual(catalog_shadow.load_catalog(), pure)
 
     def test_checked_export_rejects_unreviewed_adapter_and_probe_drift(self):
@@ -164,7 +166,7 @@ class CatalogExportP3ATests(unittest.TestCase):
                 return_value=FakeResource(original.replace(before, after, 1))
             ):
                 data = catalog_shadow.load_catalog_data()
-                self.assertEqual(len(data.targets), 7)
+                self.assertEqual(len(data.targets), 8)
                 with self.assertRaises(ValueError):
                     export_targets()
 

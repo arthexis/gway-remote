@@ -22,12 +22,12 @@ ROOT = Path(__file__).resolve().parents[2]
 SOURCE = ROOT / "gway_remote" / "data" / "appliance-targets.v1.json"
 EXPECTED = (
     "ocpp-csms", "ocpp-reports", "gway-lcd-sound", "gway-agent-ops",
-    "gway-ap-kiosk", "gway-rfid", "gway-bastion",
+    "gway-ap-kiosk", "gway-rfid", "gway-bastion", "aeon-mud",
 )
 # Golden byte representation from the pre-P1 public schema=1 export.
 # SHA-1 here is a content fingerprint, not a signature or deploy revision.
 GOLDEN_EXPORT = (
-    '{"revision":"f602ee0234e4232246c67aa8cd02bd52fc4bff8b",'
+    '{"revision":"062991471026c7856984b47dca030067a74a0457",'
     '"schema":1,"targets":['
     '{"name":"ocpp-csms","repository":"arthexis/ocpp-csms"},'
     '{"name":"ocpp-reports","repository":"arthexis/ocpp-reports"},'
@@ -35,7 +35,8 @@ GOLDEN_EXPORT = (
     '{"name":"gway-agent-ops","repository":"arthexis/gway-agent-ops"},'
     '{"name":"gway-ap-kiosk","repository":"arthexis/gway-ap-kiosk"},'
     '{"name":"gway-rfid","repository":"arthexis/gway-rfid"},'
-    '{"name":"gway-bastion","repository":"arthexis/gway-bastion"}]}'
+    '{"name":"gway-bastion","repository":"arthexis/gway-bastion"},'
+    '{"name":"aeon-mud","repository":"arthexis/aeon-mud"}]}'
 )
 
 
@@ -53,16 +54,16 @@ class ShadowCatalogTests(unittest.TestCase):
         edit(payload)
         return compact(payload)
 
-    def test_exact_seven_targets_order_adapters_probes_and_modes(self):
+    def test_exact_eight_targets_order_adapters_probes_and_modes(self):
         catalog = load_catalog()
         self.assertIsInstance(catalog, Catalog)
         self.assertEqual(catalog.schema, SCHEMA)
         self.assertEqual(tuple(item.id for item in catalog.targets), EXPECTED)
         self.assertEqual(tuple((item.id, item.repository) for item in catalog.targets), TARGETS)
-        self.assertEqual(catalog.targets[-1].adapter_id, "deploy_bastion")
-        self.assertEqual(catalog.targets[-1].probe_id, None)
-        self.assertEqual(catalog.targets[-1].release_mode, "stage_only")
-        self.assertTrue(all(t.release_mode == "standard" for t in catalog.targets[:-1]))
+        self.assertEqual(catalog.targets[-2].adapter_id, "deploy_bastion")
+        self.assertEqual(catalog.targets[-2].probe_id, None)
+        self.assertEqual(catalog.targets[-2].release_mode, "stage_only")
+        self.assertTrue(all(t.release_mode == "standard" for t in catalog.targets if t.id != "gway-bastion"))
         self.assertEqual(check_shadow_parity(catalog), catalog)
         with self.assertRaises(FrozenInstanceError):
             catalog.targets[-1].id = "changed"
@@ -155,9 +156,9 @@ class ShadowCatalogTests(unittest.TestCase):
             lambda x: x["targets"][0].update(probe_id="/tmp/probe.py"),
             lambda x: x["targets"][0].update(release_mode="root"),
             lambda x: x["targets"][0].update(release_mode="stage_only"),
-            lambda x: x["targets"][-1].update(release_mode="standard"),
+            lambda x: x["targets"][-2].update(release_mode="standard"),
             lambda x: x["targets"][0].update(probe_id=None),
-            lambda x: x["targets"][-1].update(probe_id="gway-bastion"),
+            lambda x: x["targets"][-2].update(probe_id="gway-bastion"),
         )
         for edit in bad:
             with self.subTest(edit=str(edit)):

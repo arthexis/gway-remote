@@ -47,14 +47,14 @@ class DeploymentCatalogP3B4Tests(unittest.TestCase):
     def test_exact_order_and_known_source_mapping_no_rights_from_catalog(self):
         report, output, loads, gh, bastion = self._inventory()
         self.assertEqual(loads, 1)
-        self.assertEqual(gh, 7)
+        self.assertEqual(gh, 8)
         self.assertEqual(bastion, 1)
         self.assertEqual(report["checked_at"], CHECKED_AT)
         self.assertTrue(report["local_evidence"])
         self.assertEqual(
             [(r["name"], r["repository"]) for r in report["components"]], list(TARGETS))
-        self.assertEqual([r["managed"] for r in report["components"]], [False] * 7)
-        self.assertEqual([r["deployable"] for r in report["components"]], [False] * 7)
+        self.assertEqual([r["managed"] for r in report["components"]], [False] * 8)
+        self.assertEqual([r["deployable"] for r in report["components"]], [False] * 8)
         self.assertTrue(all(r["management_reason"] == "not managed"
                             for r in report["components"]))
         self.assertTrue(all(r["revision_status"] == "unknown"
@@ -152,7 +152,7 @@ class DeploymentCatalogP3B4Tests(unittest.TestCase):
                 for child in ast.walk(stmt)
             ))
 
-    def test_checked_catalog_parity_with_seven_legacy_sources(self):
+    def test_checked_catalog_parity_with_eight_reviewed_sources(self):
         self.assertEqual(
             tuple((t.id, t.repository) for t in load_catalog().targets), TARGETS)
 

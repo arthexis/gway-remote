@@ -24,6 +24,7 @@ TRACKS = (
     ("ocpp-csms", "ocpp-reports"),
     ("gway-lcd-sound", "gway-agent-ops", "gway-ap-kiosk",
      "gway-rfid", "gway-bastion"),
+    ("aeon-mud",),
 )
 TEMPLATES = {
     "skeleton": "appliance-deploy.skeleton.yml.in",

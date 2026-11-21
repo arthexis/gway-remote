@@ -79,3 +79,27 @@ aprobado y estado de la vigilancia local. Si faltan o son ambiguos, detenerse;
 no inventar rol, no tocar SQLite/configuración, no instalar en hosts ajenos,
 no ejecutar workflows durante la revisión de la PR. El merge tampoco prueba
 que Reports haya sido desplegado en gway-001.
+
+## aeon-mud managed console client (gway-001 only)
+
+`arthexis/aeon-mud` is an explicitly managed, owner-installed *CLI-only*
+component. Its canonical `deploy.sh --expected-sha <full SHA>` invokes the
+repository's local Ansible role. Owner requirements: `ansible-core`,
+Python >=3.10, `git`, `arthe` as the installation account, verified host
+`gway-001`, and a clean exact-SHA source checkout.
+
+GWay Remote pins the GitHub main SHA, checks merged-PR CI and local
+`remote_managed_repositories` inventory policy, invokes only the canonical
+owner installer and checks the active executable/release SHA independently.
+The active command is `~/.local/bin/aeon-mud`; no daemon, Telnet connection,
+network client session, device permission or service activation is required.
+Other inventories retain an empty allowlist. Workflow `node` defaults to
+`gway-001`, and other node selections are rejected by admission and the
+owner's Ansible preflight. No automatic repo enrollment grants MCP execute
+permission, additional node access or credentials.
+
+**Deploy acceptance is separate from code merge.** Before invoking the
+appliance workflow, independently verify owner PR merged, installed Ansible
+Core, Python and node identity, CI at the pinned owner SHA, command ownership,
+and rollback availability. Don't claim success from a GitHub dispatch or
+attempt journal; verify the installed command and release evidence.

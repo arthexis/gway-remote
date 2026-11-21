@@ -32,6 +32,7 @@ on:
           - gway-ap-kiosk
           - gway-rfid
           - gway-bastion
+          - aeon-mud
 
 permissions:
   contents: read
@@ -201,9 +202,27 @@ jobs:
           python3 -m gway_remote deploy-batch --all --target gway-bastion
           echo "::notice::Bastion staged only; running services and keys unchanged"
 
+  aeon_mud:
+    name: Deploy aeon-mud
+    needs: admission
+    if: ${{ github.event_name == 'workflow_dispatch' && github.actor == 'arthexis' && needs.admission.result == 'success' && inputs.node == 'gway-001' && (inputs.repository == 'all' || inputs.repository == 'aeon-mud') }}
+    runs-on: [self-hosted, Linux, ARM64, gway-001]
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Deploy aeon-mud
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GWAY_REMOTE_DISPATCH_TOKEN }}
+        run: |
+          set -euo pipefail
+          python3 -m gway_remote deploy-batch --all --target aeon-mud
+
   report:
     name: Export appliance deployment report
-    needs: [admission, ocpp_csms, ocpp_reports, gway_lcd_sound, gway_agent_ops, gway_ap_kiosk, gway_rfid, gway_bastion]
+    needs: [admission, ocpp_csms, ocpp_reports, gway_lcd_sound, gway_agent_ops, gway_ap_kiosk, gway_rfid, gway_bastion, aeon_mud]
     if: ${{ always() && github.event_name == 'workflow_dispatch' && github.actor == 'arthexis' && needs.admission.result == 'success' && inputs.node == 'gway-001' }}
     runs-on: [self-hosted, Linux, ARM64, gway-001]
     timeout-minutes: 10
@@ -230,6 +249,7 @@ jobs:
               "gway_ap_kiosk": "gway-ap-kiosk",
               "gway_rfid": "gway-rfid",
               "gway_bastion": "gway-bastion",
+              "aeon_mud": "aeon-mud",
           }
           results = json.loads(os.environ["JOB_RESULTS"])
           selected = os.environ["SELECTED_REPOSITORY"]

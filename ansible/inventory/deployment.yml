@@ -22,6 +22,7 @@ all:
             - gway-ap-kiosk
             - gway-rfid
             - gway-bastion
+            - aeon-mud
             - odoo-gelectriic
     quality:
       hosts:

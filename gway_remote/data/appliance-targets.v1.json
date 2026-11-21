@@ -49,6 +49,13 @@
       "adapter_id": "deploy_bastion",
       "probe_id": null,
       "release_mode": "stage_only"
+    },
+    {
+      "id": "aeon-mud",
+      "repository": "arthexis/aeon-mud",
+      "adapter_id": "deploy_aeon_mud",
+      "probe_id": "aeon-mud",
+      "release_mode": "standard"
     }
   ]
 }

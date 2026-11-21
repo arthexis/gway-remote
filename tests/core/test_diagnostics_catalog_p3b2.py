@@ -102,7 +102,7 @@ class DiagnosticsCatalogP3B2Tests(unittest.TestCase):
         self.assertEqual(
             tuple((t.id, t.repository) for t in catalog.targets), TARGETS
         )
-        self.assertEqual(len(catalog.targets), 7)
+        self.assertEqual(len(catalog.targets), 8)
 
 
 if __name__ == "__main__":

@@ -123,12 +123,12 @@ class WatchCatalogSourcesP3E1(TestCase):
             inventory.assert_not_called()
             dispatch.assert_not_called()
 
-    def test_all_seven_catalog_sources_equal_reviewed_map(self):
+    def test_all_eight_catalog_sources_equal_reviewed_map(self):
         catalog = load_catalog()
         self.assertEqual(
             tuple((target.id, target.repository) for target in catalog.targets),
             TARGETS)
-        self.assertEqual(len(TARGETS), 7)
+        self.assertEqual(len(TARGETS), 8)
         self.assertNotIn("ocpp-simulator", dict(TARGETS))
 
     def test_issue_routing_uses_checked_source_not_arbitrary_inventory_repo(self):

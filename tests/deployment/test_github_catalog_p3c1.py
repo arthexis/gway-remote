@@ -18,7 +18,7 @@ MERGED = datetime(2026, 11, 17, tzinfo=timezone.utc)
 
 
 class GitHubCatalogP3C1Tests(unittest.TestCase):
-    def test_collect_preserves_exact_seven_order_and_source_urls(self):
+    def test_collect_preserves_exact_eight_order_and_source_urls(self):
         calls = []
         attempts = {TARGETS[0][0]: SHA}
         with patch.object(github_state, "load_catalog", wraps=load_catalog) as loader, \
@@ -30,7 +30,7 @@ class GitHubCatalogP3C1Tests(unittest.TestCase):
                           side_effect=lambda client, repository, sha: calls.append(("ci", repository, sha)) or "success"):
             result = github_state.collect(object(), attempts)
         loader.assert_called_once_with()
-        self.assertEqual(len(result), 7)
+        self.assertEqual(len(result), 8)
         self.assertEqual([item.name for item in result], [name for name, _ in TARGETS])
         for item in result:
             self.assertEqual(item.sha, SHA)
