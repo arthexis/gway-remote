@@ -120,6 +120,9 @@ def test_repair_bootstrap_http_flow_never_mutates_hub_peer_or_config(tmp_path, m
     handler = watchtower.make_handler(
         provisioner, public_url="https://register.gelectriic.com",
         wireguard_endpoint="register.gelectriic.com:51820",
+        release_provider=lambda: {
+            "revision": "a" * 40, "client_sha256": "b" * 64,
+            "relay_public_key": "ssh-ed25519 " + "A" * 43 + "="},
     )
     server = ThreadingHTTPServer(("127.0.0.1", 0), handler)
     worker = threading.Thread(target=server.serve_forever, daemon=True)
