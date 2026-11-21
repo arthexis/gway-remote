@@ -19,8 +19,8 @@ from gway_remote.deploy_failure_issues import REPOSITORIES
 from gway_remote.target_export import export_targets
 
 EXPECTED = ("ocpp-csms", "ocpp-reports", "gway-lcd-sound", "gway-agent-ops",
-            "gway-ap-kiosk", "gway-rfid", "gway-bastion")
-GOLDEN_REVISION = "f602ee0234e4232246c67aa8cd02bd52fc4bff8b"
+            "gway-ap-kiosk", "gway-rfid", "gway-bastion", "aeon-mud")
+GOLDEN_REVISION = "062991471026c7856984b47dca030067a74a0457"
 
 
 class ApplianceGeneratorP2Tests(unittest.TestCase):
@@ -108,9 +108,9 @@ class ApplianceGeneratorP2Tests(unittest.TestCase):
                 "github.actor == 'arthexis'", "true || github.actor == 'arthexis'", 1))
             self.assertFalse(check_workflow(template_dir=root))
 
-    def test_seven_known_and_admitted_no_simulator(self):
+    def test_eight_known_and_admitted_no_simulator(self):
         rows = load_catalog().targets
-        self.assertEqual(len(rows), 7)
+        self.assertEqual(len(rows), 8)
         self.assertIn("ocpp-reports", tuple(row.id for row in rows))
         text = render_workflow()
         area = text.split("      repository:\n", 1)[1].split("\npermissions:\n", 1)[0]
@@ -127,8 +127,8 @@ class ApplianceGeneratorP2Tests(unittest.TestCase):
                  "github.actor == 'arthexis' && "
                  "needs.admission.result == 'success' && "
                  "inputs.node == 'gway-001'")
-        self.assertEqual(text.count(guard), 8)
-        self.assertEqual(text.count("github.event_name == 'workflow_dispatch'"), 8)
+        self.assertEqual(text.count(guard), 9)
+        self.assertEqual(text.count("github.event_name == 'workflow_dispatch'"), 9)
         for previous, current in (
             ("ocpp_csms", "ocpp_reports"),
             ("gway_lcd_sound", "gway_agent_ops"),
@@ -137,7 +137,7 @@ class ApplianceGeneratorP2Tests(unittest.TestCase):
             ("gway_rfid", "gway_bastion"),
         ):
             self.assertRegex(text, rf"(?m)^  {current}:\n    name: [^\n]+\n    needs: \[admission, {previous}\]\n")
-        self.assertIn("    needs: [admission, ocpp_csms, ocpp_reports, gway_lcd_sound, gway_agent_ops, gway_ap_kiosk, gway_rfid, gway_bastion]", text)
+        self.assertIn("    needs: [admission, ocpp_csms, ocpp_reports, gway_lcd_sound, gway_agent_ops, gway_ap_kiosk, gway_rfid, gway_bastion, aeon_mud]", text)
         self.assertIn("Deploy gway-bastion (stage-only)", text)
         self.assertIn("Bastion staged only; running services and keys unchanged", text)
         self.assertNotIn("continue-on-error: true", text)
@@ -150,10 +150,10 @@ class ApplianceGeneratorP2Tests(unittest.TestCase):
         self.assertIn("if node != 'gway-001':", text)
         self.assertIn("require_local_deployment(", text)
         self.assertIn("inventory='ansible/inventory/deployment.yml'", text)
-        self.assertEqual(text.count("runs-on: [self-hosted, Linux, ARM64, gway-001]"), 8)
-        self.assertEqual(text.count("timeout-minutes: 30"), 7)
+        self.assertEqual(text.count("runs-on: [self-hosted, Linux, ARM64, gway-001]"), 9)
+        self.assertEqual(text.count("timeout-minutes: 30"), 8)
         self.assertIn("timeout-minutes: 10", text)
-        self.assertEqual(text.count("GH_TOKEN: ${{ secrets.GWAY_REMOTE_DISPATCH_TOKEN }}"), 7)
+        self.assertEqual(text.count("GH_TOKEN: ${{ secrets.GWAY_REMOTE_DISPATCH_TOKEN }}"), 8)
         self.assertIn("JOB_RESULTS: ${{ toJSON(needs) }}", text)
         self.assertIn("retention-days: 14", text)
         self.assertIn("if-no-files-found: error", text)
@@ -167,7 +167,7 @@ class ApplianceGeneratorP2Tests(unittest.TestCase):
         for bad in (
             replace(c, targets=(rows[1], rows[0], *rows[2:])),
             replace(c, targets=(replace(rows[0], adapter_id="deploy_bastion"), *rows[1:])),
-            replace(c, targets=(*rows[:-1], replace(rows[-1], release_mode="standard"))),
+            replace(c, targets=(*rows[:-2], replace(rows[-2], release_mode="standard"), rows[-1])),
         ):
             with self.assertRaises(ValueError):
                 render_workflow(catalog=bad)
@@ -183,7 +183,7 @@ class ApplianceGeneratorP2Tests(unittest.TestCase):
         before = export_targets()
         self.assertEqual(before["schema"], 1)
         self.assertEqual(before["revision"], GOLDEN_REVISION)
-        self.assertEqual(len(before["targets"]), 7)
+        self.assertEqual(len(before["targets"]), 8)
         self.assertEqual(render_workflow().encode(), self.actual)
         self.assertEqual(export_targets(), before)
 
