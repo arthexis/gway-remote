@@ -186,8 +186,8 @@ def _existing_executor(name):
         account = pwd.getpwnam(name)
     except KeyError as exc:
         raise ValueError("executor account not found") from exc
-    if account.pw_uid == 0 or account.pw_name != name:
-        raise ValueError("root or ambiguous executor account")
+    if account.pw_uid == 0 or account.pw_name != name or name == "gway-relay":
+        raise ValueError("root, transport or ambiguous executor account")
     return name
 
 

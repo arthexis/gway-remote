@@ -44,11 +44,11 @@ class ProvisionedIdentityAnsibleTests(unittest.TestCase):
 
     def test_file_reader_exception_stays_pilot_only(self):
         select = SELECT.read_text()
-        self.assertIn("arthe ALL=(gway-exec) NOPASSWD:", select)
+        self.assertIn("{{ gway_remote_exec_run_user }} ALL=(gway-exec) NOPASSWD:", select)
         section = select.split("    - name: Permit only the isolated file reader as gway-exec", 1)[1]
         section = section.split("    - name:", 1)[0]
         self.assertIn("(ansible_hostname | default('')) == 'gway-001'", section)
-        self.assertIn("gway_remote_exec_run_user == 'arthe'", section)
+        self.assertIn("gway_remote_exec_run_user != (gway_remote_exec_user | default('gway-exec'))", section)
 
     def test_no_appliance_watch_or_new_ssh_transport(self):
         role = MAIN.read_text()

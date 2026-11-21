@@ -22,11 +22,20 @@ def policies(user):
 
 
 class RelayPolicyTests(unittest.TestCase):
-    def test_both_supported_users_have_same_fixed_protocol(self):
-        for user in ("gway-exec", "arthe"):
+    def test_any_provisioned_user_has_same_fixed_protocol(self):
+        for user in ("gway-exec", "arthe", "rth", "alice_2", "node-worker"):
             with self.subTest(user=user):
                 ssh, sudo = policies(user)
                 self.assertEqual(module.verify(ssh, sudo, user), user)
+
+    def test_forbidden_transport_or_root_account(self):
+        for user in ("root", "gway-relay"):
+            with self.subTest(user=user), self.assertRaisesRegex(ValueError, "relay_forbidden_executor"):
+                module.verify(*policies(user))
+        ssh, sudo = policies("rth")
+        for expected in ("root", "gway-relay", "../rth", "RTH", 9):
+            with self.subTest(expected=expected), self.assertRaisesRegex(ValueError, "invalid_expected_executor"):
+                module.verify(ssh, sudo, expected)
 
     def test_mismatched_users_are_rejected(self):
         ssh, _ = policies("arthe")
