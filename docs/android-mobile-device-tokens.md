@@ -43,14 +43,14 @@ not the OAuth/MCP bearer used by ChatGPT or the Watchtower passkey issuer.
    conflict may reset **canary-only** data; the signed production app and
    credentials are not installed, uninstalled or modified.
 5. Once the new canary/test APKs are verified, the script mints an exclusive
-   token, writes it via ADB \`exec-in\` **stdin** to a private \`run-as\`
+   token, writes it via ADB \`shell -T\` **stdin** to a private \`run-as\`
    file in the canary sandbox (no token in process arguments) and invokes
    only \`MobileDeviceProvisionTest\`. That test deletes the private file,
    encrypts the bearer using AndroidKeyStore/SecretStore and makes a real
    authenticated **HTTPS GET /api/v1/health**. The script then runs the six
    hermetic Compose component checks. The result prints only a public token
    ID, expiry, scope, source SHA, CI run and pass/fail counters.
-6. On any incomplete provisioning/test result, the node revokes the newly
+   On the tested Samsung Android 8, \`adb exec-in\` returned exit 0 without delivering the bytes. The field consumer uses the verified \`adb shell -T run-as ... dd\` path instead, requires exact SHA-256 readback and mode 0600 in the canary sandbox, and denies a transfer even if ADB returned 0 when content or mode cannot be confirmed. No plaintext is logged or printed.\n6. On any incomplete provisioning/test result, the node revokes the newly
    issued credential and attempts private-file cleanup. If a catastrophic
    node failure prevents revocation, use the local \`list\` and \`revoke\`
    commands above against the public ID. Never print bearer values.
