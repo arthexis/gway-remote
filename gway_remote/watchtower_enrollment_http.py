@@ -123,6 +123,8 @@ def make_handler(provisioner: Provisioner | None, *, public_url: str, wireguard_
                     if not legacy and not staged:
                         raise ValueError("bad request")
                     if staged:
+                        if not re.fullmatch(r"gway-[0-9]{3}", data.get("device", "")):
+                            raise ValueError("local receiver stages unavailable for named satellites")
                         metadata = release_provider()
                         if (type(data["revision"]) is not str or
                                 data["revision"] != metadata["revision"] or
