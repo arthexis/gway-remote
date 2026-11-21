@@ -32,6 +32,18 @@ def require_success(result, error):
     return result.stdout.strip()
 
 
+def adb_install_succeeded(result):
+    """Recognize ADB's standard progress banner followed by exact Success."""
+    if result.returncode != 0:
+        return False
+    lines = [line.strip() for line in result.stdout.splitlines() if line.strip()]
+    if lines == ["Success"]:
+        return True
+    return len(lines) == 2 and bool(
+        re.fullmatch(r"Performing (?:Streamed|Push|Incremental) Install", lines[0])
+    ) and lines[1] == "Success"
+
+
 def authorized_usb(call=run_command):
     result = call(["/usr/bin/adb", "devices", "-l"], 10)
     output = require_success(result, "usb_discovery_failed")
@@ -76,9 +88,13 @@ def install(apk: str, *, reset_allowed: bool = False, call=run_command):
     outcome = None
     try:
         first = adb("install", "-r", str(file), timeout=100)
-        if first.returncode == 0 and first.stdout.strip() == "Success":
+        if adb_install_succeeded(first):
             outcome = "updated"
         else:
+            # An ADB exit-zero response without a recognized success marker is
+            # not a signing conflict, and must never authorize a reset.
+            if first.returncode == 0:
+                raise InstallBlocked("canary_install_success_unconfirmed")
             output = first.stdout + first.stderr
             conflict = re.search(
                 r"Failure \[INSTALL_FAILED_UPDATE_INCOMPATIBLE(?::|\])", output
@@ -95,7 +111,7 @@ def install(apk: str, *, reset_allowed: bool = False, call=run_command):
             if not canary_absent():
                 raise InstallBlocked("canary_reset_not_confirmed")
             second = adb("install", "-r", str(file), timeout=100)
-            if second.returncode != 0 or second.stdout.strip() != "Success":
+            if not adb_install_succeeded(second):
                 raise InstallBlocked("canary_reinstall_failed")
             outcome = "canary_reset_and_installed"
         if not package_path(CANARY).startswith("package:"):
