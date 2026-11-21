@@ -31,7 +31,7 @@
   },
   "diagnose --help": {
     "code": 0,
-    "stdout_sha256": "be0d0f215971fa648f921786271e9eea17f19b2f1e6a7e937140ef73008b0335",
+    "stdout_sha256": "158312271ce26292953dde87015a87391f60701857579c58f952b292e862c451",
     "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
   },
   "watch --help": {
@@ -66,7 +66,7 @@
   },
   "logs --help": {
     "code": 0,
-    "stdout_sha256": "c0e57a2533a4bab49a7af6415f4c163c56480775386716a758d7066c6b917e13",
+    "stdout_sha256": "0624f6b16c2d07684e24af835dc8662613d747bdba7043935c9f0d11aa885a39",
     "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
   },
   "report-bundle --help": {
@@ -76,12 +76,12 @@
   },
   "retention --help": {
     "code": 0,
-    "stdout_sha256": "97dbfc8479dba899bbe99809d2a650e8c83d213f23248ae23be8d2f927f620ed",
+    "stdout_sha256": "c6985ad88e99806c137c73176cc6053b7eaad5fce3077c16a2b62e1a4d7f0d1e",
     "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
   },
   "deployments --help": {
     "code": 0,
-    "stdout_sha256": "54f558466c7548c2fcd6e9ff6e8b448ffc7741ae929bef04f0c139933c22327c",
+    "stdout_sha256": "70bfe0b901c52d3db5081519f276f1ce1cd4af420c2054fcee6132edaf32f36b",
     "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
   },
   "deploy --help": {
@@ -91,7 +91,7 @@
   },
   "deploy-batch --help": {
     "code": 0,
-    "stdout_sha256": "39e1a644a6b508f2a14e417027fb61114c786fb8f0f5bb0dbb939aacee970a02",
+    "stdout_sha256": "f7f28f6bb212a72b1266743f06ba4e7b98d9b57ac3383541f51ca99355838ec3",
     "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
   },
   "host-key --help": {
