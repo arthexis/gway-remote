@@ -33,7 +33,7 @@ class ApplianceWorkflowTests(unittest.TestCase):
         self.assertIn("report-bundle", deploy)
         self.assertEqual(len(MANAGED_DEPLOYMENT_TARGETS) - 1, deploy.count("python3 -m gway_remote deploy-batch --all --target"))
 
-    def test_two_independent_serialized_tracks(self):
+    def test_independent_serialized_tracks(self):
         deploy = (WORKFLOWS / "appliance-deploy.yml").read_text()
         # Extract top-level job blocks, independent of incidental formatting.
         blocks = re.split(r"(?m)^  ([a-z][a-z0-9_]*):\s*\n", deploy.split("\njobs:\n", 1)[1])
@@ -43,6 +43,7 @@ class ApplianceWorkflowTests(unittest.TestCase):
             ("ocpp_csms", "ocpp_reports"),
             ("gway_lcd_sound", "gway_agent_ops", "gway_ap_kiosk",
              "gway_rfid", "gway_bastion"),
+            ("aeon_mud",),
         )
         self.assertEqual(set(jobs), {"admission", "report"} | set().union(*map(set, tracks)))
         self.assertIn("require_local_deployment", jobs["admission"])
