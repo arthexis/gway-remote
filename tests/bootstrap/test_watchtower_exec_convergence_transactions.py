@@ -1,8 +1,34 @@
 """Hermetic tests for central grant serialization, CAS, limits and recovery."""
 import json
+import os
 import pytest
 
-from gway_remote.watchtower_exec_convergence import ConvergenceRefused
+from gway_remote.watchtower_exec_convergence import (
+    ConvergenceRefused, _operator_lease as actual_operator_lease,
+)
+
+
+@pytest.fixture(autouse=True)
+def _no_real_root_operator_lock(monkeypatch):
+    """Unit tests fake root; keep their lock files out of the real host."""
+    from gway_remote import watchtower_exec_convergence as cv
+    monkeypatch.setattr(cv, "_operator_lease", lambda *_args, **_kwargs:
+                        os.open(os.devnull, os.O_RDONLY))
+
+
+def test_advisory_lease_excludes_concurrent_operators_and_releases_on_exit(tmp_path):
+    """Exercise the actual kernel lock, with test-user ownership explicitly set."""
+    tmp_path.chmod(0o700)
+    owner = os.getuid()
+    first = actual_operator_lease(tmp_path, owner=owner)
+    try:
+        with pytest.raises(ConvergenceRefused, match="another operator transaction"):
+            actual_operator_lease(tmp_path, owner=owner)
+    finally:
+        os.close(first)
+    second = actual_operator_lease(tmp_path, owner=owner)
+    os.close(second)
+
 
 def test_cas_updates_known_hosts_before_config_and_never_overwrites_edits(monkeypatch):
     import stat
