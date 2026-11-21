@@ -284,6 +284,8 @@ def converge(action, node, *, config=CONFIG, ledger=LEDGER, state_root=STATE,
     global_lock = state_root / ".active"
     os.mkdir(global_lock, mode=0o700)
     try:
+        if stage.exists():
+            raise ConvergenceRefused("pending transaction requires operator recovery")
         p = plan(node, enable, config=config, ledger=ledger)
         from .node_registry_inventory import _grants
         prior = _grants(ledger).get(node, ("", False))[1]
@@ -297,8 +299,6 @@ def converge(action, node, *, config=CONFIG, ledger=LEDGER, state_root=STATE,
                     "limits_verified": enable, "terminal_execution_verified": False,
                     "changed": False}
 
-        if stage.exists():
-            raise ConvergenceRefused("pending transaction requires operator recovery")
         try:
             _claim(p, stage, prior_eligible=prior)
         except Exception:
