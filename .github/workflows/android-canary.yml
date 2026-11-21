@@ -5,7 +5,7 @@ on:
   workflow_dispatch:
     inputs:
       pr_number:
-        description: "Open same-repository PR number (e.g. 644)"
+        description: "Open or merged same-repository PR number (e.g. 670)"
         required: true
         type: string
       expected_sha:
@@ -39,7 +39,11 @@ jobs:
           [[ "$PR_NUMBER" =~ ^[1-9][0-9]{0,6}$ ]] || { echo "::error::Invalid PR number"; exit 1; }
           [[ "$EXPECTED_SHA" =~ ^[0-9a-f]{40}$ ]] || { echo "::error::Invalid expected SHA"; exit 1; }
           PR_JSON=$(gh api "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER")
-          [[ "$(jq -r .state <<<"$PR_JSON")" == "open" ]] || { echo "::error::PR is not open"; exit 1; }
+          PR_STATE=$(jq -r .state <<<"$PR_JSON")
+          PR_MERGED=$(jq -r .merged <<<"$PR_JSON")
+          [[ "$PR_STATE" == "open" || ( "$PR_STATE" == "closed" && "$PR_MERGED" == "true" ) ]] || {
+            echo "::error::PR is neither open nor merged"; exit 1;
+          }
           [[ "$(jq -r .head.repo.full_name <<<"$PR_JSON")" == "$GITHUB_REPOSITORY" ]] || {
             echo "::error::Only same-repository PR heads are supported"; exit 1;
           }
@@ -114,7 +118,25 @@ jobs:
       - name: Build only a debug canary APK
         working-directory: android
         shell: bash
-        run: gradle :app:assembleDebug :app:assembleDebugAndroidTest --no-daemon
+        run: |
+          set -euo pipefail
+          build_log="$RUNNER_TEMP/android-canary-gradle.log"
+          for attempt in 1 2 3; do
+            if gradle :app:assembleDebug :app:assembleDebugAndroidTest --no-daemon >"$build_log" 2>&1; then
+              tail -n 18 "$build_log"
+              exit 0
+            fi
+            if ! grep -Eq 'Received status code 429|Too Many Requests|HTTP/1.1 429' "$build_log"; then
+              cat "$build_log"
+              exit 1
+            fi
+            if [[ "$attempt" -eq 3 ]]; then
+              cat "$build_log"
+              exit 1
+            fi
+            echo "::warning::Maven rate-limited AndroidTest dependencies (429); bounded retry"
+            sleep "$((15 * attempt))"
+          done
 
       - name: Verify signature, package and SHA256 provenance
         env:
