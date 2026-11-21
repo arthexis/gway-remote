@@ -144,3 +144,26 @@ moves or wakes the physical Android. Field acceptance remains an explicitly
 observed separate step, not triggered by a PR merge. Real UI-specific
 scenarios should be added only after obtaining a current, safe target ID
 and reviewing the scenario source.
+
+
+## On-demand USB wake (post-#339)
+
+The single authorized physical USB device on `gway-001` is available even
+when its screen is initially off. Execute-only `android__tap_target` and the
+reviewed `home-screen-stability-v2` scenario may dispatch **one**
+`KEYCODE_WAKEUP` when `screen_on=false`. After waking, the provider reads
+screen power, lock and rotation again, then applies the usual unique-target,
+clickability and bounds checks. A failed/unknown wake is **never retried**;
+no PIN, credential, lock bypass, app install or network ADB is permitted.
+
+`android__status`, `android__wait_ui`, capture and UI-tree inspection remain
+read-only and never wake the phone. Existing scenario IDs, especially
+`home-screen-stability-v1`, retain identical immutable steps and hashes.
+The v2 preview advertises **at most two actions**: one conditional wake and
+one `HOME`. A private receipt records actual successful wake invocations;
+if a wake attempt returns an uncertain error, the attempt is conservatively
+counted as one possible action. No screenshots or private UI text are stored.
+
+CI tests use only fakes for awake, asleep, locked, unknown, wake failure,
+changed display and no-repeat behavior. Real USB actions are operator-driven,
+not part of PR CI. This does not create new OAuth scopes, MCP tools or services.

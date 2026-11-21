@@ -40,8 +40,21 @@ SCENARIOS = {
             "usb": "authorized", "screen_on": True, "locked": False,
         }},
     ),
+    # Reviewed v2 can wake an already authorized USB device once, without
+    # altering v1's immutable steps, digest or historical receipts.
+    "home-screen-stability-v2": (
+        {"op": "status", "expect": {"usb": "authorized"}},
+        {"op": "wake_if_needed"},
+        {"op": "status", "expect": {
+            "usb": "authorized", "screen_on": True, "locked": False,
+        }},
+        {"op": "key", "args": {"key": "HOME"}},
+        {"op": "status", "expect": {
+            "usb": "authorized", "screen_on": True, "locked": False,
+        }},
+    ),
 }
-_ALLOWED_OPS = frozenset({"status", "wait_ui", "tap_target", "key"})
+_ALLOWED_OPS = frozenset({"status", "wait_ui", "tap_target", "key", "wake_if_needed"})
 
 
 class ScenarioError(ValueError):
@@ -66,6 +79,11 @@ def _spec(scenario_id):
             actions += 1
             if type(step.get("args")) is not dict:
                 raise ScenarioError("invalid_scenario")
+        elif step["op"] == "wake_if_needed":
+            # One possible WAKEUP, never supplied by the MCP caller.
+            if set(step) != {"op"}:
+                raise ScenarioError("invalid_scenario")
+            actions += 1
         elif step["op"] == "wait_ui" and type(step.get("args")) is not dict:
             raise ScenarioError("invalid_scenario")
         elif step["op"] == "status" and type(step.get("expect")) is not dict:
@@ -178,6 +196,14 @@ def run(scenario_id, *, device, receipt_root=None, clock=time.monotonic):
                     observed.get(key) == value
                     for key, value in step["expect"].items()
                 ) else "failed")
+            elif name == "wake_if_needed":
+                # Reserve one possible dispatch before calling the device;
+                # on uncertainty, conservatively count it as attempted.
+                invocations += 1
+                observed = device.wake_if_needed()
+                if observed.get("woke") is False:
+                    invocations -= 1
+                verdict = "passed" if observed.get("ok") is True else "failed"
             else:
                 if name in ("tap_target", "key"):
                     invocations += 1
