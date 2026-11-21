@@ -16,8 +16,7 @@ AGENT_REPOSITORY = "arthexis/gway-agent-ops"
 KIOSK_REPOSITORY = "arthexis/gway-ap-kiosk"
 RFID_REPOSITORY = "arthexis/gway-rfid"
 BASTION_REPOSITORY = "arthexis/gway-bastion"
-AEON_REPOSITORY = "arthexis/aeon-mud"
-TASKS = ("system-health", "lcd-sound-deploy", "ocpp-csms-deploy", "ocpp-reports-deploy", "agent-ops-deploy", "ap-kiosk-deploy", "rfid-deploy", "bastion-deploy", "aeon-mud-deploy")
+TASKS = ("system-health", "lcd-sound-deploy", "ocpp-csms-deploy", "ocpp-reports-deploy", "agent-ops-deploy", "ap-kiosk-deploy", "rfid-deploy", "bastion-deploy")
 
 
 def validate(task: str, repository: str = "", sha: str = "") -> None:
@@ -32,7 +31,6 @@ def validate(task: str, repository: str = "", sha: str = "") -> None:
                 "ap-kiosk-deploy": KIOSK_REPOSITORY,
                 "rfid-deploy": RFID_REPOSITORY,
                 "bastion-deploy": BASTION_REPOSITORY,
-                "aeon-mud-deploy": AEON_REPOSITORY,
                 "ocpp-reports-deploy": REPORTS_REPOSITORY}.get(task, ALLOWED_REPOSITORY)
     if repository != expected:
         raise ValueError("Repository not allowed")
@@ -51,7 +49,7 @@ def run(task: str, repository: str = "", sha: str = "") -> None:
         }, sort_keys=True))
         return
 
-    if task in ("lcd-sound-deploy", "ocpp-csms-deploy", "ocpp-reports-deploy", "agent-ops-deploy", "ap-kiosk-deploy", "rfid-deploy", "bastion-deploy", "aeon-mud-deploy"):
+    if task in ("lcd-sound-deploy", "ocpp-csms-deploy", "ocpp-reports-deploy", "agent-ops-deploy", "ap-kiosk-deploy", "rfid-deploy", "bastion-deploy"):
         from .best_effort import manual_execute
         from .github_state import GitHub
         installer = {
@@ -62,7 +60,6 @@ def run(task: str, repository: str = "", sha: str = "") -> None:
             "ap-kiosk-deploy": deploy_ap_kiosk,
             "rfid-deploy": deploy_rfid,
             "bastion-deploy": deploy_bastion,
-            "aeon-mud-deploy": deploy_aeon_mud,
         }[task]
         name = {"lcd-sound-deploy": "gway-lcd-sound",
                 "ocpp-csms-deploy": "ocpp-csms",
@@ -71,7 +68,7 @@ def run(task: str, repository: str = "", sha: str = "") -> None:
                 "ap-kiosk-deploy": "gway-ap-kiosk",
                 "rfid-deploy": "gway-rfid",
                 "bastion-deploy": "gway-bastion",
-                "aeon-mud-deploy": "aeon-mud"}[task]
+                }[task]
         print(json.dumps(manual_execute(GitHub(), name, sha, installer), sort_keys=True))
         return
 
