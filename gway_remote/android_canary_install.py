@@ -69,7 +69,7 @@ def install(apk: str, *, reset_allowed: bool = False, call=run_command):
         else:
             output = first.stdout + first.stderr
             conflict = re.search(
-                r"Failure \\[INSTALL_FAILED_UPDATE_INCOMPATIBLE(?::|\\])", output
+                r"Failure \[INSTALL_FAILED_UPDATE_INCOMPATIBLE(?::|\])", output
             ) is not None
             if not reset_allowed or not conflict:
                 raise InstallBlocked("canary_install_rejected_no_reset")
