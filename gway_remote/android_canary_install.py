@@ -68,7 +68,10 @@ def install(apk: str, *, reset_allowed: bool = False, call=run_command):
             outcome = "updated"
         else:
             output = first.stdout + first.stderr
-            if not reset_allowed or SIGNATURE_CONFLICT not in output:
+            conflict = re.search(
+                r"Failure \\[INSTALL_FAILED_UPDATE_INCOMPATIBLE(?::|\\])", output
+            ) is not None
+            if not reset_allowed or not conflict:
                 raise InstallBlocked("canary_install_rejected_no_reset")
             existing = package_path(CANARY)
             if not existing.startswith("package:") or not all(
