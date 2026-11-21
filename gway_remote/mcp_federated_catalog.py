@@ -40,9 +40,7 @@ def catalog_from_nodes(builtins, node_catalogs):
         for provider in providers:
             if type(provider) is not dict or not {"provider", "node", "revision", "status", "tools"} <= set(provider) or provider["node"] != node or provider["status"] not in ("available", "unavailable") or type(provider["revision"]) is not str:
                 raise FederationError("invalid_provider")
-            # Optional receiver capability. Absence means an older node and
-            # requires the existing scoped-read wire; do not probe by sending
-            # an operation that the old receiver cannot understand.
+            # No fallback: a receiver without read support fails closed.
             if ("supports_provider_read" in provider and
                     type(provider["supports_provider_read"]) is not bool):
                 raise FederationError("invalid_provider_capability")
@@ -88,12 +86,10 @@ def route_provider_call(routes, name, arguments, *, authorized_scope, invoke):
         raise PermissionError("mcp_execute_scope_required")
     if authorized_scope not in ("read", "execute"):
         raise PermissionError("invalid_scope")
-    # Read-only callers use an operation-bound verb only when the deployed
-    # node advertises receiver support. Otherwise preserve the legacy read
-    # request, which still checks the live declaration on that node.
-    supports_read = len(route) > 4 and route[4] is True
-    operation = ("provider_read" if authorized_scope == "read" and supports_read
-                 else "provider_call")
+    # Reject unsupported reads instead of downgrading to an execute-shaped RPC.
+    if authorized_scope == "read" and not (len(route) > 4 and route[4] is True):
+        raise FederationError("provider_read_receiver_unsupported")
+    operation = "provider_read" if authorized_scope == "read" else "provider_call"
     return invoke(node, {"operation": operation, "provider": provider,
                          "tool": tool, "arguments": arguments},
                   trusted_scope=authorized_scope)

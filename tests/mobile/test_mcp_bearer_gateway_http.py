@@ -50,7 +50,7 @@ class GatewayHttpTests(unittest.TestCase):
                 thread.start()
                 try:
                     url = "http://127.0.0.1:%d/mcp" % gateway.server_port
-                    body = mcp_call('github_workflow_runs')
+                    body = mcp_call('mcp_source_status')
                     request = bearer_post(url, body, token)
                     with urlopen(request, timeout=3) as result:
                         self.assertEqual(result.status, 200)

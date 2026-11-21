@@ -26,7 +26,7 @@ class ProviderErrorsTest(unittest.TestCase):
 
     def test_builtin_failure_is_not_attributed_to_agentops(self):
         with patch.object(mcp_agent, "call_tool", side_effect=OSError("private path")):
-            result, _, _ = self.call("github_workflow_runs")
+            result, _, _ = self.call("mcp_source_status")
         self.assertEqual(json.loads(result["content"][0]["text"])["provider"], "gway-remote")
 
     def test_timeout_is_actionable(self):

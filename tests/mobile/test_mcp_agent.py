@@ -3,14 +3,16 @@ import unittest
 from unittest.mock import Mock, patch
 from gway_remote import mcp_agent
 
-LEGACY = {"agent_list_issues", "agent_status", "agent_preview", "agent_observe", "agent_submit"}
+LEGACY = {"agent_list_issues", "agent_status", "agent_preview", "agent_observe", "agent_submit",
+          "github_workflow_runs", "github_workflow_status", "github_workflow_errors",
+          "github_branch_effective_rules", "github_commit_checks"}
 
 class MCPAgentTests(unittest.TestCase):
     def test_tool_inventory_excludes_legacy(self):
         tools = mcp_agent.list_tools()
         names = {t["name"] for t in tools}
         self.assertFalse(LEGACY & names)
-        self.assertTrue({"github_workflow_runs", "github_workflow_status", "github_workflow_errors", "mcp_source_status"} <= names)
+        self.assertEqual(names, {"mcp_source_status"})
         self.assertEqual(len(names), len(tools))
 
     def test_builtin_read_dispatch(self):

@@ -1,0 +1,12 @@
+[Unit]
+Description=Check for pre-built Android canary APKs on gway-001
+
+[Timer]
+OnBootSec=15min
+OnUnitInactiveSec=45min
+RandomizedDelaySec=5min
+Persistent=true
+Unit=gway-remote-android-canary.service
+
+[Install]
+WantedBy=timers.target

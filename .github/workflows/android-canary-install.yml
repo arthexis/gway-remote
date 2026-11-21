@@ -1,0 +1,109 @@
+name: Install Android Canary (manual gway-001)
+
+# Installation is never triggered by a pull request, push, release or CI run.
+on:
+  workflow_dispatch:
+    inputs:
+      pr_number:
+        description: "PR number that produced the reviewed APK"
+        type: string
+        required: true
+      expected_sha:
+        description: "Exact 40-character source commit"
+        type: string
+        required: true
+      artifact_run_id:
+        description: "Successful Android Canary APK workflow run ID"
+        type: string
+        required: true
+      apk_sha256:
+        description: "Previously verified 64-character APK digest"
+        type: string
+        required: true
+
+permissions:
+  contents: read
+  actions: read
+  pull-requests: read
+
+concurrency:
+  group: gway-001-android-canary-install
+  cancel-in-progress: false
+
+jobs:
+  install:
+    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && github.actor == 'arthexis'
+    runs-on: [self-hosted, Linux, ARM64, gway-001]
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Validate immutable source and source workflow
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ inputs.pr_number }}
+          EXPECTED_SHA: ${{ inputs.expected_sha }}
+          ARTIFACT_RUN: ${{ inputs.artifact_run_id }}
+          EXPECTED_DIGEST: ${{ inputs.apk_sha256 }}
+        run: |
+          set -euo pipefail
+          [[ "$PR_NUMBER" =~ ^[1-9][0-9]{0,6}$ ]] || exit 1
+          [[ "$EXPECTED_SHA" =~ ^[0-9a-f]{40}$ ]] || exit 1
+          [[ "$ARTIFACT_RUN" =~ ^[1-9][0-9]{0,11}$ ]] || exit 1
+          [[ "$EXPECTED_DIGEST" =~ ^[0-9a-f]{64}$ ]] || exit 1
+          PR=$(gh api "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER")
+          printf '%s' "$PR" | python3 -c 'import json, os, sys; p=json.load(sys.stdin); assert p["state"] == "open" and p["head"]["repo"]["full_name"] == os.environ["GITHUB_REPOSITORY"] and p["head"]["sha"] == os.environ["EXPECTED_SHA"], "PR identity mismatch"'
+          SOURCE_RUN=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$ARTIFACT_RUN")
+          printf '%s' "$SOURCE_RUN" | python3 -c 'import json, sys; r=json.load(sys.stdin); assert r["name"] == "Android Canary APK (manual)" and r["path"] == ".github/workflows/android-canary.yml" and r["event"] == "workflow_dispatch" and r["head_branch"] == "main" and r["conclusion"] == "success", "Source workflow mismatch"'
+          ARTIFACT="android-canary-pr$PR_NUMBER-$(printf '%s' "$EXPECTED_SHA" | cut -c1-12)"
+          DEST="$RUNNER_TEMP/android-canary-install-$GITHUB_RUN_ID"
+          mkdir -m 700 "$DEST"
+          gh run download "$ARTIFACT_RUN" --repo "$GITHUB_REPOSITORY" --name "$ARTIFACT" --dir "$DEST"
+          test -f "$DEST/gway-remote-canary.apk"
+          test -f "$DEST/SHA256SUMS"
+          test -f "$DEST/PROVENANCE.txt"
+          [[ ! -L "$DEST/gway-remote-canary.apk" ]] || exit 1
+          [[ "$(stat -c '%s' "$DEST/gway-remote-canary.apk")" -gt 10000 ]] || exit 1
+          [[ "$(stat -c '%s' "$DEST/gway-remote-canary.apk")" -lt 104857600 ]] || exit 1
+          (cd "$DEST" && sha256sum --check SHA256SUMS)
+          [[ "$(sha256sum "$DEST/gway-remote-canary.apk" | cut -d' ' -f1)" == "$EXPECTED_DIGEST" ]] || exit 1
+          grep -Fxq "Repository: $GITHUB_REPOSITORY" "$DEST/PROVENANCE.txt"
+          grep -Fxq "Pull-Request: $PR_NUMBER" "$DEST/PROVENANCE.txt"
+          grep -Fxq "Source-Commit: $EXPECTED_SHA" "$DEST/PROVENANCE.txt"
+          grep -Fxq "Package: com.arthexis.gwayremote.canary" "$DEST/PROVENANCE.txt"
+          grep -Fxq "Canary-Overlay: package-and-label-v1" "$DEST/PROVENANCE.txt"
+          grep -Fxq "Actions-Run: $ARTIFACT_RUN" "$DEST/PROVENANCE.txt"
+          echo "CANARY_APK=$DEST/gway-remote-canary.apk" >> "$GITHUB_ENV"
+          echo "CANARY_SHA=$EXPECTED_SHA" >> "$GITHUB_ENV"
+          echo "CANARY_DIGEST=$EXPECTED_DIGEST" >> "$GITHUB_ENV"
+          echo "Verified pinned APK and provenance for PR #$PR_NUMBER"
+
+      - name: Install ONLY isolated canary on one authorized USB Android
+        shell: bash
+        run: |
+          set -euo pipefail
+          # Not a general Android command proxy. Explicitly select one USB device.
+          test -x /usr/bin/adb
+          DEVICES=$(/usr/bin/adb devices -l | awk 'NR>1 && NF {print}')
+          [[ "$(printf '%s\n' "$DEVICES" | grep -c .)" -eq 1 ]] || {
+            echo "::error::Expected exactly one USB device"; exit 1;
+          }
+          read -r SERIAL STATE _ <<< "$DEVICES"
+          [[ "$STATE" == "device" && "$DEVICES" == *"usb:"* ]] || {
+            echo "::error::No single authorized USB Android"; exit 1;
+          }
+          # Read-only comparison proves production APK was not replaced.
+          PRODUCTION_BEFORE=$(/usr/bin/adb -s "$SERIAL" shell pm path com.arthexis.gwayremote | tr -d '\r')
+          /usr/bin/adb -s "$SERIAL" install -r "$CANARY_APK"
+          /usr/bin/adb -s "$SERIAL" shell pm path com.arthexis.gwayremote.canary | grep -q '^package:'
+          PRODUCTION_AFTER=$(/usr/bin/adb -s "$SERIAL" shell pm path com.arthexis.gwayremote | tr -d '\r')
+          [[ "$PRODUCTION_BEFORE" == "$PRODUCTION_AFTER" ]] || {
+            echo "::error::Production package path unexpectedly changed"; exit 1;
+          }
+          echo "### Canary installed on gway-001 USB Android" >> "$GITHUB_STEP_SUMMARY"
+          echo "Package: com.arthexis.gwayremote.canary" >> "$GITHUB_STEP_SUMMARY"
+          echo "PR source SHA: $CANARY_SHA" >> "$GITHUB_STEP_SUMMARY"
+          echo "APK SHA256: $CANARY_DIGEST" >> "$GITHUB_STEP_SUMMARY"
+          echo "Production package path unchanged; no launch or UI actions performed." >> "$GITHUB_STEP_SUMMARY"

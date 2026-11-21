@@ -10,7 +10,10 @@ TOOL = fixture_tool('search', read=True)
 
 
 def nodes(*names, tool=TOOL):
-    return {name: provider_reply(name, tools=[tool]) for name in names}
+    replies = {name: provider_reply(name, tools=[tool]) for name in names}
+    for reply in replies.values():
+        reply['providers'][0]['supports_provider_read'] = True
+    return replies
 
 
 class FederatedCatalogTests(unittest.TestCase):
@@ -22,7 +25,7 @@ class FederatedCatalogTests(unittest.TestCase):
                                               authorized_scope="read", invoke=spy.invoke),
                          {"ok": True})
         self.assertEqual(spy.calls[0][0], "gway-001")
-        self.assertEqual(spy.calls[0][1]["operation"], "provider_call")
+        self.assertEqual(spy.calls[0][1]["operation"], "provider_read")
         self.assertEqual(spy.calls[0][2], "read")
 
     def test_same_provider_on_distinct_nodes_gets_distinct_routes(self):
@@ -69,21 +72,22 @@ class FederatedCatalogTests(unittest.TestCase):
                                 authorized_scope='read', invoke=spy.invoke)
         self.assertEqual(len(spy.calls), 2)
 
-    def test_read_rpc_falls_back_for_legacy_catalog(self):
-        reply = provider_reply('gway-001', tools=[TOOL])
-        _, routes = catalog_from_nodes([], {'gway-001': reply})
-        spy = InvocationSpy(response={'content': []})
-        route_provider_call(routes, 'odoo__search', {},
-                            authorized_scope='read', invoke=spy.invoke)
-        self.assertEqual(spy.calls[0][1]['operation'], 'provider_call')
-        self.assertEqual(spy.calls[0][2], 'read')
-
-        # Explicitly disabled capability also preserves the old read wire.
-        reply['providers'][0]['supports_provider_read'] = False
-        _, routes = catalog_from_nodes([], {'gway-001': reply})
-        route_provider_call(routes, 'odoo__search', {},
-                            authorized_scope='read', invoke=spy.invoke)
-        self.assertEqual(spy.calls[1][1]['operation'], 'provider_call')
+    def test_legacy_receiver_read_fails_closed(self):
+        for capability in (None, False):
+            with self.subTest(capability=capability):
+                reply = provider_reply('gway-001', tools=[TOOL])
+                if capability is not None:
+                    reply['providers'][0]['supports_provider_read'] = capability
+                _, routes = catalog_from_nodes([], {'gway-001': reply})
+                spy = InvocationSpy(response={'content': []})
+                with self.assertRaisesRegex(FederationError, "provider_read_receiver_unsupported"):
+                    route_provider_call(routes, 'odoo__search', {},
+                                        authorized_scope='read', invoke=spy.invoke)
+                self.assertEqual(spy.calls, [])
+                # Write operations are still gated at public ingress.
+                route_provider_call(routes, 'odoo__search', {},
+                                    authorized_scope='execute', invoke=spy.invoke)
+                self.assertEqual(spy.calls[0][1]['operation'], 'provider_call')
 
     def test_invalid_capability_fails_closed(self):
         for invalid in ('true', 1, None, [], {}):

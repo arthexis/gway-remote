@@ -6,7 +6,7 @@ from pathlib import Path
 
 from gway_remote.host_identity import validate_public_key
 
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = Path(__file__).resolve().parents[2]
 CLIENT = ROOT / "gway_remote/wireguard_satellite.py"
 WIRE = bytes((0, 0, 0, 11)) + b"ssh-ed25519" + bytes((0, 0, 0, 32)) + bytes(range(32))
 KEY = "ssh-ed25519 " + base64.b64encode(WIRE).decode()

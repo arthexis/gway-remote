@@ -1,3 +1,9 @@
+> **Current ownership:** GitHub Actions MCP tools now belong to the
+> installed `gway-repo` provider (federated public names `repo__github_*`).
+> GWay Remote retains authorization and provider routing only. This document
+> describes the historic builtin implementation and is not a deployment guide
+> for new GitHub MCP tools.
+>
 # M2b — GitHub Actions read-only MCP inspection
 
 This implementation adds exactly three read-only MCP tools:

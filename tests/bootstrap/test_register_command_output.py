@@ -6,7 +6,7 @@ import unittest
 
 class RegisterCommandOutputTests(unittest.TestCase):
     def test_register_prints_complete_shell_command(self):
-        source = pathlib.Path(__file__).resolve().parents[1] / "gway_remote" / "__main__.py"
+        source = pathlib.Path(__file__).resolve().parents[2] / "gway_remote" / "cli" / "security.py"
         tree = ast.parse(source.read_text())
         register_outputs = [
             node for node in ast.walk(tree)

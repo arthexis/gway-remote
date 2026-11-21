@@ -74,10 +74,12 @@ class GatewayFederationRoutesHTTPTests(unittest.TestCase):
             def invoke(self, node, request, *, trusted_scope):
                 self.calls.append((node, dict(request), trusted_scope))
                 if request["operation"] == "provider_list":
-                    return provider_reply(
+                    response = provider_reply(
                         node, tools=[fixture_tool("lookup", read=True),
                                      fixture_tool("update")])
-                if request["operation"] == "provider_call":
+                    response["providers"][0]["supports_provider_read"] = True
+                    return response
+                if request["operation"] in ("provider_call", "provider_read"):
                     return {"content": []}
                 raise AssertionError("Unexpected operation")
 
@@ -117,18 +119,18 @@ class GatewayFederationRoutesHTTPTests(unittest.TestCase):
                     self.assertEqual(call("odoo__lookup", read_token), 200)
                     self.assertEqual(
                         [x[1]["operation"] for x in transport.calls],
-                        ["provider_list", "provider_call"])
+                        ["provider_list", "provider_read"])
                     self.assertEqual(transport.calls[-1][2], "read")
 
                     self.assertEqual(call("odoo__update", read_token), 401)
                     self.assertEqual(
                         [x[1]["operation"] for x in transport.calls],
-                        ["provider_list", "provider_call", "provider_list"])
+                        ["provider_list", "provider_read", "provider_list"])
 
                     self.assertEqual(call("odoo__update", execute_token), 200)
                     self.assertEqual(
                         [x[1]["operation"] for x in transport.calls],
-                        ["provider_list", "provider_call", "provider_list",
+                        ["provider_list", "provider_read", "provider_list",
                          "provider_list", "provider_call"])
                     self.assertEqual(transport.calls[-1][2], "execute")
 
