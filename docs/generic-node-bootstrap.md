@@ -57,3 +57,14 @@ Their legacy completion reports `local_setup_reported=false` and
 `remote_execution_verified=false`. Expanding named satellites into the
 restricted SSH execution program requires a separately reviewed policy and
 real field acceptance. This change does not alter their previous behavior.
+
+## Host-identity repair remains repair-first
+
+A URL issued with `register NODE --repair` is **host-identity-only** and
+keeps the previous standalone WireGuard repair script. It works from a root
+console without `SUDO_USER`, an existing executor policy, a Git checkout or
+the reviewed package marker; it does not install or switch an executor.
+After a successful identity repair, issue a **normal** node-bound bootstrap URL
+to converge the package, user manager and restricted relay on an already-managed
+tunnel. This distinction protects legacy repair and prevents partial privilege
+changes during an identity-only operation.

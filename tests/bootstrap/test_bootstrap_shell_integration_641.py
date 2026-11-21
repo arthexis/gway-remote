@@ -69,7 +69,13 @@ for word in "$@"; do
 done
 case " $* " in
   *"/client.py "*) printf '%s' "$CLIENT_CONTENT" > "$output";;
-  *"/complete "*) printf '{"complete":true,"local_setup_reported":true,"local_ready_verified":false}\\n' > "$output";;
+  *"/complete "*)
+    if [ -n "$output" ]; then
+      printf '{"complete":true,"local_setup_reported":true,"local_ready_verified":false}\\n' > "$output"
+    else
+      printf '{"complete":true,"local_setup_reported":false,"local_ready_verified":false}\\n'
+    fi
+    ;;
   *) exit 25;;
 esac
 ''')
@@ -138,4 +144,10 @@ def test_root_only_repair_keeps_existing_identity_path(fake_host):
     env.pop("SUDO_USER")
     result = _execute(_render(repair=True), env)
     assert result.returncode == 0, result.stderr.decode()
-    assert "--repair" in events.read_text()
+    content = events.read_text()
+    assert "--repair" in content
+    assert "/complete" in content
+    # Regression: repair-first must not attempt full package/relay convergence.
+    assert "git -C" not in content
+    assert not any(line.startswith("vars ") for line in content.splitlines())
+    assert not any(line.startswith("ansible ") for line in content.splitlines())

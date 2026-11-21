@@ -50,6 +50,16 @@ class BootstrapHostGuardTests(unittest.TestCase):
         self.assertNotIn("local_setup_reported", script)
         self.assertIn("/complete", script)
 
+    def test_identity_repair_does_not_require_release_or_executor(self):
+        script = render_bootstrap_script("a" * 40, "gway-004", "b" * 44,
+                                         repair_host_identity=True).decode()
+        self.assertIn(" --repair ", script)
+        self.assertNotIn("bootstrap-node.yml", script)
+        self.assertNotIn("build-bootstrap-vars.py", script)
+        self.assertNotIn("git -C", script)
+        self.assertNotIn("ansible-playbook", script)
+        self.assertIn("/complete", script)
+
     def test_shell_artifacts_have_valid_syntax_without_execution(self):
         for repair in (False, True):
             with self.subTest(repair=repair):

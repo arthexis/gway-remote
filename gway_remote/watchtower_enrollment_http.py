@@ -45,7 +45,7 @@ def make_handler(provisioner: Provisioner | None, *, public_url: str, wireguard_
                     *, repair_host_identity: bool = False) -> bytes:
             """HTTPS-distributed stage-one script; never includes an invitation token."""
             # URL bearer characters are restricted by the route regexp.
-            if not re.fullmatch(r"gway-[0-9]{3}", device):
+            if repair_host_identity or not re.fullmatch(r"gway-[0-9]{3}", device):
                 return render_bootstrap_script(secret, device, server_key,
                                                repair_host_identity=repair_host_identity)
             metadata = release_provider()

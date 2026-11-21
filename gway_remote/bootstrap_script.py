@@ -12,7 +12,7 @@ import re
 
 def _render_wireguard_only(secret: str, device: str, server_key: str,
                            *, repair_host_identity: bool = False) -> bytes:
-    """Preserve the pre-#641 standalone enrollment for non-GWAY satellite names."""
+    """Preserve standalone WireGuard enrollment and identity-neutral host repair."""
     source = f"""#!/bin/sh
 set -eu
 umask 077
@@ -62,8 +62,12 @@ def render_bootstrap_script(secret: str, device: str, server_key: str,
                             release_revision: str | None = None,
                             relay_public_key: str | None = None,
                             client_sha256: str | None = None) -> bytes:
-    """Install gway-NNN fully; preserve safe WireGuard-only named satellites."""
-    if not re.fullmatch(r"gway-[0-9]{3}", device):
+    """Install gway-NNN fully; keep host-identity repair independent of executor."""
+    # --repair is an identity-only, repair-first operation. It must remain
+    # available even if root has no SUDO_USER, no executor policy, or no
+    # reviewed package release marker. A normal new URL on an existing
+    # managed tunnel can separately converge package, bus and relay.
+    if repair_host_identity or not re.fullmatch(r"gway-[0-9]{3}", device):
         return _render_wireguard_only(secret, device, server_key,
                                       repair_host_identity=repair_host_identity)
     if not isinstance(release_revision, str) or not re.fullmatch(r"[0-9a-f]{40}", release_revision):
