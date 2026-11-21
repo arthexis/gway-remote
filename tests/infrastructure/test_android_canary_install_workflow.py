@@ -49,3 +49,18 @@ class CanaryInstallWorkflowTests(unittest.TestCase):
         self.assertIn('adb("uninstall", CANARY', installer)
         self.assertIn('if package_path(PRODUCTION) != before:', installer)
         self.assertNotIn('adb("uninstall", PRODUCTION', installer)
+
+    def test_physical_compose_is_opt_in_and_pinned_to_verified_artifact(self):
+        text = WORKFLOW.read_text()
+        self.assertIn("run_compose_tests:", text)
+        self.assertIn("RUN_HERMETIC_TESTS", text)
+        self.assertIn('default: "no"', text)
+        self.assertIn('inputs.run_compose_tests ==', text)
+        self.assertIn('CANARY_RESET: ${{ inputs.canary_reset }}', text)
+        self.assertIn('GH_TOKEN: ${{ github.token }}', text)
+        self.assertIn("gway_remote.android_canary_field", text)
+        self.assertIn("--install --allow-canary-reset --wake", text)
+        self.assertIn('r.get("source_sha") == os.environ["EXPECTED_SHA"]', text)
+        self.assertIn('str(r.get("run_id")) == os.environ["ARTIFACT_RUN"]', text)
+        self.assertIn("n >= 6", text)
+        self.assertLess(text.index("Install ONLY isolated canary"), text.index("Run pinned hermetic Compose tests"))
