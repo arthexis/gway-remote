@@ -171,13 +171,23 @@ def test_http_bootstrap_flow_and_no_store(ledger, tmp_path, monkeypatch):
         assert status == 200
         assert json.loads(reply)["server_public_key"] == hub_key
 
-        status, _, _ = request("POST", prefix + "/complete",
-                               json.dumps({"device": "gway-004", "public_key": key,
-                                           "revision": "a" * 40,
-                                           "stages": ["wireguard", "package",
-                                                      "user_manager", "restricted_relay",
-                                                      "receiver"]}))
+        stages = ["wireguard", "package", "user_manager", "restricted_relay", "receiver"]
+        status, _, bad = request("POST", prefix + "/complete",
+                                 json.dumps({"device": "gway-004", "public_key": key,
+                                             "revision": "c" * 40, "stages": stages}))
+        assert status == 400
+        assert "invalid_request" in bad.decode()
+        assert ledger.bootstrap_session(secret)["device"] == "gway-004"
+        status, _, completed = request("POST", prefix + "/complete",
+                                       json.dumps({"device": "gway-004", "public_key": key,
+                                                   "revision": "a" * 40,
+                                                   "stages": stages}))
         assert status == 200
+        body = json.loads(completed)
+        assert body["complete"] is True
+        assert body["local_setup_reported"] is True
+        assert body["local_ready_verified"] is False
+        assert body["remote_execution_verified"] is False
         status, _, _ = request("GET", prefix)
         assert status == 404
         status, _, _ = request("POST", "/v1/enroll", payload)
