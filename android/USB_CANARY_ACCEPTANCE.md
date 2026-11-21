@@ -8,6 +8,31 @@ The workflow is **manual-only**: creating or merging a normal backend change doe
 
 The field consumer needs `python3`, an authenticated GitHub CLI `gh` capable of **read-only** artifact download, and the ADB client already used by the local Android provider. **No Java, Gradle or Android SDK is required on gway-001.** If these dependencies are missing, provisioning is an explicit separate task; do not embed credentials in service files or command arguments.
 
+## Manual installation when the debug signing certificate changes
+
+The `.github/workflows/android-canary-install.yml` workflow consumes a successful,
+pinned, SHA-256-verified canary artifact and is manually dispatched on `main`.
+It first attempts an ordinary `adb install -r`, which preserves canary-local
+data and is the default. Its `canary_reset` selector defaults to `no`.
+
+If that install returns specifically `INSTALL_FAILED_UPDATE_INCOMPATIBLE`, an
+operator may rerun the manual workflow with `canary_reset=RESET_CANARY_ONLY`.
+Only then, and only after verifying that `com.arthexis.gwayremote.canary`
+is installed on exactly one authorized physical USB device, the installer may
+uninstall that isolated canary package, confirm its absence, and reinstall the
+same already verified APK once. **All data stored inside the isolated canary
+package is lost**; the production package `com.arthexis.gwayremote` is
+never uninstalled or modified, and its package path is verified before and
+after. Unrecognized errors, missing package or device ambiguity fail closed.
+No automatic reset, retry loop, app launch or instrumentation occurs in this
+workflow.
+
+The separately installed `.canary.test` package can also have an ephemeral
+signing certificate: the **field runner** has an independently explicit
+`--allow-canary-reset` flag for its two-package installation and subsequent
+hermetic Compose tests. Do not confuse that flag with the install workflow
+input. Physical UI acceptance remains a separate step.
+
 ## First acceptance
 
 1. Prepare a fresh manual canary build for the current #644 HEAD and confirm **both** APKs and checksum/provenance in the artifact. The older run 44789265881 has only the application APK and cannot satisfy this two-APK contract.
