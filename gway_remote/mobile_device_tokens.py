@@ -82,7 +82,7 @@ class DeviceCredentials:
     def issue(self, *, label, scope="read", days=30, now=None):
         if type(label) is not str or not LABEL.fullmatch(label):
             raise ValueError("invalid_device_label")
-        if scope not in SCOPES or type(days) is not int or not 1 <= days <= 90:
+        if type(scope) is not str or scope not in SCOPES or type(days) is not int or not 1 <= days <= 90:
             raise ValueError("invalid_device_credential_policy")
         current = int(time.time() if now is None else now)
         identifier = secrets.token_hex(12)
@@ -162,3 +162,28 @@ class DeviceCredentials:
             ]
         finally:
             conn.close()
+
+
+def main():
+    """Local credential inspection and targeted revocation, never issuance."""
+    import argparse
+    import json
+    parser = argparse.ArgumentParser(description="Private Mobile API device credentials")
+    actions = parser.add_subparsers(dest="operation", required=True)
+    actions.add_parser("list")
+    revoke = actions.add_parser("revoke")
+    revoke.add_argument("id")
+    args = parser.parse_args()
+    try:
+        registry = DeviceCredentials()
+        result = registry.list_public() if args.operation == "list" else {
+            "revoked": registry.revoke(args.id)
+        }
+        print(json.dumps(result, sort_keys=True))
+    except (OSError, sqlite3.Error, ValueError, DeviceCredentialError):
+        print(json.dumps({"status": "unavailable"}))
+        raise SystemExit(1)
+
+
+if __name__ == "__main__":
+    main()
