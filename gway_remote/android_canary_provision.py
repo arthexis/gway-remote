@@ -6,13 +6,15 @@ no Watchtower shell, no production Android package, and no token in arguments.
 from __future__ import annotations
 
 import argparse
+import hashlib
+import hmac
 import json
 from pathlib import Path
 import re
 import subprocess
 
 from . import android_canary_field as field
-from .mobile_device_tokens import DeviceCredentials
+from .mobile_device_tokens import DeviceCredentials, TOKEN
 
 LABEL = "gway-001-usb-canary"
 PROVISION_TEST = "com.arthexis.gwayremote.MobileDeviceProvisionTest"
@@ -52,24 +54,61 @@ def validate_artifact(*, pr, sha, run_id, directory):
     field.provenance(directory, pr=pr, sha=sha, run_id=run_id)
 
 
-def pipe_to_canary(serial, credential):
-    # Only ADB stdin carries secret bytes; command arguments, stderr, stdout,
-    # GitHub artifacts and MCP replies never contain the bearer.
-    if not credential.startswith("gwymob1_") or len(credential) > 110:
-        raise ProvisionError("invalid_mobile_device_credential")
-    command = [
-        "adb", "-s", serial, "exec-in", "run-as", field.APP,
-        "sh", "-c", f"umask 077; mkdir -p files && chmod 700 files && cat > {PROVISION_FILE}",
-    ]
+def _private_command(serial, *args):
+    """Only fixed, private run-as commands; output never carries a token."""
     try:
-        result = subprocess.run(
-            command, input=credential.encode("ascii"), capture_output=True, timeout=15,
-            check=False,
+        return subprocess.run(
+            ["adb", "-s", serial, "exec-out", "run-as", field.APP, *args],
+            capture_output=True, timeout=10, check=False,
         )
-    except (OSError, subprocess.TimeoutExpired) as exc:
-        raise ProvisionError("private_usb_handoff_unavailable") from None
-    if result.returncode:
-        raise ProvisionError("private_usb_handoff_failed")
+    except (OSError, subprocess.TimeoutExpired):
+        raise ProvisionError("private_usb_command_unavailable") from None
+
+
+def pipe_to_canary(serial, credential):
+    """One-way ADB stdin, integrity-verified within the canary sandbox.
+
+    On the gway-001 Samsung Android 8 device, adb exec-in can return zero
+    without delivering bytes to run-as. The verified compatible duplex
+    transport is adb shell -T. Host exit codes alone are never acceptance.
+    """
+    if type(credential) is not str or not TOKEN.fullmatch(credential):
+        raise ProvisionError("invalid_mobile_device_credential")
+    secret_bytes = credential.encode("ascii")
+    expected = hashlib.sha256(secret_bytes).hexdigest()
+    try:
+        # A clean canary reinstall may not have created files/ yet.
+        _private_command(serial, "mkdir", "-p", "files")
+        _private_command(serial, "chmod", "700", "files")
+        directory = _private_command(serial, "ls", "-ld", "files")
+        words = directory.stdout.decode("utf-8", errors="replace").split()
+        if directory.returncode or not words or words[0] != "drwx------":
+            raise ProvisionError("private_usb_directory_unverified")
+        written = subprocess.run(
+            ["adb", "-s", serial, "shell", "-T", "run-as", field.APP,
+             "dd", "of=" + PROVISION_FILE, "bs=128"],
+            input=secret_bytes, capture_output=True, timeout=15, check=False,
+        )
+        if written.returncode:
+            raise ProvisionError("private_usb_write_failed")
+        _private_command(serial, "chmod", "600", PROVISION_FILE)
+        digest_result = _private_command(serial, "sha256sum", PROVISION_FILE)
+        parts = digest_result.stdout.decode("ascii", errors="replace").split()
+        if (digest_result.returncode or not parts
+                or not re.fullmatch(r"[0-9a-f]{64}", parts[0])
+                or not hmac.compare_digest(parts[0], expected)):
+            raise ProvisionError("private_usb_checksum_unconfirmed")
+        mode_result = _private_command(serial, "ls", "-l", PROVISION_FILE)
+        modes = mode_result.stdout.decode("utf-8", errors="replace").split()
+        if mode_result.returncode or not modes or modes[0] != "-rw-------":
+            raise ProvisionError("private_usb_mode_unconfirmed")
+    except (ProvisionError, OSError, subprocess.TimeoutExpired):
+        try:
+            _private_command(serial, "rm", "-f", PROVISION_FILE)
+        except ProvisionError:
+            pass
+        raise ProvisionError("private_usb_handoff_unverified") from None
+
 
 
 def run(*, pr, sha, run_id, directory):
@@ -115,7 +154,7 @@ def run(*, pr, sha, run_id, directory):
         raise ProvisionError("usb_mobile_provisioning_failed") from None
     finally:
         try:
-            field.adb(serial, "shell", "run-as", field.APP, "rm", "-f", PROVISION_FILE, timeout=8)
+            _private_command(serial, "rm", "-f", PROVISION_FILE)
         except Exception:
             pass
         if initialized and not was_awake:
