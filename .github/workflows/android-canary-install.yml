@@ -28,6 +28,14 @@ on:
           - "RESET_CANARY_ONLY"
         default: "no"
         required: true
+      run_compose_tests:
+        description: "Run paired hermetic Compose tests on the USB canary after installation"
+        type: choice
+        options:
+          - "no"
+          - "RUN_HERMETIC_TESTS"
+        default: "no"
+        required: true
 
 permissions:
   contents: read
@@ -106,3 +114,27 @@ jobs:
           echo "PR source SHA: $CANARY_SHA" >> "$GITHUB_STEP_SUMMARY"
           echo "APK SHA256: $CANARY_DIGEST" >> "$GITHUB_STEP_SUMMARY"
           echo "Production package path verified unchanged; no app launch or UI actions." >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Run pinned hermetic Compose tests on isolated USB canary
+        if: ${{ inputs.run_compose_tests == 'RUN_HERMETIC_TESTS' }}
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ inputs.pr_number }}
+          EXPECTED_SHA: ${{ inputs.expected_sha }}
+          ARTIFACT_RUN: ${{ inputs.artifact_run_id }}
+          CANARY_RESET: ${{ inputs.canary_reset }}
+        run: |
+          set -euo pipefail
+          # This is an extra, manual-only gate: test APK signature rotation is
+          # explicitly consented to. The field runner has its own provenance,
+          # USB, screen/lock, stay-awake restoration and canary-only checks.
+          [[ "$CANARY_RESET" == "RESET_CANARY_ONLY" ]] || {
+            echo "::error::Compose tests require explicit canary-only reset opt-in"; exit 1;
+          }
+          RESULT=$(python3 -m gway_remote.android_canary_field --pr "$PR_NUMBER"             --install --allow-canary-reset --wake)
+          COUNT=$(printf '%s' "$RESULT" | python3 -c 'import json, os, sys; r=json.load(sys.stdin); assert r.get("status") == "passed" and r.get("source_sha") == os.environ["EXPECTED_SHA"] and str(r.get("run_id")) == os.environ["ARTIFACT_RUN"] and r.get("pr") == int(os.environ["PR_NUMBER"]), "Canary field receipt not accepted"; n=r.get("tests_passed"); assert type(n) is int and n >= 6, "Compose suite incomplete"; print(n)')
+          echo "### Physical Compose acceptance on gway-001" >> "$GITHUB_STEP_SUMMARY"
+          echo "Source PR: #$PR_NUMBER; revision: $EXPECTED_SHA" >> "$GITHUB_STEP_SUMMARY"
+          echo "Hermetic Compose tests passed: $COUNT" >> "$GITHUB_STEP_SUMMARY"
+          echo "Scope: canary and canary.test only; not a full screen-by-screen visual audit." >> "$GITHUB_STEP_SUMMARY"
