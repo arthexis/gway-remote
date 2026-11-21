@@ -71,7 +71,7 @@ class AndroidCanaryInstallPolicyTests(unittest.TestCase):
         def streamed(argv, timeout=40):
             result = original(argv, timeout)
             if argv[-3:-1] == ["install", "-r"] and result.returncode == 0:
-                return CompletedProcess(argv, 0, "Performing Streamed Install\\nSuccess\\n", "")
+                return CompletedProcess(argv, 0, "Performing Streamed Install\nSuccess\n", "")
             return result
         self.assertEqual(install(str(self.apk), call=streamed), "updated")
         self.assertEqual(fake.uninstalled, [])
@@ -82,7 +82,7 @@ class AndroidCanaryInstallPolicyTests(unittest.TestCase):
         def streamed(argv, timeout=40):
             result = original(argv, timeout)
             if argv[-3:-1] == ["install", "-r"] and result.returncode == 0:
-                return CompletedProcess(argv, 0, "Performing Streamed Install\\nSuccess\\n", "")
+                return CompletedProcess(argv, 0, "Performing Streamed Install\nSuccess\n", "")
             return result
         self.assertEqual(install(str(self.apk), call=streamed, reset_allowed=True),
                          "canary_reset_and_installed")
@@ -94,7 +94,7 @@ class AndroidCanaryInstallPolicyTests(unittest.TestCase):
         def ambiguous(argv, timeout=40):
             result = original(argv, timeout)
             if argv[-3:-1] == ["install", "-r"]:
-                return CompletedProcess(argv, 0, "Performing Streamed Install\\n", "")
+                return CompletedProcess(argv, 0, "Performing Streamed Install\n", "")
             return result
         with self.assertRaisesRegex(InstallBlocked, "success_unconfirmed"):
             install(str(self.apk), call=ambiguous, reset_allowed=True)
