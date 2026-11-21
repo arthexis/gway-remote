@@ -11,6 +11,7 @@ import base64
 import hashlib
 import ipaddress
 import json
+import re
 import os
 from pathlib import Path
 import shutil
@@ -46,7 +47,7 @@ def _entry_and_bytes(node, enabled, config, known, snapshot):
     """Pure multi-node plan. All inputs are from trusted local files."""
     if type(node) is not str or not NODE.fullmatch(node):
         raise ConvergenceRefused("invalid enrolled node")
-    if enabled and not __import__("re").fullmatch(r"gway-[0-9]{3}", node):
+    if enabled and not re.fullmatch(r"gway-[0-9]{3}", node):
         # Named standalone satellites are WireGuard-only until an explicitly
         # reviewed SSH execution policy is implemented for them.
         raise ConvergenceRefused("central restricted relay supports gway-NNN only")
