@@ -88,6 +88,6 @@ ansible-playbook -i localhost, -c local "$temp/source/ansible/bootstrap-node.yml
 pub="$(wg show gway public-key)"
 printf '{{"device":"%s","public_key":"%s","revision":"%s","stages":["wireguard","package","user_manager","restricted_relay","receiver"]}}' '{device}' "$pub" '{release_revision}' > "$temp/ack.json"
 curl -fsS --proto '=https' --max-redirs 0 -X POST -H 'Content-Type: application/json' --data-binary @"$temp/ack.json" 'https://register.gelectriic.com/v1/bootstrap/{secret}/complete' -o "$temp/complete.json"
-python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); assert d.get("complete") is True and d.get("local_ready") is True; print("LOCAL_BOOTSTRAP_READY; WATCHTOWER_GRANT_REQUIRED; REMOTE_EXECUTION_UNVERIFIED")' "$temp/complete.json"
+python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); assert d.get("complete") is True and d.get("local_setup_reported") is True and d.get("local_ready_verified") is False; print("LOCAL_SETUP_REPORTED; WATCHTOWER_GRANT_AND_LIMITS_REQUIRED; REMOTE_EXECUTION_UNVERIFIED")' "$temp/complete.json"
 """
     return source.encode("utf-8")

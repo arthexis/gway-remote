@@ -136,7 +136,10 @@ def make_handler(provisioner: Provisioner | None, *, public_url: str, wireguard_
                 except EnrollmentRejected:
                     self._send(403, {"error": "enrollment_rejected"})
                 else:
-                    self._send(200, {"complete": True, "local_ready": staged,
+                    # A node can report local stages, but only an independent
+                    # attested SSH limits probe can establish operational READY.
+                    self._send(200, {"complete": True, "local_setup_reported": staged,
+                                     "local_ready_verified": False,
                                      "remote_execution_verified": False})
                 return
             if self.path != "/v1/enroll":

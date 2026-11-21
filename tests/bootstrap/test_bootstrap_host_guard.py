@@ -32,6 +32,8 @@ class BootstrapHostGuardTests(unittest.TestCase):
         assert script.index("sha256sum -c") < script.index("python3 \"$temp/client.py\" bootstrap")
         assert script.index("ansible-playbook") < script.index("/complete")
         assert "REMOTE_EXECUTION_UNVERIFIED" in script
+        assert "local_ready_verified" in script
+        assert "LOCAL_BOOTSTRAP_READY" not in script
 
     def test_missing_release_metadata_is_fail_closed(self):
         with self.assertRaises(ValueError):
