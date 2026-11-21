@@ -263,13 +263,12 @@ def verify_gateway_limits(node, *, runner=subprocess.run):
 def converge(action, node, *, config=CONFIG, ledger=LEDGER, state_root=STATE,
              set_grant=set_eligibility, inventory_builder=build, publisher=publish,
              runner=subprocess.run):
-    """One operator command; no MCP invocation, no private-key copy, no TOFU."""
+    """One serialized operator transaction; no TOFU or unattended recovery."""
     if action not in ("grant", "revoke") or type(node) is not str:
         raise ConvergenceRefused("invalid execution action")
-    enable = action == "grant"
-    p = plan(node, enable, config=config, ledger=ledger)
     if os.geteuid() != 0:
         raise ConvergenceRefused("root required")
+    enable = action == "grant"
     state_root = Path(state_root)
     if not state_root.exists():
         _directory(state_root.parent, owner=0)
@@ -277,59 +276,72 @@ def converge(action, node, *, config=CONFIG, ledger=LEDGER, state_root=STATE,
     _directory(state_root, owner=0)
     if stat.S_IMODE(state_root.lstat().st_mode) != 0o700:
         raise ConvergenceRefused("transaction directory must be private")
-    from .node_registry_inventory import _grants
-    prior = _grants(ledger).get(node, ("", False))[1]
-    changed = any(p[kind][1] != p[kind][2] for kind in ("config", "known"))
-    if not changed and prior == enable:
-        # An idempotent grant must still prove its already-installed transport.
-        if enable:
-            verify_gateway_limits(node, runner=runner)
-        return {"node": node, "eligible": enable, "transport_configured": enable,
-                "limits_verified": enable, "terminal_execution_verified": False,
-                "changed": False}
+
+    # Acquire the cross-node lock BEFORE planning, inspecting eligibility, or
+    # taking the idempotent shortcut. Otherwise a stale plan may race a grant
+    # for a different node, and a pending journal could be silently bypassed.
     stage = state_root / node
-    # A shared exclusive lock protects execute.json + known_hosts against
-    # concurrent grants of different node IDs. Crash residue is fail closed.
     global_lock = state_root / ".active"
     os.mkdir(global_lock, mode=0o700)
     try:
-        _claim(p, stage, prior_eligible=prior)
-    except Exception:
-        # A partially created journal remains for explicit recovery.
-        if not stage.exists():
-            global_lock.rmdir()
-        raise
-    try:
-        if enable:
-            set_grant(node, True, ledger=ledger)
-        _activate_files(p)
-        if not enable:
-            set_grant(node, False, ledger=ledger)
-        publisher(inventory_builder(ledger=ledger, probe=True))
-        runner(["systemctl", "restart", GATEWAY], capture_output=True,
-               text=True, timeout=90, check=True)
-        runner(["systemctl", "is-active", "--quiet", GATEWAY],
-               capture_output=True, text=True, timeout=10, check=True)
-        if enable:
-            verify_gateway_limits(node, runner=runner)
-        _finish_stage(stage)
-        global_lock.rmdir()
-        return {"node": node, "eligible": enable, "transport_configured": enable,
-                "limits_verified": enable, "terminal_execution_verified": False}
-    except Exception:
-        # A crash keeps the protected journal for explicit inspection; a
-        # synchronous failure attempts byte-faithful rollback.
+        p = plan(node, enable, config=config, ledger=ledger)
+        from .node_registry_inventory import _grants
+        prior = _grants(ledger).get(node, ("", False))[1]
+        changed = any(p[kind][1] != p[kind][2] for kind in ("config", "known"))
+        if not changed and prior == enable:
+            # A no-op must still prove the actual service transport, but only
+            # after exclusion of unresolved transactions.
+            if enable:
+                verify_gateway_limits(node, runner=runner)
+            return {"node": node, "eligible": enable, "transport_configured": enable,
+                    "limits_verified": enable, "terminal_execution_verified": False,
+                    "changed": False}
+
+        if stage.exists():
+            raise ConvergenceRefused("pending transaction requires operator recovery")
         try:
-            _restore_files(stage, node)
-            set_grant(node, prior, ledger=ledger)
+            _claim(p, stage, prior_eligible=prior)
+        except Exception:
+            # No live state has been modified before _claim returns; clean
+            # incomplete preparations rather than leave an unrecoverable
+            # journal-less lock. Unknown extra files still fail closed.
+            if stage.is_dir():
+                _finish_stage(stage)
+            raise
+        try:
+            if enable:
+                set_grant(node, True, ledger=ledger)
+            _activate_files(p)
+            if not enable:
+                set_grant(node, False, ledger=ledger)
             publisher(inventory_builder(ledger=ledger, probe=True))
             runner(["systemctl", "restart", GATEWAY], capture_output=True,
                    text=True, timeout=90, check=True)
+            runner(["systemctl", "is-active", "--quiet", GATEWAY],
+                   capture_output=True, text=True, timeout=10, check=True)
+            if enable:
+                verify_gateway_limits(node, runner=runner)
             _finish_stage(stage)
-            global_lock.rmdir()
+            return {"node": node, "eligible": enable, "transport_configured": enable,
+                    "limits_verified": enable, "terminal_execution_verified": False}
         except Exception:
-            pass  # Leave journal and require explicit recovery; never erase it.
-        raise
+            # A crash leaves the private journal; synchronous failure attempts
+            # byte-faithful rollback, preserving the lock if recovery fails.
+            try:
+                _restore_files(stage, node)
+                set_grant(node, prior, ledger=ledger)
+                publisher(inventory_builder(ledger=ledger, probe=True))
+                runner(["systemctl", "restart", GATEWAY], capture_output=True,
+                       text=True, timeout=90, check=True)
+                _finish_stage(stage)
+            except Exception:
+                pass  # Operator must inspect and explicitly recover.
+            raise
+    finally:
+        # Release only when no unresolved journal remains. This also covers
+        # read-only planning failures and successful idempotent operations.
+        if not stage.exists():
+            global_lock.rmdir()
 
 
 def recover(node, *, state_root=STATE, ledger=LEDGER,
