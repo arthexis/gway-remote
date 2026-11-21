@@ -31,3 +31,8 @@ def test_bootstrap_does_not_turn_on_unrelated_privileges_or_treat_ack_as_ready()
     assert "host-keyscan" not in content
     assert "shell:" not in content
     assert "sudo -u root" not in content
+
+def test_bounded_playbook_is_checked_by_both_supported_ansible_ci_jobs():
+    workflow = (ROOT / ".github/workflows/ci.yml").read_text()
+    assert workflow.count("ansible-playbook --syntax-check -i 'localhost,' ansible/bootstrap-node.yml") == 2
+    assert workflow.count("ansible-playbook --syntax-check -i 'localhost,' ansible/playbooks/watchtower-enrollment-refresh.yml") == 2
