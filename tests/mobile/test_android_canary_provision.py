@@ -28,6 +28,10 @@ class ArtifactPinTests(unittest.TestCase):
                 provision.validate_artifact(pr=670, sha=sha, run_id=123, directory=Path("/not-opened"))
                 verify.assert_called_once()
                 replies["pulls/670"]["state"] = "closed"
+                replies["pulls/670"]["merged"] = True
+                provision.validate_artifact(pr=670, sha=sha, run_id=123,
+                                            directory=Path("/not-opened"))
+                replies["pulls/670"]["merged"] = False
                 with self.assertRaisesRegex(provision.ProvisionError, "source_pr_changed"):
                     provision.validate_artifact(pr=670, sha=sha, run_id=123,
                                                 directory=Path("/not-opened"))
