@@ -1,5 +1,6 @@
 """Hermetic USB canary credential handoff; no live Android or tokens."""
 from contextlib import nullcontext
+import hashlib
 from pathlib import Path
 import subprocess
 import unittest
@@ -38,17 +39,53 @@ class ArtifactPinTests(unittest.TestCase):
 
 
 class DeviceUsbProvisionTests(unittest.TestCase):
-    def test_secret_is_only_stdin_not_process_arguments(self):
+    def test_verified_stdin_secret_never_enters_command_arguments_or_output(self):
         credential = "gwymob1_" + "a" * 24 + "_" + "X" * 43
-        with patch.object(provision.subprocess, "run",
-                          return_value=Mock(returncode=0)) as shell:
-            provision.pipe_to_canary("usb-serial", credential)
-        argv = shell.call_args.args[0]
-        self.assertNotIn(credential, " ".join(argv))
-        self.assertIn("run-as", argv)
-        self.assertIn(provision.field.APP, argv)
-        self.assertEqual(shell.call_args.kwargs["input"], credential.encode("ascii"))
-        self.assertTrue(shell.call_args.kwargs["capture_output"])
+        expected = hashlib.sha256(credential.encode("ascii")).hexdigest()
+
+        def fake_subprocess(argv, **kwargs):
+            if argv[-2:] == ["-ld", "files"]:
+                stdout = b"drwx------ 2 app app 4096 files\n"
+            elif argv[-2:] == ["-l", provision.PROVISION_FILE]:
+                stdout = b"-rw------- 1 app app 76 seed\n"
+            elif "sha256sum" in argv:
+                stdout = (expected + "  " + provision.PROVISION_FILE + "\n").encode()
+            else:
+                stdout = b""
+            return Mock(returncode=0, stdout=stdout, stderr=b"")
+
+        with patch.object(provision.subprocess, "run", side_effect=fake_subprocess) as run:
+            provision.pipe_to_canary("usb-device", credential)
+
+        calls = [call for call in run.call_args_list]
+        for call in calls:
+            self.assertNotIn(credential, " ".join(map(str, call.args[0])))
+            self.assertTrue(call.kwargs["capture_output"])
+        writer = [call for call in calls if "shell" in call.args[0]
+                  and "-T" in call.args[0]]
+        self.assertEqual(len(writer), 1)
+        self.assertEqual(writer[0].kwargs["input"], credential.encode("ascii"))
+        self.assertIn("dd", writer[0].args[0])
+        self.assertIn("sha256sum", [arg for call in calls for arg in call.args[0]])
+        self.assertIn("chmod", [arg for call in calls for arg in call.args[0]])
+
+    def test_handoff_rejects_adb_zero_exit_when_digest_wrong(self):
+        credential = "gwymob1_" + "c" * 24 + "_" + "Y" * 43
+
+        def fake_subprocess(argv, **kwargs):
+            if argv[-2:] == ["-ld", "files"]:
+                data = b"drwx------ 2 app app 4096 files\n"
+            elif "sha256sum" in argv:
+                data = (("0" * 64) + "  seed\n").encode()
+            else:
+                data = b""
+            return Mock(returncode=0, stdout=data, stderr=b"")
+
+        with patch.object(provision.subprocess, "run", side_effect=fake_subprocess) as run:
+            with self.assertRaisesRegex(provision.ProvisionError, "private_usb_handoff_unverified"):
+                provision.pipe_to_canary("usb-device", credential)
+        self.assertTrue(any("rm" in call.args[0] for call in run.call_args_list))
+        self.assertNotIn(credential, str([call.args for call in run.call_args_list]))
 
     def test_failed_provision_revokes_issued_token_and_cleans_seed(self):
         record = {"id": "a"*24,
@@ -65,15 +102,13 @@ class DeviceUsbProvisionTests(unittest.TestCase):
             patch.object(provision.field, "install"),
             patch.object(provision.field, "adb", return_value="FAILURES!!!") as adb,
             patch.object(provision, "pipe_to_canary") as handoff,
+            patch.object(provision, "_private_command") as private,
         ):
             with self.assertRaisesRegex(provision.ProvisionError, "usb_mobile_provisioning_failed"):
                 provision.run(pr=670, sha="a"*40, run_id=123, directory=Path("/safe"))
             registry.revoke.assert_called_once_with("a"*24)
             handoff.assert_called_once()
-            self.assertTrue(any(
-                call.args[1:4] == ("shell", "run-as", provision.field.APP)
-                for call in adb.call_args_list
-            ))
+            private.assert_called_with("usb-serial", "rm", "-f", provision.PROVISION_FILE)
 
     def test_full_success_exposes_only_safe_receipt(self):
         record = {"id": "b"*24,
@@ -91,6 +126,7 @@ class DeviceUsbProvisionTests(unittest.TestCase):
             patch.object(provision.field, "instrument", return_value=6),
             patch.object(provision.field, "adb", return_value="OK (1 test)\nINSTRUMENTATION_CODE: -1\n"),
             patch.object(provision, "pipe_to_canary") as handoff,
+            patch.object(provision, "_private_command") as private,
         ):
             result = provision.run(pr=670, sha="a"*40, run_id=123, directory=Path("/safe"))
         self.assertEqual(result["status"], "passed")
