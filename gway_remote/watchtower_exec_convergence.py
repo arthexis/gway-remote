@@ -184,7 +184,8 @@ def plan(node, enabled, *, config=CONFIG, ledger=LEDGER):
 
 
 def _restore_files(stage, node):
-    record = json.loads((stage / "journal.json").read_text())
+    journal, _ = _file(stage / "journal.json", uid=0, maximum=8192, private=True)
+    record = json.loads(journal)
     if (record.get("node") != node or record.get("schema") != 1
             or type(record.get("prior_eligible")) is not bool
             or record.get("state") != "prepared"
@@ -395,7 +396,8 @@ def recover(node, *, state_root=STATE, ledger=LEDGER,
     try:
         stage = state_root / node
         _directory(stage, owner=0)
-        data = json.loads((stage / "journal.json").read_text())
+        journal, _ = _file(stage / "journal.json", uid=0, maximum=8192, private=True)
+        data = json.loads(journal)
         if data.get("schema") != 1 or data.get("node") != node:
             raise ConvergenceRefused("invalid recovery journal")
         active = state_root / ".active"
