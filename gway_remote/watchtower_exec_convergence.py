@@ -248,8 +248,17 @@ def converge(action, node, *, config=CONFIG, ledger=LEDGER, state_root=STATE,
         return {"node": node, "eligible": enable, "transport_configured": enable,
                 "terminal_execution_verified": False, "changed": False}
     stage = state_root / node
-    # A failed transaction must be reconciled by an operator before retry.
-    _claim(p, stage, prior_eligible=prior)
+    # A shared exclusive lock protects execute.json + known_hosts against
+    # concurrent grants of different node IDs. Crash residue is fail closed.
+    global_lock = state_root / ".active"
+    os.mkdir(global_lock, mode=0o700)
+    try:
+        _claim(p, stage, prior_eligible=prior)
+    except Exception:
+        # A partially created journal remains for explicit recovery.
+        if not stage.exists():
+            global_lock.rmdir()
+        raise
     try:
         if enable:
             set_grant(node, True, ledger=ledger)
@@ -262,6 +271,7 @@ def converge(action, node, *, config=CONFIG, ledger=LEDGER, state_root=STATE,
         runner(["systemctl", "is-active", "--quiet", GATEWAY],
                capture_output=True, text=True, timeout=10, check=True)
         _finish_stage(stage)
+        global_lock.rmdir()
         return {"node": node, "eligible": enable, "transport_configured": enable,
                 "terminal_execution_verified": False}
     except Exception:
@@ -274,6 +284,7 @@ def converge(action, node, *, config=CONFIG, ledger=LEDGER, state_root=STATE,
             runner(["systemctl", "restart", GATEWAY], capture_output=True,
                    text=True, timeout=90, check=True)
             _finish_stage(stage)
+            global_lock.rmdir()
         except Exception:
             pass  # Leave journal and require explicit recovery; never erase it.
         raise
@@ -298,4 +309,8 @@ def recover(node, *, state_root=STATE, ledger=LEDGER,
     runner(["systemctl", "restart", GATEWAY], capture_output=True,
            text=True, timeout=90, check=True)
     _finish_stage(stage)
-    return {"node": node, "recovered": True, "eligible": False}
+    active = Path(state_root) / ".active"
+    if active.exists():
+        _directory(active, owner=0)
+        active.rmdir()
+    return {"node": node, "recovered": True, "eligible": data["prior_eligible"]}
