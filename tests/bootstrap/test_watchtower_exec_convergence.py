@@ -74,6 +74,12 @@ def test_unknown_preexisting_pin_is_not_replaced():
         _entry_and_bytes("gway-005", True, config, known, snapshot)
 
 
+def test_named_standalone_satellite_cannot_gain_restricted_execution():
+    config, known, snapshot = before()
+    with pytest.raises(ConvergenceRefused):
+        _entry_and_bytes("ocpp-abb-1", True, config, known, snapshot)
+
+
 def test_revoke_only_other_transport_is_denied():
     config, known, snapshot = before()
     snapshot["nodes"][0]["node"] = "gway-001"
