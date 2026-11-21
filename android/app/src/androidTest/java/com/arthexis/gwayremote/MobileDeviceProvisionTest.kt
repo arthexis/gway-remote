@@ -4,6 +4,7 @@ import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
+import org.junit.Assume.assumeTrue
 import org.junit.Test
 import org.junit.runner.RunWith
 import java.io.File
@@ -19,6 +20,10 @@ import java.io.File
 @RunWith(AndroidJUnit4::class)
 class MobileDeviceProvisionTest {
     @Test fun consumePrivateUsbCredentialAndVerifyHttps() {
+        // Ordinary connectedDebugAndroidTest runs never enroll a device.
+        // Only the reviewed node-owned physical USB provisioner opts in.
+        assumeTrue("operator USB enrollment only",
+            InstrumentationRegistry.getArguments().getString("gway_usb_provision") == "v1")
         val context = InstrumentationRegistry.getInstrumentation().targetContext
         assertEquals("com.arthexis.gwayremote.canary", context.packageName)
         val source = File(context.filesDir, ".gway-mobile-token-once")
