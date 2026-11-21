@@ -65,6 +65,41 @@ class AndroidCanaryInstallPolicyTests(unittest.TestCase):
         self.assertEqual(install(str(self.apk), call=fake), "updated")
         self.assertEqual(fake.uninstalled, [])
 
+    def test_streamed_install_banner_is_a_success_without_reset(self):
+        fake = FakeAdb(conflict=False)
+        original = fake.__call__
+        def streamed(argv, timeout=40):
+            result = original(argv, timeout)
+            if argv[-3:-1] == ["install", "-r"] and result.returncode == 0:
+                return CompletedProcess(argv, 0, "Performing Streamed Install\\nSuccess\\n", "")
+            return result
+        self.assertEqual(install(str(self.apk), call=streamed), "updated")
+        self.assertEqual(fake.uninstalled, [])
+
+    def test_streamed_install_after_signature_reset_is_accepted(self):
+        fake = FakeAdb()
+        original = fake.__call__
+        def streamed(argv, timeout=40):
+            result = original(argv, timeout)
+            if argv[-3:-1] == ["install", "-r"] and result.returncode == 0:
+                return CompletedProcess(argv, 0, "Performing Streamed Install\\nSuccess\\n", "")
+            return result
+        self.assertEqual(install(str(self.apk), call=streamed, reset_allowed=True),
+                         "canary_reset_and_installed")
+        self.assertEqual(fake.uninstalled, ["com.arthexis.gwayremote.canary"])
+
+    def test_unknown_zero_exit_output_never_triggers_reset(self):
+        fake = FakeAdb(conflict=False)
+        original = fake.__call__
+        def ambiguous(argv, timeout=40):
+            result = original(argv, timeout)
+            if argv[-3:-1] == ["install", "-r"]:
+                return CompletedProcess(argv, 0, "Performing Streamed Install\\n", "")
+            return result
+        with self.assertRaisesRegex(InstallBlocked, "success_unconfirmed"):
+            install(str(self.apk), call=ambiguous, reset_allowed=True)
+        self.assertEqual(fake.uninstalled, [])
+
     def test_signature_conflict_fails_closed_by_default(self):
         fake = FakeAdb()
         with self.assertRaisesRegex(InstallBlocked, "no_reset"):
