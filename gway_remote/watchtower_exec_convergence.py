@@ -276,8 +276,11 @@ def converge(action, node, *, config=CONFIG, ledger=LEDGER, state_root=STATE,
     prior = _grants(ledger).get(node, ("", False))[1]
     changed = any(p[kind][1] != p[kind][2] for kind in ("config", "known"))
     if not changed and prior == enable:
+        # An idempotent grant must still prove its already-installed transport.
+        if enable:
+            verify_gateway_limits(node, runner=runner)
         return {"node": node, "eligible": enable, "transport_configured": enable,
-                "limits_verified": False, "terminal_execution_verified": False,
+                "limits_verified": enable, "terminal_execution_verified": False,
                 "changed": False}
     stage = state_root / node
     # A shared exclusive lock protects execute.json + known_hosts against

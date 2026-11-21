@@ -127,11 +127,18 @@ def test_idempotent_grant_never_restarts_gateway_or_writes(monkeypatch, tmp_path
     monkeypatch.setattr(cv.os, "geteuid", lambda: 0)
     monkeypatch.setattr(node_registry_inventory, "_grants",
                         lambda *_: {"gway-005": ("key", True)})
+    from subprocess import CompletedProcess
     def reject(*args, **kwargs):
         raise AssertionError("idempotent grant must have no side effects")
+    def read_only_limits(argv, **kwargs):
+        assert argv[:4] == ["/usr/bin/sudo", "-n", "-u", "gway-mcp-gateway"]
+        return CompletedProcess(argv, 0, json.dumps({
+            "schema": 1, "node": "gway-005", "stage": "limits",
+            "status": "succeeded", "concurrent_jobs_per_node": 3}), "")
     result = cv.converge("grant", "gway-005", state_root=tmp_path,
-                         set_grant=reject, publisher=reject, runner=reject)
+                         set_grant=reject, publisher=reject, runner=read_only_limits)
     assert result["changed"] is False
+    assert result["limits_verified"] is True
 
 
 def test_two_nodes_cannot_mutate_shared_pin_files_in_parallel(monkeypatch, tmp_path):
