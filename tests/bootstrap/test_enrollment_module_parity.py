@@ -91,6 +91,12 @@ def test_readonly_http_health_and_enrollment_denial_are_stable():
         server.server_close()
 
 
+def test_http_module_preserves_public_objects_by_identity():
+    from gway_remote import watchtower_enrollment_http as module
+    assert wt.make_handler is module.make_handler
+    assert wt.serve is module.serve
+
+
 def test_provisioner_module_preserves_public_objects_by_identity():
     from gway_remote import watchtower_enrollment_provisioner as module
     for name in ("WireGuard", "SubprocessWireGuard", "Provisioner",
