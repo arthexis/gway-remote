@@ -6,11 +6,6 @@ import pytest
 from gway_remote.watchtower_enrollment import Ledger, EnrollmentRejected
 
 
-@pytest.fixture
-def ledger(tmp_path):
-    return Ledger(tmp_path / "ledger.sqlite3", network="10.90.0.0/24", gateway="10.90.0.1")
-
-
 def test_replace_url_has_server_side_authorization(ledger):
     issued = ledger.register("gway-005", public_url="https://register.gelectriic.com", replace=True)
     assert urlsplit(issued["url"]).query == "replace=true"

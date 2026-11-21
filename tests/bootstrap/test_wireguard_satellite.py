@@ -32,6 +32,11 @@ def enrollment():
 @pytest.fixture
 def root(monkeypatch):
     monkeypatch.setattr(satellite.os, "geteuid", lambda: 0)
+    # No host-owned /etc/ssh key can leak into an offline test.
+    monkeypatch.setattr(satellite, "_ssh_host_public_key",
+                        lambda: "ssh-ed25519 " + base64.b64encode(
+                            bytes((0, 0, 0, 11)) + b"ssh-ed25519" +
+                            bytes((0, 0, 0, 32)) + bytes(range(32))).decode())
 
 
 @pytest.fixture
@@ -59,7 +64,7 @@ def commands(monkeypatch):
     "https://register.gelectriic.com/v1/enroll#secret",
 ])
 def test_rejects_insecure_origin_without_network(url, monkeypatch):
-    monkeypatch.setattr(satellite, "build_opener", lambda *args: pytest.fail("unexpected network access"))
+    monkeypatch.setattr(satellite, "build_opener", lambda *args, **kwargs: pytest.fail("unexpected network access"))
     with pytest.raises(ValueError):
         satellite._enroll(url, DEVICE, KEY, TOKEN)
 
@@ -96,10 +101,10 @@ def test_atomic_install_is_private_and_refuses_overwrite(tmp_path):
 
 def test_existing_config_never_reenrolls(tmp_path, monkeypatch, root, commands):
     config = tmp_path / "gway.conf"
-    original = f"[Interface]\nPrivateKey = secret\n[Peer]\nPublicKey = {OTHER}\n"
+    original = f"[Interface]\n# GWAY Remote Device = {DEVICE}\nPrivateKey = secret\n[Peer]\nPublicKey = {OTHER}\n"
     config.write_text(original)
     config.chmod(0o600)
-    monkeypatch.setattr(satellite, "_enroll", lambda *args: pytest.fail("must not enroll"))
+    monkeypatch.setattr(satellite, "_enroll", lambda *args, **kwargs: pytest.fail("must not enroll"))
 
     result = satellite.bootstrap(DEVICE, OTHER, TOKEN, config=config)
 
@@ -136,7 +141,7 @@ def test_repair_attests_existing_legacy_tunnel_without_rewriting_config(tmp_path
 
 def test_fresh_bootstrap_writes_config_and_activates(tmp_path, monkeypatch, root, commands, enrollment):
     config = tmp_path / "gway.conf"
-    monkeypatch.setattr(satellite, "_enroll", lambda *args: enrollment)
+    monkeypatch.setattr(satellite, "_enroll", lambda *args, **kwargs: enrollment)
 
     result = satellite.bootstrap(DEVICE, OTHER, TOKEN, config=config)
 
@@ -144,12 +149,13 @@ def test_fresh_bootstrap_writes_config_and_activates(tmp_path, monkeypatch, root
     assert "PrivateKey = private" in config.read_text()
     assert f"PublicKey = {OTHER}" in config.read_text()
     assert config.stat().st_mode & 0o777 == 0o600
-    assert commands[-1][0] == ("systemctl", "enable", "--now", "wg-quick@gway.service")
+    assert commands[-2][0] == ("systemctl", "enable", "--now", "wg-quick@gway.service")
+    assert commands[-1][0] == ("wg", "show", "gway", "public-key")
 
 
 def test_invalid_response_does_not_install_or_activate(tmp_path, monkeypatch, root, commands, enrollment):
     config = tmp_path / "gway.conf"
-    monkeypatch.setattr(satellite, "_enroll", lambda *args: {**enrollment, "device": "gway-005"})
+    monkeypatch.setattr(satellite, "_enroll", lambda *args, **kwargs: {**enrollment, "device": "gway-005"})
 
     with pytest.raises(ValueError, match="identity mismatch"):
         satellite.bootstrap(DEVICE, OTHER, TOKEN, config=config)
@@ -162,7 +168,7 @@ def test_existing_unrelated_peer_is_preserved(tmp_path, monkeypatch, root, comma
     config = tmp_path / "gway.conf"
     config.write_text(f"[Interface]\nPrivateKey = secret\n[Peer]\nPublicKey = {KEY}\n")
     config.chmod(0o600)
-    monkeypatch.setattr(satellite, "_enroll", lambda *args: pytest.fail("must not enroll"))
+    monkeypatch.setattr(satellite, "_enroll", lambda *args, **kwargs: pytest.fail("must not enroll"))
 
     with pytest.raises(ValueError, match="existing tunnel differs"):
         satellite.bootstrap(DEVICE, OTHER, TOKEN, config=config)
@@ -185,7 +191,7 @@ def test_pending_key_survives_retry(tmp_path, monkeypatch, commands):
 def test_bootstrap_uses_approved_nondefault_hub_address(tmp_path, monkeypatch, root, commands, enrollment):
     config = tmp_path / "gway.conf"
     enrollment["server_tunnel_ip"] = "10.90.0.17"
-    monkeypatch.setattr(satellite, "_enroll", lambda *args: enrollment)
+    monkeypatch.setattr(satellite, "_enroll", lambda *args, **kwargs: enrollment)
 
     satellite.bootstrap(DEVICE, OTHER, TOKEN, config=config)
 
@@ -197,7 +203,7 @@ def test_bootstrap_uses_approved_nondefault_hub_address(tmp_path, monkeypatch, r
 
 def test_rejects_unmanaged_config_with_matching_server_key(tmp_path, monkeypatch, root, commands):
     config = tmp_path / "gway.conf"
-    config.write_text(f"[Interface]\\nPrivateKey = private\\n[Peer]\\nPublicKey = {OTHER}\\n")
+    config.write_text(f"[Interface]\nPrivateKey = private\n[Peer]\nPublicKey = {OTHER}\n")
     config.chmod(0o600)
     with pytest.raises(ValueError, match="existing tunnel differs"):
         satellite.bootstrap(DEVICE, OTHER, TOKEN, config=config)
@@ -206,7 +212,7 @@ def test_rejects_unmanaged_config_with_matching_server_key(tmp_path, monkeypatch
 
 def test_live_interface_identity_mismatch_blocks_completion(tmp_path, monkeypatch, root, commands, enrollment):
     config = tmp_path / "gway.conf"
-    monkeypatch.setattr(satellite, "_enroll", lambda *args: enrollment)
+    monkeypatch.setattr(satellite, "_enroll", lambda *args, **kwargs: enrollment)
     original = satellite._run
 
     def run(*args, **kwargs):
