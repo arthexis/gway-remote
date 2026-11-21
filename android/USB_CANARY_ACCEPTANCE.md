@@ -33,6 +33,26 @@ signing certificate: the **field runner** has an independently explicit
 hermetic Compose tests. Do not confuse that flag with the install workflow
 input. Physical UI acceptance remains a separate step.
 
+## Optional one-shot Compose instrumentation through the manual installer
+
+After the verified APK is installed, the same **manual-only** workflow can
+optionally run the paired Android instrumentation suite by selecting
+`run_compose_tests=RUN_HERMETIC_TESTS`. This option defaults to `no`
+and requires the explicit `canary_reset=RESET_CANARY_ONLY` selection so
+a test package with a different ephemeral signing certificate can be replaced
+without touching production. The workflow invokes the existing reviewed
+`gway_remote.android_canary_field` on the authorized gway-001 USB device,
+with read-only GitHub Actions token permissions for artifact download.
+
+The field runner independently verifies the current PR HEAD, source workflow
+and both APK checksums; installs only isolated canary/test packages, checks the
+awake/unlocked physical USB, runs the hermetic Compose suites, and restores
+temporary USB stay-on settings. The workflow rejects incomplete receipts and
+requires at least six passing tests. It does not launch the production
+application or automatically publish screenshots or private device logs.
+This is **component test coverage, not full interactive acceptance of every
+native screen**. The normal install path stays available with tests disabled.
+
 ## First acceptance
 
 1. Prepare a fresh manual canary build for the current #644 HEAD and confirm **both** APKs and checksum/provenance in the artifact. The older run 44789265881 has only the application APK and cannot satisfy this two-APK contract.
