@@ -30,6 +30,9 @@ fun DeploymentsPanel(endpoint: String, token: String) {
     var selected by remember { mutableStateOf("all") }
     var expanded by remember { mutableStateOf(false) }
     var confirm by remember { mutableStateOf(false) }
+    // A saved confirmation must not become a latent dispatch authorization
+    // after endpoint or credentials are changed elsewhere in the app.
+    LaunchedEffect(endpoint, token) { confirm = false }
     val model: DeploymentsViewModel = viewModel()
     val restoredId = prefs.getString("request_id", "") ?: ""
     LaunchedEffect(endpoint, token, restoredId) {
@@ -58,17 +61,19 @@ fun DeploymentsPanel(endpoint: String, token: String) {
             }
         }
         DeploymentConfirmation(selected, confirm) { confirm = it }
-        Button(onClick = {
-            if (confirm) {
-                val id = UUID.randomUUID().toString().replace("-", "")
-                model.dispatch(selected, id) { submitted ->
-                    prefs.edit().putString("request_id", submitted).apply()
-                }
-                confirm = false
+        if (endpoint.isBlank() || token.isBlank()) {
+            ModuleNotice("Configura el endpoint HTTPS y el token antes de desplegar.", isError = true)
+        }
+        DeploymentSubmitButton(
+            selected = selected, confirmed = confirm,
+            endpoint = endpoint, token = token, busy = busy, requestId = requestId
+        ) {
+            // UI and ViewModel independently enforce the same dispatch prerequisites.
+            val id = UUID.randomUUID().toString().replace("-", "")
+            model.dispatch(selected, id) { submitted ->
+                prefs.edit().putString("request_id", submitted).apply()
             }
-        },
-            enabled = confirm && !busy && requestId.isBlank(), modifier = Modifier.fillMaxWidth()) {
-            Text(if (busy) "Requesting…" else "Deploy " + selected)
+            confirm = false
         }
         OutlinedButton(onClick = { model.refresh() }) { Text("Refresh") }
         if (requestId.isNotBlank()) {
@@ -102,5 +107,33 @@ internal fun DeploymentConfirmation(selected: String, checked: Boolean, onChecke
     ) {
         Checkbox(checked = checked, onCheckedChange = null)
         Text("Confirm deployment of " + (if (selected == "all") "all repositories" else selected))
+    }
+}
+
+
+/** Pure UI gate; the ViewModel independently rejects unauthenticated dispatches. */
+internal fun canRequestDeployment(
+    confirmed: Boolean, endpoint: String, token: String, busy: Boolean, requestId: String
+): Boolean = confirmed && endpoint.isNotBlank() && token.isNotBlank() &&
+    !busy && requestId.isBlank()
+
+/** Callback is never invoked on entry or when credentials are absent. */
+@Composable
+internal fun DeploymentSubmitButton(
+    selected: String,
+    confirmed: Boolean,
+    endpoint: String,
+    token: String,
+    busy: Boolean,
+    requestId: String,
+    onDispatch: () -> Unit
+) {
+    val allowed = canRequestDeployment(confirmed, endpoint, token, busy, requestId)
+    Button(
+        onClick = { if (allowed) onDispatch() },
+        enabled = allowed,
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Text(if (busy) "Requesting…" else "Deploy " + selected)
     }
 }
