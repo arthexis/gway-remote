@@ -91,6 +91,14 @@ def test_readonly_http_health_and_enrollment_denial_are_stable():
         server.server_close()
 
 
+def test_provisioner_module_preserves_public_objects_by_identity():
+    from gway_remote import watchtower_enrollment_provisioner as module
+    for name in ("WireGuard", "SubprocessWireGuard", "Provisioner",
+                 "occupied_addresses", "render_managed_peer",
+                 "MANAGED_BEGIN", "MANAGED_END"):
+        assert getattr(wt, name) is getattr(module, name)
+
+
 def test_ledger_module_preserves_public_objects_by_identity():
     from gway_remote import watchtower_enrollment_ledger as module
     for name in ("Ledger", "Enrollment", "EnrollmentRejected",
