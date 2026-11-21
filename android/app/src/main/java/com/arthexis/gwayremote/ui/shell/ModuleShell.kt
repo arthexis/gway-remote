@@ -76,7 +76,8 @@ internal fun ModuleHomePage(
                     else if (availableUpdate == null) "Sin actualización pendiente detectada"
                     else "Actualización disponible: " + availableUpdate.version)
                 ModuleLoading(updating)
-                ModuleNotice(updateStatus, isError = updateStatus.startsWith("Update check failed"))
+                ModuleNotice(if (updatesEnabled) updateStatus else "",
+                    isError = updateStatus.startsWith("Update check failed"))
                 ModuleActions {
                     Button(onClick = onOpenUpdate) { Text("Actualizaciones") }
                     OutlinedButton(onClick = onCheckUpdate, enabled = updatesEnabled && !updating) {
@@ -108,7 +109,8 @@ internal fun ModuleUpdatePage(
         Text(if (!updatesEnabled) AppUpdateChannel.CANARY_NOTICE
             else if (update == null) "No hay una actualización disponible detectada."
             else "Nueva versión: " + update.version)
-        ModuleNotice(updateStatus, isError = updateStatus.startsWith("Update check failed"))
+        ModuleNotice(if (updatesEnabled) updateStatus else "",
+                    isError = updateStatus.startsWith("Update check failed"))
         OutlinedButton(onClick = onCheck, enabled = updatesEnabled && !updating) { Text("Comprobar actualizaciones") }
         if (updatesEnabled && update != null) {
             Button(onClick = onDownload, enabled = !updating) {
