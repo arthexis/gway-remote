@@ -48,6 +48,7 @@ fun CompanionScreen(
     var selectedModuleId by rememberSaveable { mutableStateOf(ModuleRegistry.HOME) }
     var feedback by remember { mutableStateOf("") }
     val drawerState = rememberDrawerState(DrawerValue.Closed)
+    val snackbarHostState = remember { SnackbarHostState() }
 
     fun navigate(id: String) {
         val destination = ModuleRegistry.get(id)?.destination ?: return
@@ -63,9 +64,9 @@ fun CompanionScreen(
             try {
                 context.startActivity(intent)
             } catch (_: android.content.ActivityNotFoundException) {
-                feedback = "La aplicación externa no está disponible"
+                scope.launch { snackbarHostState.showSnackbar("La aplicación externa no está disponible") }
             } catch (_: SecurityException) {
-                feedback = "No se puede abrir este módulo externo"
+                scope.launch { snackbarHostState.showSnackbar("No se puede abrir este módulo externo") }
             }
         } else {
             selectedModuleId = id
@@ -103,6 +104,7 @@ fun CompanionScreen(
     ) {
         Scaffold(
             modifier = Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding(),
+            snackbarHost = { SnackbarHost(snackbarHostState) },
             topBar = {
                 TopAppBar(
                     title = { Text(ModuleRegistry.get(selectedModuleId)?.label ?: "GWay Remote") },
@@ -120,6 +122,7 @@ fun CompanionScreen(
             }
         ) { padding ->
             Box(Modifier.fillMaxSize().padding(padding)) {
+                key(selectedModuleId) {
                 when (selectedModuleId) {
                     ModuleRegistry.HOME -> ModulePage {
                         ModuleHomePage(
@@ -183,6 +186,7 @@ fun CompanionScreen(
                     else -> ModulePage {
                         Text("Módulo no disponible", color = MaterialTheme.colorScheme.error)
                     }
+                }
                 }
             }
         }
