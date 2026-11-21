@@ -393,16 +393,16 @@ def recover(node, *, state_root=STATE, ledger=LEDGER,
     # on process death, unlike the durable crash journal marker.
     fd = _operator_lease(state_root)
     try:
-        active = state_root / ".active"
-        if not active.exists():
-            active.mkdir(mode=0o700)
-        else:
-            _directory(active, owner=0)
         stage = state_root / node
         _directory(stage, owner=0)
         data = json.loads((stage / "journal.json").read_text())
         if data.get("schema") != 1 or data.get("node") != node:
             raise ConvergenceRefused("invalid recovery journal")
+        active = state_root / ".active"
+        if not active.exists():
+            active.mkdir(mode=0o700)
+        else:
+            _directory(active, owner=0)
         _restore_files(stage, node)
         set_grant(node, data["prior_eligible"], ledger=ledger)
         publisher(inventory_builder(ledger=ledger, probe=True))
