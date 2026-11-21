@@ -8,6 +8,8 @@ import com.arthexis.gwayremote.ui.components.ModuleActions
 import com.arthexis.gwayremote.ui.components.ModuleSectionTitle
 
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.selection.toggleable
+import androidx.compose.ui.semantics.Role
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
@@ -55,8 +57,7 @@ fun DeploymentsPanel(endpoint: String, token: String) {
                 }
             }
         }
-        Row { Checkbox(checked = confirm, onCheckedChange = { confirm = it });
-            Text("Confirm deployment of " + (if (selected == "all") "all repositories" else selected)) }
+        DeploymentConfirmation(selected, confirm) { confirm = it }
         Button(onClick = {
             if (confirm) {
                 val id = UUID.randomUUID().toString().replace("-", "")
@@ -86,5 +87,20 @@ fun DeploymentsPanel(endpoint: String, token: String) {
                 OutlinedButton(onClick = { model.clear { prefs.edit().remove("request_id").apply() } }) { Text("Start new deployment") }
         }
         ModuleNotice(error, isError = true)
+    }
+}
+
+/** Whole 48dp+ row is an accessible checkbox target; entering the screen never confirms. */
+@Composable
+internal fun DeploymentConfirmation(selected: String, checked: Boolean, onCheckedChange: (Boolean) -> Unit) {
+    Row(
+        modifier = Modifier.fillMaxWidth()
+            .toggleable(value = checked, role = Role.Checkbox, onValueChange = onCheckedChange)
+            .heightIn(min = 48.dp),
+        verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        Checkbox(checked = checked, onCheckedChange = null)
+        Text("Confirm deployment of " + (if (selected == "all") "all repositories" else selected))
     }
 }
