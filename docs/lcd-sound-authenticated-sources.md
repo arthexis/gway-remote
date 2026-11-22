@@ -146,3 +146,28 @@ The previously documented example `authenticated-subject-for-abb` and
 `authenticated-subject-for-gelectriic` are illustrative; actual verified
 principals are the 24-character hexadecimal values issued by Watchtower's
 existing bearer registry.
+
+## Default-off HTTP admission on the existing gateway
+
+A **loopback-only** `POST /v1/lcd-sound/event` path is now implemented
+inside the existing bearer gateway handler. Its default is disabled:
+`make_server(..., lcd_sound_ingress_enabled=False)`, and the deployed
+gateway's `main()` does not change this default. Unknown paths still
+return 404. No Nginx mapping or external listener is provided.
+
+Only trusted, explicitly enabled gateway construction can expose this
+path on its loopback socket. It requires exactly one valid
+`Authorization: Bearer ...` value, JSON content type, bounded length,
+no untrusted Origin header, a current `gway:execute` credential
+verified through the existing registry, and a separate currently
+enabled root-owned source grant. It returns HTTP 200 for acknowledged
+success, 202 for uncertain and 502 for reported failure; it never
+replays an ambiguous hardware event with a new request ID.
+
+Before production use, a separately reviewed HTTPS/Nginx mapping and
+per-host token provisioning are required, with **no** broadening of
+the standard MCP `/mcp` endpoint or leakage of the gateway's pinned
+SSH credentials. Verify the existing SSL/frontend topology, HTTP request
+limits, the gateway's service user and root-only policy path; physical
+acceptance on gway-001 remains a separate gate. Do not enable based solely
+on green hermetic tests.
