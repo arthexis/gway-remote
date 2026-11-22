@@ -55,10 +55,12 @@ def serve_one(raw, *, jobs=None, hostname=None):
     rid = validate_request_id(req["request_id"])
     if op == "lcd_sound_event":
         from .lcd_sound_event import receive
+        from .node_exec_identity import executor_path, selected_user
         event = req["event"]
         if type(event) is not dict or event.get("request_id") != rid:
             raise ValueError("event request mismatch")
-        result = receive(event, trusted_node=host)
+        result = receive(event, trusted_node=host,
+                         command_path=executor_path(selected_user()))
         return {"node": host, "request_id": rid, "result": result}
     if op == "file_read":
         # Preserve the operator executor identity for all existing operations.

@@ -159,7 +159,7 @@ def _private_db(path):
 
 
 def receive(event, *, trusted_node, db_path=DEFAULT_DB, run=subprocess.run, now=None,
-            dispatcher="gway-lcd-sound", sound="sound"):
+            dispatcher="gway-lcd-sound", sound="sound", command_path=None):
     """Claim before running: unknown outcomes never replay hardware effects."""
     raw = validate(event, trusted_node=trusted_node, now=now)
     digest = hashlib.sha256(raw).hexdigest()
@@ -196,6 +196,8 @@ def receive(event, *, trusted_node, db_path=DEFAULT_DB, run=subprocess.run, now=
         # Do not allow a configured sender route to forward this request again.
         env = dict(os.environ)
         env["GWAY_LCD_SOUND_FORCE_LOCAL"] = "1"
+        if command_path is not None:
+            env["PATH"] = command_path
         argv = argv_for(event, dispatcher=dispatcher, sound=sound)
         try:
             proc = run(argv, capture_output=True, timeout=10, check=False, env=env)

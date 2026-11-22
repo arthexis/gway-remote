@@ -7,8 +7,10 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from types import SimpleNamespace
 import unittest
+from unittest.mock import patch
 
 from gway_remote import lcd_sound_event as m
+from gway_remote import node_exec_protocol
 
 
 def make_event(action="play", arguments=None, device="sound", **changes):
@@ -49,6 +51,29 @@ class LcdSoundReceiverTests(unittest.TestCase):
         self.assertEqual(calls[0][0], ["gway-lcd-sound", "sound", "play", "notice"])
         self.assertEqual(calls[0][1]["env"]["GWAY_LCD_SOUND_FORCE_LOCAL"], "1")
         self.assertEqual(self.journal.stat().st_mode & 0o777, 0o600)
+
+    def test_receiver_uses_configured_executor_path_for_status(self):
+        binary = Path(self.temp.name) / "gway-lcd-sound"
+        binary.write_text('#!/bin/sh\nprintf "ready\\n"\n')
+        binary.chmod(0o755)
+        event = make_event(action="status", arguments={})
+        with patch.dict("os.environ", {"PATH": "/usr/bin:/bin"}):
+            result = m.receive(event, trusted_node="gway-001", db_path=self.journal,
+                               command_path=self.temp.name)
+        self.assertEqual(result["status"], "succeeded")
+        self.assertEqual(result["output"], "ready\n")
+
+    def test_protocol_uses_selected_executor_path(self):
+        event = make_event(action="status", arguments={})
+        request = {"operation": "lcd_sound_event", "node": "gway-001",
+                   "request_id": event["request_id"], "event": event}
+        with patch.object(node_exec_protocol, "require_account"), \
+             patch("gway_remote.node_exec_identity.selected_user", return_value="selected"), \
+             patch("gway_remote.node_exec_identity.executor_path", return_value="/trusted/bin") as path, \
+             patch.object(m, "receive", return_value={"status": "succeeded"}) as receive:
+            node_exec_protocol.serve_one(json.dumps(request).encode(), hostname="gway-001")
+        path.assert_called_once_with("selected")
+        self.assertEqual(receive.call_args.kwargs["command_path"], "/trusted/bin")
 
     def test_rebinding_id_denied(self):
         runner = lambda *a, **kw: SimpleNamespace(returncode=0)
