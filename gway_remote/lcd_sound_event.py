@@ -30,7 +30,7 @@ DEFAULT_DB = Path.home() / ".local/state/gway-lcd-sound/remote-events.sqlite3"
 MAX_EVENTS = 100000
 
 
-def validate(event, *, trusted_node, now=None):
+def validate(event, *, trusted_node, now=None, trusted_origin="watchtower"):
     if type(event) is not dict or set(event) != {
         "schema", "node", "origin", "request_id", "expires_at",
         "device", "action", "arguments", "hops",
@@ -40,7 +40,9 @@ def validate(event, *, trusted_node, now=None):
         raise PermissionError("wrong receiver")
     # This protocol is intentionally a Watchtower-only pinned SSH operation.
     # General node-origin authentication is a separate future enrollment gate.
-    if event["origin"] != "watchtower":
+    # Default remains Watchtower-only. An independently authenticated ingress
+    # may supply its already authorized origin; never derive it from event data.
+    if (type(trusted_origin) is not str or event["origin"] != trusted_origin):
         raise PermissionError("unapproved sender origin")
     if event["origin"] == trusted_node or type(event["hops"]) is not int or event["hops"] != 0:
         raise PermissionError("remote event forwarding loop")

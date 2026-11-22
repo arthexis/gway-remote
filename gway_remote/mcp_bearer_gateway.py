@@ -298,7 +298,56 @@ class Handler(BaseHTTPRequestHandler):
     def do_GET(self):
         self.reject(405)
 
+    def _lcd_sound_post(self):
+        """Opt-in narrow event endpoint; disabled on all existing services."""
+        if self.headers.get("Origin") is not None:
+            return self.reject(403)
+        if (self.headers.get("Transfer-Encoding") is not None
+                or len(self.headers.get_all("Authorization", [])) != 1
+                or len(self.headers.get_all("Content-Length", [])) != 1
+                or len(self.headers.get_all("Content-Type", [])) != 1
+                or self.headers.get("Content-Type", "").lower().strip() != "application/json"):
+            return self.reject(400)
+        supplied = self.headers.get("Authorization", "")
+        if not supplied.startswith("Bearer "):
+            return self.reject(401)
+        try:
+            length = int(self.headers.get("Content-Length", "0"))
+        except ValueError:
+            return self.reject(413)
+        if not 0 < length <= 8192:
+            return self.reject(413)
+        raw = self.rfile.read(length)
+        try:
+            event = json.loads(raw)
+            from .lcd_sound_ingress import forward_verified_bearer
+            result = forward_verified_bearer(
+                event, bearer=supplied[7:], verifier=self.server.registry,
+                dispatch=self.server.lcd_sound_dispatch,
+                load_grants=self.server.lcd_sound_grants_loader)
+            if result["status"] == "uncertain":
+                code = 202
+            elif result["status"] == "failed":
+                code = 502
+            else:
+                code = 200
+            body = json.dumps(result, separators=(",", ":")).encode("utf-8")
+            if len(body) > 8192:
+                return self.reject(502)
+        except (PermissionError, ValueError, TypeError, KeyError, OSError,
+                RuntimeError, UnicodeError):
+            return self.reject(403)
+        self.send_response(code)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Cache-Control", "no-store")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
     def do_POST(self):
+        if (self.path == "/v1/lcd-sound/event"
+                and getattr(self.server, "lcd_sound_ingress_enabled", False)):
+            return self._lcd_sound_post()
         if self.path != "/mcp":
             return self.reject(404)
         if self.headers.get("Origin") is not None:
@@ -753,7 +802,7 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
-def make_server(address, registry, upstream, backend_token, *, execution=None, bridge_sessions=None, bridge_transport=None, approved_sources=None, federation=None):
+def make_server(address, registry, upstream, backend_token, *, execution=None, bridge_sessions=None, bridge_transport=None, approved_sources=None, federation=None, lcd_sound_ingress_enabled=False, lcd_sound_dispatch=None, lcd_sound_grants_loader=None):
     from urllib.parse import urlsplit
     parsed = urlsplit(upstream)
     if parsed.scheme != "http" or parsed.hostname != "127.0.0.1" or not parsed.port or parsed.path != "/mcp" or parsed.query or parsed.fragment or parsed.username or parsed.password:
@@ -772,6 +821,11 @@ def make_server(address, registry, upstream, backend_token, *, execution=None, b
                 or tool["annotations"].get("readOnlyHint") is not True
                 or tool["annotations"].get("destructiveHint") is True):
             raise ValueError("invalid approved source policy")
+    if type(lcd_sound_ingress_enabled) is not bool:
+        raise ValueError("invalid LCD/Sound ingress activation")
+    server.lcd_sound_ingress_enabled = lcd_sound_ingress_enabled
+    server.lcd_sound_dispatch = lcd_sound_dispatch
+    server.lcd_sound_grants_loader = lcd_sound_grants_loader
     server.approved_sources = approved_sources
     server.federation = federation
     server.registry = registry
@@ -818,6 +872,18 @@ def main():
             policy_path, expected_sha256=policy_sha)
         catalog = compose_source_catalog([], registrations, approved)
         approved_sources = {tool["name"]: tool for tool in catalog}
+    # Intentional opt-in: production service files do not set this switch.
+    # Require the existing execute transport and an already published,
+    # root-owned source grant before opening the extra loopback-only route.
+    ingress_switch = os.environ.get("GWAY_LCD_SOUND_INGRESS_ENABLED", "0")
+    if ingress_switch not in ("0", "1"):
+        raise ValueError("invalid LCD/Sound ingress activation flag")
+    ingress_enabled = ingress_switch == "1"
+    if ingress_enabled:
+        if execution is None:
+            raise PermissionError("LCD/Sound ingress needs pinned execution relay")
+        from .lcd_sound_grant_store import load_operator_grants
+        load_operator_grants()  # fail at startup for missing/unsafe grants
     verifier = BearerVerifier(args.database)
     from .mcp_bridge_bootstrap import start_bridge
     import signal
@@ -842,7 +908,8 @@ def main():
             options = {"bridge_sessions": sessions, "bridge_transport": transport}
         with make_server(("127.0.0.1", args.port), verifier, args.upstream,
                          token, execution=execution, approved_sources=approved_sources,
-                         federation=federation, **options) as service:
+                         federation=federation,
+                         lcd_sound_ingress_enabled=ingress_enabled, **options) as service:
             service.serve_forever()
     finally:
         if started is not None:
