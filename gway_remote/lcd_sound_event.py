@@ -181,7 +181,7 @@ def receive(event, *, trusted_node, db_path=DEFAULT_DB, run=subprocess.run, now=
         if db.execute("SELECT COUNT(*) FROM events").fetchone()[0] >= MAX_EVENTS:
             db.rollback()
             raise RuntimeError("receiver journal full")
-        db.execute("INSERT INTO events VALUES (?,?,?,?)", (event["request_id"], digest, "uncertain", time.time()))
+        db.execute("INSERT INTO events (id,digest,state,created) VALUES (?,?,?,?)", (event["request_id"], digest, "uncertain", time.time()))
         db.commit()
         # The local command owns motif, cooldown, mute, LCD priority and expiry.
         # Do not allow a configured sender route to forward this request again.
