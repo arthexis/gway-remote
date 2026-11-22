@@ -1,6 +1,7 @@
 """Hermetic operator CLI source-only issuance and revocation."""
 from pathlib import Path
 import subprocess
+import os
 import sys
 import unittest
 
@@ -13,11 +14,14 @@ class LCDSoundBearerCLITests(unittest.TestCase):
         temp = TemporaryDirectory()
         self.addCleanup(temp.cleanup)
         db = Path(temp.name) / "credentials.sqlite3"
-        cli = Path(__file__).resolve().parents[2] / "scripts/mcp-bearer.py"
+        root = Path(__file__).resolve().parents[2]
+        cli = root / "scripts/mcp-bearer.py"
+        env = dict(os.environ)
+        env["PYTHONPATH"] = str(root) + os.pathsep + env.get("PYTHONPATH", "")
         issued = subprocess.run(
             [sys.executable, str(cli), "--database", str(db), "issue",
              "--days", "1", "--scope", "gway:lcd-sound"],
-            capture_output=True, text=True, timeout=10, check=True)
+            capture_output=True, text=True, timeout=10, check=True, env=env
         token = issued.stdout.strip()
         assert token.startswith("gwr_")
         verifier = BearerVerifier(db)
@@ -28,5 +32,5 @@ class LCDSoundBearerCLITests(unittest.TestCase):
 
         subprocess.run(
             [sys.executable, str(cli), "--database", str(db), "revoke", principal],
-            capture_output=True, text=True, timeout=10, check=True)
+            capture_output=True, text=True, timeout=10, check=True, env=env
         assert not verifier.verify(token, required_scope="gway:lcd-sound")
