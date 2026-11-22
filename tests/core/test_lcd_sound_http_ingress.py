@@ -86,6 +86,19 @@ class LCDSoundHttpIngressTests(unittest.TestCase):
         self.assertEqual(self.post(port, event(), broad)[0], 403)
         self.assertEqual(self.received, [])
 
+    def test_source_only_bearer_cannot_call_general_mcp(self):
+        port = self.server(enabled=True)
+        conn = http.client.HTTPConnection("127.0.0.1", port, timeout=4)
+        self.addCleanup(conn.close)
+        rpc = json.dumps({"jsonrpc": "2.0", "id": 1, "method": "tools/list", "params": {}})
+        conn.request("POST", "/mcp", rpc, {
+            "Authorization": "Bearer " + self.abb,
+            "Content-Type": "application/json"})
+        response = conn.getresponse()
+        self.assertEqual(response.status, 401)
+        response.read()
+        self.assertEqual(self.received, [])
+
     def test_cross_host_spoof_and_revocation_denied(self):
         port = self.server(enabled=True)
         self.assertEqual(self.post(port, event("gelectriic.com"), self.abb)[0], 403)
