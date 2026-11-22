@@ -11,7 +11,7 @@ def main():
     cmd = p.add_subparsers(dest="command", required=True)
     issue = cmd.add_parser("issue")
     issue.add_argument("--days", type=int, default=30)
-    issue.add_argument("--scope", choices=("gway:read", "gway:execute"), default="gway:read")
+    issue.add_argument("--scope", choices=("gway:read", "gway:execute", "gway:lcd-sound"), default="gway:read")
     revoke = cmd.add_parser("revoke")
     revoke.add_argument("key_id")
     args = p.parse_args()
@@ -23,7 +23,7 @@ def main():
         if not 1 <= args.days <= 90:
             p.error("--days must be 1..90")
         print(registry.issue(scope=args.scope, lifetime=args.days * 86400,
-                             operator_approved=(args.scope == "gway:execute")))
+                             operator_approved=(args.scope in ("gway:execute", "gway:lcd-sound"))))
         print("SAVE THIS IN A PROTECTED SECRET STORE. IT CANNOT BE RETRIEVED AGAIN.", file=sys.stderr)
     else:
         if not registry.revoke(args.key_id):
