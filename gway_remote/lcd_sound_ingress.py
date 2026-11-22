@@ -22,7 +22,7 @@ def forward_authenticated(event, *, authenticated_principal, operator_grants,
     is explicitly stamped `watchtower`; it is never pretended that the
     external host can authenticate directly to the node. The ingress receipt
     preserves the original source and the payload hash for operator auditing.
-    Receiver dedup remains keyed by the unchanged request ID.
+    Receiver dedup is keyed by a deterministic per-principal request ID.
     """
     binding = authorize(event, verified_principal=authenticated_principal,
                         grants=operator_grants)
@@ -30,6 +30,14 @@ def forward_authenticated(event, *, authenticated_principal, operator_grants,
                           ensure_ascii=False).encode("utf-8")
     canonical = deepcopy(event)
     canonical["origin"] = "watchtower"
+    # Namespace the receiver journal by authenticated source, not by a
+    # client-chosen request ID alone. This is deterministic across retries
+    # and prevents an external host from colliding with another source's ID.
+    relay_id = hashlib.sha256(
+        ("lcd-sound-source-v1:" + binding["principal"] + ":" +
+         binding["source"] + ":" + event["request_id"]).encode("utf-8")
+    ).hexdigest()[:32]
+    canonical["request_id"] = relay_id
     # Deliberately use the existing constrained pinned transport; the
     # receiver must not grant arbitrary external hosts node SSH authority.
     if dispatch is None:
@@ -37,10 +45,12 @@ def forward_authenticated(event, *, authenticated_principal, operator_grants,
         dispatch = dispatch_bridge
     answer = dispatch(canonical)
     if (type(answer) is not dict or answer.get("node") != event["node"]
-            or answer.get("request_id") != event["request_id"]
+            or answer.get("request_id") != relay_id
             or answer.get("status") not in ("succeeded", "failed", "uncertain")):
         raise RuntimeError("untrusted relay acknowledgment")
     result = dict(answer)
     result["source"] = binding["source"]
+    result["receiver_request_id"] = relay_id
+    result["request_id"] = event["request_id"]
     result["source_event_sha256"] = hashlib.sha256(original).hexdigest()
     return result
