@@ -1,0 +1,179 @@
+"""Allowlisted, at-most-once LCD/Sound receiver for the pinned SSH node protocol.
+
+The SSH forced-command identity is the authorization boundary; this module
+never listens on a socket, accepts a shell fragment, or forwards another hop.
+An operator must separately review installation/allowlisting before use.
+"""
+from __future__ import annotations
+
+from datetime import datetime, timezone
+import hashlib
+import json
+import os
+from pathlib import Path
+import re
+import sqlite3
+import stat
+import subprocess
+import time
+
+SCHEMA = 1
+MAX_BYTES = 8192
+NODE = re.compile(r"gway-[0-9]{3,}$")
+RID = re.compile(r"[0-9a-f]{32}$")
+ALLOWED = {
+    "lcd": {"show", "clear", "status"},
+    "sound": {"play", "event", "mute", "unmute", "toggle", "status", "sequence"},
+}
+DEFAULT_DB = Path.home() / ".local/state/gway-lcd-sound/remote-events.sqlite3"
+MAX_EVENTS = 100000
+
+
+def validate(event, *, trusted_node, now=None):
+    if type(event) is not dict or set(event) != {
+        "schema", "node", "origin", "request_id", "expires_at",
+        "device", "action", "arguments", "hops",
+    }:
+        raise ValueError("invalid event fields")
+    if event["schema"] != SCHEMA or event["node"] != trusted_node:
+        raise PermissionError("wrong receiver")
+    if type(event["origin"]) is not str or not re.fullmatch(r"(watchtower|gway-[0-9]{3,})", event["origin"]):
+        raise ValueError("invalid origin")
+    if event["origin"] == trusted_node or event["hops"] != 0:
+        raise PermissionError("remote event forwarding loop")
+    if type(event["request_id"]) is not str or not RID.fullmatch(event["request_id"]):
+        raise ValueError("invalid event id")
+    if type(event["device"]) is not str or event["device"] not in ALLOWED:
+        raise ValueError("invalid device")
+    if type(event["action"]) is not str or event["action"] not in ALLOWED[event["device"]]:
+        raise ValueError("invalid action")
+    try:
+        expiry = datetime.fromisoformat(event["expires_at"])
+    except (ValueError, TypeError) as exc:
+        raise ValueError("invalid expiry") from exc
+    now = now or datetime.now(timezone.utc)
+    if expiry.tzinfo is None or not 0 < (expiry - now).total_seconds() <= 30:
+        raise ValueError("expired or excessive event lifetime")
+    a = event["arguments"]
+    if type(a) is not dict:
+        raise ValueError("invalid arguments")
+    if event["device"] == "lcd":
+        if event["action"] == "show":
+            if set(a) != {"line1", "line2", "seconds"}:
+                raise ValueError("invalid LCD show arguments")
+            if any(type(a[k]) is not str or len(a[k]) > 160 or
+                   any(ord(ch) < 32 for ch in a[k]) for k in ("line1", "line2")):
+                raise ValueError("invalid LCD line")
+            if type(a["seconds"]) is not int or not 1 <= a["seconds"] <= 300:
+                raise ValueError("invalid LCD duration")
+        elif a:
+            raise ValueError("unexpected LCD arguments")
+    elif event["action"] in ("status", "mute", "unmute", "toggle"):
+        if a:
+            raise ValueError("unexpected sound arguments")
+    elif event["action"] == "play":
+        if set(a) != {"name"} or type(a["name"]) is not str or not re.fullmatch(r"[a-z][a-z0-9_-]{0,31}", a["name"]):
+            raise ValueError("invalid sound name")
+    elif event["action"] == "sequence":
+        if set(a) != {"sequence"} or type(a["sequence"]) is not str or len(a["sequence"].encode("utf-8")) > 4096:
+            raise ValueError("invalid sound sequence")
+        from json import loads
+        from json.decoder import JSONDecodeError
+        try:
+            from sound_sequence import validate as validate_sequence, parse_sequence
+            validate_sequence(parse_sequence(a["sequence"]))
+        except (ImportError, ValueError, TypeError, JSONDecodeError) as exc:
+            raise ValueError("invalid sound sequence") from exc
+    elif event["action"] == "event":
+        if set(a) - {"event", "source", "within"} or not {"event", "source"} <= set(a):
+            raise ValueError("invalid event arguments")
+        for key in ("event", "source"):
+            if type(a[key]) is not str or not re.fullmatch(r"[a-zA-Z0-9_*.-]{1,64}", a[key]):
+                raise ValueError("invalid sound event name")
+        if "within" in a and (type(a["within"]) is not int or not 0 <= a["within"] <= 3600):
+            raise ValueError("invalid cooldown")
+    raw = json.dumps(event, separators=(",", ":"), sort_keys=True).encode("utf-8")
+    if len(raw) > MAX_BYTES:
+        raise ValueError("oversized event")
+    return raw
+
+
+def argv_for(event, *, dispatcher="gway-lcd-sound", sound="sound"):
+    """Validated pure data -> fixed argv; never a shell."""
+    a = event["arguments"]
+    action = event["action"]
+    if event["device"] == "lcd":
+        result = [dispatcher, "lcd", action]
+        if action == "show":
+            result.extend([a["line1"], a["line2"], "--seconds", str(a["seconds"])])
+        return result
+    if action == "event":
+        result = [sound, "--event", a["event"], "--source", a["source"]]
+        if "within" in a:
+            result.extend(["--within", str(a["within"])])
+        return result
+    if action == "play":
+        return [dispatcher, "sound", "play", a["name"]]
+    if action == "sequence":
+        return [dispatcher, "sound", "play", "--sequence", a["sequence"]]
+    if action == "status":
+        return [dispatcher, "sound", "status", "--json"]
+    return [dispatcher, "sound", action]
+
+
+def _private_db(path):
+    path = Path(path)
+    parent = path.parent
+    info = parent.lstat()
+    if not stat.S_ISDIR(info.st_mode) or info.st_uid != os.geteuid() or info.st_mode & 0o077:
+        raise PermissionError("receiver journal directory not private")
+    if path.is_symlink():
+        raise PermissionError("receiver journal symlink")
+    if path.exists():
+        mode = path.lstat()
+        if not stat.S_ISREG(mode.st_mode) or mode.st_uid != os.geteuid() or mode.st_mode & 0o077:
+            raise PermissionError("receiver journal not private")
+    return path
+
+
+def receive(event, *, trusted_node, db_path=DEFAULT_DB, run=subprocess.run, now=None,
+            dispatcher="gway-lcd-sound", sound="sound"):
+    """Claim before running: unknown outcomes never replay hardware effects."""
+    raw = validate(event, trusted_node=trusted_node, now=now)
+    digest = hashlib.sha256(raw).hexdigest()
+    path = _private_db(db_path)
+    old_mask = os.umask(0o077)
+    try:
+        db = sqlite3.connect(path, timeout=5)
+    finally:
+        os.umask(old_mask)
+    try:
+        with db:
+            db.execute("CREATE TABLE IF NOT EXISTS events (id TEXT PRIMARY KEY, digest TEXT NOT NULL, state TEXT NOT NULL, created REAL NOT NULL)")
+        db.execute("BEGIN IMMEDIATE")
+        row = db.execute("SELECT digest,state FROM events WHERE id=?", (event["request_id"],)).fetchone()
+        if row:
+            db.commit()
+            if row[0] != digest:
+                raise PermissionError("event ID reused for different payload")
+            return {"status": row[1], "duplicate": True}
+        if db.execute("SELECT COUNT(*) FROM events").fetchone()[0] >= MAX_EVENTS:
+            db.rollback()
+            raise RuntimeError("receiver journal full")
+        db.execute("INSERT INTO events VALUES (?,?,?,?)", (event["request_id"], digest, "uncertain", time.time()))
+        db.commit()
+        # The local command owns motif, cooldown, mute, LCD priority and expiry.
+        # Do not allow a configured sender route to forward this request again.
+        env = dict(os.environ)
+        env["GWAY_LCD_SOUND_FORCE_LOCAL"] = "1"
+        argv = argv_for(event, dispatcher=dispatcher, sound=sound)
+        try:
+            proc = run(argv, capture_output=True, timeout=10, check=False, env=env)
+        except (OSError, subprocess.SubprocessError):
+            return {"status": "uncertain", "duplicate": False}
+        status = "succeeded" if proc.returncode == 0 else "failed"
+        with db:
+            db.execute("UPDATE events SET state=? WHERE id=?", (status, event["request_id"]))
+        return {"status": status, "duplicate": False}
+    finally:
+        db.close()
