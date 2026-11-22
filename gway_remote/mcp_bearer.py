@@ -11,7 +11,7 @@ import sqlite3
 import time
 from pathlib import Path
 
-SCOPES = frozenset({"gway:read", "gway:execute"})
+SCOPES = frozenset({"gway:read", "gway:execute", "gway:lcd-sound"})
 COMBINED_SCOPE = "gway:execute gway:read"
 
 
@@ -63,7 +63,7 @@ class BearerRegistry:
             raise ValueError("invalid_scope_or_lifetime")
         # Never let existing OAuth/delegation code mint execute credentials.
         # Only an explicit trusted console path may opt in.
-        if scope == "gway:execute" and operator_approved is not True and parent_id is None:
+        if scope in {"gway:execute", "gway:lcd-sound"} and operator_approved is not True and parent_id is None:
             raise PermissionError("execution scope requires direct operator issuance")
         expires_at = int(time.time()) + lifetime
         if parent_id is not None:
@@ -256,6 +256,27 @@ class BearerVerifier:
             return False
         return bool(row and row[3] is None and row[2] > int(time.time())
                     and _scope_grants(row[1], required_scope) and hmac.compare_digest(row[0], supplied))
+
+    def lcd_sound_principal(self, credential):
+        """Stable narrowly scoped source identity; never authorizes MCP tools."""
+        if not self.verify(credential, required_scope="gway:lcd-sound"):
+            raise PermissionError("LCD/Sound source credential required")
+        key_id = credential.split("_", 2)[1]
+        with sqlite3.connect("file:" + str(self.path.resolve()) + "?mode=ro",
+                             uri=True, timeout=3) as db:
+            seen = set()
+            current = key_id
+            for _ in range(32):
+                if current in seen:
+                    raise PermissionError("credential delegation cycle")
+                seen.add(current)
+                if not db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='delegations'").fetchone():
+                    return current
+                row = db.execute("SELECT parent_id FROM delegations WHERE key_id=?", (current,)).fetchone()
+                if row is None:
+                    return current
+                current = row[0]
+            raise PermissionError("credential delegation depth exceeded")
 
     def execution_principal(self, credential):
         """Stable parent identity across OAuth reconnects; requires valid execute scope."""
