@@ -2,6 +2,8 @@
 from datetime import datetime, timedelta, timezone
 import json
 import tempfile
+import threading
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from types import SimpleNamespace
 import unittest
@@ -113,6 +115,29 @@ class LcdSoundReceiverTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             m.validate(make_event(action="sequence", arguments={"sequence": bad}),
                        trusted_node="gway-001")
+
+    def test_concurrent_duplicate_claims_are_serialized(self):
+        started = threading.Event()
+        release = threading.Event()
+        calls = []
+        def runner(argv, **kw):
+            calls.append(argv)
+            started.set()
+            self.assertTrue(release.wait(5))
+            return SimpleNamespace(returncode=0)
+        event = make_event()
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            first = pool.submit(m.receive, event, trusted_node="gway-001",
+                                db_path=self.journal, run=runner)
+            self.assertTrue(started.wait(5))
+            second = pool.submit(m.receive, event, trusted_node="gway-001",
+                                 db_path=self.journal, run=runner)
+            duplicated = second.result(timeout=5)
+            self.assertTrue(duplicated["duplicate"])
+            self.assertEqual(duplicated["status"], "uncertain")
+            release.set()
+            self.assertEqual(first.result(timeout=5)["status"], "succeeded")
+        self.assertEqual(len(calls), 1)
 
     def test_world_readable_journal_rejected(self):
         self.journal.write_bytes(b"")
