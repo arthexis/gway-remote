@@ -46,6 +46,13 @@ def source_route_metadata(home):
             "token_file": mode(token)}
 
 
+def local_commands(home):
+    """Inspect the per-user install independently of the caller's PATH."""
+    directory = Path(home) / ".local/bin"
+    return {name: str(path) if path.is_file() and os.access(path, os.X_OK) else None
+            for name in COMMANDS for path in (directory / name,)}
+
+
 def main():
     current = pwd.getpwuid(os.geteuid())
     rows = []
@@ -68,6 +75,7 @@ def main():
             "current_user": current.pw_name, "effective_uid": os.geteuid(),
             "home": current.pw_dir,
             "commands": {name: shutil.which(name) for name in COMMANDS},
+            "local_commands": local_commands(current.pw_dir),
             "source_files": source_route_metadata(current.pw_dir),
             "candidate_services": rows[:100],
             "note": "Read-only local inventory; no physical event or transport validation"}
