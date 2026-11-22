@@ -18,14 +18,17 @@ that public authentication or a federated provider works.
 
 For a separate machine, `ansible/playbooks/mcp-external-monitor.yml` installs
 an authenticated, read-only public `node_list` probe and timer. The playbook
-requires an existing root-owned mode 0600 OAuth access token file at
-`/etc/gway-mcp-monitor/oauth-access-token`. It neither provisions nor copies
-credentials and does not manage OAuth token renewal. A missing, expired or
-revoked token yields a failed observer status, never a false healthy result.
-Provision a narrowly scoped observer with an independently managed renewal
-mechanism before enabling the timer. Do not use the private backend bearer as
-public authentication. The external observer's systemd journal shows only a
-fixed status class; it does not log the token, HTTP response, URL or node data.
+requires an existing root-owned mode 0600 read-only OAuth credential file at
+`/etc/gway-mcp-monitor/oauth.json`. It neither provisions nor copies
+credentials. The observer rotates its own OAuth refresh token using a durable
+pre-request marker. If the response or durable write is uncertain, it refuses
+to replay the one-use refresh token and requires reprovisioning. A missing,
+expired or revoked credential yields a failed observer status. The monitor
+reports the parent credential as expiring seven days before its recorded expiry;
+the parent must then be reprovisioned. Do not use the
+private backend bearer as public authentication. The external observer's
+systemd journal shows only a fixed status class; it does not log tokens, HTTP
+responses, URLs or node data.
 
 The current temporary exclusion of gway-004 from Watchtower's execution
 configuration should be reverted only after deploying and verifying per-node
