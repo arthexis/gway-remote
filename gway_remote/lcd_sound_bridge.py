@@ -8,6 +8,7 @@ from __future__ import annotations
 import argparse
 import json
 import secrets
+import subprocess
 import sys
 import time
 
@@ -41,7 +42,7 @@ def dispatch(event, *, load=None, sleep=time.sleep):
     for attempt in range(2):
         try:
             response = transport.invoke(req)
-        except (SSHTransportFailure, OSError):
+        except (SSHTransportFailure, OSError, subprocess.SubprocessError):
             if attempt == 0:
                 sleep(0.2)
                 continue
@@ -93,7 +94,7 @@ def main(argv=None):
         result = dispatch(event)
         print(json.dumps(result, sort_keys=True))
         return 0 if result["status"] == "succeeded" else 1
-    except (OSError, RuntimeError, PermissionError, ValueError, TypeError, KeyError):
+    except (OSError, RuntimeError, PermissionError, ValueError, TypeError, KeyError, subprocess.SubprocessError):
         print("lcd-sound: event delivery unavailable", file=sys.stderr)
         return 1
 
