@@ -1,0 +1,62 @@
+---
+# Run only on the explicitly chosen external observer, never on Watchtower.
+# Credential provisioning and refresh remain separate operator tasks.
+- name: Configure an independent authenticated public MCP observer
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  vars:
+    mcp_source: "{{ playbook_dir }}/../.."
+  tasks:
+    - name: Inspect pre-provisioned observer OAuth access token metadata
+      become: true
+      ansible.builtin.stat:
+        path: /etc/gway-mcp-monitor/oauth-access-token
+        follow: false
+      register: mcp_observer_credential
+      no_log: true
+
+    - name: Require a protected operator-provisioned observer credential
+      ansible.builtin.assert:
+        that:
+          - mcp_observer_credential.stat.isreg | default(false)
+          - not (mcp_observer_credential.stat.islnk | default(false))
+          - mcp_observer_credential.stat.uid == 0
+          - mcp_observer_credential.stat.mode == '0600'
+        fail_msg: A root-owned mode 0600 observer OAuth access token is required before enabling the timer.
+      no_log: true
+
+    - name: Install fixed read-only public MCP health probe
+      become: true
+      ansible.builtin.copy:
+        src: "{{ mcp_source }}/scripts/mcp-external-health.py"
+        dest: /usr/local/libexec/gway-mcp-external-health
+        owner: root
+        group: root
+        mode: '0755'
+
+    - name: Install independent external monitoring units
+      become: true
+      ansible.builtin.copy:
+        src: "{{ mcp_source }}/deploy/mcp-bearer/{{ item }}"
+        dest: "/etc/systemd/system/{{ item }}"
+        owner: root
+        group: root
+        mode: '0644'
+      loop:
+        - gway-mcp-external-health.service
+        - gway-mcp-external-health.timer
+      register: external_monitor_units
+
+    - name: Reload external monitor units
+      become: true
+      ansible.builtin.systemd:
+        daemon_reload: true
+      when: external_monitor_units.changed
+
+    - name: Enable external MCP observer timer
+      become: true
+      ansible.builtin.systemd:
+        name: gway-mcp-external-health.timer
+        enabled: true
+        state: started

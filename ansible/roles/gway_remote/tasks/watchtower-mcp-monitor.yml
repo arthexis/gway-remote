@@ -1,0 +1,44 @@
+---
+- name: Create protected independent MCP monitoring state directory
+  become: true
+  ansible.builtin.file:
+    path: /var/lib/gway-mcp-monitor
+    state: directory
+    owner: root
+    group: root
+    mode: '0700'
+
+- name: Install independent MCP monitoring script
+  become: true
+  ansible.builtin.copy:
+    src: "{{ mcp_source }}/scripts/mcp-health-monitor.py"
+    dest: /usr/local/libexec/gway-mcp-health-monitor
+    owner: root
+    group: root
+    mode: '0755'
+
+- name: Install MCP monitor service and timer
+  become: true
+  ansible.builtin.copy:
+    src: "{{ mcp_source }}/deploy/mcp-bearer/{{ item }}"
+    dest: "/etc/systemd/system/{{ item }}"
+    owner: root
+    group: root
+    mode: '0644'
+  loop:
+    - gway-mcp-health-monitor.service
+    - gway-mcp-health-monitor.timer
+  register: mcp_monitor_units
+
+- name: Reload systemd for MCP monitor
+  become: true
+  ansible.builtin.systemd:
+    daemon_reload: true
+  when: mcp_monitor_units.changed
+
+- name: Enable the independent MCP monitor timer
+  become: true
+  ansible.builtin.systemd:
+    name: gway-mcp-health-monitor.timer
+    enabled: true
+    state: started

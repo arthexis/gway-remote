@@ -14,6 +14,50 @@ from .watchtower_exec_auth import AuthorizedExecution
 CONFIG = Path("/etc/gway-mcp/execute.json")
 
 
+class NodeUnavailable(OSError):
+    """A configured node cannot currently be used; details stay private."""
+
+
+class CheckedNodeTransport:
+    """Resolve a private pin and recheck enrollment on every node request."""
+
+    def __init__(self, entry):
+        self.entry = dict(entry)
+
+    @property
+    def node(self):
+        entry = self.entry
+        try:
+            node = PinnedNode(node=entry["node"], wireguard_address=entry["address"],
+                              ssh_host_alias=entry["ssh_host_alias"],
+                              known_hosts=Path(entry["known_hosts"]),
+                              identity_file=Path(entry["identity_file"]),
+                              host_key_sha256=entry["host_key_sha256"],
+                              remote_user=entry["remote_user"])
+            if node.ssh_host_alias != node.node:
+                raise ValueError("invalid node binding")
+            return node
+        except (OSError, ValueError, TypeError, KeyError):
+            raise NodeUnavailable("node unavailable") from None
+
+    def invoke(self, payload):
+        node = self.node
+        try:
+            inventory = node_registry_inventory.load()
+            matches = [row for row in inventory["nodes"]
+                       if row["node"] == node.node
+                       and row["registered"] is True
+                       and row["identity_verified"] is True
+                       and row["address"] == node.wireguard_address
+                       and row["execute_eligible"] is True
+                       and row["reachable"] == "reachable"]
+            if len(matches) != 1:
+                raise ValueError("ineligible node")
+        except (OSError, ValueError, TypeError, KeyError):
+            raise NodeUnavailable("node unavailable") from None
+        return SSHTransport(node).invoke(payload)
+
+
 def load_service(path=CONFIG):
     info = Path(path).lstat()
     if (not stat.S_ISREG(info.st_mode) or info.st_uid != 0
@@ -32,7 +76,6 @@ def load_service(path=CONFIG):
         raise ValueError("invalid execution configuration")
     if not 1 <= len(entries) <= 32:
         raise ValueError("invalid pinned node count")
-    inventory = node_registry_inventory.load()
     transports = {}
     for entry in entries:
         if type(entry) is not dict or set(entry) != fields:
@@ -40,23 +83,9 @@ def load_service(path=CONFIG):
         name = entry["node"]
         if type(name) is not str or name in transports:
             raise ValueError("duplicate or invalid pinned node")
-        matches = [n for n in inventory["nodes"]
-                   if n["node"] == name and n["registered"] is True
-                   and n["identity_verified"] is True
-                   and n["address"] == entry["address"]
-                   and n["execute_eligible"] is True
-                   and n["reachable"] == "reachable"]
-        if len(matches) != 1:
-            raise PermissionError("node is not currently attested at pinned address")
-        node = PinnedNode(node=name, wireguard_address=entry["address"],
-                          ssh_host_alias=entry["ssh_host_alias"],
-                          known_hosts=Path(entry["known_hosts"]),
-                          identity_file=Path(entry["identity_file"]),
-                          host_key_sha256=entry["host_key_sha256"],
-                          remote_user=entry["remote_user"])
-        if node.ssh_host_alias != name:
+        if entry["ssh_host_alias"] != name:
             raise PermissionError("SSH host alias must match enrolled node")
-        transports[name] = SSHTransport(node)
+        transports[name] = CheckedNodeTransport(entry)
     ledger = RequestLedger()
     relay = DormantRelay(ledger, MultiNodeTransport(transports), enabled=True)
     return AuthorizedExecution(ledger, None, relay, enabled=True)
