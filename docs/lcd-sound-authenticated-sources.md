@@ -172,3 +172,40 @@ SSH credentials. Verify the existing SSL/frontend topology, HTTP request
 limits, the gateway's service user and root-only policy path; physical
 acceptance on gway-001 remains a separate gate. Do not enable based solely
 on green hermetic tests.
+
+## Reviewed-only activation and safe host inspection
+
+The gateway's `main()` **still defaults to disabled**. For a separate
+controlled Watchtower rollout only, the operator may set
+`GWAY_LCD_SOUND_INGRESS_ENABLED=1` on the existing bearer gateway service
+**after** confirming that its pinned execute relay is enabled and a
+root-owned `/etc/gway-remote/lcd-sound-sources.json` exists and passes the
+private grant loader. Missing pinned execution or unsafe grants prevent
+startup, rather than opening an unauthorized ingress.
+
+The new standalone `deploy/nginx/gway-lcd-sound-ingress.conf` is **not**
+included by any default Nginx site; after inspecting the live TLS vhost,
+an operator may stage it under the existing `remote.arthexis.com` TLS
+server block, run `nginx -t`, reload reversibly, and prove POST-only
+behavior. It proxies to the existing loopback bearer gateway port 19010,
+with bounded request size and no new public port. Existing `/mcp` remains
+unchanged. This PR does not configure Nginx or Watchtower services.
+
+`scripts/lcd-sound-acceptance-audit.py` is a **read-only, non-root**
+local helper to run independently as each real prospective producer
+account. It prints only selected process/service metadata and file
+ownership/modes; it never prints tokens, environment values or private
+SSH keys, runs no hardware command and makes no service change. Its
+output is evidence to compare against the reported interactive `ubuntu`
+installations, **not evidence that any host was inspected in this PR**.
+Run it under each host's actual account only after authorized access.
+
+Required acceptance evidence per host: `hostname`, effective user,
+source-config/token file metadata (no content), installed LCD/Sound
+release SHA, GWay Remote gateway/service version, systemd User/MainPID
+and actual event-producer callsite, a fresh status receipt from
+`gway-001`, a benign display/sound event receipt, and an independent
+human observation (if required). Revoke the exact source grant and
+credential and prove subsequent attempts fail closed; restore previously
+captured route/release state if needed. The two server checks must be
+recorded independently, with no customer OCPP/Odoo/MCP interruption.
