@@ -71,3 +71,48 @@ and authorizing the caller and loading current operator-controlled grants.
 Further integration must define audit persistence and ensure the producer's
 stable request IDs survive network retries. They are explicit
 completion gates for issue #687.
+
+## Protected grants
+
+The staging code includes a fixed-path read-only loader for
+`/etc/gway-remote/lcd-sound-sources.json` with schema 1, bounded size,
+`O_NOFOLLOW`, and root ownership. It is intentionally **not** installed
+or read by any production service yet. An illustrative, non-secret
+operator-owned configuration is:
+
+```json
+{
+  "schema": 1,
+  "grants": {
+    "authenticated-subject-for-abb": {
+      "source": "ocpp-abb-1",
+      "targets": ["gway-001"],
+      "operations": ["lcd.show", "lcd.status", "sound.play", "sound.status"],
+      "enabled": true
+    },
+    "authenticated-subject-for-gelectriic": {
+      "source": "gelectriic.com",
+      "targets": ["gway-001"],
+      "operations": ["lcd.show", "lcd.status", "sound.play", "sound.status"],
+      "enabled": true
+    }
+  }
+}
+```
+
+These subject strings are placeholders, **not** real accounts or credentials.
+Resolve and verify the actual service identities first. Revocation changes
+`enabled` to false in the root-owned snapshot and atomically republishes it;
+the ingress must reload the latest trusted snapshot for each request or use
+an equivalently bounded freshness/revocation mechanism.
+
+## Observed runtime limitation from #687
+
+The issue reports that `gway-lcd-sound` revision
+`41cc1bbd3894a10fb29f44ab9019e7b9e7f1b7ba` was verified for the
+interactive `ubuntu` account on both servers, but route probes failed.
+This does **not** establish which production users emit events. Real unit
+files, process credentials, calls to legacy `sound`/`lcd`, and actual
+`PATH` must be inventoried on each host before remapping any producer.
+Keep an explicit distinction between transport-receipt success and
+human-observed physical LCD/audio output.
