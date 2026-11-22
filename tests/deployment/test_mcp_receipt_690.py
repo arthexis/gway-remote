@@ -2,8 +2,10 @@
 import importlib.util
 from pathlib import Path
 import subprocess
+import tempfile
 import unittest
-from unittest.mock import Mock
+from types import SimpleNamespace
+from unittest.mock import Mock, patch
 
 path = Path(__file__).resolve().parents[2] / "scripts/mcp-deployment-receipt.py"
 spec = importlib.util.spec_from_file_location("mcp_receipt_690", path)
@@ -34,3 +36,20 @@ class ReceiptTests(unittest.TestCase):
         run = Mock(side_effect=subprocess.TimeoutExpired('systemctl', 5))
         self.assertEqual(receipt.inspect_unit('x', runner=run)['Result'], 'unknown')
         self.assertEqual(receipt.failure_class(runner=run), 'unknown')
+
+    def test_private_correlated_receipts_have_distinct_stages(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            directory = Path(tmp)
+            info = directory.lstat()
+            root_owned = SimpleNamespace(st_mode=info.st_mode, st_uid=0)
+            with patch.object(Path, 'lstat', return_value=root_owned), \
+                 patch.object(receipt, 'inspect_unit', return_value={'ActiveState': 'active'}), \
+                 patch.object(receipt, 'failure_class', return_value='permission'):
+                receipt.write_receipt(directory, 'a' * 32, 'before')
+                receipt.write_receipt(directory, 'a' * 32, 'rollback', rollback='rollback_unhealthy')
+            before = directory / ('a' * 32 + '-before.json')
+            after = directory / ('a' * 32 + '-rollback.json')
+            self.assertEqual(before.stat().st_mode & 0o777, 0o600)
+            self.assertEqual(after.stat().st_mode & 0o777, 0o600)
+            self.assertIn('rollback_unhealthy', after.read_text())
+            self.assertIn('permission', after.read_text())
