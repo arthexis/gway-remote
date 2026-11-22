@@ -294,6 +294,10 @@ def deploy_lcd_sound(sha: str) -> None:
 
 
 def main() -> None:
+    # Internal restricted adapter; intentionally not part of public argparse help.
+    if len(sys.argv) >= 3 and sys.argv[1] == "--lcd-sound-bridge":
+        from .lcd_sound_bridge import main as bridge_main
+        raise SystemExit(bridge_main(sys.argv[2:]))
     from .cli.registry import build_parser, dispatch
     parser = build_parser(TASKS, DEPLOYMENT_TARGETS)
     args = parser.parse_args()
