@@ -456,6 +456,7 @@
                  (mcp_rollback_oauth_check.status | default(0) == 200) and
                  (mcp_rollback_oauth_check.json.issuer | default('') == 'https://remote.arthexis.com') and
                  (mcp_rollback_oauth_check.json.authorization_response_iss_parameter_supported | default(false) | bool) and
+                 ((mcp_rollback_oauth_check.json.code_challenge_methods_supported | default([]) | type_debug) == 'list') and
                  ('S256' in (mcp_rollback_oauth_check.json.code_challenge_methods_supported | default([])))
                  else 'rollback_unhealthy' }}
 
@@ -485,6 +486,7 @@
               OAuth HTTP health: {{ 'healthy' if mcp_rollback_oauth_check.status | default(0) == 200 and
                 mcp_rollback_oauth_check.json.issuer | default('') == 'https://remote.arthexis.com' and
                 mcp_rollback_oauth_check.json.authorization_response_iss_parameter_supported | default(false) | bool and
+                (mcp_rollback_oauth_check.json.code_challenge_methods_supported | default([]) | type_debug) == 'list' and
                 'S256' in (mcp_rollback_oauth_check.json.code_challenge_methods_supported | default([])) else 'unhealthy' }};
               receipt: {{ 'written' if mcp_rollback_receipt.rc | default(1) == 0 else 'unavailable' }};
               correlation: {{ mcp_correlation.stdout }}.

@@ -20,12 +20,13 @@ ROOT = Path(__file__).resolve().parents[2]
 
 class Handler(BaseHTTPRequestHandler):
     issuer = 'https://remote.arthexis.com'
+    challenges = ['S256']
     def do_GET(self):
         gateway = self.path == '/mcp'
         body = b'' if gateway else json.dumps({
             'issuer': self.issuer,
             'authorization_response_iss_parameter_supported': True,
-            'code_challenge_methods_supported': ['S256'],
+            'code_challenge_methods_supported': self.challenges,
         }).encode()
         self.send_response(405 if gateway else 200)
         self.send_header('Content-Type', 'application/json')
@@ -38,6 +39,10 @@ class Handler(BaseHTTPRequestHandler):
 
 class WrongIssuerHandler(Handler):
     issuer = 'https://wrong.example'
+
+
+class InvalidChallengesHandler(Handler):
+    challenges = 'S256'
 
 
 @unittest.skipUnless(yaml and shutil.which('ansible-playbook'), 'Ansible and PyYAML required')
@@ -186,3 +191,15 @@ class RollbackProbeTests(unittest.TestCase):
         self.assertNotEqual(result.returncode, 0)
         self.assertIn('rollback_unhealthy', result.stdout)
         self.assertIn('gateway HTTP health: healthy', result.stdout)
+
+    def test_oauth_challenges_must_be_a_list(self):
+        server = ThreadingHTTPServer(('127.0.0.1', 0), InvalidChallengesHandler)
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        try:
+            result = self.run_probes(server.server_port, server.server_port, wrong_issuer=True)
+        finally:
+            server.shutdown(); server.server_close(); thread.join()
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn('rollback_unhealthy', result.stdout)
+        self.assertIn('OAuth HTTP health: unhealthy', result.stdout)
