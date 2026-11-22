@@ -26,10 +26,6 @@ def register(subparsers, targets, names):
         check.add_argument("--watchtower-catalog", metavar="JSON_FILE",
                            help="Optional sanitized mcp_catalog_inspect JSON snapshot; never fetches OAuth")
         check.add_argument("--json", action="store_true")
-    if "lcd-sound" in names:
-        bridge = subparsers.add_parser("lcd-sound", help="Authenticated pinned LCD/Sound bridge")
-        bridge.add_argument("action", choices=("send", "probe"))
-        bridge.add_argument("node", nargs="?")
     if "node" in names:
         node_parser = subparsers.add_parser("node", help="Read-only Watchtower node onboarding diagnosis")
         node_ops = node_parser.add_subparsers(dest="node_action", required=True)
@@ -53,9 +49,6 @@ def register(subparsers, targets, names):
         logs_parser.add_argument("--lines", type=int, default=None)
 
 def dispatch(args, parser):
-    if args.command == "lcd-sound":
-        from ..lcd_sound_bridge import main as send
-        parser.exit(send([args.action] + ([args.node] if args.node is not None else [])))
     if args.command == "doctor":
         from ..drift_doctor import doctor, format_report
         try:
