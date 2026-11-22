@@ -143,6 +143,11 @@ def probe(token, *, opener=urlopen):
         if (not isinstance(inventory, dict) or inventory.get('schema') != 1
                 or not isinstance(inventory.get('nodes'), list)):
             return 'tool_failed'
+        monitor = inventory.get('watchtower_monitor')
+        if type(monitor) is not dict or set(monitor) != {'status'} or monitor['status'] not in ('ok', 'failed', 'unknown'):
+            return 'watchtower_monitor_unavailable'
+        if monitor['status'] != 'ok':
+            return 'watchtower_monitor_failed' if monitor['status'] == 'failed' else 'watchtower_monitor_unavailable'
         return 'ok'
     except HTTPError as exc:
         code = exc.code

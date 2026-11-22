@@ -1,0 +1,11 @@
+[Unit]
+Description=Check the independent public MCP observer for alert transitions
+
+[Timer]
+OnBootSec=90s
+OnUnitActiveSec=30s
+AccuracySec=2s
+Unit=gway-mcp-health-alert.service
+
+[Install]
+WantedBy=timers.target

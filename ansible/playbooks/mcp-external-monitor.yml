@@ -104,3 +104,111 @@
         name: gway-mcp-external-health.timer
         enabled: true
         state: started
+
+- name: Configure unprivileged local MCP alert delivery
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  vars:
+    mcp_source: "{{ playbook_dir }}/../.."
+    observer_home: "{{ lookup('env', 'HOME') }}"
+  tasks:
+    - name: Determine local observer identity
+      ansible.builtin.command:
+        argv: [id, -u]
+      register: observer_uid
+      changed_when: false
+
+    - name: Require a non-root local user session
+      ansible.builtin.assert:
+        that:
+          - observer_uid.stdout | int > 0
+          - observer_home is match('^/home/[^/]+$')
+        fail_msg: Run the local LCD alert setup as the intended non-root appliance user.
+
+    - name: Inspect existing local LCD event directory
+      ansible.builtin.stat:
+        path: "{{ observer_home }}/.local/state/lcd-lockfiles"
+        follow: false
+      register: observer_lcd
+
+    - name: Require the user's existing LCD event directory
+      ansible.builtin.assert:
+        that:
+          - observer_lcd.stat.isdir | default(false)
+          - not (observer_lcd.stat.islnk | default(false))
+          - observer_lcd.stat.uid == observer_uid.stdout | int
+        fail_msg: Install and configure the local LCD service before enabling alerts.
+
+    - name: Inspect observer user directories
+      ansible.builtin.stat:
+        path: "{{ item.path }}"
+        follow: false
+      loop:
+        - {path: "{{ observer_home }}/.local/libexec", mode: '0755'}
+        - {path: "{{ observer_home }}/.local/state/gway-remote", mode: '0700'}
+        - {path: "{{ observer_home }}/.config/systemd/user", mode: '0755'}
+      register: observer_dirs
+
+    - name: Require safe existing observer user directories
+      ansible.builtin.assert:
+        that:
+          - item.stat.isdir | default(false)
+          - not (item.stat.islnk | default(false))
+          - item.stat.uid == observer_uid.stdout | int
+          - item.stat.mode in ['0700', '0750', '0755']
+      loop: "{{ observer_dirs.results }}"
+      when: item.stat.exists
+
+    - name: Create missing observer user directories
+      ansible.builtin.file:
+        path: "{{ item.item.path }}"
+        state: directory
+        mode: "{{ item.item.mode }}"
+      loop: "{{ observer_dirs.results }}"
+      when: not item.stat.exists
+
+    - name: Require the LCD runner to be active
+      ansible.builtin.command:
+        argv: [systemctl, --user, is-active, --quiet, lcd-lockfile.service]
+      changed_when: false
+
+    - name: Verify the installed sound command without playing audio
+      ansible.builtin.command:
+        argv: ["{{ observer_home }}/.local/bin/sound", warning, --dry-run]
+      changed_when: false
+
+    - name: Install unprivileged MCP alert observer
+      ansible.builtin.copy:
+        src: "{{ mcp_source }}/scripts/mcp-health-alert.py"
+        dest: "{{ observer_home }}/.local/libexec/gway-mcp-health-alert"
+        mode: '0755'
+
+    - name: Install user alert service and timer
+      ansible.builtin.copy:
+        src: "{{ mcp_source }}/deploy/systemd/user/{{ item }}"
+        dest: "{{ observer_home }}/.config/systemd/user/{{ item }}"
+        mode: '0644'
+      loop:
+        - gway-mcp-health-alert.service
+        - gway-mcp-health-alert.timer
+      register: mcp_alert_units
+
+    - name: Reload the local user service manager
+      ansible.builtin.systemd:
+        daemon_reload: true
+        scope: user
+      when: mcp_alert_units.changed
+
+    - name: Verify the local alert observer starts without root credentials
+      ansible.builtin.systemd:
+        name: gway-mcp-health-alert.service
+        state: started
+        scope: user
+
+    - name: Enable the local MCP alert timer
+      ansible.builtin.systemd:
+        name: gway-mcp-health-alert.timer
+        enabled: true
+        state: started
+        scope: user

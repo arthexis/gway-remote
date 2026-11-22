@@ -134,7 +134,8 @@ def local_node_result(method, arguments, *, execution=None):
         return execution.deployment_preview(**arguments)
     if method == "node_list" and arguments == {}:
         from .execution_health import project_health
-        return project_health(node_registry_inventory.public_nodes(execution_enabled=execution is not None), execution)
+        from .mcp_monitor_projection import add_monitor_status
+        return add_monitor_status(project_health(node_registry_inventory.public_nodes(execution_enabled=execution is not None), execution))
     if method == "node_capabilities" and type(arguments) is dict and set(arguments) == {"node"}:
         from .execution_health import project_health
         return project_health(node_registry_inventory.capabilities(arguments["node"], execution_enabled=execution is not None), execution)
