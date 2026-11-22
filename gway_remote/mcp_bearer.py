@@ -17,6 +17,8 @@ COMBINED_SCOPE = "gway:execute gway:read"
 
 def _scope_grants(stored, required):
     """Legacy single-scope rows stay unchanged; combined grants are explicit."""
+    if required == "gway:lcd-sound":
+        return stored == "gway:lcd-sound"
     return (required in SCOPES and (stored == required or stored == COMBINED_SCOPE)
             or required == COMBINED_SCOPE and stored == COMBINED_SCOPE)
 
