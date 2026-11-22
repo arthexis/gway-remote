@@ -59,7 +59,7 @@ def write_receipt(directory, correlation_id, stage, *, rollback="not_checked"):
     receipt = {"schema": 1, "correlation_id": correlation_id, "stage": stage,
                "timestamp": datetime.now(timezone.utc).isoformat(),
                "services": {unit: inspect_unit(unit) for unit in UNITS},
-               "failure_class": failure_class(), "gateway_rollback": rollback}
+               "failure_class": failure_class(), "rollback_result": rollback}
     fd, temporary = tempfile.mkstemp(prefix=".receipt-", dir=directory)
     try:
         os.fchmod(fd, 0o600)

@@ -358,6 +358,8 @@
             mv -Tf .mcp-rollback-new current
           args:
             executable: /bin/sh
+          register: mcp_rollback_pointer
+          ignore_errors: true
           when: mcp_original_target.stdout is match('^releases/[0-9a-f]{40}$')
 
         - name: Restore original OAuth service unit exactly
@@ -368,6 +370,8 @@
             owner: root
             group: root
             mode: '0644'
+          register: mcp_rollback_oauth_unit
+          ignore_errors: true
           no_log: true
 
         - name: Restore original gateway sandbox unit on failed activation
@@ -378,19 +382,24 @@
             owner: root
             group: root
             mode: '0644'
+          register: mcp_rollback_gateway_unit
+          ignore_errors: true
           no_log: true
 
         - name: Reload systemd after restoring gateway sandbox
           become: true
           ansible.builtin.systemd:
             daemon_reload: true
+          register: mcp_rollback_reload
+          ignore_errors: true
 
         - name: Restart previous private gateway after release rollback
           become: true
           ansible.builtin.systemd:
             name: gway-mcp-gateway.service
             state: restarted
-          failed_when: false
+          register: mcp_rollback_gateway_restart
+          ignore_errors: true
           when: mcp_gateway_activation_needed | bool or mcp_exec_gateway_unit.changed | default(false)
 
         - name: Restart existing OAuth link after rollback
@@ -399,7 +408,8 @@
             name: "{{ mcp_unit }}"
             state: restarted
             daemon_reload: true
-          failed_when: false
+          register: mcp_rollback_oauth_restart
+          ignore_errors: true
           when: mcp_activation_needed | bool
 
         - name: Verify gateway health independently after rollback
@@ -421,6 +431,7 @@
             url: http://127.0.0.1:19012/.well-known/oauth-authorization-server
             method: GET
             status_code: 200
+            return_content: true
             timeout: 3
           register: mcp_rollback_oauth_check
           retries: 10
@@ -429,6 +440,24 @@
           failed_when: false
           changed_when: false
           no_log: true
+
+        - name: Classify the complete rollback outcome
+          ansible.builtin.set_fact:
+            mcp_rollback_result: >-
+              {{ 'rollback_healthy' if
+                 not (mcp_rollback_pointer.failed | default(true)) and
+                 not (mcp_rollback_pointer.skipped | default(false)) and
+                 not (mcp_rollback_oauth_unit.failed | default(true)) and
+                 not (mcp_rollback_gateway_unit.failed | default(true)) and
+                 not (mcp_rollback_reload.failed | default(true)) and
+                 not (mcp_rollback_gateway_restart.failed | default(false)) and
+                 not (mcp_rollback_oauth_restart.failed | default(false)) and
+                 (mcp_rollback_gateway_check.status | default(0) == 405) and
+                 (mcp_rollback_oauth_check.status | default(0) == 200) and
+                 (mcp_rollback_oauth_check.json.issuer | default('') == 'https://remote.arthexis.com') and
+                 (mcp_rollback_oauth_check.json.authorization_response_iss_parameter_supported | default(false) | bool) and
+                 ('S256' in (mcp_rollback_oauth_check.json.code_challenge_methods_supported | default([])))
+                 else 'rollback_unhealthy' }}
 
         - name: Record private post-rollback diagnostics
           become: true
@@ -441,7 +470,7 @@
               - --stage
               - rollback
               - --rollback
-              - "{{ 'rollback_healthy' if mcp_rollback_gateway_check.status | default(0) == 405 else 'rollback_unhealthy' }}"
+              - "{{ mcp_rollback_result }}"
           register: mcp_rollback_receipt
           failed_when: false
           changed_when: false
@@ -450,8 +479,12 @@
         - name: Stop on failed MCP release activation
           ansible.builtin.fail:
             msg: >-
-              MCP release activation failed; gateway rollback result:
-              {{ 'rollback_healthy' if mcp_rollback_gateway_check.status | default(0) == 405 else 'rollback_unhealthy' }};
-              OAuth HTTP health: {{ 'healthy' if mcp_rollback_oauth_check.status | default(0) == 200 else 'unhealthy' }};
+              MCP release activation failed; complete rollback result:
+              {{ mcp_rollback_result }};
+              gateway HTTP health: {{ 'healthy' if mcp_rollback_gateway_check.status | default(0) == 405 else 'unhealthy' }};
+              OAuth HTTP health: {{ 'healthy' if mcp_rollback_oauth_check.status | default(0) == 200 and
+                mcp_rollback_oauth_check.json.issuer | default('') == 'https://remote.arthexis.com' and
+                mcp_rollback_oauth_check.json.authorization_response_iss_parameter_supported | default(false) | bool and
+                'S256' in (mcp_rollback_oauth_check.json.code_challenge_methods_supported | default([])) else 'unhealthy' }};
               receipt: {{ 'written' if mcp_rollback_receipt.rc | default(1) == 0 else 'unavailable' }};
               correlation: {{ mcp_correlation.stdout }}.

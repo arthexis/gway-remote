@@ -13,8 +13,10 @@ The activation playbook writes root-only diagnostic files in
 separate `before` and `rollback` records. They contain allowlisted systemd
 properties and an error class inferred from a bounded recent journal window,
 never journal text, request parameters, credentials or peer configuration.
-A rollback result checks the gateway and OAuth separately; it does not prove
-that public authentication or a federated provider works.
+A healthy rollback requires successful restoration steps and both gateway and
+OAuth loopback checks. An incomplete restoration is reported unhealthy even if
+the listeners still answer. Neither result proves public authentication or a
+federated provider works.
 
 For a separate machine, `ansible/playbooks/mcp-external-monitor.yml` installs
 an authenticated, read-only public `node_list` probe and timer. The playbook
