@@ -41,11 +41,12 @@ def authorize(event, *, verified_principal, grants):
         raise PermissionError("invalid external source grant")
     targets, operations = grant["targets"], grant["operations"]
     if (type(targets) is not list or not targets
-            or len(targets) != len(set(targets))
             or any(type(n) is not str or not TARGET.fullmatch(n) for n in targets)
+            or len(targets) != len(set(targets))
             or type(operations) is not list or not operations
+            or any(type(op) is not str for op in operations)
             or len(operations) != len(set(operations))
-            or any(type(op) is not str or op not in {
+            or any(op not in {
                 f"{dev}.{action}" for dev, actions in ALLOWED.items()
                 for action in actions
             } for op in operations)):
