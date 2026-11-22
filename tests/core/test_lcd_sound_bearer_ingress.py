@@ -25,10 +25,10 @@ class VerifiedBearerIngressTests(unittest.TestCase):
         path = Path(temp.name) / "bearers.db"
         self.registry = BearerRegistry(path)
         self.verifier = BearerVerifier(path)
-        self.first = self.registry.issue(scope="gway:execute", operator_approved=True)
-        self.second = self.registry.issue(scope="gway:execute", operator_approved=True)
-        self.principal_one = self.verifier.execution_principal(self.first)
-        self.principal_two = self.verifier.execution_principal(self.second)
+        self.first = self.registry.issue(scope="gway:lcd-sound", operator_approved=True)
+        self.second = self.registry.issue(scope="gway:lcd-sound", operator_approved=True)
+        self.principal_one = self.verifier.lcd_sound_principal(self.first)
+        self.principal_two = self.verifier.lcd_sound_principal(self.second)
         self.grants = {
             self.principal_one: {
                 "source": "ocpp-abb-1", "targets": ["gway-001"],
@@ -49,6 +49,12 @@ class VerifiedBearerIngressTests(unittest.TestCase):
                                            load_grants=lambda: self.grants,
                                            dispatch=relay)
         return response, seen
+
+    def test_dedicated_source_credential_cannot_read_or_execute_mcp_tools(self):
+        self.assertFalse(self.verifier.verify(self.first, required_scope="gway:read"))
+        self.assertFalse(self.verifier.verify(self.first, required_scope="gway:execute"))
+        with self.assertRaises(PermissionError):
+            self.verifier.execution_principal(self.first)
 
     def test_independent_token_proves_each_host(self):
         one, a = self.forward(event(), self.first)
@@ -75,13 +81,14 @@ class VerifiedBearerIngressTests(unittest.TestCase):
 
     def test_missing_or_read_scope_bearer_rejected(self):
         token = self.registry.issue(scope="gway:read")
-        for bearer in (token, "", "bad"):
+        broad = self.registry.issue(scope="gway:execute", operator_approved=True)
+        for bearer in (token, broad, "", "bad"):
             with self.subTest(bearer=bearer[:8]), self.assertRaises(PermissionError):
                 self.forward(event(), bearer)
 
-    def test_delegated_execute_token_uses_stable_parent_identity(self):
-        delegate = self.registry.issue(scope="gway:execute", parent_id=self.principal_one)
-        self.assertEqual(self.verifier.execution_principal(delegate), self.principal_one)
+    def test_delegated_source_token_uses_stable_parent_identity(self):
+        delegate = self.registry.issue(scope="gway:lcd-sound", parent_id=self.principal_one)
+        self.assertEqual(self.verifier.lcd_sound_principal(delegate), self.principal_one)
         response, _ = self.forward(event(), delegate)
         self.assertEqual(response["source"], "ocpp-abb-1")
         self.registry.revoke(self.principal_one)
