@@ -370,6 +370,7 @@
           ansible.builtin.systemd:
             name: gway-mcp-gateway.service
             state: restarted
+          failed_when: false
           when: mcp_gateway_activation_needed | bool or mcp_exec_gateway_unit.changed | default(false)
 
         - name: Restart existing OAuth link after rollback
@@ -378,8 +379,25 @@
             name: "{{ mcp_unit }}"
             state: restarted
             daemon_reload: true
+          failed_when: false
           when: mcp_activation_needed | bool
+
+        - name: Verify gateway health independently after rollback
+          ansible.builtin.uri:
+            url: http://127.0.0.1:19010/mcp
+            method: GET
+            status_code: 405
+            timeout: 3
+          register: mcp_rollback_gateway_check
+          retries: 10
+          delay: 2
+          until: mcp_rollback_gateway_check.status | default(0) == 405
+          failed_when: false
+          changed_when: false
+          no_log: true
 
         - name: Stop on failed MCP release activation
           ansible.builtin.fail:
-            msg: MCP gateway or OAuth health validation failed; restored the previous selected release.
+            msg: >-
+              MCP release activation failed; gateway rollback result:
+              {{ 'rollback_healthy' if mcp_rollback_gateway_check.status | default(0) == 405 else 'rollback_unhealthy' }}.
