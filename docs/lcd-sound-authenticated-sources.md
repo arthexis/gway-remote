@@ -2,8 +2,8 @@
 
 ## Current implementation status
 
-This change introduces only the **pure source-grant authorization seam** and
-regression tests. It does not expose a network endpoint or enable external
+This change introduces the **pure source-grant authorization seam**,
+a **Watchtower-side programmatic forwarding adapter** and regression tests. It does not expose a network endpoint or enable external
 origin messages in the installed node receiver. The existing Watchtower-only
 receiver remains the default.
 
@@ -55,7 +55,19 @@ acknowledgment alone.
 
 ## Outstanding integration
 
-The network ingress, authenticated principal extraction, receiver proof of
-origin, service-account inventory, producer migration, and hardware validation
-are **not implemented** by the source-policy-only Draft PR. They are explicit
+An externally reachable authenticated ingress, verified-principal extraction,
+service-account inventory, producer migration, and hardware validation are
+**not implemented** by the Draft PR. The programmatic ingress adapter calls
+`forward_authenticated(event, authenticated_principal=trusted_context.subject,
+operator_grants=operator_owned_grants)` only after an existing service has
+verified the caller. It checks the origin against the grant and then stamps the
+pinned node relay envelope as Watchtower, since the node can verify Watchtower's
+SSH key but cannot verify a server principal. The original source and the SHA256
+of its event appear in the Watchtower ingress receipt. This is a hop-by-hop
+trust design: source identity is asserted by the trusted Watchtower ingress,
+not independently authenticated by the node. No new external endpoint exists.
+The adapter MUST NOT be exposed to an untrusted caller without authenticating
+and authorizing the caller and loading current operator-controlled grants.
+Further integration must define audit persistence and ensure the producer's
+stable request IDs survive network retries. They are explicit
 completion gates for issue #687.
