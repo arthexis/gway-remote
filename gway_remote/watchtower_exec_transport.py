@@ -327,9 +327,8 @@ class SSHTransport:
                 self.node.wireguard_address, "gway-exec-protocol-v1"]
         try:
             completed = self._run(argv,input=raw,capture_output=True,timeout=15,check=True)
-        except (OSError, subprocess.SubprocessError):
-            # SSH may fail before or after remote dispatch. Never expose argv
-            # or stderr, and never classify this as a definite non-delivery.
+        except OSError:
+            # Local SSH invocation failed; never classify a remote exit code.
             raise SSHTransportFailure("ssh transport unavailable") from None
         if len(completed.stdout) > 131072:
             raise ValueError("node response exceeds limit")
