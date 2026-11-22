@@ -21,7 +21,7 @@ class LCDSoundBearerCLITests(unittest.TestCase):
         issued = subprocess.run(
             [sys.executable, str(cli), "--database", str(db), "issue",
              "--days", "1", "--scope", "gway:lcd-sound"],
-            capture_output=True, text=True, timeout=10, check=True, env=env
+            capture_output=True, text=True, timeout=10, check=True, env=env)
         token = issued.stdout.strip()
         assert token.startswith("gwr_")
         verifier = BearerVerifier(db)
@@ -32,5 +32,5 @@ class LCDSoundBearerCLITests(unittest.TestCase):
 
         subprocess.run(
             [sys.executable, str(cli), "--database", str(db), "revoke", principal],
-            capture_output=True, text=True, timeout=10, check=True, env=env
+            capture_output=True, text=True, timeout=10, check=True, env=env)
         assert not verifier.verify(token, required_scope="gway:lcd-sound")
