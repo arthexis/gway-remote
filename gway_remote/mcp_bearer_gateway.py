@@ -872,6 +872,18 @@ def main():
             policy_path, expected_sha256=policy_sha)
         catalog = compose_source_catalog([], registrations, approved)
         approved_sources = {tool["name"]: tool for tool in catalog}
+    # Intentional opt-in: production service files do not set this switch.
+    # Require the existing execute transport and an already published,
+    # root-owned source grant before opening the extra loopback-only route.
+    ingress_switch = os.environ.get("GWAY_LCD_SOUND_INGRESS_ENABLED", "0")
+    if ingress_switch not in ("0", "1"):
+        raise ValueError("invalid LCD/Sound ingress activation flag")
+    ingress_enabled = ingress_switch == "1"
+    if ingress_enabled:
+        if execution is None:
+            raise PermissionError("LCD/Sound ingress needs pinned execution relay")
+        from .lcd_sound_grant_store import load_operator_grants
+        load_operator_grants()  # fail at startup for missing/unsafe grants
     verifier = BearerVerifier(args.database)
     from .mcp_bridge_bootstrap import start_bridge
     import signal
@@ -896,7 +908,8 @@ def main():
             options = {"bridge_sessions": sessions, "bridge_transport": transport}
         with make_server(("127.0.0.1", args.port), verifier, args.upstream,
                          token, execution=execution, approved_sources=approved_sources,
-                         federation=federation, **options) as service:
+                         federation=federation,
+                         lcd_sound_ingress_enabled=ingress_enabled, **options) as service:
             service.serve_forever()
     finally:
         if started is not None:
