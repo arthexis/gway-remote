@@ -160,14 +160,19 @@ def receive(event, *, trusted_node, db_path=DEFAULT_DB, run=subprocess.run, now=
         os.umask(old_mask)
     try:
         with db:
-            db.execute("CREATE TABLE IF NOT EXISTS events (id TEXT PRIMARY KEY, digest TEXT NOT NULL, state TEXT NOT NULL, created REAL NOT NULL)")
+            db.execute("CREATE TABLE IF NOT EXISTS events (id TEXT PRIMARY KEY, digest TEXT NOT NULL, state TEXT NOT NULL, created REAL NOT NULL, output TEXT NOT NULL DEFAULT '')")
+            if "output" not in {r[1] for r in db.execute("PRAGMA table_info(events)")}:
+                db.execute("ALTER TABLE events ADD COLUMN output TEXT NOT NULL DEFAULT ''")
         db.execute("BEGIN IMMEDIATE")
-        row = db.execute("SELECT digest,state FROM events WHERE id=?", (event["request_id"],)).fetchone()
+        row = db.execute("SELECT digest,state,output FROM events WHERE id=?", (event["request_id"],)).fetchone()
         if row:
             db.commit()
             if row[0] != digest:
                 raise PermissionError("event ID reused for different payload")
-            return {"status": row[1], "duplicate": True}
+            answer = {"status": row[1], "duplicate": True}
+            if event["action"] == "status":
+                answer["output"] = row[2]
+            return answer
         if db.execute("SELECT COUNT(*) FROM events").fetchone()[0] >= MAX_EVENTS:
             db.rollback()
             raise RuntimeError("receiver journal full")
@@ -183,14 +188,18 @@ def receive(event, *, trusted_node, db_path=DEFAULT_DB, run=subprocess.run, now=
         except (OSError, subprocess.SubprocessError):
             return {"status": "uncertain", "duplicate": False}
         status = "succeeded" if proc.returncode == 0 else "failed"
-        with db:
-            db.execute("UPDATE events SET state=? WHERE id=?", (status, event["request_id"]))
-        answer = {"status": status, "duplicate": False}
+        output = ""
         if status == "succeeded" and event["action"] == "status":
-            output = getattr(proc, "stdout", b"")
-            if type(output) is not bytes or len(output) > 4096:
+            stdout = getattr(proc, "stdout", b"")
+            if type(stdout) is not bytes or len(stdout) > 4096:
                 raise RuntimeError("invalid device status output")
-            answer["output"] = output.decode("utf-8", errors="replace")
+            output = stdout.decode("utf-8", errors="replace")
+        with db:
+            db.execute("UPDATE events SET state=?, output=? WHERE id=?",
+                       (status, output, event["request_id"]))
+        answer = {"status": status, "duplicate": False}
+        if event["action"] == "status":
+            answer["output"] = output
         return answer
     finally:
         db.close()
