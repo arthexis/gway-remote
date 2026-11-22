@@ -97,7 +97,8 @@ class SessionBridgeDispatch:
             return response["result"]
         if operation == "inventory.list" and args == {}:
             from .execution_health import project_health
-            return project_health(self.inventory.public_nodes(execution_enabled=self.execution is not None), self.execution)
+            from .mcp_monitor_projection import add_monitor_status
+            return add_monitor_status(project_health(self.inventory.public_nodes(execution_enabled=self.execution is not None), self.execution))
         if operation == "inventory.capabilities" and set(args) == {"node"}:
             from .execution_health import project_health
             return project_health(self.inventory.capabilities(args["node"],

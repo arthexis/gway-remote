@@ -32,3 +32,18 @@ class MonitorTests(unittest.TestCase):
                                 probe=lambda *_: True)
         self.assertIsNone(result["restart_increase"])
         self.assertEqual(result["status"], "ok")
+
+    def test_brief_local_failure_is_visible_to_two_external_checks(self):
+        data = {'schema': 1, 'observed_at': '2026-11-22T00:00:00+00:00',
+                'status': 'failed', 'private': 'never publish'}
+        projected = monitor.public_projection(data, None, 1000)
+        self.assertEqual(projected['status'], 'failed')
+        self.assertEqual(set(projected), {'schema', 'observed_at', 'status'})
+        recovered = {'schema': 1, 'observed_at': '2026-11-22T00:01:00+00:00', 'status': 'ok'}
+        self.assertEqual(monitor.public_projection(recovered, data, 1240)['status'], 'failed')
+        self.assertEqual(monitor.public_projection(recovered, data, 1301)['status'], 'ok')
+
+    def test_public_projection_rejects_extra_private_fields(self):
+        with self.assertRaises(ValueError):
+            monitor.publish_public(path.parent / 'unused' / 'status.json', {
+                'schema': 1, 'observed_at': 'now', 'status': 'ok', 'private': 'secret'})

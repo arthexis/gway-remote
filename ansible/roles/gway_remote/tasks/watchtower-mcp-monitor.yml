@@ -8,6 +8,15 @@
     group: root
     mode: '0700'
 
+- name: Create minimal read-only MCP monitor projection directory
+  become: true
+  ansible.builtin.file:
+    path: /var/lib/gway-mcp-monitor-public
+    state: directory
+    owner: root
+    group: root
+    mode: '0755'
+
 - name: Inspect the system libexec directory
   become: true
   ansible.builtin.stat:
@@ -68,3 +77,10 @@
     name: gway-mcp-health-monitor.timer
     enabled: true
     state: started
+
+- name: Generate a fresh local health projection before gateway activation
+  become: true
+  ansible.builtin.systemd:
+    name: gway-mcp-health-monitor.service
+    state: started
+  failed_when: false

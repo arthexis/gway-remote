@@ -121,12 +121,14 @@ class ExecutionHealthTests(unittest.TestCase):
 
     def test_gateway_list_and_capabilities_share_read_only_evidence(self):
         self.add()
-        with patch("gway_remote.node_registry_inventory.public_nodes", return_value=self.listing), \
+        with patch("gway_remote.mcp_monitor_projection.monitor_status", return_value={"status": "failed"}), \
+             patch("gway_remote.node_registry_inventory.public_nodes", return_value=self.listing), \
              patch("gway_remote.node_registry_inventory.capabilities", return_value=self.cap):
             listing = local_node_result("node_list", {}, execution=self.execution)
             capabilities = local_node_result("node_capabilities", {"node": NODE},
                                              execution=self.execution)
         self.assertEqual(listing["nodes"][0]["execution_health"], "verified")
+        self.assertEqual(listing["watchtower_monitor"], {"status": "failed"})
         self.assertEqual(capabilities["execution_health"], "verified")
         self.assertIsNone(capabilities["limits"])
         self.assertNotIn("principal", json.dumps(listing))
@@ -147,10 +149,12 @@ class ExecutionHealthTests(unittest.TestCase):
             execution=self.execution, inventory=inventory)
         base = {"principal": "reader", "scope": "gway:read",
                 "audience": "gway-000"}
-        listed = dispatcher({**base, "operation": "inventory.list", "arguments": {}})
+        with patch("gway_remote.mcp_monitor_projection.monitor_status", return_value={"status": "failed"}):
+            listed = dispatcher({**base, "operation": "inventory.list", "arguments": {}})
         detail = dispatcher({**base, "operation": "inventory.capabilities",
                              "arguments": {"node": NODE}})
         self.assertEqual(listed["nodes"][0]["execution_health"], "verified")
+        self.assertEqual(listed["watchtower_monitor"], {"status": "failed"})
         self.assertEqual(detail["execution_health"], "verified")
 
 

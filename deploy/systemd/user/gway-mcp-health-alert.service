@@ -1,0 +1,9 @@
+[Unit]
+Description=Notify local LCD and sound when the public MCP health check fails
+
+[Service]
+Type=oneshot
+ExecStart=%h/.local/libexec/gway-mcp-health-alert
+NoNewPrivileges=true
+UMask=0077
+TimeoutStartSec=30

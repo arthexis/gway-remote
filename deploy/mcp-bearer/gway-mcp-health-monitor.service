@@ -11,3 +11,4 @@ PrivateTmp=true
 ProtectSystem=strict
 ProtectHome=true
 ReadWritePaths=/var/lib/gway-mcp-monitor
+ReadWritePaths=/var/lib/gway-mcp-monitor-public

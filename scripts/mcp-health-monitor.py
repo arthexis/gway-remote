@@ -7,12 +7,14 @@ import stat
 import subprocess
 import sys
 import tempfile
+import time
 from datetime import datetime, timezone
 from urllib.error import HTTPError, URLError
 from urllib.request import urlopen
 
 UNITS = ("gway-mcp-gateway.service", "gway-mcp-link.service", "gway-mcp-private-bridge.service")
 STATE = Path("/var/lib/gway-mcp-monitor/latest.json")
+PUBLIC = Path("/var/lib/gway-mcp-monitor-public/status.json")
 
 
 def unit_state(unit, runner=subprocess.run):
@@ -86,6 +88,40 @@ def sample(previous=None, *, reader=unit_state, probe=http_status, classify=fail
             "authenticated_external": "not_checked"}
 
 
+def public_projection(data, previous, now):
+    """Hold a failure for two slower external checks without keeping raw data."""
+    prior = previous.get('alert_hold_until', 0) if type(previous) is dict else 0
+    if type(prior) is not int or not now <= prior <= now + 300:
+        prior = 0
+    until = max(prior, now + 300) if data['status'] == 'failed' else prior
+    data['alert_hold_until'] = until
+    return {'schema': 1, 'observed_at': data['observed_at'],
+            'status': 'failed' if until > now or data['status'] == 'failed' else 'ok'}
+
+
+def publish_public(path, data):
+    """Publish only a fixed health class, with no journal or service details."""
+    if (type(data) is not dict or set(data) != {'schema', 'observed_at', 'status'}
+            or type(data['schema']) is not int or data['schema'] != 1
+            or type(data['observed_at']) is not str or data['status'] not in ('ok', 'failed')):
+        raise ValueError('invalid monitor projection')
+    parent = path.parent.lstat()
+    if not stat.S_ISDIR(parent.st_mode) or parent.st_uid != 0 or parent.st_mode & 0o022:
+        raise PermissionError('unsafe public monitor directory')
+    fd, temp = tempfile.mkstemp(prefix='.health-', dir=path.parent)
+    try:
+        os.fchmod(fd, 0o644)
+        with os.fdopen(fd, 'w') as stream:
+            json.dump(data, stream, sort_keys=True)
+            stream.write('\n')
+            stream.flush()
+            os.fsync(stream.fileno())
+        os.replace(temp, path)
+    finally:
+        if os.path.exists(temp):
+            os.unlink(temp)
+
+
 def main():
     STATE.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
     info = STATE.parent.lstat()
@@ -97,6 +133,7 @@ def main():
     except (OSError, ValueError):
         previous = None
     data = sample(previous)
+    projection = public_projection(data, previous, int(time.time()))
     fd, temp = tempfile.mkstemp(prefix=".health-", dir=STATE.parent)
     try:
         os.fchmod(fd, 0o600)
@@ -107,9 +144,14 @@ def main():
     finally:
         if os.path.exists(temp):
             os.unlink(temp)
+    publish_public(PUBLIC, projection)
     print(json.dumps({"status": data["status"], "failures": data["failures"]}))
     return 0 if data["status"] == "ok" else 1
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    try:
+        sys.exit(main())
+    except (OSError, ValueError, TypeError, KeyError):
+        print('{"status":"failed","failures":["monitor_state_unavailable"]}')
+        sys.exit(1)

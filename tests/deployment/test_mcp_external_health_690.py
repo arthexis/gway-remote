@@ -99,11 +99,28 @@ class ExternalHealthTests(unittest.TestCase):
         def open_request(request, timeout):
             seen.append((request.get_method(), json.loads(request.data), timeout))
             response = {'jsonrpc': '2.0', 'id': 1, 'result': {'content': [
-                {'type': 'text', 'text': json.dumps({'schema': 1, 'nodes': []})}]}}
+                {'type': 'text', 'text': json.dumps({'schema': 1, 'nodes': [],
+                                                    'watchtower_monitor': {'status': 'ok'}})}]}}
             return Response(json.dumps(response).encode())
         self.assertEqual(health.probe('private-token', opener=open_request), 'ok')
         self.assertEqual(seen[0][1]['params']['name'], 'node_list')
         self.assertNotIn('private-token', repr(seen))
+
+    def test_watchtower_monitor_failure_and_unknown_fail_the_external_check(self):
+        for status, expected in (('failed', 'watchtower_monitor_failed'),
+                                 ('unknown', 'watchtower_monitor_unavailable')):
+            response = {'jsonrpc': '2.0', 'id': 1, 'result': {'content': [
+                {'type': 'text', 'text': json.dumps({'schema': 1, 'nodes': [],
+                                                    'watchtower_monitor': {'status': status}})}]}}
+            with self.subTest(status=status):
+                self.assertEqual(health.probe('private-token', opener=lambda *a, **kw:
+                    Response(json.dumps(response).encode())), expected)
+
+    def test_missing_watchtower_projection_does_not_claim_healthy(self):
+        response = {'jsonrpc': '2.0', 'id': 1, 'result': {'content': [
+            {'type': 'text', 'text': json.dumps({'schema': 1, 'nodes': []})}]}}
+        self.assertEqual(health.probe('private-token', opener=lambda *a, **kw:
+            Response(json.dumps(response).encode())), 'watchtower_monitor_unavailable')
 
     def test_http_auth_and_tool_errors_are_distinct(self):
         def denied(*args, **kwargs):
