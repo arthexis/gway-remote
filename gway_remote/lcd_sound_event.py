@@ -137,6 +137,13 @@ def argv_for(event, *, dispatcher="gway-lcd-sound", sound="sound"):
 def _private_db(path):
     path = Path(path)
     parent = path.parent
+    if parent.is_symlink() or parent.parent.is_symlink():
+        raise PermissionError("receiver journal directory symlink")
+    # Initialize only the receiver owner's private application state.
+    # The parent ~/.local/state remains under the already chosen executor
+    # account; do not install a root-managed store or change user identity.
+    if not parent.exists():
+        parent.mkdir(mode=0o700, parents=True, exist_ok=True)
     info = parent.lstat()
     if not stat.S_ISDIR(info.st_mode) or info.st_uid != os.geteuid() or info.st_mode & 0o077:
         raise PermissionError("receiver journal directory not private")
