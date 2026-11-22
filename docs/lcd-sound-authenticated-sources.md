@@ -123,7 +123,7 @@ human-observed physical LCD/audio output.
 ## Existing Watchtower bearer verification integration
 
 The opt-in `forward_verified_bearer` adapter now uses the existing
-`BearerVerifier.execution_principal(token)`. This validates the
+`BearerVerifier.lcd_sound_principal(token)`. This validates the
 `gway:execute` scope, expiry and delegation-chain revocation on **every**
 request and derives the stable parent key ID as the source principal; a
 client-supplied `origin`, hostname, token prefix or header does not establish
