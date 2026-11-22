@@ -400,7 +400,12 @@
             state: restarted
           register: mcp_rollback_gateway_restart
           ignore_errors: true
-          when: mcp_gateway_activation_needed | bool or mcp_exec_gateway_unit.changed | default(false)
+          when:
+            - mcp_gateway_activation_needed | bool or mcp_exec_gateway_unit.changed | default(false)
+            - not (mcp_rollback_pointer.failed | default(true))
+            - not (mcp_rollback_pointer.skipped | default(false))
+            - not (mcp_rollback_gateway_unit.failed | default(true))
+            - not (mcp_rollback_reload.failed | default(true))
 
         - name: Restart existing OAuth link after rollback
           become: true
@@ -410,7 +415,12 @@
             daemon_reload: true
           register: mcp_rollback_oauth_restart
           ignore_errors: true
-          when: mcp_activation_needed | bool
+          when:
+            - mcp_activation_needed | bool
+            - not (mcp_rollback_pointer.failed | default(true))
+            - not (mcp_rollback_pointer.skipped | default(false))
+            - not (mcp_rollback_oauth_unit.failed | default(true))
+            - not (mcp_rollback_reload.failed | default(true))
 
         - name: Verify gateway health independently after rollback
           ansible.builtin.uri:

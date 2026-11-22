@@ -53,12 +53,17 @@ class RollbackProbeTests(unittest.TestCase):
         selected = [deepcopy(t) for t in block['rescue'] if t['name'] in (
             'Restore previous pointer atomically if activation failed',
             'Restore original OAuth service unit exactly',
+            'Restart previous private gateway after release rollback',
+            'Restart existing OAuth link after rollback',
             'Verify gateway health independently after rollback',
             'Verify OAuth health independently after rollback',
             'Classify the complete rollback outcome',
             'Record private post-rollback diagnostics',
             'Stop on failed MCP release activation')]
-        for task, port in zip(selected[2:4], (gateway_port, oauth_port)):
+        named = {task['name']: task for task in selected}
+        for name, port in (('Verify gateway health independently after rollback', gateway_port),
+                           ('Verify OAuth health independently after rollback', oauth_port)):
+            task = named[name]
             task['ansible.builtin.uri']['url'] = task['ansible.builtin.uri']['url'].replace(
                 '19010' if port == gateway_port else '19012', str(port))
             # When the same test server serves both endpoints, choose by task name.
@@ -70,19 +75,31 @@ class RollbackProbeTests(unittest.TestCase):
             root = Path(tmp)
             (root / 'releases').mkdir()
             (root / 'current').symlink_to('releases/' + 'b' * 40)
-            selected[0].pop('become', None)
-            selected[0]['ansible.builtin.shell'] = selected[0]['ansible.builtin.shell'].replace(
+            pointer = named['Restore previous pointer atomically if activation failed']
+            pointer.pop('become', None)
+            pointer['ansible.builtin.shell'] = pointer['ansible.builtin.shell'].replace(
                 'cd /opt/gway-mcp', 'cd ' + (tmp + '/missing' if pointer_failure else tmp))
-            selected[1].pop('become', None)
-            copy = selected[1]['ansible.builtin.copy']
+            unit = named['Restore original OAuth service unit exactly']
+            unit.pop('become', None)
+            copy = unit['ansible.builtin.copy']
             copy['dest'] = str(root / ('missing/unit' if unit_failure else 'unit'))
             copy.pop('owner', None)
             copy.pop('group', None)
+            for name, marker, fail in (
+                    ('Restart previous private gateway after release rollback', 'gateway-restarted', restart_failure),
+                    ('Restart existing OAuth link after rollback', 'oauth-restarted', False)):
+                task = named[name]
+                task.pop('become', None)
+                task.pop('ansible.builtin.systemd')
+                task['ansible.builtin.command'] = {'argv': ['/usr/bin/python3', '-c',
+                    'import pathlib,sys; pathlib.Path(sys.argv[1]).touch(); sys.exit(int(sys.argv[2]))',
+                    str(root / marker), str(int(fail))]}
             stub = root / 'receipt.py'
             stub.write_text('import pathlib,sys\npathlib.Path(sys.argv[1]).write_text(sys.argv[2])\n')
             receipt = root / 'result.txt'
-            selected[5].pop('become', None)
-            selected[5]['ansible.builtin.command']['argv'] = [
+            receipt_task = named['Record private post-rollback diagnostics']
+            receipt_task.pop('become', None)
+            receipt_task['ansible.builtin.command']['argv'] = [
                 '/usr/bin/python3', str(stub), str(receipt), '{{ mcp_rollback_result }}']
             file = Path(tmp) / 'probe.yml'
             file.write_text(yaml.safe_dump([{'hosts': 'localhost', 'connection': 'local',
@@ -90,13 +107,16 @@ class RollbackProbeTests(unittest.TestCase):
                     'mcp_original_unit': {'content': 'ZmFrZQ=='},
                     'mcp_rollback_gateway_unit': {'failed': False},
                     'mcp_rollback_reload': {'failed': False},
-                    'mcp_rollback_gateway_restart': {'failed': restart_failure},
-                    'mcp_rollback_oauth_restart': {'failed': False},
+                    'mcp_gateway_activation_needed': True,
+                    'mcp_activation_needed': True,
+                    'mcp_exec_gateway_unit': {'changed': False},
                     'mcp_original_target': {'stdout': 'releases/' + 'a' * 40}}, 'tasks': selected}]))
             result = subprocess.run(['ansible-playbook', '-i', 'localhost,', str(file)],
                                     text=True, capture_output=True, timeout=45)
             self.assertEqual((root / 'current').readlink().as_posix(),
                              'releases/' + ('b' if pointer_failure else 'a') * 40)
+            self.assertEqual((root / 'gateway-restarted').exists(), not pointer_failure)
+            self.assertEqual((root / 'oauth-restarted').exists(), not pointer_failure and not unit_failure)
             self.assertEqual(receipt.read_text(),
                              'rollback_healthy' if not pointer_failure and not unit_failure and not restart_failure and not wrong_issuer and gateway_port == oauth_port
                              else 'rollback_unhealthy')
