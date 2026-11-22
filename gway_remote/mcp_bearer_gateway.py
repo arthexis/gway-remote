@@ -323,7 +323,8 @@ class Handler(BaseHTTPRequestHandler):
             from .lcd_sound_ingress import forward_verified_bearer
             result = forward_verified_bearer(
                 event, bearer=supplied[7:], verifier=self.server.registry,
-                dispatch=self.server.lcd_sound_dispatch)
+                dispatch=self.server.lcd_sound_dispatch,
+                load_grants=self.server.lcd_sound_grants_loader)
             if result["status"] == "uncertain":
                 code = 202
             elif result["status"] == "failed":
@@ -801,7 +802,7 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
-def make_server(address, registry, upstream, backend_token, *, execution=None, bridge_sessions=None, bridge_transport=None, approved_sources=None, federation=None, lcd_sound_ingress_enabled=False, lcd_sound_dispatch=None):
+def make_server(address, registry, upstream, backend_token, *, execution=None, bridge_sessions=None, bridge_transport=None, approved_sources=None, federation=None, lcd_sound_ingress_enabled=False, lcd_sound_dispatch=None, lcd_sound_grants_loader=None):
     from urllib.parse import urlsplit
     parsed = urlsplit(upstream)
     if parsed.scheme != "http" or parsed.hostname != "127.0.0.1" or not parsed.port or parsed.path != "/mcp" or parsed.query or parsed.fragment or parsed.username or parsed.password:
@@ -824,6 +825,7 @@ def make_server(address, registry, upstream, backend_token, *, execution=None, b
         raise ValueError("invalid LCD/Sound ingress activation")
     server.lcd_sound_ingress_enabled = lcd_sound_ingress_enabled
     server.lcd_sound_dispatch = lcd_sound_dispatch
+    server.lcd_sound_grants_loader = lcd_sound_grants_loader
     server.approved_sources = approved_sources
     server.federation = federation
     server.registry = registry
