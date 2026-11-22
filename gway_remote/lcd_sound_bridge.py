@@ -50,8 +50,11 @@ def dispatch(event, *, load=None, sleep=time.sleep):
         result = response.get("result")
         if type(result) is not dict or result.get("status") not in ("succeeded", "failed", "uncertain"):
             raise RuntimeError("invalid receiver acknowledgement")
-        return {"node": node, "request_id": event["request_id"],
-                "status": result["status"], "duplicate": result.get("duplicate") is True}
+        answer = {"node": node, "request_id": event["request_id"],
+                  "status": result["status"], "duplicate": result.get("duplicate") is True}
+        if event["action"] == "status" and type(result.get("output")) is str and len(result["output"].encode("utf-8")) <= 4096:
+            answer["output"] = result["output"]
+        return answer
     raise RuntimeError("remote event not acknowledged")
 
 
