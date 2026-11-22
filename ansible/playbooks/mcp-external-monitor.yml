@@ -66,11 +66,11 @@
         daemon_reload: true
       when: external_monitor_units.changed
 
-    - name: Verify the external observer can make a read-only MCP call
+    - name: Verify the sandboxed observer can make a read-only MCP call
       become: true
-      ansible.builtin.command:
-        argv: [/usr/local/libexec/gway-mcp-external-health]
-      changed_when: false
+      ansible.builtin.systemd:
+        name: gway-mcp-external-health.service
+        state: started
 
     - name: Enable external MCP observer timer
       become: true
