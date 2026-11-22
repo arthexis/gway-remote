@@ -16,6 +16,7 @@ from .node_exec_contract import validate_command
 
 MAX_REQUEST_BYTES = 65536
 OPERATIONS = {
+    "lcd_sound_event": frozenset({"operation", "node", "request_id", "event"}),
     "submit": frozenset({"operation", "node", "request_id", "command"}),
     "result": frozenset({"operation", "node", "request_id", "cursor"}),
     "cancel": frozenset({"operation", "node", "request_id"}),
@@ -52,6 +53,13 @@ def serve_one(raw, *, jobs=None, hostname=None):
     if not re.fullmatch(r"gway-[0-9]+", host) or req["node"] != host:
         raise PermissionError("unapproved node")
     rid = validate_request_id(req["request_id"])
+    if op == "lcd_sound_event":
+        from .lcd_sound_event import receive
+        event = req["event"]
+        if type(event) is not dict or event.get("request_id") != rid:
+            raise ValueError("event request mismatch")
+        result = receive(event, trusted_node=host)
+        return {"node": host, "request_id": rid, "result": result}
     if op == "file_read":
         # Preserve the operator executor identity for all existing operations.
         # Only the exact, sudoers-pinned reader crosses into gway-exec.
