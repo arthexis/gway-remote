@@ -185,6 +185,12 @@ def receive(event, *, trusted_node, db_path=DEFAULT_DB, run=subprocess.run, now=
         status = "succeeded" if proc.returncode == 0 else "failed"
         with db:
             db.execute("UPDATE events SET state=? WHERE id=?", (status, event["request_id"]))
-        return {"status": status, "duplicate": False}
+        answer = {"status": status, "duplicate": False}
+        if status == "succeeded" and event["action"] == "status":
+            output = getattr(proc, "stdout", b"")
+            if type(output) is not bytes or len(output) > 4096:
+                raise RuntimeError("invalid device status output")
+            answer["output"] = output.decode("utf-8", errors="replace")
+        return answer
     finally:
         db.close()
