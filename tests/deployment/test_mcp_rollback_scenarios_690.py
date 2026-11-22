@@ -76,3 +76,18 @@ class RollbackProbeTests(unittest.TestCase):
         self.assertNotEqual(result.returncode, 0)  # activation failure must still fail deployment
         self.assertIn('rollback_healthy', result.stdout)
         self.assertIn('OAuth HTTP health: healthy', result.stdout)
+
+    def test_gateway_can_be_healthy_while_oauth_is_down(self):
+        server = ThreadingHTTPServer(('127.0.0.1', 0), Handler)
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        with socket.socket() as sock:
+            sock.bind(('127.0.0.1', 0))
+            unused = sock.getsockname()[1]
+        try:
+            result = self.run_probes(server.server_port, unused)
+        finally:
+            server.shutdown(); server.server_close(); thread.join()
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn('rollback_healthy', result.stdout)
+        self.assertIn('OAuth HTTP health: unhealthy', result.stdout)

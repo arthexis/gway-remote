@@ -49,12 +49,14 @@ def failure_class(runner=subprocess.run):
         text = result.stdout[-65536:]
     except (OSError, subprocess.SubprocessError):
         return "unknown"
-    for marker, category in (("node is not currently attested at pinned address", "node_eligibility"),
-                             ("ModuleNotFoundError", "import"), ("ImportError", "import"),
-                             ("PermissionError", "permission"), ("Address already in use", "bind"),
-                             ("FileNotFoundError", "missing_file")):
-        if marker in text:
-            return category
+    markers = (("node is not currently attested at pinned address", "node_eligibility"),
+               ("ModuleNotFoundError", "import"), ("ImportError", "import"),
+               ("PermissionError", "permission"), ("Address already in use", "bind"),
+               ("FileNotFoundError", "missing_file"))
+    for line in reversed(text.splitlines()):
+        for marker, category in markers:
+            if marker in line:
+                return category
     return "unclassified"
 
 

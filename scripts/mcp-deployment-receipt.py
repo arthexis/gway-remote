@@ -35,12 +35,14 @@ def failure_class(*, runner=subprocess.run):
     except (OSError, subprocess.SubprocessError):
         return "unknown"
     # Fixed classes only; raw errors, paths and arguments never leave this process.
-    for marker, category in (("node is not currently attested at pinned address", "node_eligibility"),
-                             ("ModuleNotFoundError", "import"), ("ImportError", "import"),
-                             ("PermissionError", "permission"), ("Address already in use", "bind"),
-                             ("FileNotFoundError", "missing_file")):
-        if marker in text:
-            return category
+    markers = (("node is not currently attested at pinned address", "node_eligibility"),
+               ("ModuleNotFoundError", "import"), ("ImportError", "import"),
+               ("PermissionError", "permission"), ("Address already in use", "bind"),
+               ("FileNotFoundError", "missing_file"))
+    for line in reversed(text.splitlines()):
+        for marker, category in markers:
+            if marker in line:
+                return category
     return "unclassified"
 
 

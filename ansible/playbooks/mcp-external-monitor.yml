@@ -8,6 +8,14 @@
   vars:
     mcp_source: "{{ playbook_dir }}/../.."
   tasks:
+    - name: Inspect observer credential directory metadata
+      become: true
+      ansible.builtin.stat:
+        path: /etc/gway-mcp-monitor
+        follow: false
+      register: mcp_observer_directory
+      no_log: true
+
     - name: Inspect pre-provisioned observer OAuth access token metadata
       become: true
       ansible.builtin.stat:
@@ -19,6 +27,10 @@
     - name: Require a protected operator-provisioned observer credential
       ansible.builtin.assert:
         that:
+          - mcp_observer_directory.stat.isdir | default(false)
+          - not (mcp_observer_directory.stat.islnk | default(false))
+          - mcp_observer_directory.stat.uid == 0
+          - mcp_observer_directory.stat.mode in ['0700', '0750', '0755']
           - mcp_observer_credential.stat.isreg | default(false)
           - not (mcp_observer_credential.stat.islnk | default(false))
           - mcp_observer_credential.stat.uid == 0
@@ -53,6 +65,12 @@
       ansible.builtin.systemd:
         daemon_reload: true
       when: external_monitor_units.changed
+
+    - name: Verify the external observer can make a read-only MCP call
+      become: true
+      ansible.builtin.command:
+        argv: [/usr/local/libexec/gway-mcp-external-health]
+      changed_when: false
 
     - name: Enable external MCP observer timer
       become: true

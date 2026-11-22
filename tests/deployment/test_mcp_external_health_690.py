@@ -3,6 +3,7 @@ import importlib.util
 import io
 import json
 from pathlib import Path
+import tempfile
 import unittest
 from urllib.error import HTTPError
 
@@ -17,6 +18,25 @@ class Response(io.BytesIO):
 
 
 class ExternalHealthTests(unittest.TestCase):
+    def test_private_credential_file_and_symlink_guard(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            folder = Path(tmp)
+            credential = folder / 'token'
+            credential.write_text('private-token\n')
+            credential.chmod(0o600)
+            self.assertEqual(health.read_token(credential), 'private-token')
+            credential.chmod(0o644)
+            with self.assertRaises(ValueError):
+                health.read_token(credential)
+            credential.chmod(0o600)
+            link = folder / 'link'
+            link.symlink_to(credential)
+            with self.assertRaises(OSError):
+                health.read_token(link)
+            folder.chmod(0o777)
+            with self.assertRaises(ValueError):
+                health.read_token(credential)
+
     def test_authenticated_node_list(self):
         seen = []
         def open_request(request, timeout):

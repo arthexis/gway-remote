@@ -13,6 +13,10 @@ TOKEN_FILE = Path('/etc/gway-mcp-monitor/oauth-access-token')
 
 
 def read_token(path=TOKEN_FILE):
+    parent = path.parent.lstat()
+    if (not stat.S_ISDIR(parent.st_mode) or parent.st_uid != os.geteuid()
+            or parent.st_mode & 0o022):
+        raise ValueError('unsafe credential directory')
     fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
     with os.fdopen(fd, 'rb') as stream:
         info = os.fstat(stream.fileno())
