@@ -9,6 +9,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 import hashlib
 import json
+import math
 import os
 from pathlib import Path
 import re
@@ -39,7 +40,7 @@ def validate(event, *, trusted_node, now=None):
         raise PermissionError("wrong receiver")
     if type(event["origin"]) is not str or not re.fullmatch(r"(watchtower|gway-[0-9]{3,})", event["origin"]):
         raise ValueError("invalid origin")
-    if event["origin"] == trusted_node or event["hops"] != 0:
+    if event["origin"] == trusted_node or type(event["hops"]) is not int or event["hops"] != 0:
         raise PermissionError("remote event forwarding loop")
     if type(event["request_id"]) is not str or not RID.fullmatch(event["request_id"]):
         raise ValueError("invalid event id")
@@ -77,12 +78,22 @@ def validate(event, *, trusted_node, now=None):
     elif event["action"] == "sequence":
         if set(a) != {"sequence"} or type(a["sequence"]) is not str or len(a["sequence"].encode("utf-8")) > 4096:
             raise ValueError("invalid sound sequence")
-        from json import loads
-        from json.decoder import JSONDecodeError
         try:
-            from sound_sequence import validate as validate_sequence, parse_sequence
-            validate_sequence(parse_sequence(a["sequence"]))
-        except (ImportError, ValueError, TypeError, JSONDecodeError) as exc:
+            data = json.loads(a["sequence"])
+            if type(data) is not dict or set(data) != {"format", "notes"} or data["format"] != "gway-piano-v1":
+                raise ValueError("invalid sequence format")
+            notes = data["notes"]
+            if type(notes) is not list or not 1 <= len(notes) <= 12:
+                raise ValueError("invalid sequence length")
+            for item in notes:
+                if type(item) is not list or len(item) != 3 or any(type(v) not in (float, int) for v in item):
+                    raise ValueError("invalid notes")
+                hz, duration, pause = item
+                if (not all(math.isfinite(v) for v in item)
+                    or not (hz == 0 or 80 <= hz <= 4000)
+                    or not (0.01 <= duration <= 0.4 and 0 <= pause <= 0.4)):
+                    raise ValueError("invalid notes")
+        except (ValueError, TypeError) as exc:
             raise ValueError("invalid sound sequence") from exc
     elif event["action"] == "event":
         if set(a) - {"event", "source", "within"} or not {"event", "source"} <= set(a):
