@@ -41,6 +41,17 @@ class GrantStoreTests(unittest.TestCase):
         with self.assertRaises(OSError):
             load_operator_grants(link, expected_owner=self.owner)
 
+    def test_writable_parent_directory_rejected(self):
+        self.write()
+        parent = self.path.parent
+        before = parent.stat().st_mode & 0o777
+        try:
+            parent.chmod(0o777)
+            with self.assertRaises(PermissionError):
+                load_operator_grants(self.path, expected_owner=self.owner)
+        finally:
+            parent.chmod(before)
+
     def test_wrong_owner_rejected(self):
         self.write()
         with self.assertRaises(PermissionError):
