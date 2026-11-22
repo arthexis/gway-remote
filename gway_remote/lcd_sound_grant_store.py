@@ -20,6 +20,12 @@ def load_operator_grants(path=POLICY_PATH, *, expected_owner=0):
     path = Path(path)
     if not path.is_absolute() or ".." in path.parts:
         raise PermissionError("grant path not trusted")
+    parent = path.parent
+    parent_info = parent.lstat()
+    if (not stat.S_ISDIR(parent_info.st_mode)
+            or parent_info.st_uid != expected_owner
+            or parent_info.st_mode & 0o022):
+        raise PermissionError("grant directory not trusted")
     fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC)
     try:
         info = os.fstat(fd)
