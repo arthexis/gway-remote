@@ -119,3 +119,30 @@ files, process credentials, calls to legacy `sound`/`lcd`, and actual
 `PATH` must be inventoried on each host before remapping any producer.
 Keep an explicit distinction between transport-receipt success and
 human-observed physical LCD/audio output.
+
+## Existing Watchtower bearer verification integration
+
+The opt-in `forward_verified_bearer` adapter now uses the existing
+`BearerVerifier.execution_principal(token)`. This validates the
+`gway:execute` scope, expiry and delegation-chain revocation on **every**
+request and derives the stable parent key ID as the source principal; a
+client-supplied `origin`, hostname, token prefix or header does not establish
+that principal. An independently root-owned grant maps each verified ID to
+exactly one allowed server source. The gateway is not yet wired to an external
+route, so no server can use this adapter over the network today.
+
+When provisioning, issue two **different operator-approved credentials** via
+the existing audited bearer issuance mechanism, one held by each existing
+server service account; configure two separate root-owned grant entries using
+the verifier's stable IDs, never copying Watchtower's SSH identity. A
+`gway:execute` bearer alone cannot authorize an LCD/Sound operation without
+its separate narrowly scoped source grant. Do not put tokens or private keys
+in the configuration file, Git history, or logs. Revoke either credential and
+its source grant separately; the next request must fail before the pinned
+transport is invoked. This describes a future controlled provisioning step;
+no real credentials were created for the two servers in this PR.
+
+The previously documented example `authenticated-subject-for-abb` and
+`authenticated-subject-for-gelectriic` are illustrative; actual verified
+principals are the 24-character hexadecimal values issued by Watchtower's
+existing bearer registry.
