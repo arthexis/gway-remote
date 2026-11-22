@@ -40,10 +40,26 @@ class AuthenticatedIngressTests(unittest.TestCase):
                 result = forward_authenticated(original, authenticated_principal=principal,
                                                operator_grants=policy(), dispatch=bridge)
                 self.assertEqual(seen[0]["origin"], "watchtower")
-                self.assertEqual(seen[0]["request_id"], original["request_id"])
+                self.assertNotEqual(seen[0]["request_id"], original["request_id"])
+                self.assertEqual(result["receiver_request_id"], seen[0]["request_id"])
+                self.assertEqual(result["request_id"], original["request_id"])
                 self.assertEqual(original["origin"], source)
                 self.assertEqual(result["source"], source)
                 self.assertEqual(len(result["source_event_sha256"]), 64)
+
+    def test_distinct_source_ids_cannot_collide_in_receiver_journal(self):
+        ids = []
+        for origin, principal in (("ocpp-abb-1", "auth:ocpp-abb-1"),
+                                  ("gelectriic.com", "auth:gelectriic.com"),
+                                  ("ocpp-abb-1", "auth:ocpp-abb-1")):
+            def relay(event):
+                ids.append(event["request_id"])
+                return {"node": event["node"], "request_id": event["request_id"],
+                        "status": "succeeded"}
+            forward_authenticated(sample(origin), authenticated_principal=principal,
+                                  operator_grants=policy(), dispatch=relay)
+        self.assertNotEqual(ids[0], ids[1])
+        self.assertEqual(ids[0], ids[2])
 
     def test_spoofing_and_revocation_do_not_invoke_pinned_transport(self):
         calls = []
