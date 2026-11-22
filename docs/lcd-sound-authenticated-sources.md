@@ -124,7 +124,7 @@ human-observed physical LCD/audio output.
 
 The opt-in `forward_verified_bearer` adapter now uses the existing
 `BearerVerifier.lcd_sound_principal(token)`. This validates the
-`gway:execute` scope, expiry and delegation-chain revocation on **every**
+`gway:lcd-sound` scope, expiry and delegation-chain revocation on **every**
 request and derives the stable parent key ID as the source principal; a
 client-supplied `origin`, hostname, token prefix or header does not establish
 that principal. An independently root-owned grant maps each verified ID to
@@ -135,8 +135,9 @@ When provisioning, issue two **different operator-approved credentials** via
 the existing audited bearer issuance mechanism, one held by each existing
 server service account; configure two separate root-owned grant entries using
 the verifier's stable IDs, never copying Watchtower's SSH identity. A
-`gway:execute` bearer alone cannot authorize an LCD/Sound operation without
-its separate narrowly scoped source grant. Do not put tokens or private keys
+`gway:lcd-sound` bearer cannot access general MCP read/execute tools, and
+ordinary read/execute/combined bearers cannot authorize this dedicated source
+scope. A separate source grant is required in addition to the bearer. Do not put tokens or private keys
 in the configuration file, Git history, or logs. Revoke either credential and
 its source grant separately; the next request must fail before the pinned
 transport is invoked. This describes a future controlled provisioning step;
@@ -158,7 +159,7 @@ return 404. No Nginx mapping or external listener is provided.
 Only trusted, explicitly enabled gateway construction can expose this
 path on its loopback socket. It requires exactly one valid
 `Authorization: Bearer ...` value, JSON content type, bounded length,
-no untrusted Origin header, a current `gway:execute` credential
+no untrusted Origin header, a current `gway:lcd-sound` credential
 verified through the existing registry, and a separate currently
 enabled root-owned source grant. It returns HTTP 200 for acknowledged
 success, 202 for uncertain and 502 for reported failure; it never
