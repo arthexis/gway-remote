@@ -82,7 +82,8 @@ class VerifiedBearerIngressTests(unittest.TestCase):
     def test_missing_or_read_scope_bearer_rejected(self):
         token = self.registry.issue(scope="gway:read")
         broad = self.registry.issue(scope="gway:execute", operator_approved=True)
-        for bearer in (token, broad, "", "bad"):
+        combined = self.registry.issue_combined(operator_approved=True)
+        for bearer in (token, broad, combined, "", "bad"):
             with self.subTest(bearer=bearer[:8]), self.assertRaises(PermissionError):
                 self.forward(event(), bearer)
 
