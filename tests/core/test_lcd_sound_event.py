@@ -70,7 +70,7 @@ class LcdSoundReceiverTests(unittest.TestCase):
         self.assertEqual(len(calls), 1)
 
     def test_identity_and_hop_guards(self):
-        for modification in ({"node": "gway-002"}, {"hops": 1}, {"origin": "gway-001"}):
+        for modification in ({"node": "gway-002"}, {"hops": 1}, {"origin": "gway-001"}, {"origin": "gway-005"}):
             with self.subTest(modification=modification), self.assertRaises(PermissionError):
                 m.validate(make_event(**modification), trusted_node="gway-001")
 
