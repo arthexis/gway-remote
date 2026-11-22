@@ -209,3 +209,18 @@ human observation (if required). Revoke the exact source grant and
 credential and prove subsequent attempts fail closed; restore previously
 captured route/release state if needed. The two server checks must be
 recorded independently, with no customer OCPP/Odoo/MCP interruption.
+
+### Credential issuance and revocation (separately authorized rollout)
+
+The existing Watchtower-only `scripts/mcp-bearer.py` now accepts
+`issue --scope gway:lcd-sound --days 1` under the dedicated registry
+owner. Each invocation creates **one** source-only credential and returns
+it once. The operator must keep the plaintext out of Git, chat, process
+arguments and logs. The 24-character key ID returned by the trusted
+`BearerVerifier.lcd_sound_principal` becomes the source-grant map key.
+Issue separate credentials under the two server service accounts only
+after confirming their actual identities. The existing CLI command
+`revoke KEY_ID` invalidates the credential independently of grant
+`enabled=false`. In tests, both revocation paths are checked.
+This documents the supported console operation; **no production
+credentials were issued during this development run**.
