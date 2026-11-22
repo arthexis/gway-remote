@@ -1,5 +1,6 @@
 """Only allowlisted diagnostics may appear in a deployment receipt."""
 import importlib.util
+import json
 from pathlib import Path
 import subprocess
 import tempfile
@@ -51,5 +52,5 @@ class ReceiptTests(unittest.TestCase):
             after = directory / ('a' * 32 + '-rollback.json')
             self.assertEqual(before.stat().st_mode & 0o777, 0o600)
             self.assertEqual(after.stat().st_mode & 0o777, 0o600)
-            self.assertIn('rollback_unhealthy', after.read_text())
-            self.assertIn('permission', after.read_text())
+            self.assertEqual(json.loads(after.read_text())['rollback_result'], 'rollback_unhealthy')
+            self.assertEqual(json.loads(after.read_text())['failure_class'], 'permission')
