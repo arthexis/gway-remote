@@ -26,10 +26,10 @@ class LCDSoundHttpIngressTests(unittest.TestCase):
         path = Path(tmp.name) / "registry.db"
         self.registry = BearerRegistry(path)
         self.verifier = BearerVerifier(path)
-        self.abb = self.registry.issue(scope="gway:execute", operator_approved=True)
-        self.website = self.registry.issue(scope="gway:execute", operator_approved=True)
-        self.abb_id = self.verifier.execution_principal(self.abb)
-        self.website_id = self.verifier.execution_principal(self.website)
+        self.abb = self.registry.issue(scope="gway:lcd-sound", operator_approved=True)
+        self.website = self.registry.issue(scope="gway:lcd-sound", operator_approved=True)
+        self.abb_id = self.verifier.lcd_sound_principal(self.abb)
+        self.website_id = self.verifier.lcd_sound_principal(self.website)
         self.grants = {
             self.abb_id: {"source": "ocpp-abb-1", "targets": ["gway-001"],
                           "operations": ["sound.play"], "enabled": True},
@@ -79,6 +79,12 @@ class LCDSoundHttpIngressTests(unittest.TestCase):
         self.assertNotEqual(self.received[0]["request_id"], self.received[1]["request_id"])
         self.assertEqual(json.loads(body_a)["source"], "ocpp-abb-1")
         self.assertEqual(json.loads(body_b)["source"], "gelectriic.com")
+
+    def test_general_mcp_execute_bearer_has_no_source_authority(self):
+        port = self.server(enabled=True)
+        broad = self.registry.issue(scope="gway:execute", operator_approved=True)
+        self.assertEqual(self.post(port, event(), broad)[0], 403)
+        self.assertEqual(self.received, [])
 
     def test_cross_host_spoof_and_revocation_denied(self):
         port = self.server(enabled=True)
