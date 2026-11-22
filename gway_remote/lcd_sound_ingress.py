@@ -54,3 +54,27 @@ def forward_authenticated(event, *, authenticated_principal, operator_grants,
     result["request_id"] = event["request_id"]
     result["source_event_sha256"] = hashlib.sha256(original).hexdigest()
     return result
+
+
+def forward_verified_bearer(event, *, bearer, verifier, dispatch=None,
+                            load_grants=None):
+    """Authenticate an existing OAuth/bearer identity before source-grant check.
+
+    `verifier` must be Watchtower's trusted BearerVerifier, backed by the
+    configured local registry. OAuth credential/refresh revocation is enforced
+    by `execution_principal` on each request. The grant registry is then
+    consulted independently for narrow source/destination/tool authorization.
+    No bearer, SSH private key, or caller-supplied principal is forwarded.
+    """
+    if type(bearer) is not str:
+        raise PermissionError("missing authenticated source bearer")
+    # execution_principal re-verifies scope, expiry and delegation revocation.
+    principal = verifier.execution_principal(bearer)
+    if type(principal) is not str or len(principal) != 24:
+        raise PermissionError("invalid verified source identity")
+    if load_grants is None:
+        from .lcd_sound_grant_store import load_operator_grants
+        load_grants = load_operator_grants
+    return forward_authenticated(
+        event, authenticated_principal=principal,
+        operator_grants=load_grants(), dispatch=dispatch)
