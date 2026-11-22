@@ -55,6 +55,16 @@ class ExecutionHealthTests(unittest.TestCase):
         self.assertNotIn("last_health_probe", data["nodes"][1])
         self.assertEqual(project_health(self.cap, self.execution)["execution_health"], "verified")
 
+    def test_stale_or_missing_pin_never_claims_execution_available(self):
+        self.add()
+        def denied(node):
+            raise PermissionError("private diagnostic")
+        self.execution._current_eligibility = denied
+        result = project_health(self.listing, self.execution)["nodes"][0]
+        self.assertFalse(result["execute_available"])
+        self.assertEqual(result["execution_health"], "unverified")
+        self.assertNotIn("private diagnostic", repr(result))
+
     def test_recent_failure_supersedes_earlier_success(self):
         self.add(at=self.now - timedelta(seconds=15))
         self.add(command="id -un", state="failed")

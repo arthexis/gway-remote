@@ -131,6 +131,10 @@
       register: mcp_correlation
       changed_when: false
 
+    - name: Report deployment correlation ID
+      ansible.builtin.debug:
+        msg: "MCP deployment correlation {{ mcp_correlation.stdout }}"
+
     - name: Record private pre-activation diagnostics
       become: true
       ansible.builtin.command:
