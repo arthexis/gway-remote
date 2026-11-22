@@ -139,6 +139,21 @@ class LcdSoundReceiverTests(unittest.TestCase):
             self.assertEqual(first.result(timeout=5)["status"], "succeeded")
         self.assertEqual(len(calls), 1)
 
+    def test_status_result_is_recovered_on_duplicate(self):
+        calls = []
+        def runner(argv, **kw):
+            calls.append(argv)
+            return SimpleNamespace(returncode=0, stdout=b'{"overlay":true}\\n')
+        event = make_event(device="lcd", action="status", arguments={})
+        first = m.receive(event, trusted_node="gway-001",
+                          db_path=self.journal, run=runner)
+        second = m.receive(event, trusted_node="gway-001",
+                           db_path=self.journal, run=runner)
+        self.assertEqual(first["output"], '{"overlay":true}\\n')
+        self.assertEqual(second["output"], first["output"])
+        self.assertTrue(second["duplicate"])
+        self.assertEqual(len(calls), 1)
+
     def test_world_readable_journal_rejected(self):
         self.journal.write_bytes(b"")
         self.journal.chmod(0o644)
