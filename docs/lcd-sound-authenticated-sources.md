@@ -63,7 +63,10 @@ operator_grants=operator_owned_grants)` only after an existing service has
 verified the caller. It checks the origin against the grant and then stamps the
 pinned node relay envelope as Watchtower, since the node can verify Watchtower's
 SSH key but cannot verify a server principal. The original source and the SHA256
-of its event appear in the Watchtower ingress receipt. This is a hop-by-hop
+of its event appear in the Watchtower ingress receipt. The forwarded receiver
+request ID is deterministic for (verified principal, source, client request ID),
+so separate servers cannot collide in the receiver journal with the same
+client-chosen ID; the source-visible receipt retains the original request ID. This is a hop-by-hop
 trust design: source identity is asserted by the trusted Watchtower ingress,
 not independently authenticated by the node. No new external endpoint exists.
 The adapter MUST NOT be exposed to an untrusted caller without authenticating
