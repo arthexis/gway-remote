@@ -1,0 +1,11 @@
+[Unit]
+Description=Probe public GWAY MCP every two minutes
+
+[Timer]
+OnBootSec=90s
+OnUnitActiveSec=120s
+AccuracySec=10s
+Unit=gway-mcp-external-health.service
+
+[Install]
+WantedBy=timers.target

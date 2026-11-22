@@ -1,0 +1,13 @@
+[Unit]
+Description=Independent Watchtower MCP health monitor
+After=network.target
+
+[Service]
+Type=oneshot
+User=root
+ExecStart=/usr/local/libexec/gway-mcp-health-monitor
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/gway-mcp-monitor

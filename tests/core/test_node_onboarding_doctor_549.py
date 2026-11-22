@@ -131,7 +131,6 @@ class NodeDoctorTests(unittest.TestCase):
             self.assertEqual(result["state"], "pin_validated_offline")
             self.assertEqual(binding, {
                 "address": ADDRESS, "host_key_sha256": PIN_SHA,
-                "configured_nodes": [{"node": "gway-002", "address": ADDRESS}],
             })
             validate.assert_called_once()
             path.chmod(0o666)
@@ -158,9 +157,7 @@ class NodeDoctorTests(unittest.TestCase):
                 required_owner=os.geteuid())
             self.assertEqual(invalid["state"], "binding_mismatch")
 
-    def test_multinode_pin_failure_prevents_false_readiness(self):
-        # load_service rejects *all* transport pins if even one node is bad.
-        # The local doctor must not declare the target pin valid in that case.
+    def test_multinode_pin_failure_is_isolated(self):
         with tempfile.TemporaryDirectory() as temp:
             path = Path(temp) / "execute.json"
             def entry(node):
@@ -180,9 +177,9 @@ class NodeDoctorTests(unittest.TestCase):
             state, binding = doctor._private_config(
                 "gway-002", path=path, pinned_factory=check_pin,
                 required_owner=os.geteuid())
-            self.assertEqual(validated, ["gway-002", "gway-004"])
-            self.assertEqual(state["state"], "unknown")
-            self.assertIsNone(binding)
+            self.assertEqual(validated, ["gway-002"])
+            self.assertEqual(state["state"], "pin_validated_offline")
+            self.assertIsNotNone(binding)
             self.assertNotIn("do-not-expose", json.dumps(state))
 
             second["ssh_host_alias"] = "gway-001"
@@ -193,10 +190,7 @@ class NodeDoctorTests(unittest.TestCase):
             self.assertEqual(state["state"], "invalid_configuration")
             self.assertIsNone(binding)
 
-    def test_other_configured_node_must_also_be_enrolled_and_eligible(self):
-        # load_service fails to start if *any* multi-node pin is not bound to
-        # current enrolled/attested/reachable identity, even when the target
-        # gway-002 itself is fully eligible.
+    def test_other_node_does_not_block_target_readiness(self):
         configured = (
             {"node": "gway-002", "address": ADDRESS},
             {"node": "gway-004", "address": "10.0.1.4"},
@@ -212,9 +206,8 @@ class NodeDoctorTests(unittest.TestCase):
                 pin_inspector=multi_pin, ledger_inspector=read_ledger)
         primary = inventory()["nodes"][0]
         absent = check([primary])
-        self.assertFalse(absent["ready_for_operator_test"])
-        self.assertEqual(absent["pinned_ssh"]["state"], "inventory_binding_mismatch")
-        self.assertEqual(absent["terminal_result"]["state"], "unknown")
+        self.assertTrue(absent["ready_for_operator_test"])
+        self.assertEqual(absent["pinned_ssh"]["state"], "pin_validated_offline")
         other = dict(primary, node="gway-004", address="10.0.1.4")
         for key, value in (("identity_verified", False),
                            ("execute_eligible", False),
@@ -222,7 +215,7 @@ class NodeDoctorTests(unittest.TestCase):
                            ("address", "10.0.1.99")):
             with self.subTest(key=key):
                 report = check([primary, dict(other, **{key: value})])
-                self.assertFalse(report["ready_for_operator_test"])
+                self.assertTrue(report["ready_for_operator_test"])
                 self.assertEqual(report["operational"]["state"], "unverified")
         healthy = check([primary, other])
         self.assertTrue(healthy["ready_for_operator_test"])

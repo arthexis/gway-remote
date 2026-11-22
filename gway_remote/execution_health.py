@@ -27,7 +27,10 @@ def _pinned(execution):
         entries = {transport.node.node: transport}
     pins = {}
     for name, item in entries.items():
-        pin = item.node
+        try:
+            pin = item.node
+        except (OSError, ValueError, TypeError, AttributeError):
+            continue
         key = pin.host_key_sha256
         if (type(name) is str and name == pin.node and type(key) is str
                 and len(key) == 64 and all(c in "0123456789abcdef" for c in key)):
@@ -104,14 +107,20 @@ def project_health(payload, execution):
         if not payload["nodes"]:
             return payload
         probes = recent_probes(execution)
-        return {**payload, "nodes": [_project(row, probes) for row in payload["nodes"]]}
+        return {**payload, "nodes": [_project(row, probes, execution) for row in payload["nodes"]]}
     if type(payload.get("node")) is str and "execute_available" in payload:
-        return _project(payload, recent_probes(execution))
+        return _project(payload, recent_probes(execution), execution)
     return payload
 
 
-def _project(row, probes):
+def _project(row, probes, execution):
     if type(row) is not dict or row.get("execute_available") is not True:
         return row
+    check = getattr(execution, "_current_eligibility", None)
+    if callable(check):
+        try:
+            check(row.get("node"))
+        except (OSError, ValueError, PermissionError, KeyError, TypeError, AttributeError):
+            return {**row, "execute_available": False, "execution_health": "unverified"}
     evidence = probes.get(row.get("node"))
     return {**row, **evidence} if evidence is not None else row

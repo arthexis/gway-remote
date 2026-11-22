@@ -1,0 +1,106 @@
+---
+# Run only on the explicitly chosen external observer, never on Watchtower.
+# The credential must be provisioned separately through a protected channel.
+- name: Configure an independent authenticated public MCP observer
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  vars:
+    mcp_source: "{{ playbook_dir }}/../.."
+  tasks:
+    - name: Inspect observer credential directory metadata
+      become: true
+      ansible.builtin.stat:
+        path: /etc/gway-mcp-monitor
+        follow: false
+      register: mcp_observer_directory
+      no_log: true
+
+    - name: Inspect pre-provisioned observer OAuth credential metadata
+      become: true
+      ansible.builtin.stat:
+        path: /etc/gway-mcp-monitor/oauth.json
+        follow: false
+      register: mcp_observer_credential
+      no_log: true
+
+    - name: Require a protected operator-provisioned observer credential
+      ansible.builtin.assert:
+        that:
+          - mcp_observer_directory.stat.isdir | default(false)
+          - not (mcp_observer_directory.stat.islnk | default(false))
+          - mcp_observer_directory.stat.uid == 0
+          - mcp_observer_directory.stat.mode in ['0700', '0750', '0755']
+          - mcp_observer_credential.stat.isreg | default(false)
+          - not (mcp_observer_credential.stat.islnk | default(false))
+          - mcp_observer_credential.stat.uid == 0
+          - mcp_observer_credential.stat.mode == '0600'
+        fail_msg: A root-owned mode 0600 observer OAuth credential is required before enabling the timer.
+      no_log: true
+
+    - name: Inspect observer system libexec directory
+      become: true
+      ansible.builtin.stat:
+        path: /usr/local/libexec
+        follow: false
+      register: mcp_observer_libexec
+
+    - name: Reject an unsafe existing observer libexec directory
+      ansible.builtin.assert:
+        that:
+          - mcp_observer_libexec.stat.isdir | default(false)
+          - not (mcp_observer_libexec.stat.islnk | default(false))
+          - mcp_observer_libexec.stat.uid == 0
+          - mcp_observer_libexec.stat.mode in ['0700', '0750', '0755']
+      when: mcp_observer_libexec.stat.exists
+
+    - name: Create missing observer libexec directory
+      become: true
+      ansible.builtin.file:
+        path: /usr/local/libexec
+        state: directory
+        owner: root
+        group: root
+        mode: '0755'
+      when: not mcp_observer_libexec.stat.exists
+
+    - name: Install fixed read-only public MCP health probe
+      become: true
+      ansible.builtin.copy:
+        src: "{{ mcp_source }}/scripts/mcp-external-health.py"
+        dest: /usr/local/libexec/gway-mcp-external-health
+        owner: root
+        group: root
+        mode: '0755'
+
+    - name: Install independent external monitoring units
+      become: true
+      ansible.builtin.copy:
+        src: "{{ mcp_source }}/deploy/mcp-bearer/{{ item }}"
+        dest: "/etc/systemd/system/{{ item }}"
+        owner: root
+        group: root
+        mode: '0644'
+      loop:
+        - gway-mcp-external-health.service
+        - gway-mcp-external-health.timer
+      register: external_monitor_units
+
+    - name: Reload external monitor units
+      become: true
+      ansible.builtin.systemd:
+        daemon_reload: true
+      when: external_monitor_units.changed
+
+    - name: Verify the sandboxed observer can make a read-only MCP call
+      become: true
+      ansible.builtin.systemd:
+        name: gway-mcp-external-health.service
+        state: started
+
+    - name: Enable external MCP observer timer
+      become: true
+      ansible.builtin.systemd:
+        name: gway-mcp-external-health.timer
+        enabled: true
+        state: started

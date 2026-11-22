@@ -1,0 +1,14 @@
+[Unit]
+Description=Authenticated public GWAY MCP read-only health check
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=root
+ExecStart=/usr/local/libexec/gway-mcp-external-health
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/etc/gway-mcp-monitor

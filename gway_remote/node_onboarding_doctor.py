@@ -67,29 +67,19 @@ def _private_config(node, path=EXEC_CONFIG, *, pinned_factory=PinnedNode,
         item = matches[0]
         if item["ssh_host_alias"] != node:
             return {"state": "binding_mismatch"}, None
-        # load_service checks *every* pin before starting a multi-node relay.
-        # Checking only the requested node would report a false positive if
-        # another configured SSH pin prevents Watchtower from starting.
         for entry in entries:
             if entry["ssh_host_alias"] != entry["node"]:
                 return {"state": "invalid_configuration"}, None
-            # Reuse the existing fingerprint, owner/mode and address verifier.
-            # This checks metadata only; it never opens an SSH connection.
-            pinned_factory(node=entry["node"], wireguard_address=entry["address"],
-                           ssh_host_alias=entry["ssh_host_alias"],
-                           known_hosts=Path(entry["known_hosts"]),
-                           identity_file=Path(entry["identity_file"]),
-                           host_key_sha256=entry["host_key_sha256"],
-                           remote_user=entry["remote_user"])
+        # Pin material and enrollment are checked per node at dispatch time.
+        pinned_factory(node=item["node"], wireguard_address=item["address"],
+                       ssh_host_alias=item["ssh_host_alias"],
+                       known_hosts=Path(item["known_hosts"]),
+                       identity_file=Path(item["identity_file"]),
+                       host_key_sha256=item["host_key_sha256"],
+                       remote_user=item["remote_user"])
         return {"state": "pin_validated_offline"}, {
             "address": item["address"],
             "host_key_sha256": item["host_key_sha256"],
-            # Internal only: load_service checks *every* configured node
-            # against the same enrollment snapshot, not just this target.
-            "configured_nodes": [
-                {"node": entry["node"], "address": entry["address"]}
-                for entry in entries
-            ],
         }
     except (ValueError, TypeError, KeyError, UnicodeError):
         return {"state": "invalid_configuration"}, None
@@ -187,25 +177,6 @@ def diagnose_node(node, *, inventory_loader=node_registry_inventory.load,
     if binding is not None and record.get("address") != binding["address"]:
         report["pinned_ssh"] = {"state": "binding_mismatch"}
         binding = None
-    if binding is not None:
-        # load_service validates the entire multi-node execution configuration
-        # against the current root-published enrollment snapshot. A healthy
-        # target pin cannot make an otherwise unloadable relay test-ready.
-        configured = binding.get("configured_nodes", (
-            {"node": node, "address": binding["address"]},))
-        for entry in configured:
-            matches = [row for row in rows if
-                       type(row) is dict and row.get("node") == entry["node"]
-                       and row.get("address") == entry["address"]
-                       and row.get("registered") is True
-                       and row.get("registration_state") == "active"
-                       and row.get("identity_verified") is True
-                       and row.get("execute_eligible") is True
-                       and row.get("reachable") == "reachable"]
-            if len(matches) != 1:
-                report["pinned_ssh"] = {"state": "inventory_binding_mismatch"}
-                binding = None
-                break
     if binding is not None:
         ledger, historical = ledger_inspector(node, binding["host_key_sha256"])
         report["request_ledger"] = ledger

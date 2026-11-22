@@ -60,6 +60,8 @@ jobs:
         run: ansible-playbook --syntax-check -i 'localhost,' ansible/playbooks/test-mcp-provider-lifecycle.yml
       - name: Test install, update, rollback and changed=0
         run: python -m pytest tests/deployment/test_mcp_provider_lifecycle_ansible.py -v
+      - name: Exercise MCP rollback health probes
+        run: python -m pytest tests/deployment/test_mcp_rollback_scenarios_690.py -v
 
   webauthn-python310:
     name: WebAuthn B2 / Watchtower Python 3.10
@@ -104,6 +106,7 @@ jobs:
           ansible-playbook --syntax-check -i 'localhost,' ansible/playbooks/stage-release.yml
           ansible-playbook --syntax-check -i 'localhost,' ansible/playbooks/validate-mcp-source-provision.yml
           ansible-playbook --syntax-check -i 'localhost,' ansible/playbooks/watchtower-mcp.yml
+          ansible-playbook --syntax-check -i 'localhost,' ansible/playbooks/mcp-external-monitor.yml
           ansible-playbook --syntax-check -i 'localhost,' ansible/observe-deployment.yml
           ansible-playbook --syntax-check -i 'gway-004,' ansible/migrate-executor-004.yml
       - name: Observe deployment E2E in disposable inventory (no deployment)

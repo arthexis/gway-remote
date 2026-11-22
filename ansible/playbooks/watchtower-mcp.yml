@@ -125,6 +125,26 @@
              mcp_unit_before.stat.checksum != mcp_unit_source.stat.checksum or
              mcp_active.rc != 0 }}
 
+    - name: Generate deployment correlation ID
+      ansible.builtin.command:
+        argv: [/usr/bin/python3, -c, 'import uuid; print(uuid.uuid4().hex)']
+      register: mcp_correlation
+      changed_when: false
+
+    - name: Report deployment correlation ID
+      ansible.builtin.debug:
+        msg: "MCP deployment correlation {{ mcp_correlation.stdout }}"
+
+    - name: Record private pre-activation diagnostics
+      become: true
+      ansible.builtin.command:
+        argv: [/usr/bin/python3, "{{ mcp_source }}/scripts/mcp-deployment-receipt.py", --correlation-id, "{{ mcp_correlation.stdout }}", --stage, before]
+      changed_when: false
+      no_log: true
+
+    - name: Converge independent MCP health monitoring
+      ansible.builtin.include_tasks: ../roles/gway_remote/tasks/watchtower-mcp-monitor.yml
+
     - name: Stage and activate only the dedicated MCP runtime
       block:
         - name: Stage reviewed isolated MCP runtime and advance current pointer
@@ -370,6 +390,7 @@
           ansible.builtin.systemd:
             name: gway-mcp-gateway.service
             state: restarted
+          failed_when: false
           when: mcp_gateway_activation_needed | bool or mcp_exec_gateway_unit.changed | default(false)
 
         - name: Restart existing OAuth link after rollback
@@ -378,8 +399,59 @@
             name: "{{ mcp_unit }}"
             state: restarted
             daemon_reload: true
+          failed_when: false
           when: mcp_activation_needed | bool
+
+        - name: Verify gateway health independently after rollback
+          ansible.builtin.uri:
+            url: http://127.0.0.1:19010/mcp
+            method: GET
+            status_code: 405
+            timeout: 3
+          register: mcp_rollback_gateway_check
+          retries: 10
+          delay: 2
+          until: mcp_rollback_gateway_check.status | default(0) == 405
+          failed_when: false
+          changed_when: false
+          no_log: true
+
+        - name: Verify OAuth health independently after rollback
+          ansible.builtin.uri:
+            url: http://127.0.0.1:19012/.well-known/oauth-authorization-server
+            method: GET
+            status_code: 200
+            timeout: 3
+          register: mcp_rollback_oauth_check
+          retries: 10
+          delay: 2
+          until: mcp_rollback_oauth_check.status | default(0) == 200
+          failed_when: false
+          changed_when: false
+          no_log: true
+
+        - name: Record private post-rollback diagnostics
+          become: true
+          ansible.builtin.command:
+            argv:
+              - /usr/bin/python3
+              - "{{ mcp_source }}/scripts/mcp-deployment-receipt.py"
+              - --correlation-id
+              - "{{ mcp_correlation.stdout }}"
+              - --stage
+              - rollback
+              - --rollback
+              - "{{ 'rollback_healthy' if mcp_rollback_gateway_check.status | default(0) == 405 else 'rollback_unhealthy' }}"
+          register: mcp_rollback_receipt
+          failed_when: false
+          changed_when: false
+          no_log: true
 
         - name: Stop on failed MCP release activation
           ansible.builtin.fail:
-            msg: MCP gateway or OAuth health validation failed; restored the previous selected release.
+            msg: >-
+              MCP release activation failed; gateway rollback result:
+              {{ 'rollback_healthy' if mcp_rollback_gateway_check.status | default(0) == 405 else 'rollback_unhealthy' }};
+              OAuth HTTP health: {{ 'healthy' if mcp_rollback_oauth_check.status | default(0) == 200 else 'unhealthy' }};
+              receipt: {{ 'written' if mcp_rollback_receipt.rc | default(1) == 0 else 'unavailable' }};
+              correlation: {{ mcp_correlation.stdout }}.
