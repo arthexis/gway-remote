@@ -38,8 +38,10 @@ def validate(event, *, trusted_node, now=None):
         raise ValueError("invalid event fields")
     if event["schema"] != SCHEMA or event["node"] != trusted_node:
         raise PermissionError("wrong receiver")
-    if type(event["origin"]) is not str or not re.fullmatch(r"(watchtower|gway-[0-9]{3,})", event["origin"]):
-        raise ValueError("invalid origin")
+    # This protocol is intentionally a Watchtower-only pinned SSH operation.
+    # General node-origin authentication is a separate future enrollment gate.
+    if event["origin"] != "watchtower":
+        raise PermissionError("unapproved sender origin")
     if event["origin"] == trusted_node or type(event["hops"]) is not int or event["hops"] != 0:
         raise PermissionError("remote event forwarding loop")
     if type(event["request_id"]) is not str or not RID.fullmatch(event["request_id"]):
@@ -173,6 +175,9 @@ def receive(event, *, trusted_node, db_path=DEFAULT_DB, run=subprocess.run, now=
             if event["action"] == "status":
                 answer["output"] = row[2]
             return answer
+        # TTL is at most 30s; old IDs are invalid at the protocol gate.
+        # Pruning day-old entries bounds storage without permitting replay.
+        db.execute("DELETE FROM events WHERE created < ?", (time.time() - 86400,))
         if db.execute("SELECT COUNT(*) FROM events").fetchone()[0] >= MAX_EVENTS:
             db.rollback()
             raise RuntimeError("receiver journal full")
