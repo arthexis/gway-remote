@@ -61,15 +61,15 @@ def forward_verified_bearer(event, *, bearer, verifier, dispatch=None,
     """Authenticate an existing OAuth/bearer identity before source-grant check.
 
     `verifier` must be Watchtower's trusted BearerVerifier, backed by the
-    configured local registry. OAuth credential/refresh revocation is enforced
-    by `execution_principal` on each request. The grant registry is then
+    configured local registry. The dedicated gway:lcd-sound scope is enforced
+    by `lcd_sound_principal` on each request. The grant registry is then
     consulted independently for narrow source/destination/tool authorization.
     No bearer, SSH private key, or caller-supplied principal is forwarded.
     """
     if type(bearer) is not str:
         raise PermissionError("missing authenticated source bearer")
-    # execution_principal re-verifies scope, expiry and delegation revocation.
-    principal = verifier.execution_principal(bearer)
+    # lcd_sound_principal verifies the dedicated scope and revocation.
+    principal = verifier.lcd_sound_principal(bearer)
     if type(principal) is not str or len(principal) != 24:
         raise PermissionError("invalid verified source identity")
     if load_grants is None:
