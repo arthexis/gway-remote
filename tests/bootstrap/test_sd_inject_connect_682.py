@@ -90,3 +90,37 @@ def test_injection_rejects_symlink_before_read(monkeypatch, tmp_path):
                         lambda _: {"device": "/dev/sdz1"})
     with pytest.raises(UnsafeCard, match="unsafe"):
         sd_inject.inject(boot, node="gway-014", installer="arthe")
+
+
+def test_mount_preflight_rejects_mounted_root_or_second_partition(monkeypatch, tmp_path):
+    from gway_remote import sd_inject
+    import json
+    boot = tmp_path / "bootfs"
+    boot.mkdir()
+    responses = {
+        "findmnt": {"filesystems": [{
+            "target": str(boot), "source": "/dev/sdz1",
+            "fstype": "vfat", "options": "rw,relatime"}]},
+        "part": {"blockdevices": [{
+            "path": "/dev/sdz1", "type": "part", "rm": 1,
+            "pkname": "sdz", "fstype": "vfat"}]},
+        "disk": {"blockdevices": [{"type": "disk", "rm": 1}]},
+        "layout": {"blockdevices": [{
+            "name": "sdz", "mountpoints": [None],
+            "children": [
+                {"name": "sdz1", "mountpoints": [str(boot)]},
+                {"name": "sdz2", "mountpoints": ["/"]}]}]},
+    }
+    def fake_command(*argv):
+        if argv[0] == "findmnt":
+            return json.dumps(responses["findmnt"])
+        if argv[0] == "lsblk" and "-dnJ" in argv:
+            return json.dumps(responses["disk"])
+        if argv[0] == "lsblk" and "PATH,TYPE,RM,PKNAME,FSTYPE" in argv:
+            return json.dumps(responses["part"])
+        return json.dumps(responses["layout"])
+    monkeypatch.setattr(sd_inject, "_command", fake_command)
+    with pytest.raises(UnsafeCard, match="other mounted partitions"):
+        sd_inject.inspect_bootfs(boot)
+    responses["layout"]["blockdevices"][0]["children"].pop()
+    assert sd_inject.inspect_bootfs(boot)["device"] == "/dev/sdz1"
