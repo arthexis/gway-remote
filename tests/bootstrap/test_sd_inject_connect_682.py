@@ -124,3 +124,64 @@ def test_mount_preflight_rejects_mounted_root_or_second_partition(monkeypatch, t
         sd_inject.inspect_bootfs(boot)
     responses["layout"]["blockdevices"][0]["children"].pop()
     assert sd_inject.inspect_bootfs(boot)["device"] == "/dev/sdz1"
+
+
+def test_deferred_firstboot_renderer_is_valid_python_and_restricts_identity():
+    from gway_remote.firstboot_deferred import firstboot_claim_source, firstboot_claim_unit
+    source = firstboot_claim_source("gway-014", "arthe", "a" * 32)
+    compile(source, "gway-sd-claim", "exec")
+    assert "https://register.gelectriic.com" in source
+    assert "ProxyHandler({})" in source
+    assert "NoRedirect" in source
+    assert "load_pem_private_key" in source
+    assert "Restart=on-failure" in firstboot_claim_unit()
+    with pytest.raises(ValueError):
+        firstboot_claim_source("gway-0014", "arthe", "a" * 32)
+
+
+def test_deferred_config_preserves_connect_and_existing_imager_data():
+    yaml = pytest.importorskip("yaml")
+    from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+    from cryptography.hazmat.primitives.serialization import (
+        Encoding, PrivateFormat, NoEncryption,
+    )
+    private = Ed25519PrivateKey.generate()
+    pem = private.private_bytes(Encoding.PEM, PrivateFormat.PKCS8,
+                                NoEncryption()).decode("ascii")
+    raw = """#cloud-config
+hostname: gway-014
+users:
+  - name: arthe
+runcmd:
+  - [echo, original]
+packages:
+  - curl
+"""
+    result = prepare_cloud_config(raw, node="gway-014", installer="arthe",
+                                  preparation_id="a" * 32, private_key_pem=pem)
+    parsed = yaml.safe_load(result)
+    assert parsed["users"] == [{"name": "arthe"}]
+    assert parsed["runcmd"][0] == ["echo", "original"]
+    assert parsed["packages"] == ["curl", "python3-cryptography"]
+    assert parsed["runcmd"][-1] == ["systemctl", "start", "--no-block",
+                                   "gway-sd-claim.service"]
+    assert parsed["runcmd"][1] == ["/usr/local/libexec/gway-connect-firstboot"]
+    keys = [entry for entry in parsed["write_files"]
+            if entry["path"] == "/etc/gway-remote/installation.key"]
+    assert len(keys) == 1
+    assert keys[0]["permissions"] == "0600"
+    assert keys[0]["content"] == pem
+    with pytest.raises(UnsafeCard, match="already injected"):
+        prepare_cloud_config(result, node="gway-014", installer="arthe",
+                             preparation_id="a" * 32, private_key_pem=pem)
+
+
+def test_deferred_key_mismatch_and_invalid_pem_are_rejected():
+    pytest.importorskip("yaml")
+    raw = "#cloud-config\\nhostname: gway-014\\n"
+    with pytest.raises(UnsafeCard, match="supplied together"):
+        prepare_cloud_config(raw, node="gway-014", installer="arthe",
+                             preparation_id="a" * 32)
+    with pytest.raises(UnsafeCard, match="invalid installation signing key"):
+        prepare_cloud_config(raw, node="gway-014", installer="arthe",
+                             preparation_id="a" * 32, private_key_pem="invalid")
