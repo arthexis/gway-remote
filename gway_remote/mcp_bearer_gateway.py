@@ -5,7 +5,9 @@ Public Nginx activation and authenticated private transport are separate gates.
 import json
 import os
 import re
+import secrets
 import subprocess
+import sys
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, build_opener, HTTPRedirectHandler
@@ -18,6 +20,7 @@ MAX_RESPONSE = 262144
 UPSTREAM_TIMEOUT = 30
 # Discovery must recover promptly when the legacy gway-001 backend is offline.
 DISCOVERY_TIMEOUT = 3
+FAILURE_CODES = frozenset({"upstream_unavailable", "federation_unavailable", "bridge_unavailable", "gateway_internal_error"})
 ALLOWED_METHODS = frozenset({"server/discover", "initialize", "notifications/initialized", "tools/list", "tools/call"})
 ALLOWED_TOOLS = frozenset({"mcp_source_status",
     "node_list", "node_capabilities", "node_file_download", "node_exec_preview",
@@ -279,7 +282,20 @@ class Handler(BaseHTTPRequestHandler):
     def log_message(self, fmt, *args):
         pass
 
-    def reject(self, status, *, scope=None):
+    def reject(self, status, *, scope=None, failure_code=None):
+        # Do not reflect exception text, RPC arguments, bearer tokens or host
+        # paths. A server-generated incident ID correlates the HTTP failure
+        # with a private systemd journal entry.
+        diagnostic = status == 502
+        if diagnostic:
+            code = failure_code if failure_code in FAILURE_CODES else "gateway_internal_error"
+            incident_id = secrets.token_hex(12)
+            body = json.dumps({"error": {"code": code, "incident_id": incident_id}},
+                              separators=(",", ":")).encode("ascii")
+            print(f"gway_mcp_failure code={code} incident_id={incident_id}",
+                  file=sys.stderr, flush=True)
+        else:
+            body = b""
         self.send_response(status)
         if status == 401:
             # Default ChatGPT connection is an operator connection: request
@@ -291,9 +307,15 @@ class Handler(BaseHTTPRequestHandler):
             if scope == "gway:execute":
                 challenge += ', error="insufficient_scope"'
             self.send_header("WWW-Authenticate", challenge)
+        if diagnostic:
+            self.send_header("Content-Type", "application/json")
+            self.send_header("X-Gway-Failure-Code", code)
+            self.send_header("X-Gway-Incident-ID", incident_id)
         self.send_header("Cache-Control", "no-store")
-        self.send_header("Content-Length", "0")
+        self.send_header("Content-Length", str(len(body)))
         self.end_headers()
+        if diagnostic:
+            self.wfile.write(body)
 
     def do_GET(self):
         self.reject(405)
@@ -418,7 +440,7 @@ class Handler(BaseHTTPRequestHandler):
                     [], federation=self.server.federation,
                     execution=self.server.execution)
             except (OSError, ValueError, RuntimeError, PermissionError, TypeError, KeyError):
-                return self.reject(502)
+                return self.reject(502, failure_code="federation_unavailable")
             result = {"tools": tools}
         else:
             return self.reject(502)
@@ -761,7 +783,7 @@ class Handler(BaseHTTPRequestHandler):
         except (OSError, URLError):
             if payload["method"] in {"initialize", "tools/list", "notifications/initialized"}:
                 return self._offline_backend(payload, version)
-            return self.reject(502)
+            return self.reject(502, failure_code="upstream_unavailable")
         except ValueError:
             return self.reject(502)
         if len(body) > MAX_RESPONSE:
