@@ -91,7 +91,8 @@ def main():
             os.chmod(path, 0o700)
             stream.write(artifact)
         subprocess.run(["/bin/sh", path, "--executor-user", USER], check=True,
-                       timeout=7200, stdout=subprocess.DEVNULL)
+                       timeout=7200, stdout=subprocess.DEVNULL,
+                       stderr=subprocess.DEVNULL)
     # Prevent repeat first-boot attempts after successful enrollment.
     os.unlink(KEY)
 
