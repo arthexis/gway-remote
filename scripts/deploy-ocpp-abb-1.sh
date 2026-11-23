@@ -54,5 +54,16 @@ else
   ./deploy.sh
   systemctl is-active --quiet ocpp-csms.service
 fi
-printf 'deployment_completed repo=%s source_sha=%s\n' "$repo" "$(git rev-parse HEAD)"
+# The runtime release pointer, not Git HEAD alone, proves activation.
+sha="$(git rev-parse HEAD)"
+if [[ "$repo" == "ocpp-reports" ]]; then
+  installed="$(readlink -f /opt/ocpp-reports/current)"
+  [[ "$installed" == "/opt/ocpp-reports/releases/${sha}-pkg" ]] ||
+    { echo "Reports active release does not match source SHA" >&2; exit 4; }
+else
+  installed="$(readlink -f /home/ubuntu/.local/share/ocpp-csms/current)"
+  [[ "$installed" == "/home/ubuntu/.local/share/ocpp-csms/releases/${sha:0:12}" ]] ||
+    { echo "CSMS active release does not match source SHA" >&2; exit 4; }
+fi
+printf 'deployment_completed repo=%s installed_sha=%s\n' "$repo" "$sha"
 REMOTE
