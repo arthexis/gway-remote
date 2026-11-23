@@ -29,6 +29,85 @@ ALLOWED = {
 DEFAULT_DB = Path.home() / ".local/state/gway-lcd-sound/remote-events.sqlite3"
 MAX_EVENTS = 100000
 
+# Bounded non-shell playback modifiers, reused by the public CLI without
+# creating new authorization operations or accepting host paths.
+SOUND_OPTION_KEYS = frozenset({
+    "volume", "repeat", "pause", "backend", "device", "pin",
+    "within", "motif", "dry_run", "resolve",
+})
+# Worst-case built-in pattern lengths plus margin, used to keep a complete
+# multi-repeat request within the existing ten-second receiver deadline.
+SOUND_PATTERN_SECONDS = {
+    "ok": 0.08, "notice": 0.25, "email": 0.30, "attention": 0.30,
+    "warning": 0.40, "error": 0.45, "noise": 0.70, "busy": 0.40,
+    "critical": 0.65, "undervoltage": 0.70,
+}
+
+
+def validate_sound_options(a, action):
+    """Reject every unbounded modifier before an event claims hardware."""
+    if set(a) - SOUND_OPTION_KEYS - {"name", "event", "source", "sequence"}:
+        raise ValueError("unsupported sound option")
+    if "volume" in a and (type(a["volume"]) not in (float, int)
+                          or not math.isfinite(a["volume"]) or not 0 <= a["volume"] <= 1):
+        raise ValueError("invalid sound volume")
+    if "repeat" in a and (type(a["repeat"]) is not int or not 1 <= a["repeat"] <= 20):
+        raise ValueError("invalid sound repeat")
+    if "pause" in a and (type(a["pause"]) not in (float, int)
+                         or not math.isfinite(a["pause"]) or not 0 <= a["pause"] <= 3):
+        raise ValueError("invalid sound pause")
+    if "within" in a and (type(a["within"]) not in (float, int)
+                          or not math.isfinite(a["within"]) or not 0 <= a["within"] <= 3600):
+        raise ValueError("invalid sound cooldown")
+    if "backend" in a and (type(a["backend"]) is not str
+                           or a["backend"] not in ("auto", "gpio", "audio")):
+        raise ValueError("invalid sound backend")
+    if "pin" in a:
+        pin = int(os.environ.get("NODE_SOUND_GPIO_PIN") or
+                  os.environ.get("GWAY_SOUND_GPIO_PIN") or "18")
+        if type(a["pin"]) is not int or a["pin"] != pin:
+            raise PermissionError("sound pin cannot override approved hardware")
+    if "device" in a:
+        configured = os.environ.get("NODE_SOUND_AUDIO_DEVICE") or os.environ.get("GWAY_SOUND_AUDIO_DEVICE") or "default"
+        if (type(a["device"]) is not str or a["device"] != configured
+            or a.get("backend") != "audio"):
+            raise PermissionError("sound sink is not approved on receiver")
+    if "motif" in a and (action != "play" or type(a["motif"]) is not str
+                         or not re.fullmatch(r"[a-zA-Z0-9_-]{1,32}", a["motif"])):
+        raise ValueError("invalid sound motif")
+    for flag in ("dry_run", "resolve"):
+        if flag in a and type(a[flag]) is not bool:
+            raise ValueError("invalid sound option flag")
+    if "resolve" in a and (action != "event" or a["resolve"] is not True):
+        raise ValueError("resolve is event-only")
+    if "dry_run" in a and "resolve" in a:
+        raise ValueError("conflicting sound previews")
+    if action == "sequence" and any(k in a for k in ("within", "repeat", "motif", "resolve")):
+        raise ValueError("sequence cannot be repeated, deduplicated or resolved")
+    if action != "play" and "motif" in a:
+        raise ValueError("motif is only for direct playback")
+    repeat = a.get("repeat", 1)
+    pause = a.get("pause", 0.35)
+    if repeat > 1:
+        # Custom database names and motifs lack a static safe duration bound.
+        if action != "play" or a.get("motif") or a.get("name") not in SOUND_PATTERN_SECONDS:
+            raise ValueError("repeat requires a bounded built-in sound")
+        if repeat * SOUND_PATTERN_SECONDS[a["name"]] + (repeat - 1) * pause > 8:
+            raise ValueError("sound repeat exceeds remote operation deadline")
+
+
+def sound_option_argv(a):
+    result = []
+    for key in ("volume", "repeat", "pause", "backend", "device", "pin",
+                "motif", "within"):
+        if key in a:
+            result += ["--" + key.replace("_", "-"), str(a[key])]
+    for key in ("dry_run", "resolve"):
+        if a.get(key) is True:
+            result.append("--" + key.replace("_", "-"))
+    return result
+
+
 
 def validate(event, *, trusted_node, now=None, trusted_origin="watchtower"):
     if type(event) is not dict or set(event) != {
@@ -77,10 +156,10 @@ def validate(event, *, trusted_node, now=None, trusted_origin="watchtower"):
         if a:
             raise ValueError("unexpected sound arguments")
     elif event["action"] == "play":
-        if set(a) != {"name"} or type(a["name"]) is not str or not re.fullmatch(r"[a-z][a-z0-9_-]{0,31}", a["name"]):
+        if "name" not in a or type(a["name"]) is not str or not re.fullmatch(r"[a-z][a-z0-9_-]{0,31}", a["name"]):
             raise ValueError("invalid sound name")
     elif event["action"] == "sequence":
-        if set(a) != {"sequence"} or type(a["sequence"]) is not str or len(a["sequence"].encode("utf-8")) > 4096:
+        if "sequence" not in a or type(a["sequence"]) is not str or len(a["sequence"].encode("utf-8")) > 4096:
             raise ValueError("invalid sound sequence")
         try:
             data = json.loads(a["sequence"])
@@ -100,13 +179,14 @@ def validate(event, *, trusted_node, now=None, trusted_origin="watchtower"):
         except (ValueError, TypeError) as exc:
             raise ValueError("invalid sound sequence") from exc
     elif event["action"] == "event":
-        if set(a) - {"event", "source", "within"} or not {"event", "source"} <= set(a):
+        if not {"event", "source"} <= set(a):
             raise ValueError("invalid event arguments")
         for key in ("event", "source"):
             if type(a[key]) is not str or not re.fullmatch(r"[a-zA-Z0-9_*.-]{1,64}", a[key]):
                 raise ValueError("invalid sound event name")
-        if "within" in a and (type(a["within"]) is not int or not 0 <= a["within"] <= 3600):
-            raise ValueError("invalid cooldown")
+        
+    if event["device"] == "sound" and event["action"] in ("play", "event", "sequence"):
+        validate_sound_options(a, event["action"])
     raw = json.dumps(event, separators=(",", ":"), sort_keys=True).encode("utf-8")
     if len(raw) > MAX_BYTES:
         raise ValueError("oversized event")
@@ -124,13 +204,11 @@ def argv_for(event, *, dispatcher="gway-lcd-sound", sound="sound"):
         return result
     if action == "event":
         result = [sound, "--event", a["event"], "--source", a["source"]]
-        if "within" in a:
-            result.extend(["--within", str(a["within"])])
-        return result
+        return result + sound_option_argv(a)
     if action == "play":
-        return [dispatcher, "sound", "play", a["name"]]
+        return [dispatcher, "sound", "play", a["name"]] + sound_option_argv(a)
     if action == "sequence":
-        return [dispatcher, "sound", "play", "--sequence", a["sequence"]]
+        return [dispatcher, "sound", "play", "--sequence", a["sequence"]] + sound_option_argv(a)
     if action == "status":
         return [dispatcher, "sound", "status", "--json"]
     return [dispatcher, "sound", action]
@@ -181,7 +259,7 @@ def receive(event, *, trusted_node, db_path=DEFAULT_DB, run=subprocess.run, now=
             if row[0] != digest:
                 raise PermissionError("event ID reused for different payload")
             answer = {"status": row[1], "duplicate": True}
-            if event["action"] == "status":
+            if event["action"] == "status" or event["arguments"].get("dry_run") or event["arguments"].get("resolve"):
                 answer["output"] = row[2]
             return answer
         # TTL is at most 30s; old IDs are invalid at the protocol gate.
@@ -205,7 +283,7 @@ def receive(event, *, trusted_node, db_path=DEFAULT_DB, run=subprocess.run, now=
             return {"status": "uncertain", "duplicate": False}
         status = "succeeded" if proc.returncode == 0 else "failed"
         output = ""
-        if status == "succeeded" and event["action"] == "status":
+        if status == "succeeded" and (event["action"] == "status" or event["arguments"].get("dry_run") or event["arguments"].get("resolve")):
             stdout = getattr(proc, "stdout", b"")
             if type(stdout) is not bytes or len(stdout) > 4096:
                 raise RuntimeError("invalid device status output")
@@ -214,7 +292,7 @@ def receive(event, *, trusted_node, db_path=DEFAULT_DB, run=subprocess.run, now=
             db.execute("UPDATE events SET state=?, output=? WHERE id=?",
                        (status, output, event["request_id"]))
         answer = {"status": status, "duplicate": False}
-        if event["action"] == "status":
+        if event["action"] == "status" or event["arguments"].get("dry_run") or event["arguments"].get("resolve"):
             answer["output"] = output
         return answer
     finally:
