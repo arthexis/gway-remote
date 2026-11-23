@@ -16,6 +16,7 @@ import tempfile
 from pathlib import Path
 
 from .firstboot_connect import connect_firstboot_script
+from .firstboot_deferred import firstboot_claim_source, firstboot_claim_unit, CLIENT_PATH, KEY_PATH, SERVICE
 
 NODE = re.compile(r"gway-[0-9]{3}\Z")
 
@@ -80,7 +81,9 @@ def inspect_bootfs(bootfs: Path) -> dict:
     return {"mount": target, "device": source}
 
 
-def prepare_cloud_config(raw: str, *, node: str, installer: str) -> str:
+def prepare_cloud_config(raw: str, *, node: str, installer: str,
+                         preparation_id: str | None = None,
+                         private_key_pem: str | None = None) -> str:
     """Modify existing Imager YAML structurally, retaining all other settings.
 
     PyYAML is intentionally loaded only here; installations without it fail
@@ -112,6 +115,8 @@ def prepare_cloud_config(raw: str, *, node: str, installer: str) -> str:
     script_path = "/usr/local/libexec/gway-connect-firstboot"
     if any(isinstance(entry, dict) and entry.get("path") == script_path for entry in files):
         raise UnsafeCard("first-boot script already present")
+    if (preparation_id is None) != (private_key_pem is None):
+        raise UnsafeCard("preparation and signing key must be supplied together")
     document["hostname"] = node
     document["write_files"] = files + [{
         "path": script_path, "owner": "root:root", "permissions": "0700",
@@ -120,20 +125,50 @@ def prepare_cloud_config(raw: str, *, node: str, installer: str) -> str:
     document["runcmd"] = sequence + [[script_path]]
     document["gway_sd_inject_v1"] = {"node": node, "installer": installer,
                                       "connect": "activate"}
+    if preparation_id is not None:
+        from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+        from cryptography.hazmat.primitives.serialization import load_pem_private_key
+        try:
+            signing_key = load_pem_private_key(private_key_pem.encode("ascii"), password=None)
+        except (ValueError, TypeError, UnicodeError):
+            raise UnsafeCard("invalid installation signing key") from None
+        if not isinstance(signing_key, Ed25519PrivateKey):
+            raise UnsafeCard("Ed25519 signing key required")
+        client = firstboot_claim_source(node, installer, preparation_id)
+        unit_path = "/etc/systemd/system/" + SERVICE
+        paths = {entry.get("path") for entry in document["write_files"] if isinstance(entry, dict)}
+        if {CLIENT_PATH, KEY_PATH, unit_path} & paths:
+            raise UnsafeCard("GWay first-boot files already exist")
+        document["write_files"].extend([
+            {"path": CLIENT_PATH, "owner": "root:root", "permissions": "0700", "content": client},
+            {"path": KEY_PATH, "owner": "root:root", "permissions": "0600", "content": private_key_pem},
+            {"path": unit_path, "owner": "root:root", "permissions": "0644",
+             "content": firstboot_claim_unit()},
+        ])
+        packages = document.get("packages", [])
+        if not isinstance(packages, list):
+            raise UnsafeCard("unsupported cloud-init package format")
+        document["packages"] = packages + [pkg for pkg in ("python3-cryptography",)
+                                            if pkg not in packages]
+        document["runcmd"].extend([["systemctl", "daemon-reload"],
+                                    ["systemctl", "enable", "--now", SERVICE]])
+        document["gway_sd_inject_v1"]["preparation_id"] = preparation_id
     result = "#cloud-config\n" + yaml.safe_dump(document, sort_keys=False)
     yaml.safe_load(result)  # validate before any write
     return result
 
 
-def inject(bootfs: Path, *, node: str, installer: str, commit: bool = False) -> dict:
+def inject(bootfs: Path, *, node: str, installer: str, commit: bool = False,
+           preparation_id: str | None = None, private_key_pem: str | None = None) -> dict:
     location = inspect_bootfs(bootfs)
     file = bootfs / "user-data"
     if file.is_symlink() or not file.is_file():
         raise UnsafeCard("user-data missing or unsafe")
     source = file.read_text(encoding="utf-8")
-    prepared = prepare_cloud_config(source, node=node, installer=installer)
+    prepared = prepare_cloud_config(source, node=node, installer=installer,
+                                    preparation_id=preparation_id, private_key_pem=private_key_pem)
     receipt = {"node": node, "device": location["device"],
-               "change": "connect-firstboot-only",
+               "change": "deferred-enrollment-plus-connect" if preparation_id else "connect-firstboot-only",
                "original_sha256": hashlib.sha256(source.encode()).hexdigest(),
                "prepared_sha256": hashlib.sha256(prepared.encode()).hexdigest(),
                "written": False}
@@ -172,11 +207,21 @@ def main() -> None:
     parser.add_argument("--bootfs", required=True, type=Path)
     parser.add_argument("--node", required=True)
     parser.add_argument("--installer", required=True)
+    parser.add_argument("--preparation-id", help="Watchtower preparation ID")
+    parser.add_argument("--private-key-file", type=Path, help="root-only Ed25519 PEM file")
     parser.add_argument("--commit", action="store_true",
                         help="write after preflight; default is preview")
     args = parser.parse_args()
+    if bool(args.preparation_id) != bool(args.private_key_file):
+        parser.error("preparation-id and private-key-file required together")
+    signing_key = None
+    if args.private_key_file:
+        if args.private_key_file.is_symlink() or (args.private_key_file.stat().st_mode & 0o077):
+            parser.error("private-key-file must not be a symlink or group/world readable")
+        signing_key = args.private_key_file.read_text(encoding="ascii")
     print(json.dumps(inject(args.bootfs, node=args.node,
-                            installer=args.installer, commit=args.commit),
+                            installer=args.installer, commit=args.commit,
+                            preparation_id=args.preparation_id, private_key_pem=signing_key),
                      sort_keys=True))
 
 
