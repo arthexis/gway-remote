@@ -52,8 +52,17 @@ def dispatch(event, *, load=None, sleep=time.sleep):
             raise RuntimeError("invalid receiver acknowledgement")
         answer = {"node": node, "request_id": event["request_id"],
                   "status": result["status"], "duplicate": result.get("duplicate") is True}
-        if event["action"] == "status" and type(result.get("output")) is str and len(result["output"].encode("utf-8")) <= 4096:
-            answer["output"] = result["output"]
+        # Readback from status, public --dry-run and --resolve must survive
+        # the pinned relay unchanged. The sender never receives receiver stdout
+        # for a physical event unless it explicitly requested a bounded preview.
+        wants_output = (event["action"] == "status"
+                        or event["arguments"].get("dry_run") is True
+                        or event["arguments"].get("resolve") is True)
+        if wants_output and result["status"] == "succeeded":
+            output = result.get("output")
+            if type(output) is not str or len(output.encode("utf-8")) > 4096:
+                raise RuntimeError("missing or unbounded receiver preview")
+            answer["output"] = output
         return answer
     raise RuntimeError("remote event not acknowledged")
 
