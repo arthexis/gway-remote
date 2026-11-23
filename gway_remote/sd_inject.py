@@ -151,7 +151,8 @@ def prepare_cloud_config(raw: str, *, node: str, installer: str,
         document["packages"] = packages + [pkg for pkg in ("python3-cryptography",)
                                             if pkg not in packages]
         document["runcmd"].extend([["systemctl", "daemon-reload"],
-                                    ["systemctl", "enable", "--now", SERVICE]])
+                                    ["systemctl", "enable", SERVICE],
+                                    ["systemctl", "start", "--no-block", SERVICE]])
         document["gway_sd_inject_v1"]["preparation_id"] = preparation_id
     result = "#cloud-config\n" + yaml.safe_dump(document, sort_keys=False)
     yaml.safe_load(result)  # validate before any write
