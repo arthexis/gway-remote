@@ -6,6 +6,7 @@ client artifact stays in this package directory without importing it.
 from __future__ import annotations
 
 import json
+import os
 import re
 import subprocess
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -195,6 +196,16 @@ def serve(provisioner: Provisioner | None, *, host: str, port: int, public_url: 
         raise ValueError("active Watchtower service requires a provisioner")
     else:
         provisioner.recover()
+    # Feature OFF by default. A protected 0600 root-owned key must be
+    # deliberately installed before the loopback API can accept claims.
+    if os.environ.get("GWAY_SD_PREPARATIONS_ENABLED") == "1":
+        if read_only_stage or provisioner is None or deferred is not None:
+            raise ValueError("invalid deferred enrollment activation")
+        from .deferred_enrollment_cli import read_sealing_key
+        from .deferred_enrollment import DeferredPreparations
+        deferred = DeferredPreparations(
+            provisioner.ledger.path,
+            sealing_key=read_sealing_key(Path("/etc/gway-remote/sd-sealing.key")))
     httpd = ThreadingHTTPServer((host, port), make_handler(
         provisioner, public_url=public_url, wireguard_endpoint=wireguard_endpoint,
         read_only_stage=read_only_stage, deferred=deferred))
