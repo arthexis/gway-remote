@@ -87,7 +87,10 @@ class DeploymentSound:
             # authenticated gway-001 transport. Never retry a failed/uncertain
             # remote effect via the old helper or sender-local hardware.
             sound_args = ["--event", event, "--source", "gway-remote", "--within", "30"]
-            options = dict(timeout=3, check=False, stdout=subprocess.DEVNULL,
+            # Authenticated source HTTPS can occupy up to 16 seconds; a three-second
+            # process timeout falsely marks successful physical events uncertain.
+            # Bound above the transport timeout; never retry uncertain events.
+            options = dict(timeout=18, check=False, stdout=subprocess.DEVNULL,
                            stderr=subprocess.DEVNULL)
             self.run([str(Path.home() / ".local/bin/sound"), *sound_args], **options)
         except Exception:
