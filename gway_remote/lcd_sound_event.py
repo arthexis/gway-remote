@@ -6,7 +6,7 @@ An operator must separately review installation/allowlisting before use.
 """
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 import hashlib
 import json
 import math
@@ -23,7 +23,7 @@ MAX_BYTES = 8192
 NODE = re.compile(r"gway-[0-9]{3,}$")
 RID = re.compile(r"[0-9a-f]{32}$")
 ALLOWED = {
-    "lcd": {"show", "clear", "status"},
+    "lcd": {"show", "clear", "status", "reports"},
     "sound": {"play", "event", "mute", "unmute", "toggle", "status", "sequence"},
 }
 DEFAULT_DB = Path.home() / ".local/state/gway-lcd-sound/remote-events.sqlite3"
@@ -150,6 +150,29 @@ def validate(event, *, trusted_node, now=None, trusted_origin="watchtower"):
                 raise ValueError("invalid LCD line")
             if type(a["seconds"]) is not int or not 1 <= a["seconds"] <= 300:
                 raise ValueError("invalid LCD duration")
+        elif event["action"] == "reports":
+            frames = a.get("frames")
+            if set(a) != {"frames"} or type(frames) is not list or len(frames) > 16:
+                raise ValueError("invalid reports snapshot")
+            seen = set()
+            for frame in frames:
+                if type(frame) is not dict or not {"id", "line1", "line2"} <= set(frame) or set(frame) - {"id", "line1", "line2", "until"}:
+                    raise ValueError("invalid reports frame")
+                identity = frame["id"]
+                if type(identity) is not str or not re.fullmatch(r"[a-zA-Z0-9:_-]{1,80}", identity) or identity in seen:
+                    raise ValueError("invalid reports frame identity")
+                seen.add(identity)
+                if any(type(frame[line]) is not str or len(frame[line]) > 16
+                       or any(not 32 <= ord(c) <= 126 for c in frame[line])
+                       for line in ("line1", "line2")):
+                    raise ValueError("invalid reports LCD text")
+                if "until" in frame:
+                    try:
+                        until = datetime.fromisoformat(frame["until"])
+                        if until.tzinfo is None or not now < until <= now + timedelta(seconds=125):
+                            raise ValueError("invalid reports frame expiry")
+                    except (TypeError, ValueError) as exc:
+                        raise ValueError("invalid reports frame expiry") from exc
         elif a:
             raise ValueError("unexpected LCD arguments")
     elif event["action"] in ("status", "mute", "unmute", "toggle"):
@@ -201,6 +224,8 @@ def argv_for(event, *, dispatcher="gway-lcd-sound", sound="sound"):
         result = [dispatcher, "lcd", action]
         if action == "show":
             result.extend([a["line1"], a["line2"], "--seconds", str(a["seconds"])])
+        elif action == "reports":
+            result.append(json.dumps(a["frames"], separators=(",", ":"), sort_keys=True))
         return result
     if action == "event":
         result = [sound, "--event", a["event"], "--source", a["source"]]
