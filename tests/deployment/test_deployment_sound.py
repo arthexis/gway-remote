@@ -25,18 +25,18 @@ class DeploymentSoundTests(unittest.TestCase):
                     DeploymentSound(target, attempt, database=database, run=run)("deploy-started")
             self.assertEqual(run.call_count, 3)
             args = run.call_args.args[0]
-            self.assertTrue(args[0].endswith("/.local/bin/gway-lcd-sound"))
-            self.assertEqual(args[1:], ["sound", "play", "--event", "deploy-started", "--source", "gway-remote", "--within", "30"])
+            self.assertTrue(args[0].endswith("/.local/bin/sound"))
+            self.assertEqual(args[1:], ["--event", "deploy-started", "--source", "gway-remote", "--within", "30"])
 
-    def test_older_sound_cli_falls_back_without_window(self):
+    def test_older_sound_cli_error_never_retries_or_falls_back(self):
         from types import SimpleNamespace
         with tempfile.TemporaryDirectory() as directory:
-            runner = Mock(side_effect=[SimpleNamespace(returncode=2), SimpleNamespace(returncode=0)])
+            runner = Mock(return_value=SimpleNamespace(returncode=2))
             with patch.object(DeploymentSound, "_lcd"):
                 DeploymentSound("a", database=Path(directory) / "db", run=runner)("deploy-started")
-            self.assertEqual(runner.call_count, 2)
+            self.assertEqual(runner.call_count, 1)
             self.assertTrue(runner.call_args.args[0][0].endswith("/.local/bin/sound"))
-            self.assertNotIn("--within", runner.call_args.args[0])
+            self.assertIn("--within", runner.call_args.args[0])
 
     def test_backend_failure_does_not_replay(self):
         from types import SimpleNamespace
