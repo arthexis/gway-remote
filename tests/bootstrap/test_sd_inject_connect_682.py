@@ -178,7 +178,9 @@ packages:
 
 def test_deferred_key_mismatch_and_invalid_pem_are_rejected():
     pytest.importorskip("yaml")
-    raw = "#cloud-config\\nhostname: gway-014\\n"
+    raw = """#cloud-config
+hostname: gway-014
+"""
     with pytest.raises(UnsafeCard, match="supplied together"):
         prepare_cloud_config(raw, node="gway-014", installer="arthe",
                              preparation_id="a" * 32)
