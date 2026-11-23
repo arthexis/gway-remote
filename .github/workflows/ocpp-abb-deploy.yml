@@ -1,0 +1,45 @@
+name: Deploy OCPP to ABB
+run-name: OCPP ABB ${{ inputs.mode }} ${{ inputs.repository }}
+on:
+  workflow_dispatch:
+    inputs:
+      repository:
+        description: Only the two approved OCPP repositories
+        required: true
+        type: choice
+        options:
+          - ocpp-csms
+          - ocpp-reports
+      mode:
+        description: Preview is read-only; deploy updates and activates main
+        required: true
+        type: choice
+        default: preview
+        options:
+          - preview
+          - deploy
+permissions:
+  contents: read
+concurrency:
+  group: ocpp-abb-1-deployment
+  cancel-in-progress: false
+jobs:
+  deploy:
+    if: ${{ github.actor == 'arthexis' && github.ref == 'refs/heads/main' }}
+    runs-on: [self-hosted, Linux, ARM64, gway-001]
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Verify source and runner script
+        shell: bash
+        run: |
+          bash -n scripts/deploy-ocpp-abb-1.sh
+          test "$(hostname -s)" = gway-001
+      - name: Preview or deploy using existing pinned bastion SSH
+        shell: bash
+        env:
+          OCPP_REPO: ${{ inputs.repository }}
+          DEPLOY_MODE: ${{ inputs.mode }}
+        run: bash scripts/deploy-ocpp-abb-1.sh "$OCPP_REPO" "$DEPLOY_MODE"
