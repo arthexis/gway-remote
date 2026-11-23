@@ -13,7 +13,9 @@ from pathlib import Path
 
 from .bootstrap_script import render_bootstrap_script
 from .watchtower_enrollment_ledger import EnrollmentRejected
-from .deferred_enrollment import DeferredPreparations, PreparationRejected
+from typing import TYPE_CHECKING
+if TYPE_CHECKING:
+    from .deferred_enrollment import DeferredPreparations
 from .watchtower_enrollment_provisioner import Provisioner
 from .wireguard_enrollment_contract import (
     InvalidEnrollment, MAX_REQUEST_BYTES, parse_host_identity_enrollment,
@@ -23,6 +25,8 @@ from .wireguard_enrollment_contract import (
 
 def make_handler(provisioner: Provisioner | None, *, public_url: str, wireguard_endpoint: str,
                  read_only_stage: bool = False, deferred: DeferredPreparations | None = None):
+    if deferred is not None:
+        from .deferred_enrollment import PreparationRejected
     class Handler(BaseHTTPRequestHandler):
         server_version = "gway-remote-watchtower"
         sys_version = ""
