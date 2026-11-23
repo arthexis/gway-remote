@@ -82,3 +82,60 @@ class PinnedBridgeTests(TestCase):
             result = bridge.probe("gway-001", load=lambda: service)
         self.assertEqual(result["transport"], "pinned_ssh")
         self.assertEqual(transport.req["operation"], "limits")
+
+
+class PreviewRelayTests(TestCase):
+    def test_advanced_dry_run_output_retained_without_token_or_event_leak(self):
+        event = payload()
+        event["arguments"] = {"name": "notice", "dry_run": True,
+                              "volume": 0.30, "repeat": 2, "pause": 0.10}
+        class Transport:
+            def invoke(self, req):
+                return {"node": "gway-001", "request_id": req["request_id"],
+                        "result": {"status": "succeeded", "duplicate": False,
+                                   "output": "notice: preview\\n"}}
+        service = SimpleNamespace(relay=SimpleNamespace(transport=Transport()))
+        with patch("gway_remote.node_registry_inventory.load", return_value=inventory()):
+            answer = bridge.dispatch(event, load=lambda: service)
+        self.assertEqual(answer["output"], "notice: preview\\n")
+        self.assertEqual(answer["request_id"], event["request_id"])
+        self.assertEqual(set(answer), {"node", "request_id", "status", "duplicate", "output"})
+
+    def test_event_resolve_output_retained(self):
+        event = payload()
+        event["action"] = "event"
+        event["arguments"] = {"event": "deploy-verified", "source": "gway-remote",
+                              "resolve": True}
+        class Transport:
+            def invoke(self, req):
+                return {"result": {"status": "succeeded", "output": '{"sound":"ok"}\\n'}}
+        service = SimpleNamespace(relay=SimpleNamespace(transport=Transport()))
+        with patch("gway_remote.node_registry_inventory.load", return_value=inventory()):
+            answer = bridge.dispatch(event, load=lambda: service)
+        self.assertEqual(answer["output"], '{"sound":"ok"}\\n')
+
+    def test_physical_play_does_not_expose_unrequested_stdout(self):
+        event = payload()
+        class Transport:
+            def invoke(self, req):
+                return {"result": {"status": "succeeded", "output": "UNEXPECTED PRIVATE DATA"}}
+        service = SimpleNamespace(relay=SimpleNamespace(transport=Transport()))
+        with patch("gway_remote.node_registry_inventory.load", return_value=inventory()):
+            answer = bridge.dispatch(event, load=lambda: service)
+        self.assertNotIn("output", answer)
+
+    def test_missing_or_oversize_preview_fails_closed_without_retry(self):
+        for reply in ({}, {"output": "x" * 4097}, {"output": 42}):
+            with self.subTest(reply=type(reply.get("output"))):
+                event = payload()
+                event["arguments"]["dry_run"] = True
+                calls = []
+                class Transport:
+                    def invoke(self, req):
+                        calls.append(req)
+                        return {"result": {"status": "succeeded", **reply}}
+                service = SimpleNamespace(relay=SimpleNamespace(transport=Transport()))
+                with patch("gway_remote.node_registry_inventory.load", return_value=inventory()):
+                    with self.assertRaises(RuntimeError):
+                        bridge.dispatch(event, load=lambda: service)
+                self.assertEqual(len(calls), 1)
