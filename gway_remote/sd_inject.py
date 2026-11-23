@@ -58,6 +58,20 @@ def inspect_bootfs(bootfs: Path) -> dict:
         disk = json.loads(_command("lsblk", "-dnJ", "-o", "TYPE,RM", "/dev/" + parent))["blockdevices"]
         if len(disk) != 1 or disk[0]["type"] != "disk" or not bool(int(disk[0]["rm"])):
             raise UnsafeCard("disk is not explicitly removable")
+        # Reject the running system disk and a card with any other mounted
+        # partitions. Never assume a removable root disk is expendable.
+        layout = json.loads(_command("lsblk", "-J", "-o", "NAME,MOUNTPOINTS",
+                                      "/dev/" + parent))["blockdevices"]
+        if len(layout) != 1:
+            raise UnsafeCard("ambiguous disk mounts")
+        def all_mounts(entry):
+            found = list(entry.get("mountpoints") or [])
+            for child in entry.get("children") or []:
+                found.extend(all_mounts(child))
+            return found
+        mounts = [m for m in all_mounts(layout[0]) if m]
+        if mounts != [target]:
+            raise UnsafeCard("card contains other mounted partitions or system mounts")
     except (OSError, KeyError, IndexError, TypeError, ValueError,
             subprocess.SubprocessError, json.JSONDecodeError) as exc:
         if isinstance(exc, UnsafeCard):
