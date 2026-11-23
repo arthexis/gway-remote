@@ -42,6 +42,10 @@ fi
 
 # Do not rewrite a configuration made by Imager, only establish missing links.
 USER_SYSTEMD="$TARGET_HOME/.config/systemd/user"
+# Prevent a pre-existing symlink from redirecting root-owned writes.
+for part in "$TARGET_HOME/.config" "$TARGET_HOME/.config/systemd" "$USER_SYSTEMD" "$USER_SYSTEMD/default.target.wants" "$USER_SYSTEMD/rpi-connect.service.wants"; do
+    if [ -L "$part" ]; then log 'unsafe_user_config_symlink'; exit 1; fi
+done
 install -d -m 0700 "$USER_SYSTEMD/default.target.wants" "$USER_SYSTEMD/rpi-connect.service.wants"
 if [ ! -e "$USER_SYSTEMD/default.target.wants/rpi-connect.service" ]; then
     ln -s "$SERVICE" "$USER_SYSTEMD/default.target.wants/rpi-connect.service"
@@ -49,7 +53,7 @@ fi
 if [ ! -e "$USER_SYSTEMD/rpi-connect.service.wants/rpi-connect-signin.path" ]; then
     ln -s "$PATH_UNIT" "$USER_SYSTEMD/rpi-connect.service.wants/rpi-connect-signin.path"
 fi
-chown -R "$TARGET_USER:$TARGET_USER" "$USER_SYSTEMD"
+chown "$TARGET_USER" "$TARGET_HOME/.config" "$TARGET_HOME/.config/systemd" "$USER_SYSTEMD" "$USER_SYSTEMD/default.target.wants" "$USER_SYSTEMD/rpi-connect.service.wants"
 loginctl enable-linger "$TARGET_USER"
 if ! systemctl --user --machine="$TARGET_USER@.host" daemon-reload; then
     log 'user_manager_unavailable'; exit 1
