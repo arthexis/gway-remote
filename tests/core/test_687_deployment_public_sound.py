@@ -33,7 +33,7 @@ class DeploymentPublicSoundTests(unittest.TestCase):
             self.assertEqual(argv, [str(Path.home() / ".local/bin/sound"),
                                     "--event", "deploy-verified",
                                     "--source", "gway-remote", "--within", "30"])
-            self.assertEqual(kw["timeout"], 3)
+            self.assertEqual(kw["timeout"], 18)
             self.assertFalse(kw["check"])
 
     def test_failure_does_not_trigger_legacy_fallback(self):
