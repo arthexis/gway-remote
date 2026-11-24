@@ -60,7 +60,8 @@ class AsyncDeployBroker:
 
     def _execute(self, request_id, repository, node, sha):
         notifier = None
-        if os.environ.get("GWAY_DEPLOY_LCD_NOTIFICATIONS") == "1":
+        from .deployment_lcd_notifications import enabled
+        if enabled():
             # The broker receipt is authoritative for target identity. This
             # is purely observational; audio/LCD cannot alter deploy status.
             from .deployment_sound import DeploymentSound
