@@ -125,3 +125,38 @@ class ActivityFeedHTTPTests(unittest.TestCase):
         self.assertEqual(self.request("POST", token=rotated, value=event("new"),
                                       extra={"X-Gway-Feed-Principal": self.key})[0], 403)
         self.assertEqual(len(self.store.list_after()["items"]), 1)
+
+    def rpc(self, name, arguments, token):
+        return self.request("POST", "/mcp", token=token, value={"jsonrpc": "2.0", "id": 1,
+            "method": "tools/call", "params": {"name": name, "arguments": arguments}})
+
+    def test_feed_mcp_and_json_export(self):
+        self.assertEqual(self.rpc("feed__publish", {"event": event()}, self.reader)[0], 401)
+        status, denied = self.rpc("feed__publish", {"event": event()}, self.other)
+        self.assertEqual(status, 200)
+        self.assertTrue(denied["result"]["isError"])
+        status, reply = self.rpc("feed__publish", {"event": event()}, self.writer)
+        self.assertEqual(status, 200)
+        self.assertFalse(reply["result"]["isError"])
+        for tool, args in (("feed__list", {}), ("feed__get", {"seq": 1}), ("feed__summary", {})):
+            status, reply = self.rpc(tool, args, self.reader)
+            self.assertEqual(status, 200)
+            self.assertFalse(reply["result"]["isError"])
+        self.assertEqual(self.request("GET", "/api/feed.json")[0], 401)
+        status, feed = self.request("GET", "/api/feed.json", token=self.reader)
+        self.assertEqual(status, 200)
+        self.assertEqual(feed["version"], "https://jsonfeed.org/version/1.1")
+        self.assertEqual(feed["items"][0]["id"], "1")
+        self.assertNotIn("producer", feed["items"][0])
+        self.server.activity_feed = None
+        self.assertEqual(self.rpc("feed__list", {}, self.reader)[0], 403)
+
+    def test_feed_catalog_is_local_and_opt_in(self):
+        from gway_remote.mcp_bearer_gateway import effective_catalog
+        tools, projection = effective_catalog([], activity_feed=self.api)
+        rows = {r["name"]: r for r in projection["tools"]}
+        self.assertEqual(rows["feed__publish"]["required_scope"], "gway:execute")
+        self.assertEqual(rows["feed__list"]["required_scope"], "gway:read")
+        self.assertFalse(any(t["name"].startswith("feed__") for t in effective_catalog([])[0]))
+        with self.assertRaises(ValueError):
+            effective_catalog([{"name": "feed__list"}])

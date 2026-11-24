@@ -135,3 +135,17 @@ requires explicit reconciliation. When full, reclaim only acknowledged
 delivered records; never evict pending or dead records. Central dedup is
 authoritative. --check-config checks private files and local route binding
 without connecting to the network.
+
+## Stage 3: gateway-local MCP and JSON Feed
+
+With Activity Feed enabled, the existing Watchtower catalog advertises
+feed__list, feed__get, feed__summary (read) and feed__publish (execute plus
+explicit producer grant). Names are reserved even when disabled; no fallback
+to node tools. No new provider daemon or SSH credentials.
+MCP list is bounded to 10 events per call. Summary counts up to 500 retained
+receipts from after cursor with exact category and severity counts for that
+scan and has_more. Concurrent arrival/pruning may change results between pages.
+GET /api/feed.json is authenticated like other read routes, returning
+application/feed+json and JSON Feed 1.1 plain-text items with stable receipt
+IDs within this database. Same cursor parameters as the native list;
+_gway carries pagination metadata. No bearer in feed URLs or public proxy change.

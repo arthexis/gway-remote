@@ -11,6 +11,7 @@ from .activity_feed import EventConflict, FeedCapacityError, MAX_EVENT_BYTES, va
 from .lcd_sound_grant_store import load_operator_grants
 
 PATH = "/api/feed/events"
+JSON_PATH = "/api/feed.json"
 MAX_HTTP_PAGE = 50
 MAX_RESPONSE = 1024 * 1024
 GRANT_PATH = Path("/etc/gway-remote/activity-feed-sources.json")
@@ -23,7 +24,7 @@ def load_feed_grants():
 
 def is_feed_path(path):
     raw = path.split("?", 1)[0]
-    return raw == PATH or raw.startswith(PATH + "/")
+    return raw in (PATH, JSON_PATH) or raw.startswith(PATH + "/")
 
 
 def _unique_pairs(pairs):
@@ -123,12 +124,12 @@ class ActivityFeedAPI:
         return 200, result
 
 
-def _respond(handler, status, value):
+def _respond(handler, status, value, *, media_type="application/json"):
     body = json.dumps(value, ensure_ascii=True, allow_nan=False, separators=(",", ":")).encode("ascii")
     if len(body) > MAX_RESPONSE:
         status, body = 500, b'{"error":"response_too_large"}'
     handler.send_response(status)
-    handler.send_header("Content-Type", "application/json")
+    handler.send_header("Content-Type", media_type)
     handler.send_header("Cache-Control", "no-store")
     handler.send_header("X-Content-Type-Options", "nosniff")
     handler.send_header("Connection", "close")
@@ -155,6 +156,10 @@ def handle(handler, method):
                 return _respond(handler, 401, {"error": "unauthorized"})
             if headers.get("Transfer-Encoding") is not None or headers.get_all("Content-Length", []):
                 return _respond(handler, 400, {"error": "invalid_request"})
+            if handler.path.split("?", 1)[0] == JSON_PATH:
+                from .activity_feed_mcp import json_feed
+                status, value = api.read(PATH + handler.path[len(JSON_PATH):])
+                return _respond(handler, status, json_feed(value), media_type="application/feed+json")
             status, value = api.read(handler.path)
         else:
             if not (api.can_read(bearer) or api.registry.verify(bearer, required_scope="gway:feed-publish")):
