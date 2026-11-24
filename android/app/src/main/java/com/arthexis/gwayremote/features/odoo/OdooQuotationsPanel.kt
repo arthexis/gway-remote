@@ -27,7 +27,7 @@ import org.json.JSONObject
 
 private data class QuotationSummary(
     val id: Int, val name: String, val customer: String, val date: String,
-    val state: String, val amount: String
+    val state: String, val amount: String, val suggestedFilename: String
 )
 
 @Composable
@@ -66,7 +66,7 @@ fun OdooQuotationsPanel(endpoint: String, token: String) {
                             throw e
                         }
                     }
-                    status = "PDF guardado: ${selected.name}.pdf ($size bytes)"
+                    status = "PDF guardado ($size bytes)"
                 } catch (e: Exception) {
                     status = "Descarga fallida: ${e.message ?: "Inténtalo nuevamente"}"
                 } finally { downloading = false }
@@ -97,7 +97,11 @@ fun OdooQuotationsPanel(endpoint: String, token: String) {
                 if (id <= 0 || name.isBlank()) return@mapNotNull null
                 QuotationSummary(
                     id, name, row.optString("customer"), row.optString("date"),
-                    row.optString("state"), "${row.opt("total")} ${row.optString("currency", "MXN")}"
+                    row.optString("state"), "${row.opt("total")} ${row.optString("currency", "MXN")}",
+                    row.optString("suggested_filename", name + ".pdf").takeIf { candidate ->
+                        candidate.endsWith(".pdf") && candidate.length <= 134 &&
+                            candidate.none { it == '/' || it == '\\' || it.isISOControl() }
+                    } ?: (name + ".pdf")
                 )
             }
             status = if (records.isEmpty()) "No hay cotizaciones para esta búsqueda." else ""
@@ -109,7 +113,7 @@ fun OdooQuotationsPanel(endpoint: String, token: String) {
     }
 
     Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-        ModuleHeader("Cotizaciones · Odoo", "Busca por folio o cliente y guarda el PDF oficial con su nombre en Odoo.")
+        ModuleHeader("Cotizaciones · Odoo", "Busca por folio o cliente y guarda el PDF oficial con un nombre sugerido.")
         OutlinedTextField(
             value = query, onValueChange = { query = it.take(80) },
             label = { Text("Folio o cliente") }, singleLine = true,
@@ -165,7 +169,7 @@ fun OdooQuotationsPanel(endpoint: String, token: String) {
                 IconButton(
                     onClick = {
                         pending = row
-                        picker.launch(row.name + ".pdf")
+                        picker.launch(row.suggestedFilename)
                     },
                     enabled = !downloading && !loading,
                     modifier = Modifier.size(48.dp)

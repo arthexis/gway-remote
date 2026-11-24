@@ -34,6 +34,32 @@ class OdooMobileBridgeTests(unittest.TestCase):
         self.assertEqual(result["page"], 1)
         self.assertFalse(result["has_next"])
 
+    def test_suggested_filename_uses_template_not_customer_or_old_suffix(self):
+        row = {"name": "S30979", "partner_id": [620, "Alejandro Díaz Leos"],
+               "sale_order_template_id": [9, "Instalación Porsche 9-10 kW 40A"]}
+        self.assertEqual(odoo.suggested_filename(row), "S30979 ADL - Porsche.pdf")
+        row["name"] = "S30979 old Tesla"
+        self.assertEqual(odoo.suggested_filename(row), "S30979 ADL - Porsche.pdf")
+        row["partner_id"] = [2, "  Álvaro  Núñez "]
+        row["sale_order_template_id"] = [17, "Instalación Mini Cooper 32A"]
+        self.assertEqual(odoo.suggested_filename(row), "S30979 ÁN - Mini Cooper.pdf")
+        for template in (False, [2, "Instalación genérica"], None):
+            row["sale_order_template_id"] = template
+            self.assertEqual(odoo.suggested_filename(row), "S30979 old Tesla.pdf")
+        row["name"] = "not-a-folio"
+        row["sale_order_template_id"] = [9, "Porsche"]
+        self.assertEqual(odoo.suggested_filename(row), "not-a-folio.pdf")
+
+    def test_search_includes_suggestion_without_changing_official_name(self):
+        row = {"id": 1, "name": "S30979", "state": "draft",
+               "partner_id": [620, "Alejandro Díaz Leos"],
+               "sale_order_template_id": [9, "Instalación Porsche 40A"]}
+        with patch.object(odoo, "_run", return_value=json.dumps([row])) as run:
+            result = odoo.search({})
+        self.assertEqual(result["quotations"][0]["name"], "S30979")
+        self.assertEqual(result["quotations"][0]["suggested_filename"], "S30979 ADL - Porsche.pdf")
+        self.assertIn("sale_order_template_id", run.call_args.args[1][5])
+
     def test_search_rejects_unbounded_input(self):
         cases = [
             {"query": "x"*81}, {"query": "bad\nnewline"}, {"query":3},

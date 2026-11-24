@@ -59,7 +59,7 @@ def search(arguments):
               ["partner_id", "ilike", query]] if query else [quote_states]
     raw = _run("odoo-domain", [
         "--model", "sale.order", "--domain", json.dumps(domain),
-        "--fields", "id,name,state,partner_id,date_order,amount_total,currency_id",
+        "--fields", "id,name,state,partner_id,date_order,amount_total,currency_id,sale_order_template_id",
         "--order", "date_order desc,id desc", "--limit", str(limit + 1),
         "--offset", str((page - 1) * limit)])
     try:
@@ -75,6 +75,7 @@ def search(arguments):
             result.append({
                 "id": row["id"], "name": row["name"],
                 "customer": row.get("partner_id", ["", ""])[1],
+                "suggested_filename": suggested_filename(row),
                 "date": row.get("date_order") or "",
                 "total": row.get("amount_total", 0),
                 "currency": row.get("currency_id", ["", ""])[1],
@@ -85,6 +86,27 @@ def search(arguments):
     return {"quotations": result, "count": len(result), "limit": limit,
             "page": page, "has_next": len(records) > limit}
 
+
+# Known vehicle brands in Odoo quotation template names, longest first.
+_VEHICLE_BRANDS = ("Mini Cooper", "Mercedes-Benz", "Porsche", "Tesla", "Audi",
+                   "BMW", "BYD", "Zeeker", "Mitsubishi", "Changan", "JAC",
+                   "Geely", "Cupra", "Mini", "Volvo", "Volkswagen", "Ford",
+                   "Hyundai", "Kia", "Nissan", "Toyota", "Chevrolet")
+
+def suggested_filename(row):
+    official = _pdf_filename(row["name"])
+    folio = re.match(r"^(S[0-9]+)(?:\s|$)", row["name"])
+    partner = row.get("partner_id")
+    template = row.get("sale_order_template_id")
+    if not folio or not isinstance(partner, list) or len(partner) != 2 or not isinstance(partner[1], str) or not isinstance(template, list) or len(template) != 2 or not isinstance(template[1], str):
+        return official
+    brand = next((b for b in _VEHICLE_BRANDS
+                  if re.search(r"(?<!\w)" + re.escape(b) + r"(?!\w)", template[1], re.I)), None)
+    # Only letters from each whitespace-delimited name word; no paths/control characters.
+    initials = "".join(next((c.upper() for c in w if c.isalpha()), "") for w in partner[1].split())
+    if not brand or not initials or len(initials) > 24:
+        return official
+    return _pdf_filename(f"{folio.group(1)} {initials} - {brand}")
 
 def _pdf_filename(name):
     if type(name) is not str or not name.strip() or len(name) > 130:
