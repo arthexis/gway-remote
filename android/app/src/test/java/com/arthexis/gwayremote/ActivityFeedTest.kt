@@ -28,6 +28,14 @@ class ActivityFeedTest {
             "https://user@github.com/arthexis/a")) assertNull(safeFeedLink(url))
     }
 
+    @Test fun isolatedCanaryOriginNeverFallsBack() {
+        assertEquals("https://remote.arthexis.com/api/feed/events?limit=20", feedTarget(PRODUCTION_PACKAGE, null).toString())
+        assertEquals("https://127.0.0.1:18443/api/feed/events?limit=20&before=7", feedTarget(CANARY_PACKAGE, 7).toString())
+        assertTrue(runCatching { feedOrigin("com.other.app") }.isFailure)
+        assertTrue(runCatching { feedTarget(CANARY_PACKAGE, 0) }.isFailure)
+        assertTrue(runCatching { loadCanaryCertificate(java.io.File("/nonexistent/canary-cert.der")) }.isFailure)
+    }
+
     @Test fun malformedPageIsRejected() {
         assertTrue(runCatching { parseFeedPage(JSONObject("""{"items":[],"next_cursor":null,"has_more":true}""")) }.isFailure)
     }

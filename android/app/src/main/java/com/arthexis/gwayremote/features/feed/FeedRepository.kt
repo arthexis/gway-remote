@@ -8,22 +8,18 @@ import kotlinx.coroutines.withContext
 import org.json.JSONObject
 import java.io.ByteArrayOutputStream
 import java.io.File
-import java.net.HttpURLConnection
-import java.net.Proxy
-import java.net.URL
 import java.security.MessageDigest
 
 internal const val MAX_FEED_RESPONSE = 1024 * 1024
 internal fun validFeedToken(token: String) = Regex("gwr_[0-9a-f]{24}_[A-Za-z0-9_-]{1,128}").matches(token)
 internal class FeedHttpError(val status: Int) : Exception()
 
-internal class FeedRepository {
+internal class FeedRepository(context: Context) {
+    private val transport = FeedTransport(context.applicationContext)
     suspend fun page(token: String, before: Long? = null): FeedPage = withContext(Dispatchers.IO) {
         require(validFeedToken(token))
         require(before == null || before > 0)
-        val target = URL("$FEED_ORIGIN/api/feed/events?limit=$PAGE_SIZE" +
-            (before?.let { "&before=$it" } ?: ""))
-        val connection = target.openConnection(Proxy.NO_PROXY) as HttpURLConnection
+        val connection = transport.connection(before)
         try {
             connection.requestMethod = "GET"
             connection.instanceFollowRedirects = false
@@ -57,10 +53,11 @@ internal class FeedRepository {
 internal class FeedCache(context: Context) {
     private val file = AtomicFile(File(context.noBackupFilesDir, "activity-feed.json"))
     private val secrets = SecretStore(context.applicationContext)
+    private val transport = FeedTransport(context.applicationContext)
     // All Home instances and Settings share one file and synchronization boundary.
     private companion object { val lock = Any() }
     private fun fingerprint(token: String): String = MessageDigest.getInstance("SHA-256")
-        .digest("$FEED_ORIGIN\n$token".toByteArray()).joinToString("") { "%02x".format(it.toInt() and 255) }
+        .digest("${transport.cacheIdentity()}\n$token".toByteArray()).joinToString("") { "%02x".format(it.toInt() and 255) }
 
     fun read(token: String, now: Long = System.currentTimeMillis()): FeedState? = synchronized(lock) {
         runCatching {

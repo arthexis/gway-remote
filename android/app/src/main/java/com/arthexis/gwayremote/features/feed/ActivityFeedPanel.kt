@@ -46,7 +46,8 @@ internal fun FeedCredentialSettings(current: String, onSave: (String) -> Unit) {
 internal fun ActivityFeedPanel(token: String, onOpenSettings: () -> Unit, onNavigate: (String) -> Unit) {
     val context = LocalContext.current
     val cache = remember(context) { FeedCache(context.applicationContext) }
-    val repository = remember { FeedRepository() }
+    val repository = remember(context) { FeedRepository(context.applicationContext) }
+    val isCanary = context.packageName == CANARY_PACKAGE
     val scope = rememberCoroutineScope()
     var state by remember(token) { mutableStateOf(FeedState()) }
     var category by remember(token) { mutableStateOf<String?>(null) }
@@ -93,6 +94,7 @@ internal fun ActivityFeedPanel(token: String, onOpenSettings: () -> Unit, onNavi
             refresh(true)
         }
     }
+    if (isCanary) Text("Activity Feed · CANARY (USB)", style = MaterialTheme.typography.labelMedium)
     if (!validFeedToken(token)) {
         Text("Activity Feed", style = MaterialTheme.typography.titleMedium)
         ModuleNotice("Configura acceso de lectura para ver la actividad.")
@@ -108,6 +110,7 @@ internal fun ActivityFeedPanel(token: String, onOpenSettings: () -> Unit, onNavi
                 // Atomic write on the UI thread preserves ordering with subsequent marks.
                 runCatching { cache.write(token, snapshot) }
             },
+            allowExternalActions = !isCanary,
             onNavigate = onNavigate,
             onLink = { link ->
                 safeFeedLink(link)?.let {
@@ -123,7 +126,8 @@ internal fun ActivityFeedPanel(token: String, onOpenSettings: () -> Unit, onNavi
 internal fun FeedContent(state: FeedState, category: String?, busy: Boolean, offline: Boolean,
                          notice: String?, onCategory: (String?) -> Unit, onRefresh: () -> Unit,
                          onMore: () -> Unit, onRead: (Long) -> Unit,
-                         onNavigate: (String) -> Unit, onLink: (String) -> Unit) {
+                         onNavigate: (String) -> Unit, onLink: (String) -> Unit,
+                         allowExternalActions: Boolean = true) {
     HorizontalDivider()
     Text("Activity Feed", style = MaterialTheme.typography.titleLarge)
     Text("Actividad reciente · sin alertas", style = MaterialTheme.typography.bodySmall)
@@ -157,8 +161,8 @@ internal fun FeedContent(state: FeedState, category: String?, busy: Boolean, off
                     if (item.seq !in state.read) Text("Sin leer", style = MaterialTheme.typography.labelMedium)
                     ModuleActions {
                         if (item.seq !in state.read) TextButton(enabled = !busy, onClick = { onRead(item.seq) }) { Text("Marcar leído") }
-                        item.moduleId?.let { id -> TextButton(enabled = !busy, onClick = { onRead(item.seq); onNavigate(id) }) { Text("Abrir módulo") } }
-                        item.url?.let { link -> TextButton(enabled = !busy, onClick = { onRead(item.seq); onLink(link) }) { Text("Abrir enlace") } }
+                        if (allowExternalActions) item.moduleId?.let { id -> TextButton(enabled = !busy, onClick = { onRead(item.seq); onNavigate(id) }) { Text("Abrir módulo") } }
+                        if (allowExternalActions) item.url?.let { link -> TextButton(enabled = !busy, onClick = { onRead(item.seq); onLink(link) }) { Text("Abrir enlace") } }
                     }
                 }
             }
