@@ -37,10 +37,10 @@ input. Physical UI acceptance remains a separate step.
 
 After the verified APK is installed, the same **manual-only** workflow can
 optionally run the paired Android instrumentation suite by selecting
-`run_compose_tests=RUN_HERMETIC_TESTS`. This option defaults to `no`
-and requires the explicit `canary_reset=RESET_CANARY_ONLY` selection so
-a test package with a different ephemeral signing certificate can be replaced
-without touching production. The workflow invokes the existing reviewed
+`run_compose_tests=RUN_HERMETIC_TESTS`. This option defaults to `no`. With `canary_reset=no`, incompatible app or test
+signatures fail closed without deleting canary data. Explicit
+`canary_reset=RESET_CANARY_ONLY` permits replacing only incompatible canary
+packages without touching production. The workflow invokes the existing reviewed
 `gway_remote.android_canary_field` on the authorized gway-001 USB device,
 with read-only GitHub Actions token permissions for artifact download.
 
@@ -104,8 +104,8 @@ Record the exact PR, SHA, Actions run, package version, test count, and failure 
 ## Dedicated quotation suite
 
 For a canary built from a revision containing the Odoo quotation tests, select
-`compose_suite=quotations` together with the existing explicit hermetic test and
-canary-only reset selectors in the managed install workflow. The workflow must
+`compose_suite=quotations` together with the explicit hermetic test selector; leave
+`canary_reset=no` unless a canary-only reset is separately authorized in the managed install workflow. The workflow must
 be reviewed on main before dispatch. The field runner also accepts the fixed
 selector `--suite quotations` through the managed local process. It rejects
 arbitrary class names. The baseline remains the default for older canaries.
