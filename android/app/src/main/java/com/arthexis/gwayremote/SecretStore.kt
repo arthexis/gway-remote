@@ -30,9 +30,8 @@ class SecretStore(context: Context) {
         get() = prefs.getString("endpoint", "") ?: ""
         set(value) { prefs.edit().putString("endpoint", value).apply() }
 
-    var token: String
-        get() {
-            val encoded = prefs.getString("token", null) ?: return ""
+    private fun readToken(name: String): String {
+            val encoded = prefs.getString(name, null) ?: return ""
             return try {
                 val raw = Base64.decode(encoded, Base64.NO_WRAP)
                 val cipher = Cipher.getInstance("AES/GCM/NoPadding")
@@ -40,10 +39,19 @@ class SecretStore(context: Context) {
                 String(cipher.doFinal(raw.copyOfRange(12, raw.size)), Charsets.UTF_8)
             } catch (_: Exception) { "" }
         }
-        set(value) {
+    private fun writeToken(name: String, value: String) {
+            if (value.isBlank()) { prefs.edit().remove(name).apply(); return }
             val cipher = Cipher.getInstance("AES/GCM/NoPadding")
             cipher.init(Cipher.ENCRYPT_MODE, key())
             val raw = cipher.iv + cipher.doFinal(value.toByteArray(Charsets.UTF_8))
-            prefs.edit().putString("token", Base64.encodeToString(raw, Base64.NO_WRAP)).apply()
-        }
+            prefs.edit().putString(name, Base64.encodeToString(raw, Base64.NO_WRAP)).apply()
+    }
+
+    var token: String
+        get() = readToken("token")
+        set(value) = writeToken("token", value)
+
+    var feedToken: String
+        get() = readToken("feed_token")
+        set(value) = writeToken("feed_token", value)
 }

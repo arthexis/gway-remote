@@ -1,6 +1,8 @@
 name: Android Compose UI Tests
 
 on:
+  pull_request:
+    paths: ['android/**', '.github/workflows/android-compose-ui.yml']
   workflow_dispatch:
     inputs:
       profile:
@@ -42,11 +44,11 @@ jobs:
           target: google_apis
           profile: pixel_6
           disable-animations: true
-          script: bash android/scripts/run-compose-ui-tests.sh "${{ inputs.profile }}"
+          script: bash android/scripts/run-compose-ui-tests.sh "${{ inputs.profile || 'phone' }}"
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: compose-ui-${{ inputs.profile }}-${{ github.run_id }}
+          name: compose-ui-${{ inputs.profile || 'phone' }}-${{ github.run_id }}
           path: |
             android/app/build/outputs/androidTest-results/
             android/app/build/reports/androidTests/

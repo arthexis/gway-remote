@@ -161,3 +161,22 @@ Only a separately authorized --activate enables the timer. Rollback: disable
 and stop the user timer, preserve the outbox and private credentials, and
 remove only the managed files if required. No production provisioning is
 performed by this Draft.
+
+## Stage 4: Android Home
+
+Home renders a quiet Activity Feed below the existing app information.
+Android mobile API credentials and Watchtower MCP bearers are distinct:
+configure a read-only Watchtower bearer separately in Settings, encrypted
+by the existing Android Keystore. No publish authority is requested.
+The fixed existing Watchtower HTTPS origin is used without redirect/proxy
+fallback; existing API credentials are never forwarded. The route remains
+disabled/unpublished until stage 7. A missing route or authorization denial
+clears offline state. Local cache is private, no-backup, credential-bound,
+expires after 24 hours, max 100 records; no cross-device read sync yet.
+Latest receipts are refreshed on entering Home or manually; older pages use
+before cursor, filter locally over loaded records, deduplicate by sequence.
+Individual read markers persist locally (bounded). Links are restricted to
+known HTTPS destinations and local module IDs; no token is sent to links.
+No background worker or notification permission added. Instrumented Compose
+tests and JVM model tests are included; actual UI acceptance requires emulator
+or separately authorized physical canary, not a deployment.

@@ -9,6 +9,9 @@ import com.arthexis.gwayremote.features.githubhealth.GitHubHealthPanel
 import com.arthexis.gwayremote.features.odoo.OdooQuotationsPanel
 import com.arthexis.gwayremote.features.mcp.McpAccessPanel
 import com.arthexis.gwayremote.features.updates.rememberAppUpdateController
+import com.arthexis.gwayremote.features.feed.ActivityFeedPanel
+import com.arthexis.gwayremote.features.feed.FeedCredentialSettings
+import com.arthexis.gwayremote.features.feed.FeedCache
 
 import android.content.Context
 import android.content.Intent
@@ -45,6 +48,7 @@ fun CompanionScreen(
             store.endpoint.ifBlank { "https://remote.arthexis.com" }, store.token
         ))
     }
+    var feedToken by remember { mutableStateOf(store.feedToken) }
     var selectedModuleId by rememberSaveable { mutableStateOf(ModuleRegistry.HOME) }
     var feedback by remember { mutableStateOf("") }
     val drawerState = rememberDrawerState(DrawerValue.Closed)
@@ -132,6 +136,10 @@ fun CompanionScreen(
                             onCheckUpdate = updates.check,
                             onOpenSettings = { navigate(ModuleRegistry.SETTINGS) }
                         )
+                        key(feedToken) {
+                            ActivityFeedPanel(feedToken, onOpenSettings = { navigate(ModuleRegistry.SETTINGS) },
+                                onNavigate = ::navigate)
+                        }
                     }
                     ModuleRegistry.SETTINGS -> ModulePage {
                         ModuleSettingsPage(
@@ -153,6 +161,11 @@ fun CompanionScreen(
                             },
                             feedback = feedback
                         )
+                        FeedCredentialSettings(feedToken) { next ->
+                            store.feedToken = next
+                            if (feedToken != next) FeedCache(context).clear()
+                            feedToken = next
+                        }
                     }
                     "app-update" -> ModulePage {
                         ModuleUpdatePage(
