@@ -100,3 +100,22 @@ Stop monitoring by removing `android-canary-enabled` and disabling the user time
 Current instrumented suite: `ModuleNavigationComposeTest`, `ModulePageComposeTest`, `AppearanceThemeTest`. These run Compose UI components on a real Android device with fake callbacks, asserting routing, home content, layout wrapping and theme behavior. They are not allowed to submit deployments, mutate Odoo, issue AgentOps tasks or control chargers. No production package is installed, uninstalled or force-stopped by the runner.
 
 Record the exact PR, SHA, Actions run, package version, test count, and failure status against #647, without private screen content. #644 stays Draft until the independent physical visual acceptance passes.
+
+## Dedicated quotation suite
+
+For a canary built from a revision containing the Odoo quotation tests, select
+`compose_suite=quotations` together with the existing explicit hermetic test and
+canary-only reset selectors in the managed install workflow. The workflow must
+be reviewed on main before dispatch. The field runner also accepts the fixed
+selector `--suite quotations` through the managed local process. It rejects
+arbitrary class names. The baseline remains the default for older canaries.
+
+The five Compose scenarios cover recent records, search, page boundaries and
+same-page refresh, pending refresh deduplication, retaining the last good list
+on error, empty/offline recovery, missing credentials, and the actual Android
+CreateDocument intent's suggested PDF title and legacy fallback. Tests inject
+synthetic read responses and intercept/cancel document creation; no live Odoo
+writes, network requests or PDF files are produced. A receipt requires at least
+five successful tests and is stored separately in android-canary-quotations.json.
+The native report's authenticated transport remains covered by unit tests;
+real backend and saved-file acceptance are separate read-only checks.
