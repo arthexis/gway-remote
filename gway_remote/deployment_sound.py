@@ -122,7 +122,7 @@ class DeploymentSound:
                 node = self.node or socket.gethostname().split(".", 1)[0]
                 notice = document(subject, node, event, self.deployment_id,
                                   origin_node=self.origin_node)
-                send(notice, runner=self.run, home=Path.home())
+                send(notice, runner=self.run, home=Path.home(), timeout=3)
             except (ValueError, OSError, TypeError):
                 pass
             return
