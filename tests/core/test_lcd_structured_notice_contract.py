@@ -26,7 +26,7 @@ def notice(**changes):
 def event(document=None):
     return {"schema": 1, "node": "gway-001", "origin": "gelectriic.com",
             "request_id": "ab"*16,
-            "expires_at": (NOW + timedelta(seconds=20)).isoformat(),
+            "expires_at": (datetime.now(timezone.utc) + timedelta(seconds=20)).isoformat(),
             "device": "lcd", "action": "notice",
             "arguments": {"notice": notice() if document is None else document},
             "hops": 0}
@@ -40,7 +40,7 @@ def grants():
 def test_authorized_notice_is_validated_and_non_shell():
     e = event()
     authorize(e, verified_principal=PRINCIPAL, grants=grants())
-    validate(e, trusted_node="gway-001", trusted_origin="gelectriic.com", now=NOW)
+    validate(e, trusted_node="gway-001", trusted_origin="gelectriic.com")
     cmd = argv_for(e)
     assert cmd[:3] == ["gway-lcd-sound", "lcd", "notice"]
     assert json.loads(cmd[3]) == notice()
