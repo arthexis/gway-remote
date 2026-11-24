@@ -29,6 +29,18 @@ class FleetNotificationTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             fleet.probe("ocpp-abb-1", "bash -c evil", run=run)
 
+    def test_gway004_uses_pinned_installation_user_and_reachability_only(self):
+        captured = []
+        def run(args, **kw):
+            captured.append(args)
+            return SimpleNamespace(returncode=0)
+        self.assertEqual(fleet.probe("gway-004", "node-ssh", run=run), "healthy")
+        self.assertEqual(captured[0][-2:], ["arthe@gway-004", "/usr/bin/true"])
+        self.assertNotIn("systemctl", captured[0])
+        for node in ("gway-002", "gway-005"):
+            with self.subTest(node=node), self.assertRaises(ValueError):
+                fleet.probe(node, "node-ssh", run=run)
+
     def test_ssh_and_service_failures_are_distinct(self):
         for code, state in ((0, "healthy"), (3, "down"), (255, "unreachable"),
                             (4, "degraded")):
