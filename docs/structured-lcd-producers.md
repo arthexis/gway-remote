@@ -61,10 +61,23 @@ To opt in locally after receiver acceptance, create an **owner-only 0600**
 `~/.config/gway-remote/lcd-notifications.enabled` containing `enabled`.
 Alternatively set `GWAY_DEPLOY_LCD_NOTIFICATIONS=1` in the trusted executor.
 The Watchtower `gway-mcp-gateway` account is distinct from the already
-authorized `ubuntu` LCD/Sound source: **do not copy Ubuntu's bearer**, grant
-the gateway generic execution, or silently enable manual broker notices
-until an independent authenticated source path is accepted. The bridge already
-validates `lcd.notice`, but a source without its own verified grant is denied.
+authorized `ubuntu` LCD/Sound source. **Do not copy Ubuntu's bearer** or
+issue broad new credentials. The actual live `node_deploy` broker uses an
+INTERNAL receipt-bound adapter (`gway_remote.watchtower_deploy_notices`) and
+Watchtower's existing pinned SSH hardware bridge, which already executes as
+the `gway-mcp-gateway` service identity. This is not an external
+`gway:lcd-sound` caller and does not require an operator source grant.
+No generic shell, public HTTP endpoint, SSH identity or execution permission
+is created. Only known provider-name to repository mappings are emitted.
+`GWAY_BROKER_LCD_NOTIFICATIONS=1` must be configured explicitly on the
+trusted gateway service after the new revision is deployed and a read-only
+bridge `lcd status` call succeeds under its actual systemd user.
+Broker `succeeded` is announced only as `deploy-activated`, never
+independently `deploy-verified`. Terminal failure sends one bounded
+`sound.play error`; `uncertain` remains silent.
+The broker emits a terminal LCD/audio alert only when a correlated node
+receipt is received during dispatch or a `node_deploy_status` query; no
+unseen completion is guessed in the absence of a node receipt.
 
 ## Security
 
