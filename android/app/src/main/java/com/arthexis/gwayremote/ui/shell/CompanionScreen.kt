@@ -168,9 +168,7 @@ fun CompanionScreen(
                     "benchmark" -> ModulePage {
                         BenchmarkModule(settings.endpoint, settings.token)
                     }
-                    "odoo-quotations" -> ModulePage {
-                        OdooQuotationsPanel(settings.endpoint, settings.token)
-                    }
+                    "odoo-quotations" -> OdooQuotationsPanel(settings.endpoint, settings.token)
                     "deployments" -> ModulePage {
                         DeploymentsPanel(settings.endpoint, settings.token)
                     }
