@@ -6,7 +6,6 @@ import com.arthexis.gwayremote.ui.components.ModuleHeader
 import com.arthexis.gwayremote.ui.components.ModuleLoading
 import com.arthexis.gwayremote.ui.components.ModuleNotice
 import com.arthexis.gwayremote.ui.components.ModuleActions
-import com.arthexis.gwayremote.ui.components.ModuleSectionTitle
 
 import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -21,6 +20,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
@@ -44,7 +44,17 @@ internal fun localQuotationFilename(name: String, suggested: String?): String {
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun OdooQuotationsPanel(endpoint: String, token: String) {
+fun OdooQuotationsPanel(
+    endpoint: String,
+    token: String,
+    loadQuotations: suspend (String, String, String, Int) -> JSONObject = { host, accessToken, query, page ->
+        withContext(Dispatchers.IO) {
+            ApiClient(host.trim(), accessToken).request("/api/v1/execute",
+                "odoo-quotations", JSONObject().put("query", query)
+                    .put("limit", 10).put("page", page), timeoutMs = 40000)
+        }
+    }
+) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     var query by remember(endpoint, token) { mutableStateOf("") }
@@ -97,16 +107,11 @@ fun OdooQuotationsPanel(endpoint: String, token: String) {
         try {
             val requestQuery = submittedQuery
             val requestPage = page
-            val response = withContext(Dispatchers.IO) {
-                ApiClient(endpoint.trim(), token).request("/api/v1/execute",
-                    "odoo-quotations", JSONObject().put("query", requestQuery)
-                        .put("limit", 10).put("page", requestPage),
-                    timeoutMs = 40000)
-            }
+            val response = loadQuotations(endpoint, token, requestQuery, requestPage)
             val result = response.getJSONObject("result")
             val rows = result.getJSONArray("quotations")
-            hasNext = result.getBoolean("has_next")
-            records = (0 until rows.length()).mapNotNull { index ->
+            val next = result.getBoolean("has_next")
+            val loadedRecords = (0 until rows.length()).mapNotNull { index ->
                 val row = rows.optJSONObject(index) ?: return@mapNotNull null
                 val id = row.optInt("id")
                 val name = row.optString("name")
@@ -117,6 +122,8 @@ fun OdooQuotationsPanel(endpoint: String, token: String) {
                     row.opt("suggested_pdf_filename") as? String
                 )
             }
+            records = loadedRecords
+            hasNext = next
             status = if (records.isEmpty()) "No hay cotizaciones para esta búsqueda." else ""
         } catch (e: CancellationException) {
             throw e
@@ -147,9 +154,9 @@ fun OdooQuotationsPanel(endpoint: String, token: String) {
     PullToRefreshBox(
         isRefreshing = loading,
         onRefresh = { reloadVisible() },
-        modifier = Modifier.fillMaxSize()
+        modifier = Modifier.fillMaxSize().testTag("odoo-quotations-refresh")
     ) {
-    ModulePage {
+        ModulePage {
         ModuleHeader("Cotizaciones · Odoo", "Busca por folio o cliente y guarda el PDF oficial. Desliza hacia abajo para actualizar.")
         OutlinedTextField(
             value = query, onValueChange = { query = it.take(80) },
