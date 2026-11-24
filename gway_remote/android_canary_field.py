@@ -269,8 +269,11 @@ def instrument(serial, *, wake=False, suite="baseline"):
                 pass
 
 
-def state_path():
-    return Path.home() / ".local/state/gway-remote/android-canary.json"
+def state_path(suite="baseline"):
+    if suite not in SUITES:
+        raise CanaryError("unknown_test_suite")
+    filename = "android-canary.json" if suite == "baseline" else "android-canary-quotations.json"
+    return Path.home() / ".local/state/gway-remote" / filename
 
 
 def write_state(path, record):
@@ -287,18 +290,18 @@ def run(pr, *, install_enabled=False, reset=False, wake=False, retry=False, suit
     if not 1 <= pr <= 9999999:
         raise CanaryError("invalid_pr_number")
     run_id, artifact, sha = eligible_run(pr)
-    state_file = state_path()
+    state_file = state_path(suite)
     if state_file.exists():
         old = json.loads(state_file.read_text())
         if old.get("run_id") == run_id and old.get("suite", "baseline") == suite and not retry:
-            return {"status": "already_attempted", "run_id": run_id, "source_sha": sha}
+            return {"status": "already_attempted", "run_id": run_id, "source_sha": sha, "suite": suite}
     # No permanent SDK or Java on 001: gh downloads a CI-built paired artifact.
     with tempfile.TemporaryDirectory(prefix="gway-canary-") as directory:
         command(["gh", "run", "download", str(run_id), "-R", REPO,
                  "--name", artifact, "--dir", directory], timeout=70)
         provenance(directory, pr=pr, sha=sha, run_id=run_id)
         if not install_enabled:
-            return {"status": "verified_only", "run_id": run_id, "source_sha": sha}
+            return {"status": "verified_only", "run_id": run_id, "source_sha": sha, "suite": suite}
         serial = usb()
         was_awake = device_ready(serial, wake=wake)
         record = {
