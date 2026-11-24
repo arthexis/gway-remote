@@ -106,7 +106,8 @@ class DeploymentSound:
 
     def _lcd(self, event):
         """Publish through the existing event-lockfile runner, never direct I2C."""
-        if os.environ.get("GWAY_DEPLOY_LCD_NOTIFICATIONS") == "1":
+        from .deployment_lcd_notifications import enabled
+        if enabled():
             # Structured notifications are opt-in until both ends support the
             # v1 contract. Never fall back to a misleading legacy LCD overlay
             # after an uncertain or failed authenticated send.
