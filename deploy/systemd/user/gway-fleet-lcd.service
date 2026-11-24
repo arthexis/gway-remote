@@ -8,7 +8,7 @@ Wants=network-online.target
 Type=oneshot
 Environment=PYTHONPATH=/opt/gway-mcp/current
 ExecStart=/usr/bin/python3 -m gway_remote.fleet_lcd_notifications --once
-TimeoutStartSec=55
+TimeoutStartSec=180
 UMask=0077
 NoNewPrivileges=true
 PrivateTmp=true
