@@ -12,11 +12,11 @@ class CanaryBoundaryTests(unittest.TestCase):
             self.assertEqual(adb.call_count,1)
 
     def test_tunnel_rollback_even_after_failure(self):
-        with patch("gway_remote.android_feed_canary.field.adb",side_effect=["","", "UsbFfs "+MAPPING+" "+MAPPING,"",""]) as adb:
+        with patch("gway_remote.android_feed_canary.field.adb",side_effect=["","", "UsbFfs "+MAPPING+" "+MAPPING,"UsbFfs "+MAPPING+" "+MAPPING,"",""]) as adb:
             with self.assertRaises(ValueError):
                 with tunnel("fake"):
                     raise ValueError("fixture")
-            self.assertEqual(adb.call_args_list[3].args[1:4],("reverse","--remove",MAPPING))
+            self.assertEqual(adb.call_args_list[4].args[1:4],("reverse","--remove",MAPPING))
 
     def test_fixed_loopback_contract(self):
         self.assertEqual(PORT,18443)
@@ -53,3 +53,21 @@ class CanaryBoundaryTests(unittest.TestCase):
                         self.assertEqual(failure.exception.code,code)
                         failure.exception.close()
             self.assertTrue(all(not list(root.iterdir()) for root in roots))
+
+    def test_changed_mapping_is_not_removed(self):
+        owned = "UsbFfs "+MAPPING+" "+MAPPING
+        changed = "UsbFfs "+MAPPING+" tcp:9999"
+        with patch("gway_remote.android_feed_canary.field.adb",side_effect=["","",owned,changed]) as adb:
+            with self.assertRaisesRegex(RuntimeError,"ownership changed"):
+                with tunnel("fake"):
+                    pass
+            self.assertEqual(adb.call_count,4)
+
+    def test_existing_private_state_blocks(self):
+        from gway_remote.android_feed_canary import _require_empty_seed
+        from types import SimpleNamespace
+        with patch("gway_remote.android_feed_canary._private_command",
+                   return_value=SimpleNamespace(returncode=0,stdout=b"10001\n")), \
+             patch("gway_remote.android_feed_canary._absent",return_value=False):
+            with self.assertRaisesRegex(RuntimeError,"refusing overwrite"):
+                _require_empty_seed("fake")
