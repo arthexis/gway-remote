@@ -62,3 +62,9 @@ class MaintenanceTests(unittest.TestCase):
             self.assertEqual(metrics["pending"],1)
             self.assertEqual(metrics["oldest_pending_age_seconds"],0)
             self.assertGreater(metrics["total_file_bytes"],0)
+
+    def test_ordinary_directory_is_not_a_physical_quota(self):
+        from gway_remote.activity_feed_maintenance import check_volume
+        with TemporaryDirectory() as tmp:
+            with self.assertRaises(PermissionError):
+                check_volume(Path(tmp),"central")

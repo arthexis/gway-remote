@@ -121,14 +121,46 @@ def copy_database(source, destination, *, seconds=30):
             Path(temporary+suffix).unlink(missing_ok=True)
 
 
+def check_volume(path, role):
+    """Fail closed unless a dedicated capacity-bounded filesystem is present.
+
+    A bind mount or ordinary directory on the root filesystem is insufficient.
+    This checks filesystem capacity, not a project quota or arbitrary claim.
+    No mounting, formatting, resizing or quota mutation occurs.
+    """
+    budgets = {"central": 512*1024*1024, "producer": 128*1024*1024,
+               "backup": 512*1024*1024}
+    path = Path(path)
+    if not path.is_absolute() or ".." in path.parts or path.resolve() != path:
+        raise ValueError("absolute canonical volume path required")
+    info = path.lstat()
+    if (not stat.S_ISDIR(info.st_mode) or info.st_uid != os.geteuid()
+            or info.st_mode & 0o077 or path == path.parent
+            or info.st_dev == path.parent.stat().st_dev or not os.path.ismount(path)):
+        raise PermissionError("dedicated private volume required")
+    fs = os.statvfs(path)
+    total = fs.f_frsize * fs.f_blocks
+    available = fs.f_frsize * fs.f_bavail
+    if not 0 < total <= budgets[role] or available < 16*1024*1024:
+        raise ValueError("volume capacity or free space outside budget")
+    return {"role":role,"capacity_bytes":total,"available_bytes":available,
+            "maximum_bytes":budgets[role],"dedicated":True}
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--database", default=os.environ.get("GWAY_ACTIVITY_FEED_DATABASE"))
-    parser.add_argument("operation", choices=("init", "status", "prune", "backup", "restore-new", "audit-grants"))
+    parser.add_argument("operation", choices=("init", "status", "prune", "backup", "restore-new", "audit-grants", "check-volume"))
     parser.add_argument("--destination")
+    parser.add_argument("--volume")
+    parser.add_argument("--role", choices=("central","producer","backup"))
     args = parser.parse_args(argv)
     try:
-        if args.operation == "audit-grants":
+        if args.operation == "check-volume":
+            if not args.volume or not args.role:
+                raise ValueError("volume and role required")
+            result = check_volume(args.volume,args.role)
+        elif args.operation == "audit-grants":
             from .activity_feed_http import load_feed_grants
             grants = load_feed_grants()
             result = {"valid": True, "grants": len(grants), "enabled": sum(g["enabled"] for g in grants.values())}
