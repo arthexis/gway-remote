@@ -11,6 +11,7 @@ import stat
 import time
 
 from .activity_feed import EventConflict, FeedCapacityError, _canonical, validate_event
+from .activity_feed_quota import OUTBOX_BYTES, OUTBOX_WAL, configure, admit
 
 MAX_PENDING = 2048
 MAX_AGE = 30 * 86400
@@ -72,7 +73,12 @@ class Outbox:
     def _connect(self):
         db = sqlite3.connect(self.path, timeout=.15, isolation_level=None)
         db.row_factory = sqlite3.Row
-        db.execute("PRAGMA synchronous=FULL")
+        try:
+            db.execute("PRAGMA synchronous=FULL")
+            configure(db, OUTBOX_BYTES, OUTBOX_WAL)
+        except BaseException:
+            db.close()
+            raise
         return db
 
     @staticmethod
@@ -103,6 +109,7 @@ class Outbox:
                 if row["payload"] != payload:
                     raise EventConflict("different event with same identity")
                 return row["state"]
+            admit(self.path, OUTBOX_WAL)
             now = int(self.clock())
             if db.execute("SELECT COUNT(*) FROM queue").fetchone()[0] >= self.capacity:
                 db.execute("DELETE FROM queue WHERE seq IN (SELECT seq FROM queue WHERE state='delivered' ORDER BY seq LIMIT 1)")

@@ -15,7 +15,7 @@ POLICY_PATH = Path("/etc/gway-remote/lcd-sound-sources.json")
 MAX_POLICY_BYTES = 16384
 
 
-def load_operator_grants(path=POLICY_PATH, *, expected_owner=0):
+def load_operator_grants(path=POLICY_PATH, *, expected_owner=0, reject_duplicates=False):
     """Read an exact JSON grant snapshot; fail closed on unsafe file metadata."""
     path = Path(path)
     if not path.is_absolute() or ".." in path.parts:
@@ -38,7 +38,14 @@ def load_operator_grants(path=POLICY_PATH, *, expected_owner=0):
             raise PermissionError("grant snapshot oversized")
     finally:
         os.close(fd)
-    value = json.loads(raw)
+    def unique(pairs):
+        result = {}
+        for key, value in pairs:
+            if key in result:
+                raise ValueError("duplicate grant member")
+            result[key] = value
+        return result
+    value = json.loads(raw, object_pairs_hook=unique if reject_duplicates else None)
     if type(value) is not dict or set(value) != {"schema", "grants"}:
         raise ValueError("invalid grant snapshot schema")
     if type(value["schema"]) is not int or value["schema"] != 1:

@@ -201,3 +201,7 @@ crash between primary receipt and enqueue can lose a notification, not work.
 Actual AgentOps lifecycle integration belongs to its owner repository.
 
 AgentOps owner-side implementation: arthexis/gway-agent-ops PR #111. The hook uses the existing local CLI, with a 1.5-second bound, and is independently opt-in. It records admission, terminal process outcomes and explicit release only after durable journals. No remote operation or LCD/Sound dependency. Android cache operations now serialize across Home instances and reject stale credential writes/deletions; expired offline state is removed when refresh fails. Inventory checkpoint is bound to the producer route and rebaselines if identity changes. Terminal broker polling does not emit historical completed receipts again.
+
+## Stage 7 maintenance
+
+The zipapp exposes local operator-only feed-maintenance --database PATH status, prune, backup --destination NEW, restore-new --destination NEW, and audit-grants. Retention is 180 days by receipt time; prune at most 1000 rows per call and passive checkpoint. Page budgets 256 MiB central / 64 MiB outbox; WAL admission budgets 32 / 8 MiB respectively. SQLite page limits are not total disk limits; filesystem quota remains required. Snapshot and restore create private new files only, preserving sequence and payload, never activate a restored database. See docs/activity-feed-canary.md for acceptance and rollback. All activation remains separate.

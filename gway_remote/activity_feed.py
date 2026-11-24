@@ -7,6 +7,7 @@ import json
 import re
 import sqlite3
 from urllib.parse import urlsplit
+from .activity_feed_quota import CENTRAL_BYTES, CENTRAL_WAL, configure, admit
 
 MAX_EVENT_BYTES = 16384
 MAX_PAGE = 100
@@ -154,6 +155,11 @@ class ActivityFeedStore:
     def _connect(self):
         db = sqlite3.connect(self.path, timeout=5, isolation_level=None)
         db.row_factory = sqlite3.Row
+        try:
+            configure(db, CENTRAL_BYTES, CENTRAL_WAL)
+        except BaseException:
+            db.close()
+            raise
         return db
 
     @staticmethod
@@ -194,6 +200,7 @@ class ActivityFeedStore:
                 return self._record(row), False
             if db.execute("SELECT COUNT(*) FROM events").fetchone()[0] >= self.max_rows:
                 raise FeedCapacityError("activity feed row limit reached")
+            admit(self.path, CENTRAL_WAL)
             received = _utc(self._now().isoformat())
             cursor = db.execute("""INSERT INTO events
                 (producer, source, event_id, received_at, category, severity, payload)

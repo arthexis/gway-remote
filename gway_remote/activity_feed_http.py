@@ -19,7 +19,35 @@ GRANT_PATH = Path("/etc/gway-remote/activity-feed-sources.json")
 
 def load_feed_grants():
     # Reuse the existing root-owned snapshot reader, not the LCD grants.
-    return load_operator_grants(GRANT_PATH)
+    return validate_grants(load_operator_grants(GRANT_PATH, reject_duplicates=True))
+
+
+def validate_grants(grants):
+    """Audit exact policy, no wildcard grants or ambiguous duplicate entries."""
+    from .activity_feed import _source, _token
+    if type(grants) is not dict or len(grants) > 64:
+        raise ValueError("invalid grant registry")
+    for principal, grant in grants.items():
+        if not re.fullmatch(r"[a-f0-9]{24}", principal) or type(grant) is not dict:
+            raise ValueError("invalid feed principal")
+        if set(grant) != {"enabled", "source", "nodes", "repositories", "types"} or type(grant["enabled"]) is not bool:
+            raise ValueError("invalid feed grant")
+        _source(grant["source"])
+        for field in ("nodes", "repositories", "types"):
+            values = grant[field]
+            if type(values) is not list or not 1 <= len(values) <= 64:
+                raise ValueError("invalid feed grant list")
+            seen = set()
+            for item in values:
+                if item is None:
+                    if field == "types":
+                        raise ValueError("event type must be explicit")
+                else:
+                    _token(item)
+                if item in seen:
+                    raise ValueError("duplicate feed grant value")
+                seen.add(item)
+    return grants
 
 
 def is_feed_path(path):
