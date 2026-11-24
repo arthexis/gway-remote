@@ -78,11 +78,6 @@ jobs:
           [[ "$EXPECTED_SHA" =~ ^[0-9a-f]{40}$ ]] || exit 1
           [[ "$ARTIFACT_RUN" =~ ^[1-9][0-9]{0,11}$ ]] || exit 1
           [[ "$EXPECTED_DIGEST" =~ ^[0-9a-f]{64}$ ]] || exit 1
-          if [[ "${{ inputs.run_compose_tests }}" == "RUN_HERMETIC_TESTS" &&
-                "${{ inputs.canary_reset }}" != "RESET_CANARY_ONLY" ]]; then
-            echo "::error::Compose instrumentation requires explicit canary-only reset consent"
-            exit 1
-          fi
           PR=$(gh api "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER")
           printf '%s' "$PR" | python3 -c 'import json, os, sys; p=json.load(sys.stdin); assert p["state"] == "open" and p["head"]["repo"]["full_name"] == os.environ["GITHUB_REPOSITORY"] and p["head"]["sha"] == os.environ["EXPECTED_SHA"], "PR identity mismatch"'
           SOURCE_RUN=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$ARTIFACT_RUN")
@@ -141,14 +136,14 @@ jobs:
           COMPOSE_SUITE: ${{ inputs.compose_suite }}
         run: |
           set -euo pipefail
-          # This is an extra, manual-only gate: test APK signature rotation is
-          # explicitly consented to. The field runner has its own provenance,
-          # USB, screen/lock, stay-awake restoration and canary-only checks.
-          [[ "$CANARY_RESET" == "RESET_CANARY_ONLY" ]] || {
-            echo "::error::Compose tests require explicit canary-only reset opt-in"; exit 1;
-          }
+          # Default preserves canary data; only the explicit reset selection
+          # permits package replacement after a recognized signature conflict.
           case "$COMPOSE_SUITE" in baseline|quotations) ;; *) exit 1 ;; esac
-          RESULT=$(python3 -m gway_remote.android_canary_field --pr "$PR_NUMBER" --install --allow-canary-reset --wake --suite "$COMPOSE_SUITE")
+          case "$CANARY_RESET" in
+            no) RESULT=$(python3 -m gway_remote.android_canary_field --pr "$PR_NUMBER" --install --wake --suite "$COMPOSE_SUITE") ;;
+            RESET_CANARY_ONLY) RESULT=$(python3 -m gway_remote.android_canary_field --pr "$PR_NUMBER" --install --allow-canary-reset --wake --suite "$COMPOSE_SUITE") ;;
+            *) exit 1 ;;
+          esac
           COUNT=$(printf '%s' "$RESULT" | python3 -c 'import json, os, sys; r=json.load(sys.stdin); assert r.get("status") == "passed" and r.get("source_sha") == os.environ["EXPECTED_SHA"] and str(r.get("run_id")) == os.environ["ARTIFACT_RUN"] and r.get("pr") == int(os.environ["PR_NUMBER"]), "Canary field receipt not accepted"; n=r.get("tests_passed"); assert r.get("suite") == os.environ["COMPOSE_SUITE"], "Unexpected test suite"; assert type(n) is int and (n >= 6 if os.environ["COMPOSE_SUITE"] == "baseline" else n >= 5), "Compose suite incomplete"; print(n)')
           echo "### Physical Compose acceptance on gway-001" >> "$GITHUB_STEP_SUMMARY"
           echo "Source PR: #$PR_NUMBER; revision: $EXPECTED_SHA" >> "$GITHUB_STEP_SUMMARY"
