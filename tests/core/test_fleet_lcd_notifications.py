@@ -1,92 +1,108 @@
-"""Hermetic fleet status transitions, destination and safe SSH evidence."""
+"""Unittest-compatible hermetic fleet target and debounce behavior."""
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from types import SimpleNamespace
-from unittest.mock import Mock
-
-import pytest
+import tempfile
+import unittest
+from unittest.mock import patch
 
 from gway_remote import fleet_lcd_notifications as fleet
 
 NOW = datetime(2026, 11, 24, 7, 0, tzinfo=timezone.utc)
 
 
-def test_probes_are_fixed_and_ssh_host_pinned():
-    seen = []
-    def run(args, **kwargs):
-        seen.append(args)
-        return SimpleNamespace(returncode=0)
-    assert fleet.probe("ocpp-abb-1", "ocpp-reports-ingest.service", run=run) == "healthy"
-    assert seen[0][0] == "ssh"
-    assert "StrictHostKeyChecking=yes" in seen[0]
-    assert seen[0][-4:] == ["ubuntu@ocpp-abb-1", "/usr/bin/systemctl",
-                           "is-active", "--quiet", "ocpp-reports-ingest.service"][-4:]
-    with pytest.raises(ValueError):
-        fleet.probe("unknown-node", "sshd.service", run=run)
-    with pytest.raises(ValueError):
-        fleet.probe("ocpp-abb-1", "bash -c evil", run=run)
+class FleetNotificationTests(unittest.TestCase):
+    def test_fixed_pinned_ssh_target_and_safe_allowlist(self):
+        seen = []
+        def run(args, **kwargs):
+            seen.append(args)
+            return SimpleNamespace(returncode=0)
+        self.assertEqual(fleet.probe("ocpp-abb-1", "ocpp-reports-ingest.service",
+                                     run=run), "healthy")
+        self.assertEqual(seen[0][0], "ssh")
+        self.assertIn("StrictHostKeyChecking=yes", seen[0])
+        self.assertEqual(seen[0][-4:],
+                         ["ubuntu@ocpp-abb-1", "/usr/bin/systemctl", "is-active",
+                          "--quiet", "ocpp-reports-ingest.service"][-4:])
+        with self.assertRaises(ValueError):
+            fleet.probe("unknown-node", "sshd.service", run=run)
+        with self.assertRaises(ValueError):
+            fleet.probe("ocpp-abb-1", "bash -c evil", run=run)
+
+    def test_ssh_and_service_failures_are_distinct(self):
+        for code, state in ((0, "healthy"), (3, "down"), (255, "unreachable"),
+                            (4, "degraded")):
+            with self.subTest(code=code):
+                found = fleet.probe("gelectriic.com", "nginx.service",
+                                    run=lambda *a, **kw: SimpleNamespace(returncode=code))
+                self.assertEqual(found, state)
+
+    def test_two_failures_and_two_recoveries_same_episode(self):
+        current, event = fleet.update(None, "healthy", NOW)
+        self.assertIsNone(event)
+        current, event = fleet.update(current, "down", NOW)
+        self.assertIsNone(event)
+        current, event = fleet.update(current, "down", NOW + timedelta(minutes=1))
+        self.assertEqual(event, "down")
+        self.assertEqual(current["active"], "down")
+        identity = current["episode"]
+        current, event = fleet.update(current, "down", NOW + timedelta(minutes=2))
+        self.assertIsNone(event)
+        self.assertEqual(current["episode"], identity)
+        current, event = fleet.update(current, "healthy", NOW + timedelta(minutes=3))
+        self.assertIsNone(event)
+        current, event = fleet.update(current, "healthy", NOW + timedelta(minutes=4))
+        self.assertEqual(event, "recovered")
+        self.assertIsNone(current["active"])
+        self.assertEqual(current["episode"], identity)
+
+    def test_unreachable_does_not_claim_service_down(self):
+        first, _ = fleet.update(None, "unreachable", NOW)
+        second, event = fleet.update(first, "unreachable", NOW + timedelta(minutes=1))
+        self.assertEqual(event, "unreachable")
+        doc = fleet.event_document("ocpp-abb-1", "ocpp-reports-ingest.service",
+                                   event, second["episode"])
+        self.assertEqual(doc["target_node"], "ocpp-abb-1")
+        self.assertEqual(doc["origin_node"], "gway-001")
+        self.assertEqual(doc["state"], "unreachable")
+        self.assertEqual(doc["reason_code"], "NODE_UNREACHABLE")
+        self.assertEqual(doc["severity"], "error")
+
+    def test_end_to_end_cycle_has_no_rotation_audio(self):
+        with tempfile.TemporaryDirectory() as d, patch.object(
+                fleet.socket, "gethostname", return_value="gway-001"):
+            path = Path(d) / "fleet.json"
+            statuses = {("ocpp-abb-1", "ocpp-reports-ingest.service"): "down"}
+            observed = []
+            def monitor(node, service):
+                return statuses.get((node, service), "healthy")
+            def sender(document, *, sound):
+                observed.append((document, sound))
+            fleet.cycle(state=path, now=NOW, monitor=monitor, sender=sender)
+            self.assertEqual(observed, [])
+            fleet.cycle(state=path, now=NOW + timedelta(minutes=1),
+                        monitor=monitor, sender=sender)
+            self.assertEqual(len(observed), 1)
+            self.assertEqual(observed[-1][1], "critical")
+            fleet.cycle(state=path, now=NOW + timedelta(minutes=2),
+                        monitor=monitor, sender=sender)
+            self.assertEqual(len(observed), 2)
+            self.assertIsNone(observed[-1][1])
+            statuses.clear()
+            fleet.cycle(state=path, now=NOW + timedelta(minutes=3),
+                        monitor=monitor, sender=sender)
+            fleet.cycle(state=path, now=NOW + timedelta(minutes=4),
+                        monitor=monitor, sender=sender)
+            self.assertEqual(observed[-1][0]["state"], "recovered")
+            self.assertEqual(observed[-1][1], "ok")
+            self.assertEqual(path.stat().st_mode & 0o077, 0)
+
+    def test_refuses_other_host(self):
+        with tempfile.TemporaryDirectory() as d, patch.object(
+                fleet.socket, "gethostname", return_value="laptop"):
+            with self.assertRaises(PermissionError):
+                fleet.cycle(state=Path(d) / "state", monitor=lambda *args: "healthy")
 
 
-@pytest.mark.parametrize("code,state", [(0,"healthy"),(3,"down"),(255,"unreachable"),(4,"degraded")])
-def test_ssh_and_service_failures_are_not_conflated(code,state):
-    assert fleet.probe("gelectriic.com", "nginx.service",
-                       run=lambda *a,**kw: SimpleNamespace(returncode=code)) == state
-
-
-def test_two_bad_and_two_good_samples_with_persistent_incident_identity():
-    a, event = fleet.update(None, "healthy", NOW)
-    assert event is None and a["active"] is None
-    a, event = fleet.update(a, "down", NOW)
-    assert event is None
-    a, event = fleet.update(a, "down", NOW+timedelta(minutes=1))
-    assert event == "down" and a["active"] == "down"
-    episode = a["episode"]
-    a, event = fleet.update(a, "down", NOW+timedelta(minutes=2))
-    assert event is None and a["episode"] == episode
-    a, event = fleet.update(a, "healthy", NOW+timedelta(minutes=3))
-    assert event is None and a["active"] == "down"
-    a, event = fleet.update(a, "healthy", NOW+timedelta(minutes=4))
-    assert event == "recovered" and a["active"] is None and a["episode"] == episode
-
-
-def test_degraded_probe_is_not_a_confirmed_service_down():
-    first, _ = fleet.update(None,"unreachable",NOW)
-    second, event = fleet.update(first,"unreachable",NOW+timedelta(minutes=1))
-    assert event == "unreachable"
-    doc = fleet.event_document("ocpp-abb-1","ocpp-reports-ingest.service",
-                               event,second["episode"])
-    assert doc["target_node"] == "ocpp-abb-1"
-    assert doc["origin_node"] == "gway-001"
-    assert doc["state"] == "unreachable"
-    assert doc["reason_code"] == "NODE_UNREACHABLE"
-    assert doc["severity"] == "error"
-
-
-def test_complete_monitor_cycle_does_not_sound_on_poll_or_startup(monkeypatch,tmp_path):
-    monkeypatch.setattr(fleet.socket,"gethostname",lambda:"gway-001")
-    state = tmp_path / "fleet.json"
-    fake = {("ocpp-abb-1","ocpp-reports-ingest.service"): "down"}
-    observed = []
-    def probe(node,service):
-        return fake.get((node,service),"healthy")
-    def sender(document, *, sound):
-        observed.append((document,sound))
-    fleet.cycle(state=state,now=NOW,monitor=probe,sender=sender)
-    assert observed == []  # cold baseline: one bad reading cannot alarm
-    fleet.cycle(state=state,now=NOW+timedelta(minutes=1),monitor=probe,sender=sender)
-    assert len(observed)==1 and observed[0][1]=="critical"
-    assert observed[0][0]["subject"]["name"]=="ocpp-reports-ingest.service"
-    fleet.cycle(state=state,now=NOW+timedelta(minutes=2),monitor=probe,sender=sender)
-    assert len(observed)==2 and observed[-1][1] is None
-    fake.clear()
-    fleet.cycle(state=state,now=NOW+timedelta(minutes=3),monitor=probe,sender=sender)
-    fleet.cycle(state=state,now=NOW+timedelta(minutes=4),monitor=probe,sender=sender)
-    assert observed[-1][0]["state"] == "recovered"
-    assert observed[-1][1] == "ok"
-    assert state.stat().st_mode & 0o077 == 0
-
-
-def test_monitor_refuses_unapproved_host(monkeypatch,tmp_path):
-    monkeypatch.setattr(fleet.socket,"gethostname",lambda:"laptop")
-    with pytest.raises(PermissionError):
-        fleet.cycle(state=tmp_path/"state",monitor=lambda *args:"healthy")
+if __name__ == "__main__":
+    unittest.main()
