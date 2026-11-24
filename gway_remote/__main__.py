@@ -294,6 +294,11 @@ def deploy_lcd_sound(sha: str) -> None:
 
 
 def main() -> None:
+    # Standalone alias and explicit subcommand share the same implementation.
+    if Path(sys.argv[0]).name == "feed" or sys.argv[1:2] == ["feed"]:
+        from .activity_feed_cli import main as feed_main
+        argv = sys.argv[1:] if Path(sys.argv[0]).name == "feed" else sys.argv[2:]
+        raise SystemExit(feed_main(argv))
     # Internal restricted adapter; intentionally not part of public argparse help.
     if len(sys.argv) >= 3 and sys.argv[1] == "--lcd-sound-bridge":
         from .lcd_sound_bridge import main as bridge_main

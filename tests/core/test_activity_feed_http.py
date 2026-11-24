@@ -96,3 +96,18 @@ class ActivityFeedHTTPTests(unittest.TestCase):
         self.assertEqual(self.request("GET", token=self.reader)[0], 405)
         self.assertEqual(self.request("POST", token=self.writer, value=event())[0], 404)
         self.assertEqual(self.store.list_after()["items"], [])
+
+    def test_narrow_producer_scope_cannot_read_or_execute(self):
+        with self.assertRaises(PermissionError):
+            self.registry.issue(scope="gway:feed-publish")
+        producer = self.registry.issue(scope="gway:feed-publish", operator_approved=True)
+        key = producer.split("_", 2)[1]
+        self.grants[key] = dict(self.grants[self.key])
+        self.assertFalse(self.verifier.verify(producer, required_scope="gway:read"))
+        self.assertFalse(self.verifier.verify(producer, required_scope="gway:execute"))
+        self.assertFalse(self.verifier.verify(producer, required_scope="gway:lcd-sound"))
+        self.assertEqual(self.request("GET", token=producer)[0], 401)
+        self.assertEqual(self.request("POST", "/mcp", token=producer, value={})[0], 401)
+        self.assertEqual(self.request("POST", token=producer, value=event())[0], 201)
+        self.registry.revoke(key)
+        self.assertEqual(self.request("POST", token=producer, value=event())[0], 401)

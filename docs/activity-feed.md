@@ -76,3 +76,42 @@ Stage 1B requires a separate authorization and ingress review.
   authenticated transport for external producers. Production activation needs
   reviewed path ownership, proxy limits, grant lifecycle and disk budget.
 - Test via python3 -m unittest tests.core.test_activity_feed tests.core.test_activity_feed_http -v.
+
+## Stage 2: local producer queue and restricted HTTPS
+
+Use the existing Bearer registry with an exclusive operator-issued
+gway:feed-publish scope and the same per-principal feed grant. It does not
+imply read, execute or LCD/Sound. The existing local console script
+scripts/mcp-bearer.py can issue it; never give an execute token to a producer.
+No changes to public OAuth discovery, service units, or proxy routing.
+
+Provision each existing installation user with private (0600)
+~/.config/gway-remote/feed.json containing exactly endpoint (HTTPS Watchtower
+/api/feed/events URL), source (authorized URI), node (default node or null),
+and token_file (absolute path to a private 0600 scoped credential).
+No token in arguments, event, outbox, or logs. No proxy or redirects.
+The same command works on Watchtower and other nodes once configured.
+
+gway-remote feed "Backup completed"
+gway-remote feed "Deploy completed" --type deployment.completed --repo arthexis/ocpp-reports
+gway-remote feed --json event.json
+gway-remote feed --status
+gway-remote feed --flush
+
+An explicit --id requires --time for immutable producer retries. The standalone
+feed wrapper is optional via GWAY_INSTALL_FEED_ALIAS=1 during installation,
+not activated by this PR. Existing operator-managed timer/job may invoke
+--flush; do not start a new daemon or deploy a timer in this stage.
+Enqueue never connects to network; producer hooks use publish_best_effort or
+ignore/report CLI failure without failing primary work. SQLite lock timeout
+150ms per connection, full synchronous WAL, 2048 rows total, reject newest
+when full, no silent eviction. Exact payload remains until receipt; repeat
+delivery is safe across crash/restart. Single flusher via flock; retry with
+5s exponential backoff up to one hour, batch <=20, HTTPS socket timeout 4s.
+Bad payload/conflict is dead; auth/network failures retry for up to 30 days.
+Dead items count toward capacity and require explicit --purge-dead; delivered
+records expire on flush after 30 days. Do not change producer source or
+destination while queued without explicit reconciliation. A root credential
+rotation requires grant/identity migration; child rotation under the same
+root preserves identity. Automatic provisioning/timer, ingress review,
+physical disk budget and production activation remain acceptance work.

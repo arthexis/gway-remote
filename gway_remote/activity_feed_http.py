@@ -67,11 +67,9 @@ def _number(value, maximum, minimum=0):
 
 
 class ActivityFeedAPI:
-    """Readers: existing read or execute scope. Writers: execute + exact grant.
-
-    Only existing authorized operators should use this write path. Do not
-    distribute execute credentials to external producers; their constrained
-    transport is stage 2. Grants are reloaded for each publish.
+    """Readers: existing read or execute scope. Writers: narrow feed scope
+    or existing execute scope, plus exact grant. Never distribute execute
+    credentials to producers. Grants are reloaded for each publish.
     """
     def __init__(self, store, registry, load_grants):
         self.store, self.registry, self.load_grants = store, registry, load_grants
@@ -81,6 +79,8 @@ class ActivityFeedAPI:
                 or self.registry.verify(bearer, required_scope="gway:execute"))
 
     def principal(self, bearer):
+        if self.registry.verify(bearer, required_scope="gway:feed-publish"):
+            return self.registry.feed_principal(bearer)
         return self.registry.execution_principal(bearer)
 
     def publish(self, principal, event):
@@ -157,7 +157,7 @@ def handle(handler, method):
                 return _respond(handler, 400, {"error": "invalid_request"})
             status, value = api.read(handler.path)
         else:
-            if not api.can_read(bearer):
+            if not (api.can_read(bearer) or api.registry.verify(bearer, required_scope="gway:feed-publish")):
                 return _respond(handler, 401, {"error": "unauthorized"})
             principal = api.principal(bearer)
             if handler.path != PATH:
