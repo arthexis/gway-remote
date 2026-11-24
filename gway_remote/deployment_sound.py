@@ -37,6 +37,7 @@ class DeploymentSound:
                  node=None, repository=None, origin_node=None):
         self.revision = revision
         self.target = target
+        self.target_key = target if node is None else f"{target}@{node}"
         # target is an application, NOT the destination node. Keep these
         # identities distinct so a broker never displays the dispatch host
         # as the node that received a deployment.
@@ -64,12 +65,12 @@ class DeploymentSound:
                 now = time.time()
                 db.execute("DELETE FROM emitted WHERE at < ?", (now - 7 * 86400,))
                 inserted = db.execute("INSERT OR IGNORE INTO emitted VALUES (?,?,?,?)",
-                                      (self.deployment_id, self.target, event, now)).rowcount
+                                      (self.deployment_id, self.target_key, event, now)).rowcount
                 if not inserted:
                     return
                 previous = db.execute(
                     "SELECT deployment,created_at,priority FROM lcd_progress WHERE target=?",
-                    (self.target,)).fetchone()
+                    (self.target_key,)).fetchone()
                 rank = EVENT_PRIORITY[event]
                 # A later stage wins within an attempt. A newer attempt may
                 # start again, but a delayed event from an older attempt cannot
@@ -86,7 +87,7 @@ class DeploymentSound:
                                   created_at=excluded.created_at,
                                   priority=excluded.priority,
                                   updated_at=excluded.updated_at""",
-                               (self.target, self.deployment_id,
+                               (self.target_key, self.deployment_id,
                                 self.created_at, rank, now))
                     self._lcd(event)
             # Use the same public sound grammar as any operator/application.
