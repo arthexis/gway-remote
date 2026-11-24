@@ -160,6 +160,9 @@ def handle(handler, method):
             if not (api.can_read(bearer) or api.registry.verify(bearer, required_scope="gway:feed-publish")):
                 return _respond(handler, 401, {"error": "unauthorized"})
             principal = api.principal(bearer)
+            binding = headers.get_all("X-Gway-Feed-Principal", [])
+            if binding and (len(binding) != 1 or binding[0] != principal):
+                return _respond(handler, 403, {"error": "forbidden"})
             if handler.path != PATH:
                 return _respond(handler, 404, {"error": "not_found"})
             lengths = headers.get_all("Content-Length", [])

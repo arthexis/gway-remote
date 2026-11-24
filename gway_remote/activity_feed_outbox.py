@@ -27,7 +27,7 @@ def private_directory(path):
 
 
 class Outbox:
-    def __init__(self, directory, *, clock=time.time, capacity=MAX_PENDING):
+    def __init__(self, directory, *, clock=time.time, capacity=MAX_PENDING, binding=None):
         if type(capacity) is not int or not 1 <= capacity <= MAX_PENDING:
             raise ValueError("invalid outbox capacity")
         self.directory = private_directory(directory)
@@ -59,6 +59,15 @@ class Outbox:
                     db.execute("PRAGMA user_version=1")
                 elif version != 1:
                     raise RuntimeError("unsupported outbox version")
+                db.execute("CREATE TABLE IF NOT EXISTS route (singleton INTEGER PRIMARY KEY CHECK(singleton=1), binding TEXT NOT NULL)")
+                if binding is not None:
+                    old = db.execute("SELECT binding FROM route WHERE singleton=1").fetchone()
+                    if old is None or old[0] != binding:
+                        if db.execute("SELECT 1 FROM queue WHERE state IN ('pending','dead') LIMIT 1").fetchone():
+                            raise PermissionError("outbox route changed or unbound; reconcile pending records")
+                        db.execute("DELETE FROM queue WHERE state='delivered'")
+                        db.execute("INSERT OR REPLACE INTO route VALUES (1,?)", (binding,))
+                self.binding = binding
 
     def _connect(self):
         db = sqlite3.connect(self.path, timeout=.15, isolation_level=None)
@@ -77,11 +86,18 @@ class Outbox:
             db.rollback()
             raise
 
+    def _check_binding(self, db):
+        if self.binding is not None:
+            row = db.execute("SELECT binding FROM route WHERE singleton=1").fetchone()
+            if not row or row[0] != self.binding:
+                raise PermissionError("outbox route changed")
+
     def enqueue(self, event):
         event = validate_event(event)
         payload = _canonical(event)
         key = (event["source"], event["id"])
         with closing(self._connect()) as db, self._write(db):
+            self._check_binding(db)
             row = db.execute("SELECT payload,state FROM queue WHERE source=? AND event_id=?", key).fetchone()
             if row:
                 if row["payload"] != payload:
@@ -89,7 +105,9 @@ class Outbox:
                 return row["state"]
             now = int(self.clock())
             if db.execute("SELECT COUNT(*) FROM queue").fetchone()[0] >= self.capacity:
-                raise FeedCapacityError("outbox full")
+                db.execute("DELETE FROM queue WHERE seq IN (SELECT seq FROM queue WHERE state='delivered' ORDER BY seq LIMIT 1)")
+                if db.execute("SELECT COUNT(*) FROM queue").fetchone()[0] >= self.capacity:
+                    raise FeedCapacityError("outbox full")
             db.execute("INSERT INTO queue(source,event_id,payload,created,due) VALUES(?,?,?,?,?)",
                        (*key, payload, now, now))
             return "pending"
@@ -115,6 +133,7 @@ class Outbox:
                 return {"busy": True, "attempted": 0}
             now = int(self.clock())
             with closing(self._connect()) as db, self._write(db):
+                self._check_binding(db)
                 # Never replay beyond the defined 30-day window. Retain
                 # expired pending/dead entries until explicit operator purge.
                 db.execute("UPDATE queue SET state='dead' WHERE state='pending' AND created<=?",

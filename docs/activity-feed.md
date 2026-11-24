@@ -87,7 +87,8 @@ No changes to public OAuth discovery, service units, or proxy routing.
 Provision each existing installation user with private (0600)
 ~/.config/gway-remote/feed.json containing exactly endpoint (HTTPS Watchtower
 /api/feed/events URL), source (authorized URI), node (default node or null),
-and token_file (absolute path to a private 0600 scoped credential).
+token_file (absolute path to a private 0600 scoped credential), and principal
+(the 24-hex stable root credential ID, not a secret).
 No token in arguments, event, outbox, or logs. No proxy or redirects.
 The same command works on Watchtower and other nodes once configured.
 
@@ -122,3 +123,15 @@ activity-feed units into that account's user unit directory, reload its user
 manager, and enable only the timer. Stop/disable it before rollback; preserve
 the outbox. Provision config and scoped credentials first. Unit activation
 and actual TLS routing have not been field-tested in this Draft.
+
+## Stage 2 acceptance hardening
+
+The outbox binds endpoint, source and stable root principal. Existing unbound
+or differently bound queues with pending/dead records fail closed; reconcile
+explicitly instead of replaying under another identity. Server verifies the
+claimed root against the authenticated principal. Rotate child credentials
+under the same root and atomically replace the 0600 token file. Root replacement
+requires explicit reconciliation. When full, reclaim only acknowledged
+delivered records; never evict pending or dead records. Central dedup is
+authoritative. --check-config checks private files and local route binding
+without connecting to the network.

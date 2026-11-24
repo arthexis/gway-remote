@@ -111,3 +111,17 @@ class ActivityFeedHTTPTests(unittest.TestCase):
         self.assertEqual(self.request("POST", token=producer, value=event())[0], 201)
         self.registry.revoke(key)
         self.assertEqual(self.request("POST", token=producer, value=event())[0], 401)
+
+    def test_publisher_root_binding_and_rotation(self):
+        root = self.registry.issue(scope="gway:feed-publish", operator_approved=True)
+        key = root.split("_", 2)[1]
+        self.grants[key] = dict(self.grants[self.key])
+        child = self.registry.issue(scope="gway:feed-publish", parent_id=key)
+        extra = {"X-Gway-Feed-Principal": key}
+        self.assertEqual(self.request("POST", token=child, value=event(), extra=extra)[0], 201)
+        rotated = self.registry.issue(scope="gway:feed-publish", parent_id=key)
+        self.registry.revoke(child.split("_", 2)[1])
+        self.assertEqual(self.request("POST", token=rotated, value=event(), extra=extra)[0], 200)
+        self.assertEqual(self.request("POST", token=rotated, value=event("new"),
+                                      extra={"X-Gway-Feed-Principal": self.key})[0], 403)
+        self.assertEqual(len(self.store.list_after()["items"]), 1)

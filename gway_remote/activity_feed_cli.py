@@ -4,6 +4,7 @@ from __future__ import annotations
 import argparse
 from datetime import datetime, timezone
 import json
+import hashlib
 import os
 from pathlib import Path
 import re
@@ -42,8 +43,10 @@ def read_private(path, maximum):
 
 def load_config(path=CONFIG):
     value = json.loads(read_private(path, 4096))
-    if type(value) is not dict or set(value) != {"endpoint", "source", "node", "token_file"}:
+    if type(value) is not dict or set(value) != {"endpoint", "source", "node", "token_file", "principal"}:
         raise ValueError("invalid feed configuration")
+    if type(value["principal"]) is not str or not re.fullmatch(r"[a-f0-9]{24}", value["principal"]):
+        raise ValueError("stable publisher root principal required")
     endpoint = value["endpoint"]
     if type(endpoint) is not str or any(c.isspace() or c == chr(92) for c in endpoint):
         raise ValueError("invalid feed endpoint")
@@ -66,6 +69,11 @@ def load_config(path=CONFIG):
     return value
 
 
+def route_binding(config):
+    return hashlib.sha256(json.dumps([config["endpoint"], config["source"], config["principal"]],
+                                     separators=(",", ":")).encode()).hexdigest()
+
+
 class NoRedirect(HTTPRedirectHandler):
     def redirect_request(self, req, fp, code, msg, headers, newurl):
         return None
@@ -86,7 +94,8 @@ class HTTPSPublisher:
                 return "retry"
             request = Request(self.config["endpoint"], data=_canonical(event).encode("ascii"),
                               headers={"Authorization": "Bearer " + token,
-                                       "Content-Type": "application/cloudevents+json"}, method="POST")
+                                       "Content-Type": "application/cloudevents+json",
+                                       "X-Gway-Feed-Principal": self.config["principal"]}, method="POST")
             with self.opener.open(request, timeout=4) as response:
                 if response.status not in (200, 201):
                     return "retry"
@@ -150,22 +159,29 @@ def main(argv=None, *, config_path=CONFIG, state_path=STATE):
     modes = parser.add_mutually_exclusive_group()
     modes.add_argument("--flush", action="store_true")
     modes.add_argument("--status", action="store_true")
+    modes.add_argument("--check-config", action="store_true")
     modes.add_argument("--purge-dead", action="store_true")
     args = parser.parse_args(argv)
     try:
-        if args.flush or args.status or args.purge_dead:
+        if args.flush or args.status or args.purge_dead or args.check_config:
             if args.title or any(getattr(args, x) is not None for x in
                 ("json","summary","type","category","severity","repo","node","id","time","url","commit","issue","pr")):
                 raise ValueError("maintenance modes do not accept events")
-        outbox = Outbox(state_path)
-        if args.status:
+        config = None if args.status or args.purge_dead else load_config(config_path)
+        outbox = Outbox(state_path, binding=route_binding(config) if config else None)
+        if args.check_config:
+            token = read_private(config["token_file"], 256).decode("ascii").strip()
+            if not re.fullmatch(r"gwr_[a-f0-9]{24}_[A-Za-z0-9_-]{1,128}", token):
+                raise ValueError("invalid scoped credential format")
+            result = {"configured": True}
+        elif args.status:
             result = outbox.status()
         elif args.purge_dead:
             result = {"purged": outbox.purge_dead()}
         elif args.flush:
-            result = outbox.flush(HTTPSPublisher(load_config(config_path)))
+            result = outbox.flush(HTTPSPublisher(config))
         else:
-            event = build_event(args, load_config(config_path))
+            event = build_event(args, config)
             result = {"id": event["id"], "state": outbox.enqueue(event)}
         print(json.dumps(result, sort_keys=True))
         return 1 if result.get("state") == "dead" else 0

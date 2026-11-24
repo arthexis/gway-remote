@@ -58,7 +58,7 @@ class OutboxTests(unittest.TestCase):
         config = self.root / "feed.json"
         config.write_text(json.dumps({"endpoint": "https://example.test/api/feed/events",
                                        "source": "/gway/deploy", "node": "gway-001",
-                                       "token_file": str(self.root / "not-created")}))
+                                       "token_file": str(self.root / "not-created"), "principal": "a" * 24}))
         config.chmod(0o600)
         output = StringIO()
         with redirect_stdout(output), patch("gway_remote.activity_feed_cli.HTTPSPublisher",
@@ -78,7 +78,22 @@ class OutboxTests(unittest.TestCase):
         response.status = 201
         response.read.return_value = json.dumps({"seq": 1, "received_at": value["time"], "event": value}).encode()
         publisher = HTTPSPublisher({"endpoint": "https://example.test/api/feed/events",
-                                    "source": value["source"], "token_file": str(token)}, opener=opener)
+                                    "source": value["source"], "token_file": str(token), "principal": "a" * 24}, opener=opener)
         self.assertEqual(publisher(value), "delivered")
         response.read.return_value = b'{"seq":1}'
         self.assertEqual(publisher(value), "retry")
+
+    def test_route_binding_rejects_change_with_pending(self):
+        directory = self.root / "bound"
+        box = Outbox(directory, binding="old")
+        box.enqueue(event())
+        with self.assertRaises(PermissionError):
+            Outbox(directory, binding="new")
+        self.assertEqual(Outbox(directory, binding="old").status()["pending"], 1)
+
+    def test_delivered_receipts_do_not_block_new_events(self):
+        self.box.enqueue(event())
+        self.box.flush(lambda _: "delivered")
+        self.box.enqueue(event("two"))
+        self.box.enqueue(event("three"))
+        self.assertEqual(self.box.status(), {"pending": 2, "dead": 0, "delivered": 0})
