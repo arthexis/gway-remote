@@ -1,0 +1,98 @@
+"""Real loopback Watchtower handler, real isolated bearer verifier."""
+import http.client
+import json
+from pathlib import Path
+from tempfile import TemporaryDirectory
+from threading import Thread
+import unittest
+
+from gway_remote.activity_feed import ActivityFeedStore
+from gway_remote.activity_feed_http import ActivityFeedAPI, PATH
+from gway_remote.mcp_bearer import BearerRegistry, BearerVerifier
+from gway_remote.mcp_bearer_gateway import make_server
+from tests.core.test_activity_feed import event
+
+
+class ActivityFeedHTTPTests(unittest.TestCase):
+    def setUp(self):
+        temp = TemporaryDirectory()
+        self.addCleanup(temp.cleanup)
+        root = Path(temp.name)
+        self.registry = BearerRegistry(root / "bearer.sqlite3")
+        self.reader = self.registry.issue(scope="gway:read")
+        self.writer = self.registry.issue(scope="gway:execute", operator_approved=True)
+        self.other = self.registry.issue(scope="gway:execute", operator_approved=True)
+        self.key = self.writer.split("_", 2)[1]
+        self.grants = {self.key: {"enabled": True, "source": "/gway/deploy",
+                        "nodes": ["gway-001"], "repositories": [None],
+                        "types": ["deployment.completed"]}}
+        self.verifier = BearerVerifier(root / "bearer.sqlite3")
+        self.store = ActivityFeedStore(root / "feed.sqlite3")
+        self.api = ActivityFeedAPI(self.store, self.verifier, lambda: self.grants)
+        self.server = make_server(("127.0.0.1", 0), self.verifier,
+                                  "http://127.0.0.1:19011/mcp", "test", activity_feed=self.api)
+        self.thread = Thread(target=self.server.serve_forever, kwargs={"poll_interval": .01}, daemon=True)
+        self.thread.start()
+        self.addCleanup(self.thread.join, 2)
+        self.addCleanup(self.server.server_close)
+        self.addCleanup(self.server.shutdown)
+
+    def request(self, method, path=PATH, token=None, value=None, raw=None, extra=None):
+        headers = {"Content-Type": "application/json"} if method == "POST" else {}
+        if token is not None:
+            headers["Authorization"] = "Bearer " + token
+        headers.update(extra or {})
+        data = raw if raw is not None else (json.dumps(value).encode() if value is not None else None)
+        connection = http.client.HTTPConnection("127.0.0.1", self.server.server_port, timeout=3)
+        try:
+            connection.request(method, path, body=data, headers=headers)
+            response = connection.getresponse()
+            body = response.read()
+            return response.status, json.loads(body) if body else None
+        finally:
+            connection.close()
+
+    def test_publish_replay_conflict_and_read(self):
+        status, item = self.request("POST", token=self.writer, value=event())
+        self.assertEqual(status, 201)
+        self.assertNotIn("producer", item)
+        self.assertEqual(self.request("POST", token=self.writer, value=event()), (200, item))
+        changed = event()
+        changed["data"]["title"] = "Changed"
+        self.assertEqual(self.request("POST", token=self.writer, value=changed)[0], 409)
+        self.assertEqual(self.request("GET", token=self.reader)[1]["items"], [item])
+        self.assertEqual(self.request("GET", PATH + "/1", token=self.writer), (200, item))
+        self.assertEqual(self.request("GET", PATH + "/99", token=self.reader)[0], 404)
+
+    def test_denial_no_write_and_revocation(self):
+        self.assertEqual(self.request("GET")[0], 401)
+        self.assertEqual(self.request("POST", token=self.reader, value=event())[0], 403)
+        self.assertEqual(self.request("POST", token=self.other, value=event())[0], 403)
+        for field, value in (("node", "gway-004"), ("repository", "other/repo")):
+            forged = event()
+            forged["data"][field] = value
+            self.assertEqual(self.request("POST", token=self.writer, value=forged)[0], 403)
+        forged = event()
+        forged["source"] = "/other"
+        self.assertEqual(self.request("POST", token=self.writer, value=forged)[0], 403)
+        self.grants[self.key]["enabled"] = False
+        self.assertEqual(self.request("POST", token=self.writer, value=event())[0], 403)
+        self.grants[self.key]["enabled"] = True
+        self.registry.revoke(self.key)
+        self.assertEqual(self.request("POST", token=self.writer, value=event())[0], 401)
+        self.assertEqual(self.store.list_after()["items"], [])
+
+    def test_invalid_body_and_queries(self):
+        for raw, status in ((b'{"id":"a","id":"b"}', 400), (b"x" * 16385, 413),
+                            (b"[" * 1500, 400), (b"\xff", 400)):
+            self.assertEqual(self.request("POST", token=self.writer, raw=raw)[0], status)
+        for query in ("?limit=51", "?after=1&before=2", "?after=1&after=2", "?unknown=x"):
+            self.assertEqual(self.request("GET", PATH + query, token=self.reader)[0], 400)
+        self.assertEqual(self.request("GET", token=self.reader, extra={"Origin": "https://example.com"})[0], 403)
+        self.assertEqual(self.store.list_after()["items"], [])
+
+    def test_disabled_preserves_existing_routes(self):
+        self.server.activity_feed = None
+        self.assertEqual(self.request("GET", token=self.reader)[0], 405)
+        self.assertEqual(self.request("POST", token=self.writer, value=event())[0], 404)
+        self.assertEqual(self.store.list_after()["items"], [])

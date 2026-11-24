@@ -35,7 +35,7 @@ def _token(value):
 def _text(value, limit):
     if not isinstance(value, str) or not value.strip() or len(value) > limit:
         raise ValueError("invalid event text")
-    if any(ord(c) < 32 or 127 <= ord(c) <= 159 for c in value):
+    if any(ord(c) < 32 or 127 <= ord(c) <= 159 or 0xD800 <= ord(c) <= 0xDFFF for c in value):
         raise ValueError("control character in event text")
     return value
 
@@ -44,7 +44,13 @@ def _utc(value):
     if not isinstance(value, str) or not _TIME.fullmatch(value):
         raise ValueError("expected RFC3339 timestamp")
     try:
-        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+        # Python 3.10 requires exactly three or six fractional digits.
+        stamp = value.replace("Z", "+00:00")
+        if int(stamp[-5:-3]) > 23 or int(stamp[-2:]) > 59:
+            raise ValueError("invalid UTC offset")
+        if "." in stamp:
+            stamp = re.sub(r"\.(\d{1,6})(?=[+-])", lambda m: "." + m[1].ljust(6, "0"), stamp)
+        parsed = datetime.fromisoformat(stamp)
         return parsed.astimezone(timezone.utc).isoformat(timespec="microseconds").replace("+00:00", "Z")
     except (ValueError, OverflowError) as exc:
         raise ValueError("invalid event timestamp") from exc
@@ -57,8 +63,19 @@ def _url(value):
     parsed = urlsplit(value)
     if parsed.scheme != "https" or not parsed.hostname or parsed.username is not None or parsed.password is not None:
         raise ValueError("only HTTPS links without credentials are supported")
-    if parsed.query or parsed.fragment:
+    if parsed.port is not None and not 1 <= parsed.port <= 65535:
+        raise ValueError("invalid event URL port")
+    if parsed.query or parsed.fragment or "?" in value or "#" in value:
         raise ValueError("event links must not contain query or fragment")
+    return value
+
+
+def _source(value):
+    value = _text(value, 256)
+    if not re.fullmatch(r"[A-Za-z0-9._~:/-]+", value):
+        raise ValueError("invalid source URI reference")
+    if value.startswith("//") or value in (".", ".."):
+        raise ValueError("invalid source URI reference")
     return value
 
 
@@ -78,7 +95,7 @@ def validate_event(event):
         raise ValueError("invalid CloudEvents envelope")
     if event["specversion"] != "1.0":
         raise ValueError("unsupported CloudEvents version")
-    result = {"specversion": "1.0", "id": _token(event["id"]), "source": _text(event["source"], 256),
+    result = {"specversion": "1.0", "id": _token(event["id"]), "source": _source(event["source"]),
               "type": _token(event["type"]), "time": _utc(event["time"])}
     if "subject" in event:
         result["subject"] = _text(event["subject"], 256)
@@ -163,7 +180,7 @@ class ActivityFeedStore:
 
     def append(self, event, *, producer, allowed_source):
         producer = _token(producer)
-        allowed_source = _text(allowed_source, 256)
+        allowed_source = _source(allowed_source)
         event = validate_event(event)
         if event["source"] != allowed_source:
             raise PermissionError("event source not authorized")
@@ -200,6 +217,31 @@ class ActivityFeedStore:
             rows = db.execute(sql + " ORDER BY seq LIMIT ?", params).fetchall()
         items = [self._record(row) for row in rows[:limit]]
         return {"items": items, "next_cursor": items[-1]["seq"] if items else after,
+                "has_more": len(rows) > limit}
+
+    def get(self, seq):
+        if type(seq) is not int or not 1 <= seq <= 2**63 - 1:
+            raise ValueError("invalid event sequence")
+        with closing(self._connect()) as db:
+            row = db.execute("SELECT * FROM events WHERE seq=?", (seq,)).fetchone()
+        return self._record(row) if row else None
+
+    def list_recent(self, *, before=None, limit=50, category=None):
+        if before is not None and (type(before) is not int or not 1 <= before <= 2**63 - 1):
+            raise ValueError("invalid cursor")
+        if type(limit) is not int or not 1 <= limit <= MAX_PAGE:
+            raise ValueError("invalid page size")
+        sql, params = "SELECT * FROM events WHERE 1=1", []
+        if before is not None:
+            sql += " AND seq < ?"
+            params.append(before)
+        if category is not None:
+            sql += " AND category=?"
+            params.append(_token(category))
+        with closing(self._connect()) as db:
+            rows = db.execute(sql + " ORDER BY seq DESC LIMIT ?", [*params, limit + 1]).fetchall()
+        items = [self._record(row) for row in rows[:limit]]
+        return {"items": items, "next_cursor": items[-1]["seq"] if items else before,
                 "has_more": len(rows) > limit}
 
     def prune(self, retention_days=180, *, limit=1000):

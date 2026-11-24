@@ -101,3 +101,23 @@ class ActivityFeedTests(unittest.TestCase):
         normalized = validate_event(value)
         self.assertEqual(normalized["time"], "2026-11-24T16:00:00.000000Z")
         self.assertEqual(value["time"], "2026-11-24T10:00:00-06:00")
+
+    def test_rfc3339_fraction_offset_and_source(self):
+        self.assertEqual(validate_event(event(time="2026-11-24T16:00:00.1Z"))["time"],
+                         "2026-11-24T16:00:00.100000Z")
+        with self.assertRaises(ValueError):
+            validate_event(event(time="2026-11-24T16:00:00+01:60"))
+        malformed = event()
+        malformed["source"] = "not a URI"
+        with self.assertRaises(ValueError):
+            validate_event(malformed)
+
+    def test_recent_pages_and_get(self):
+        first, _ = self.append(event("first"))
+        second, _ = self.append(event("second"))
+        page = self.store.list_recent(limit=1)
+        self.assertEqual(page["items"], [second])
+        self.assertTrue(page["has_more"])
+        self.assertEqual(self.store.list_recent(before=page["next_cursor"])["items"], [first])
+        self.assertEqual(self.store.get(first["seq"]), first)
+        self.assertIsNone(self.store.get(99))

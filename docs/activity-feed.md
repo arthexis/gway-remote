@@ -1,8 +1,9 @@
 # Activity Feed — Stage 1A (#705)
 
 The feed is a quiet activity history, not an LCD/Sound notification mechanism.
-This stage provides an isolated Python library; no CLI, HTTP, MCP or Android
-integration is enabled. Watchtower will own the central database and admission.
+Stage 1A provides the isolated library. Stage 1B adds opt-in HTTP routes to
+Watchtower's existing loopback bearer gateway. No CLI, MCP or Android integration
+is enabled, and no production configuration is changed.
 
 ## Event contract
 
@@ -50,3 +51,28 @@ policy are acceptance work before production. No changes to live configuration.
 Run python3 -m unittest tests.core.test_activity_feed -v and the repository
 test suite. The core CI group automatically includes the new tests.
 Stage 1B requires a separate authorization and ingress review.
+
+## Stage 1B: authenticated HTTP (disabled by default)
+
+- GET /api/feed/events: existing gway:read or gway:execute bearer. Defaults to
+  latest receipts descending; before=<seq> continues that history. after=<seq>
+  selects incremental ascending receipts. Optional category and limit (1–50).
+- GET /api/feed/events/<seq>: same read permission, 404 for missing records.
+- POST /api/feed/events: existing gway:execute bearer AND a live explicit grant
+  for the stable authenticated principal. HTTP 201 insert, 200 replay, 409
+  conflict, 403 denial, 413 oversized, 503 unavailable. Body <=16 KiB, strict
+  UTF-8 JSON, duplicate keys rejected. No bearer IDs exposed in responses.
+- All readers in this initial operator-only deployment see the same non-sensitive
+  activity history. No per-user authorization or public sharing yet.
+- Fixed root-owned /etc/gway-remote/activity-feed-sources.json uses the existing
+  grant snapshot loader with schema 1 and grants keyed by stable principal ID.
+  Each grant has exactly enabled, source, nodes, repositories, types. Lists
+  are exact matches; null permits absent node/repository, never a wildcard.
+  Reload on each publish. No credentials in grants or event bodies.
+- Explicit opt-in GWAY_ACTIVITY_FEED_ENABLED=1 and dedicated absolute
+  GWAY_ACTIVITY_FEED_DATABASE path; startup validates grants. Existing service
+  and reverse proxy configuration remains untouched. No new scope or listener.
+  Do not give producers execute tokens: stage 2 must define a constrained
+  authenticated transport for external producers. Production activation needs
+  reviewed path ownership, proxy limits, grant lifecycle and disk budget.
+- Test via python3 -m unittest tests.core.test_activity_feed tests.core.test_activity_feed_http -v.

@@ -318,6 +318,10 @@ class Handler(BaseHTTPRequestHandler):
             self.wfile.write(body)
 
     def do_GET(self):
+        if getattr(self.server, "activity_feed", None) is not None:
+            from .activity_feed_http import is_feed_path, handle
+            if is_feed_path(self.path):
+                return handle(self, "GET")
         self.reject(405)
 
     def _lcd_sound_post(self):
@@ -367,6 +371,10 @@ class Handler(BaseHTTPRequestHandler):
         self.wfile.write(body)
 
     def do_POST(self):
+        if getattr(self.server, "activity_feed", None) is not None:
+            from .activity_feed_http import is_feed_path, handle
+            if is_feed_path(self.path):
+                return handle(self, "POST")
         if (self.path == "/v1/lcd-sound/event"
                 and getattr(self.server, "lcd_sound_ingress_enabled", False)):
             return self._lcd_sound_post()
@@ -824,7 +832,7 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
-def make_server(address, registry, upstream, backend_token, *, execution=None, bridge_sessions=None, bridge_transport=None, approved_sources=None, federation=None, lcd_sound_ingress_enabled=False, lcd_sound_dispatch=None, lcd_sound_grants_loader=None):
+def make_server(address, registry, upstream, backend_token, *, execution=None, bridge_sessions=None, bridge_transport=None, approved_sources=None, federation=None, lcd_sound_ingress_enabled=False, lcd_sound_dispatch=None, lcd_sound_grants_loader=None, activity_feed=None):
     from urllib.parse import urlsplit
     parsed = urlsplit(upstream)
     if parsed.scheme != "http" or parsed.hostname != "127.0.0.1" or not parsed.port or parsed.path != "/mcp" or parsed.query or parsed.fragment or parsed.username or parsed.password:
@@ -845,6 +853,7 @@ def make_server(address, registry, upstream, backend_token, *, execution=None, b
             raise ValueError("invalid approved source policy")
     if type(lcd_sound_ingress_enabled) is not bool:
         raise ValueError("invalid LCD/Sound ingress activation")
+    server.activity_feed = activity_feed
     server.lcd_sound_ingress_enabled = lcd_sound_ingress_enabled
     server.lcd_sound_dispatch = lcd_sound_dispatch
     server.lcd_sound_grants_loader = lcd_sound_grants_loader
@@ -907,6 +916,20 @@ def main():
         from .lcd_sound_grant_store import load_operator_grants
         load_operator_grants()  # fail at startup for missing/unsafe grants
     verifier = BearerVerifier(args.database)
+    feed_switch = os.environ.get("GWAY_ACTIVITY_FEED_ENABLED", "0")
+    if feed_switch not in ("0", "1"):
+        raise ValueError("invalid Activity Feed activation flag")
+    activity_feed = None
+    if feed_switch == "1":
+        from .activity_feed_http import ActivityFeedAPI, load_feed_grants
+        from .activity_feed import ActivityFeedStore
+        from pathlib import Path
+        feed_path = Path(os.environ.get("GWAY_ACTIVITY_FEED_DATABASE", ""))
+        if (not feed_path.is_absolute() or ".." in feed_path.parts
+                or feed_path.resolve() == Path(args.database).resolve()):
+            raise ValueError("dedicated absolute Activity Feed database required")
+        load_feed_grants()  # fail closed before creating storage
+        activity_feed = ActivityFeedAPI(ActivityFeedStore(feed_path), verifier, load_feed_grants)
     from .mcp_bridge_bootstrap import start_bridge
     import signal
     previous_term = signal.getsignal(signal.SIGTERM)
@@ -931,7 +954,7 @@ def main():
         with make_server(("127.0.0.1", args.port), verifier, args.upstream,
                          token, execution=execution, approved_sources=approved_sources,
                          federation=federation,
-                         lcd_sound_ingress_enabled=ingress_enabled, **options) as service:
+                         lcd_sound_ingress_enabled=ingress_enabled, activity_feed=activity_feed, **options) as service:
             service.serve_forever()
     finally:
         if started is not None:
