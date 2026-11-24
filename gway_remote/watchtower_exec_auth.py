@@ -211,6 +211,10 @@ class AuthorizedExecution:
                 raise PermissionError("invalid deployment receipt state")
             if state in {"succeeded", "failed"}:
                 self.ledger.record_result_state(request_id, state)
+                if row["state"] not in {"succeeded", "failed", "cancelled", "timed_out"}:
+                    # The node-owned receipt is correlated and durable BEFORE
+                    # any LCD/audio side effect. Do not replay on later polls.
+                    self._deployment_notice(application, node, request_id, state)
             elif row["state"] in {"succeeded", "failed", "cancelled", "timed_out"}:
                 raise PermissionError("node receipt contradicts terminal ledger")
             return {"node": node, "request_id": request_id,
@@ -267,8 +271,22 @@ class AuthorizedExecution:
         self.ledger.mark_dispatched(request_id, confirmed=True)
         if result["state"] in {"succeeded", "failed"}:
             self.ledger.record_result_state(request_id, result["state"])
+            self._deployment_notice(application, node, request_id, result["state"])
+        elif result["state"] in {"accepted", "running"}:
+            self._deployment_notice(application, node, request_id, "running")
         return {"node": node, "request_id": request_id, "application": application,
                 "status": result["state"], "result": result}
+
+    @staticmethod
+    def _deployment_notice(application, node, request_id, state):
+        """Optional trusted Watchtower notification, never deployment authority."""
+        try:
+            from .watchtower_deploy_notices import emit
+            emit(application, node, request_id, state)
+        except Exception:
+            # No notification failure may alter a persisted node receipt,
+            # repeat a recipe or fail an otherwise valid MCP status query.
+            pass
 
     def _owned(self, principal, request_id):
         self._allow(principal)
