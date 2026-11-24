@@ -21,7 +21,8 @@ class FeedCanaryProvisionTest {
         assertEquals(CANARY_PACKAGE, context.packageName)
         val seed = File(context.filesDir, ".gway-feed-once")
         val certificate = AtomicFile(File(context.noBackupFilesDir, CANARY_CERT_FILE))
-        val secrets = SecretStore(context)
+        require(!certificate.baseFile.exists() && !File(certificate.baseFile.path + ".bak").exists() &&
+            !File(certificate.baseFile.path + ".new").exists())
         try {
             require(seed.isFile && seed.length() in 1..12000)
             val raw = seed.readBytes()
@@ -37,16 +38,20 @@ class FeedCanaryProvisionTest {
             try { stream.write(der); certificate.finishWrite(stream) }
             catch (e: Exception) { certificate.failWrite(stream); throw e }
             loadCanaryCertificate(certificate.baseFile)
-            secrets.feedToken = reader
-            val page = runBlocking { FeedRepository(context).page(secrets.feedToken) }
+            // Keep the field-test bearer exclusively in memory. A process kill
+            // cannot leave a usable persisted credential or overwrite user state.
+            val page = runBlocking { FeedRepository(context).page(reader) }
             assertEquals(listOf("Synthetic feed canary"), page.items.map { it.title })
+            val denied = runCatching {
+                runBlocking { FeedRepository(context).page("gwr_" + "0".repeat(24) + "_invalid") }
+            }.exceptionOrNull()
+            assertTrue("Unrecognized bearer must be rejected", denied is FeedHttpError && denied.status == 401)
         } catch (_: Exception) {
             throw AssertionError("Isolated feed enrollment or HTTPS verification failed")
         } finally {
-            secrets.feedToken = ""
-            FeedCache(context).clear()
-            seed.delete()
+            if (seed.exists()) require(seed.delete())
             certificate.delete()
+            require(!certificate.baseFile.exists())
         }
     }
 }
