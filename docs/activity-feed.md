@@ -149,3 +149,15 @@ GET /api/feed.json is authenticated like other read routes, returning
 application/feed+json and JSON Feed 1.1 plain-text items with stable receipt
 IDs within this database. Same cursor parameters as the native list;
 _gway carries pagination metadata. No bearer in feed URLs or public proxy change.
+
+### Repeatable opt-in provisioning
+
+After deploying the reviewed zipapp and privately provisioning feed.json and
+its scoped token, run scripts/provision-activity-feed.py as the existing
+installation user. It checks config/binding, atomically installs the
+user-local alias and two managed units, refuses unrelated files, and reports
+changed_files=0 on repeat. Without --activate it does not touch systemd.
+Only a separately authorized --activate enables the timer. Rollback: disable
+and stop the user timer, preserve the outbox and private credentials, and
+remove only the managed files if required. No production provisioning is
+performed by this Draft.
