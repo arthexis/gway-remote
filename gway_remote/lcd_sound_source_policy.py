@@ -55,6 +55,14 @@ def authorize(event, *, verified_principal, grants):
         raise ValueError("invalid event")
     if event.get("origin") != source or event.get("node") not in targets:
         raise PermissionError("event origin or target not authorized")
+    if event.get("device") == "lcd" and event.get("action") == "notice":
+        from .lcd_notification_contract import validate_notice
+        arguments = event.get("arguments")
+        if type(arguments) is not dict or set(arguments) != {"notice"}:
+            raise PermissionError("invalid authenticated notification")
+        notice = validate_notice(arguments["notice"])
+        if notice["origin_node"] != source:
+            raise PermissionError("notification origin not bound to verified principal")
     if f'{event.get("device")}.{event.get("action")}' not in operations:
         raise PermissionError("source operation not authorized")
     # Full expiry, size, nonce, destination and allowlist validation is shared
