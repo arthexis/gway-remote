@@ -179,6 +179,14 @@ def main(argv=None, *, config_path=CONFIG, state_path=STATE):
         elif args.purge_dead:
             result = {"purged": outbox.purge_dead()}
         elif args.flush:
+            # Watchtower-only opt-in under its existing authorized reader account.
+            try:
+                flag = CONFIG.parent / "feed-inventory.enabled"
+                if read_private(flag, 16).strip() == b"enabled":
+                    from .activity_feed_hooks import inventory_once
+                    inventory_once(outbox, config)
+            except (OSError, ValueError, RuntimeError, sqlite3.Error):
+                pass
             result = outbox.flush(HTTPSPublisher(config))
         else:
             event = build_event(args, config)

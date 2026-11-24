@@ -188,6 +188,14 @@ def cycle(*, state=STATE, now=None, monitor=probe, sender=emit, allow_send=True,
             save(state, checks)
         if allow_send and not dry_run:
             for document, sound in output:
+                if sound is not None:  # transition only, never lease renewal
+                    try:
+                        from .activity_feed_hooks import publish, fleet_transition
+                        publish(lambda source: fleet_transition(source, node=document["target_node"],
+                            service=document["subject"]["name"], state=document["state"],
+                            episode=document["episode_id"], at=now.isoformat()))
+                    except Exception:
+                        pass
                 sender(document, sound=sound)
         return {"checked": len(checks), "published": len(output),
                 "transitions": sum(s is not None for _, s in output)}

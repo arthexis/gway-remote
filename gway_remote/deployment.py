@@ -81,7 +81,24 @@ def deploy(*, token, install, execute=run, probe=health, executable=EXECUTABLE,
 
     notify = notify if notify is not None else DeploymentSound("gway-remote", revision=revision)
 
+    # This local installer owns rollback evidence, unlike the remote broker.
+    import uuid
+    from datetime import datetime, timezone
+    import socket
+    feed_attempt = uuid.uuid4().hex
+
     def emit(event):
+        try:
+            from .activity_feed_hooks import publish, deployment
+            # Broker owns ordinary dispatch receipts; this hook adds local
+            # rollback evidence only, avoiding duplicate deployment stories.
+            if event.startswith("rollback-"):
+                state = event.replace("-", "_")
+                publish(lambda source: deployment(source, repository="arthexis/gway-remote",
+                    node=socket.gethostname().split(".")[0], attempt=feed_attempt,
+                    state=state, at=datetime.now(timezone.utc).isoformat()))
+        except Exception:
+            pass
         try:
             notify(event)
         except Exception:

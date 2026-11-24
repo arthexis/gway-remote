@@ -50,7 +50,7 @@ internal fun ActivityFeedPanel(token: String, onOpenSettings: () -> Unit, onNavi
     val scope = rememberCoroutineScope()
     var state by remember(token) { mutableStateOf(FeedState()) }
     var category by remember(token) { mutableStateOf<String?>(null) }
-    var busy by remember(token) { mutableStateOf(false) }
+    var busy by remember(token) { mutableStateOf(validFeedToken(token)) }
     var offline by remember(token) { mutableStateOf(false) }
     var notice by remember(token) { mutableStateOf<String?>(null) }
 
@@ -74,6 +74,11 @@ internal fun ActivityFeedPanel(token: String, onOpenSettings: () -> Unit, onNavi
                 notice = if (e.status in setOf(401, 403)) "Acceso al feed no autorizado"
                     else "Activity Feed aún no habilitado"
             } else {
+                val now = System.currentTimeMillis()
+                if (state.savedAt !in (now - CACHE_AGE_MS)..now) {
+                    state = FeedState()
+                    withContext(Dispatchers.IO) { cache.clear() }
+                }
                 offline = state.items.isNotEmpty()
                 notice = if (offline) "Sin conexión · mostrando historial guardado" else "Feed no disponible"
             }
@@ -84,6 +89,7 @@ internal fun ActivityFeedPanel(token: String, onOpenSettings: () -> Unit, onNavi
         if (validFeedToken(token)) {
             val saved = withContext(Dispatchers.IO) { cache.read(token) }
             if (saved != null) { state = saved; offline = true }
+            busy = false
             refresh(true)
         }
     }
@@ -150,9 +156,9 @@ internal fun FeedContent(state: FeedState, category: String?, busy: Boolean, off
                         .getOrDefault(item.time), style = MaterialTheme.typography.bodySmall)
                     if (item.seq !in state.read) Text("Sin leer", style = MaterialTheme.typography.labelMedium)
                     ModuleActions {
-                        if (item.seq !in state.read) TextButton(onClick = { onRead(item.seq) }) { Text("Marcar leído") }
-                        item.moduleId?.let { id -> TextButton(onClick = { onRead(item.seq); onNavigate(id) }) { Text("Abrir módulo") } }
-                        item.url?.let { link -> TextButton(onClick = { onRead(item.seq); onLink(link) }) { Text("Abrir enlace") } }
+                        if (item.seq !in state.read) TextButton(enabled = !busy, onClick = { onRead(item.seq) }) { Text("Marcar leído") }
+                        item.moduleId?.let { id -> TextButton(enabled = !busy, onClick = { onRead(item.seq); onNavigate(id) }) { Text("Abrir módulo") } }
+                        item.url?.let { link -> TextButton(enabled = !busy, onClick = { onRead(item.seq); onLink(link) }) { Text("Abrir enlace") } }
                     }
                 }
             }

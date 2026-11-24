@@ -211,6 +211,7 @@ class AuthorizedExecution:
                 raise PermissionError("invalid deployment receipt state")
             if state in {"succeeded", "failed"}:
                 self.ledger.record_result_state(request_id, state)
+                self._feed_deployment(application, node, request_id, state, stored[1])
                 if row["state"] not in {"succeeded", "failed", "cancelled", "timed_out"}:
                     # The node-owned receipt is correlated and durable BEFORE
                     # any LCD/audio side effect. Do not replay on later polls.
@@ -266,16 +267,32 @@ class AuthorizedExecution:
         except (OSError, ValueError, RuntimeError, PermissionError, subprocess.SubprocessError):
             # The request might have reached the node; never retry the claim.
             self.ledger.mark_dispatched(request_id, confirmed=False)
+            self._feed_deployment(application, node, request_id, "uncertain", pinned_revision)
             return {"node": node, "request_id": request_id, "application": application,
                     "status": "uncertain"}
         self.ledger.mark_dispatched(request_id, confirmed=True)
+        self._feed_deployment(application, node, request_id, "running", pinned_revision)
         if result["state"] in {"succeeded", "failed"}:
             self.ledger.record_result_state(request_id, result["state"])
+            self._feed_deployment(application, node, request_id, result["state"], pinned_revision)
             self._deployment_notice(application, node, request_id, result["state"])
         elif result["state"] in {"accepted", "running"}:
             self._deployment_notice(application, node, request_id, "running")
         return {"node": node, "request_id": request_id, "application": application,
                 "status": result["state"], "result": result}
+
+    def _feed_deployment(self, application, node, request_id, state, sha):
+        try:
+            from .activity_feed_hooks import broker, enabled
+            if not enabled():
+                return
+            row = self.ledger.get(request_id)
+            event_state = {"running": "started", "succeeded": "activated",
+                           "failed": "failed", "uncertain": "uncertain"}[state]
+            at = row["created_at"] if state == "running" else row["updated_at"]
+            broker(application, node, request_id, event_state, at, sha)
+        except Exception:
+            pass
 
     @staticmethod
     def _deployment_notice(application, node, request_id, state):

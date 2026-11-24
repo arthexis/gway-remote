@@ -212,8 +212,9 @@ class RequestLedger:
                 raise ValueError("request never dispatched")
             if row["state"] in TERMINAL_STATES and row["state"] != state:
                 raise ValueError("conflicting terminal state")
-            db.execute("UPDATE requests SET state=?, updated_at=? WHERE request_id=?",
-                       (state, _now(), request_id))
+            if row["state"] != state:
+                db.execute("UPDATE requests SET state=?, updated_at=? WHERE request_id=?",
+                           (state, _now(), request_id))
 
     def get(self, request_id):
         validate_request_id(request_id)

@@ -180,3 +180,22 @@ known HTTPS destinations and local module IDs; no token is sent to links.
 No background worker or notification permission added. Instrumented Compose
 tests and JVM model tests are included; actual UI acceptance requires emulator
 or separately authorized physical canary, not a deployment.
+
+## Stage 5: receipt-based producers
+
+Deploy Broker emits only after correlated ledger transitions: started (reservation
+time), activated (successful recipe, not independent health), failed and uncertain.
+Terminal timestamp is immutable under repeat status reads. Local GWay Remote
+installer also emits actual rollback transitions; rollback events never claim the
+failed SHA was restored. Fleet observer publishes only confirmed transitions,
+not renewed LCD leases. Watchtower inventory observer uses the existing trusted
+snapshot loader and atomically checkpoints its diff in the producer outbox;
+baseline silent, repeated snapshots silent, missing WG contact is unknown not down.
+Opt in with private 0600 feed-hooks.enabled containing enabled or trusted
+GWAY_ACTIVITY_FEED_HOOKS=1. Watchtower inventory additionally requires private
+feed-inventory.enabled in the existing feed config directory, and the existing
+account must already be allowed to read the trusted inventory. The existing
+feed timer performs the bounded observation before flush. No new user or
+privileges, no recursive feed events. Hooks are best effort: local failure or
+crash between primary receipt and enqueue can lose a notification, not work.
+Actual AgentOps lifecycle integration belongs to its owner repository.
