@@ -139,6 +139,9 @@ def inventory_once(outbox, config, *, loader=None):
                   "contact_unknown": "WireGuard contact no longer confirmed",
                   "identity_verified": "Node identity verified", "identity_unverified": "Node identity no longer verified",
                   "registration_removed": "Node absent from active registry"}
+        if changes:
+            from .activity_feed_quota import admit, OUTBOX_WAL
+            admit(outbox.path, OUTBOX_WAL)
         for node, state in changes:
             value = event(source=config["source"], kind="fleet." + state, identity=(node, stamp),
                           at=stamp, title=labels[state], summary=node, category="fleet",

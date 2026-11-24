@@ -7,7 +7,7 @@ import json
 import re
 import sqlite3
 from urllib.parse import urlsplit
-from .activity_feed_quota import CENTRAL_BYTES, CENTRAL_WAL, configure, admit
+from .activity_feed_quota import CENTRAL_BYTES, CENTRAL_WAL, configure, admit, provision_database
 
 MAX_EVENT_BYTES = 16384
 MAX_PAGE = 100
@@ -131,7 +131,7 @@ class ActivityFeedStore:
     def __init__(self, path, *, clock=None, max_rows=MAX_ROWS):
         if type(max_rows) is not int or not 1 <= max_rows <= MAX_ROWS:
             raise ValueError("invalid row limit")
-        self.path = path
+        self.path = provision_database(path)
         self.clock = clock or (lambda: datetime.now(timezone.utc))
         self.max_rows = max_rows
         with closing(self._connect()) as db:

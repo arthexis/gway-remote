@@ -175,7 +175,7 @@ def main(argv=None, *, config_path=CONFIG, state_path=STATE):
                 raise ValueError("invalid scoped credential format")
             result = {"configured": True}
         elif args.status:
-            result = outbox.status()
+            result = outbox.metrics()
         elif args.purge_dead:
             result = {"purged": outbox.purge_dead()}
         elif args.flush:

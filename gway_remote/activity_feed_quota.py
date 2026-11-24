@@ -45,3 +45,24 @@ def admit(path, wal_budget):
     sizes = file_sizes(path)
     if sizes["wal"] >= wal_budget or sizes["journal"] >= wal_budget:
         raise FeedCapacityError("feed sidecar admission budget reached")
+
+
+def provision_database(path):
+    """Create only the named private database; never chmod existing files."""
+    path = Path(path)
+    parent = path.parent.lstat()
+    if (not stat.S_ISDIR(parent.st_mode) or parent.st_uid != os.geteuid()
+            or parent.st_mode & 0o077):
+        raise PermissionError("feed requires private owner directory")
+    try:
+        fd = os.open(path, os.O_CREAT | os.O_EXCL | os.O_WRONLY | os.O_NOFOLLOW, 0o600)
+    except FileExistsError:
+        pass
+    else:
+        os.close(fd)
+    info = path.lstat()
+    if (not stat.S_ISREG(info.st_mode) or info.st_uid != os.geteuid()
+            or info.st_mode & 0o077 or info.st_nlink != 1):
+        raise PermissionError("unsafe feed database")
+    file_sizes(path)
+    return path

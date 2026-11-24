@@ -40,3 +40,25 @@ class MaintenanceTests(unittest.TestCase):
         for bad in (["*"],[None],["backup.verified","backup.verified"]):
             with self.assertRaises(ValueError):
                 validate_grants({"a"*24:{**grant,"types":bad}})
+
+    def test_private_initialization_and_queue_observability(self):
+        from gway_remote.activity_feed_maintenance import main
+        from gway_remote.activity_feed_outbox import Outbox
+        from contextlib import redirect_stdout
+        from io import StringIO
+        import json
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            path = root / "private.sqlite"
+            for created in (True,False):
+                output = StringIO()
+                with redirect_stdout(output):
+                    self.assertEqual(main(["--database",str(path),"init"]),0)
+                self.assertEqual(json.loads(output.getvalue())["created"],created)
+            self.assertEqual(path.stat().st_mode & 0o777,0o600)
+            box = Outbox(root/"queue",clock=lambda:1000)
+            box.enqueue(event())
+            metrics = box.metrics()
+            self.assertEqual(metrics["pending"],1)
+            self.assertEqual(metrics["oldest_pending_age_seconds"],0)
+            self.assertGreater(metrics["total_file_bytes"],0)

@@ -47,3 +47,5 @@
   has been written or checked. Offline verification does not attest boot.
 - No production ingress/proxy routes, grant provisioning, systemd activation,
   physical quota setup, canary install or backup job has been executed.
+
+The central database is created exclusively in a pre-existing private owner directory by `gway-remote feed-maintenance --database PATH init`; repeating it validates the same existing store and never chmods or replaces it. Schedule `prune` daily using the existing authorized account's systemd user manager only after validating its actual identity; the sample inactive units use a private EnvironmentFile at `%h/.config/gway-remote/feed-maintenance.env` containing only the absolute database location. Do not install them on a producer-only node. Producer `feed --status` includes queue age, retry count, next due and physical file sizes; no payload or identity is returned. The backup wrapper is a separate opt-in operator entry point, not a replacement of the root-owned backup utility.

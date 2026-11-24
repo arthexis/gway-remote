@@ -79,6 +79,8 @@ def status(path):
 
 def prune(path, *, limit=1000):
     path = existing(path)
+    with closing(readonly(path)) as db:
+        validate(db)
     store = ActivityFeedStore(path)
     removed = store.prune(RETENTION_DAYS, limit=limit)
     with closing(store._connect()) as db:
@@ -122,7 +124,7 @@ def copy_database(source, destination, *, seconds=30):
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--database", default=os.environ.get("GWAY_ACTIVITY_FEED_DATABASE"))
-    parser.add_argument("operation", choices=("status", "prune", "backup", "restore-new", "audit-grants"))
+    parser.add_argument("operation", choices=("init", "status", "prune", "backup", "restore-new", "audit-grants"))
     parser.add_argument("--destination")
     args = parser.parse_args(argv)
     try:
@@ -132,6 +134,17 @@ def main(argv=None):
             result = {"valid": True, "grants": len(grants), "enabled": sum(g["enabled"] for g in grants.values())}
         elif not args.database:
             raise ValueError("database path required")
+        elif args.operation == "init":
+            path = Path(args.database)
+            if not path.is_absolute() or ".." in path.parts:
+                raise ValueError("absolute database required")
+            if path.exists() or path.is_symlink():
+                with closing(readonly(existing(path))) as db:
+                    validate(db)
+                result = {"initialized":True,"created":False}
+            else:
+                ActivityFeedStore(path)
+                result = {"initialized":True,"created":True}
         elif args.operation == "status":
             result = status(args.database)
         elif args.operation == "prune":

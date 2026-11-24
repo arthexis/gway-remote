@@ -11,7 +11,7 @@ import stat
 import time
 
 from .activity_feed import EventConflict, FeedCapacityError, _canonical, validate_event
-from .activity_feed_quota import OUTBOX_BYTES, OUTBOX_WAL, configure, admit
+from .activity_feed_quota import OUTBOX_BYTES, OUTBOX_WAL, configure, admit, file_sizes
 
 MAX_PENDING = 2048
 MAX_AGE = 30 * 86400
@@ -123,6 +123,19 @@ class Outbox:
         with closing(self._connect()) as db:
             counts = dict(db.execute("SELECT state,COUNT(*) FROM queue GROUP BY state"))
         return {key: counts.get(key, 0) for key in ("pending", "dead", "delivered")}
+
+    def metrics(self):
+        with closing(self._connect()) as db:
+            counts = dict(db.execute("SELECT state,COUNT(*) FROM queue GROUP BY state"))
+            oldest, retrying, next_due = db.execute(
+                "SELECT MIN(created),COALESCE(SUM(attempts>0),0),MIN(due) "
+                "FROM queue WHERE state='pending'").fetchone()
+        sizes = file_sizes(self.path)
+        return {**{key: counts.get(key,0) for key in ("pending","dead","delivered")},
+                "oldest_pending_age_seconds": max(0,int(self.clock())-oldest) if oldest is not None else None,
+                "retrying": retrying, "next_due": next_due, "bytes": sizes,
+                "total_file_bytes": sum(sizes.values()), "database_budget": OUTBOX_BYTES,
+                "wal_admission_budget": OUTBOX_WAL, "wal_pressure": sizes["wal"] >= OUTBOX_WAL}
 
     def flush(self, deliver, *, limit=MAX_BATCH):
         """Single flusher; no DB write lock held across HTTPS I/O.
