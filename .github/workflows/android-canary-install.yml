@@ -37,6 +37,15 @@ on:
         default: "no"
         required: true
 
+      run_feed_tests:
+        description: "Run isolated Feed TLS and Compose acceptance (PR #706; dedicated volumes required)"
+        type: choice
+        options:
+          - "no"
+          - "RUN_ISOLATED_FEED"
+        default: "no"
+        required: true
+
 permissions:
   contents: read
   actions: read
@@ -74,6 +83,12 @@ jobs:
             echo "::error::Compose instrumentation requires explicit canary-only reset consent"
             exit 1
           fi
+          if [[ "${{ inputs.run_feed_tests }}" == "RUN_ISOLATED_FEED" ]]; then
+            [[ "$PR_NUMBER" == "706" && "${{ inputs.canary_reset }}" == "no" &&
+               "${{ inputs.run_compose_tests }}" == "no" ]] || {
+              echo "::error::Feed mode requires PR 706, no reset, no other suite"; exit 1;
+            }
+          fi
           PR=$(gh api "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER")
           printf '%s' "$PR" | python3 -c 'import json, os, sys; p=json.load(sys.stdin); assert p["state"] == "open" and p["head"]["repo"]["full_name"] == os.environ["GITHUB_REPOSITORY"] and p["head"]["sha"] == os.environ["EXPECTED_SHA"], "PR identity mismatch"'
           SOURCE_RUN=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$ARTIFACT_RUN")
@@ -102,6 +117,7 @@ jobs:
           echo "Verified pinned APK and provenance for PR #$PR_NUMBER"
 
       - name: Install ONLY isolated canary on one authorized USB Android
+        if: inputs.run_feed_tests == 'no'
         shell: bash
         env:
           CANARY_RESET: ${{ inputs.canary_reset }}
@@ -121,7 +137,7 @@ jobs:
           echo "Production package path verified unchanged; no app launch or UI actions." >> "$GITHUB_STEP_SUMMARY"
 
       - name: Run pinned hermetic Compose tests on isolated USB canary
-        if: ${{ inputs.run_compose_tests == 'RUN_HERMETIC_TESTS' }}
+        if: ${{ inputs.run_feed_tests == 'no' && inputs.run_compose_tests == 'RUN_HERMETIC_TESTS' }}
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
@@ -143,3 +159,21 @@ jobs:
           echo "Source PR: #$PR_NUMBER; revision: $EXPECTED_SHA" >> "$GITHUB_STEP_SUMMARY"
           echo "Hermetic Compose tests passed: $COUNT" >> "$GITHUB_STEP_SUMMARY"
           echo "Scope: canary and canary.test only; not a full screen-by-screen visual audit." >> "$GITHUB_STEP_SUMMARY"
+
+      # This mode executes reviewed main code only, never a PR checkout on
+      # the physical self-hosted node. Existing actor/ref/concurrency gates
+      # apply. No sudo, mount creation, production deploy or auto-reset.
+      - name: Run isolated Feed TLS and Compose acceptance
+        if: inputs.run_feed_tests == 'RUN_ISOLATED_FEED'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ inputs.pr_number }}
+          EXPECTED_SHA: ${{ inputs.expected_sha }}
+          ARTIFACT_RUN: ${{ inputs.artifact_run_id }}
+        run: |
+          set -euo pipefail
+          [[ "$(hostname -s)" == "gway-001" ]] || exit 1
+          RESULT=$(python3 -m gway_remote.android_feed_canary --pr "$PR_NUMBER" --sha "$EXPECTED_SHA" --run-id "$ARTIFACT_RUN" --artifact-dir "$(dirname "$CANARY_APK")")
+          printf '%s' "$RESULT" | python3 -c 'import json,os,sys; r=json.load(sys.stdin); assert r["status"]=="passed" and r["source_sha"]==os.environ["EXPECTED_SHA"] and str(r["run_id"])==os.environ["ARTIFACT_RUN"] and r["android_tls"]=="verified" and r["compose_tests_passed"]==1 and r["temporary_session"]=="removed" and r["production_package_unchanged"] is True'
+          echo "Feed TLS and Compose verified; temporary session removed; canary APK retained." >> "$GITHUB_STEP_SUMMARY"
