@@ -33,9 +33,17 @@ class DeploymentSound:
     Audio failures, including missing sound installations, never escape.
     """
 
-    def __init__(self, target, deployment_id=None, *, database=None, run=None, revision=None):
+    def __init__(self, target, deployment_id=None, *, database=None, run=None, revision=None,
+                 node=None, repository=None, origin_node=None):
         self.revision = revision
         self.target = target
+        self.target_key = target if node is None else f"{target}@{node}"
+        # target is an application, NOT the destination node. Keep these
+        # identities distinct so a broker never displays the dispatch host
+        # as the node that received a deployment.
+        self.node = node
+        self.repository = repository
+        self.origin_node = origin_node
         self.deployment_id = deployment_id or uuid.uuid4().hex
         self.created_at = time.time_ns()
         self.database = Path(database) if database is not None else (
@@ -57,12 +65,12 @@ class DeploymentSound:
                 now = time.time()
                 db.execute("DELETE FROM emitted WHERE at < ?", (now - 7 * 86400,))
                 inserted = db.execute("INSERT OR IGNORE INTO emitted VALUES (?,?,?,?)",
-                                      (self.deployment_id, self.target, event, now)).rowcount
+                                      (self.deployment_id, self.target_key, event, now)).rowcount
                 if not inserted:
                     return
                 previous = db.execute(
                     "SELECT deployment,created_at,priority FROM lcd_progress WHERE target=?",
-                    (self.target,)).fetchone()
+                    (self.target_key,)).fetchone()
                 rank = EVENT_PRIORITY[event]
                 # A later stage wins within an attempt. A newer attempt may
                 # start again, but a delayed event from an older attempt cannot
@@ -79,7 +87,7 @@ class DeploymentSound:
                                   created_at=excluded.created_at,
                                   priority=excluded.priority,
                                   updated_at=excluded.updated_at""",
-                               (self.target, self.deployment_id,
+                               (self.target_key, self.deployment_id,
                                 self.created_at, rank, now))
                     self._lcd(event)
             # Use the same public sound grammar as any operator/application.
@@ -98,6 +106,26 @@ class DeploymentSound:
 
     def _lcd(self, event):
         """Publish through the existing event-lockfile runner, never direct I2C."""
+        from .deployment_lcd_notifications import enabled
+        if enabled():
+            # Structured notifications are opt-in until both ends support the
+            # v1 contract. Never fall back to a misleading legacy LCD overlay
+            # after an uncertain or failed authenticated send.
+            try:
+                import socket
+                from .deployment_lcd_notifications import document, send
+                subject = self.repository
+                if subject is None and self.target in (
+                        "gway-remote", "ocpp-csms", "ocpp-reports",
+                        "gway-lcd-sound", "gway-agent-ops"):
+                    subject = "arthexis/" + self.target
+                node = self.node or socket.gethostname().split(".", 1)[0]
+                notice = document(subject, node, event, self.deployment_id,
+                                  origin_node=self.origin_node)
+                send(notice, runner=self.run, home=Path.home(), timeout=3)
+            except (ValueError, OSError, TypeError):
+                pass
+            return
         try:
             directory = Path.home() / ".local/state/lcd-lockfiles"
             directory.mkdir(parents=True, exist_ok=True)

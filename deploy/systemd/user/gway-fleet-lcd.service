@@ -1,0 +1,19 @@
+[Unit]
+Description=Read-only Watchtower/ABB fleet status LCD notices
+Documentation=https://github.com/arthexis/gway-lcd-sound/issues/74
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+Environment=PYTHONPATH=/opt/gway-mcp/current
+ExecStart=/usr/bin/python3 -m gway_remote.fleet_lcd_notifications --once
+TimeoutStartSec=180
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ReadWritePaths=%h/.local/state/gway-remote %h/.local/state/lcd-lockfiles
+
+[Install]
+WantedBy=default.target

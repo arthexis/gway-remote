@@ -23,7 +23,7 @@ MAX_BYTES = 8192
 NODE = re.compile(r"gway-[0-9]{3,}$")
 RID = re.compile(r"[0-9a-f]{32}$")
 ALLOWED = {
-    "lcd": {"show", "clear", "status", "reports"},
+    "lcd": {"show", "clear", "status", "reports", "notice"},
     "sound": {"play", "event", "mute", "unmute", "toggle", "status", "sequence"},
 }
 DEFAULT_DB = Path.home() / ".local/state/gway-lcd-sound/remote-events.sqlite3"
@@ -150,6 +150,11 @@ def validate(event, *, trusted_node, now=None, trusted_origin="watchtower"):
                 raise ValueError("invalid LCD line")
             if type(a["seconds"]) is not int or not 1 <= a["seconds"] <= 300:
                 raise ValueError("invalid LCD duration")
+        elif event["action"] == "notice":
+            from .lcd_notification_contract import validate_notice
+            if set(a) != {"notice"}:
+                raise ValueError("invalid notice arguments")
+            validate_notice(a["notice"])
         elif event["action"] == "reports":
             frames = a.get("frames")
             if set(a) != {"frames"} or type(frames) is not list or len(frames) > 16:
@@ -226,6 +231,8 @@ def argv_for(event, *, dispatcher="gway-lcd-sound", sound="sound"):
             result.extend([a["line1"], a["line2"], "--seconds", str(a["seconds"])])
         elif action == "reports":
             result.append(json.dumps(a["frames"], separators=(",", ":"), sort_keys=True))
+        elif action == "notice":
+            result.append(json.dumps(a["notice"], separators=(",", ":"), sort_keys=True))
         return result
     if action == "event":
         result = [sound, "--event", a["event"], "--source", a["source"]]

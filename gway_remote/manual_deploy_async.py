@@ -7,6 +7,7 @@ the worker's process privileges to the MCP web service.
 from __future__ import annotations
 
 import concurrent.futures
+import os
 import threading
 
 from .manual_deploy_broker import DeploymentReceipts, authorize_deploy
@@ -58,6 +59,17 @@ class AsyncDeployBroker:
         return self.ledger.status(request_id, principal)
 
     def _execute(self, request_id, repository, node, sha):
+        notifier = None
+        from .deployment_lcd_notifications import enabled
+        if enabled():
+            # The broker receipt is authoritative for target identity. This
+            # is purely observational; audio/LCD cannot alter deploy status.
+            from .deployment_sound import DeploymentSound
+            notifier = DeploymentSound(
+                repository, deployment_id=request_id, repository=repository,
+                node=node, revision=sha,
+                origin_node=os.environ.get("GWAY_DEPLOY_NOTIFICATION_ORIGIN") or None)
+            notifier("deploy-started")
         try:
             outcome = self.executor(repository, node, sha)
             state = outcome["state"]
@@ -66,7 +78,16 @@ class AsyncDeployBroker:
         except Exception:
             state = "unknown"
         try:
-            self.ledger.transition(request_id, "running", state)
+            changed = self.ledger.transition(request_id, "running", state)
+            if changed and notifier is not None:
+                # A recipe returning zero is activation, NOT independent
+                # verification of installed SHA plus runtime health.
+                final = {"succeeded": "deploy-activated",
+                         "failed": "deploy-failed",
+                         "already_current": "deploy-skipped"}.get(state)
+                if final:
+                    notifier(final)
+                # Unknown is neither a reported failure nor verified success.
         finally:
             with self._lock:
                 self._active.discard(request_id)
