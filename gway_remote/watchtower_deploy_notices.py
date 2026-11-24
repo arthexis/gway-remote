@@ -17,6 +17,10 @@ from .deployment_lcd_notifications import document
 # repository names; unrecognized providers must not receive invented labels.
 REPOSITORIES = {
     "ocpp_reports": "arthexis/ocpp-reports",
+    "reports": "arthexis/ocpp-reports",
+    "ocpp": "arthexis/ocpp-csms",
+    "agentops": "arthexis/gway-agent-ops",
+    "odoo": "arthexis/odoo-gelectriic",
     "ocpp_csms": "arthexis/ocpp-csms",
     "gway_remote": "arthexis/gway-remote",
     "gway_agent_ops": "arthexis/gway-agent-ops",
