@@ -155,6 +155,27 @@ class UsbWakeGuardTests(unittest.TestCase):
 
 class InstrumentationTests(unittest.TestCase):
     @patch.object(field, "adb")
+    def test_quotation_suite_selects_only_approved_class_and_requires_five(self, adb):
+        with patch.object(field, "keep_usb_screen_on", return_value=nullcontext()):
+            with patch.object(field, "device_ready", return_value=True):
+                adb.return_value = "OK (5 tests)\nINSTRUMENTATION_CODE: -1\n"
+                self.assertEqual(field.instrument("usb-device", suite="quotations"), 5)
+                self.assertIn("com.arthexis.gwayremote.OdooQuotationRefreshTest",
+                              adb.call_args_list[0].args)
+                adb.return_value = "OK (4 tests)\nINSTRUMENTATION_CODE: -1\n"
+                with self.assertRaisesRegex(field.CanaryError, "instrumentation_failed"):
+                    field.instrument("usb-device", suite="quotations")
+
+    @patch.object(field, "adb")
+    def test_arbitrary_instrumentation_class_is_rejected(self, adb):
+        with self.assertRaisesRegex(field.CanaryError, "unknown_test_suite"):
+            field.instrument("usb-device", suite="arbitrary.Class")
+        adb.assert_not_called()
+
+    def test_suite_receipts_do_not_overwrite_baseline(self):
+        self.assertNotEqual(field.state_path(), field.state_path("quotations"))
+
+    @patch.object(field, "adb")
     def test_pass_requires_android_runner_success(self, adb):
         adb.return_value = "OK (6 tests)\nINSTRUMENTATION_CODE: -1\n"
         with patch.object(field, "keep_usb_screen_on", return_value=nullcontext()) as guard:
