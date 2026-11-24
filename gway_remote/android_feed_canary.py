@@ -15,6 +15,7 @@ from . import android_canary_field as field
 from .android_canary_provision import validate_artifact, _private_command
 from .activity_feed_canary import PORT, session, SOURCE, EVENT_TYPE
 from .activity_feed_cli import HTTPSPublisher, route_binding
+from .activity_feed import validate_event
 from .activity_feed_outbox import Outbox
 from .activity_feed_maintenance import copy_database, status
 from urllib.request import build_opener, ProxyHandler, HTTPSHandler
@@ -89,6 +90,7 @@ def synthetic(session_state):
              "summary":"No business data","category":"general","severity":"info","node":"gway-001"}}
     opener = build_opener(ProxyHandler({}),NoRedirect(),HTTPSHandler(
         context=ssl.create_default_context(cafile=str(state["cert"]))))
+    event = validate_event(event)
     box.enqueue(event)
     publisher = HTTPSPublisher(cfg,opener=opener)
     if box.flush(publisher)["delivered"] != 1:
