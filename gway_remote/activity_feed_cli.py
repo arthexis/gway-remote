@@ -25,7 +25,7 @@ STATE = Path.home() / ".local/state/gway-remote/feed"
 
 def read_private(path, maximum):
     path = Path(path)
-    fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC)
+    fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC | os.O_NONBLOCK)
     try:
         info = os.fstat(fd)
         if (not stat.S_ISREG(info.st_mode) or info.st_uid != os.geteuid()
@@ -52,6 +52,8 @@ def load_config(path=CONFIG):
             or parsed.password is not None or parsed.path != PATH or parsed.query or parsed.fragment
             or "?" in endpoint or "#" in endpoint):
         raise ValueError("feed requires pinned configured HTTPS endpoint")
+    if parsed.port is not None and not 1 <= parsed.port <= 65535:
+        raise ValueError("invalid endpoint port")
     if type(value["token_file"]) is not str or not Path(value["token_file"]).is_absolute():
         raise ValueError("absolute credential path required")
     # Validate source and default node without reaching network.

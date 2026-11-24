@@ -1,8 +1,8 @@
-# Activity Feed — Stage 1A (#705)
+# Activity Feed — Stages 1–2 (#705)
 
 The feed is a quiet activity history, not an LCD/Sound notification mechanism.
 Stage 1A provides the isolated library. Stage 1B adds opt-in HTTP routes to
-Watchtower's existing loopback bearer gateway. No CLI, MCP or Android integration
+Watchtower's existing loopback bearer gateway. Stage 2 adds the producer CLI and local outbox. No MCP or Android integration
 is enabled, and no production configuration is changed.
 
 ## Event contract
@@ -58,7 +58,7 @@ Stage 1B requires a separate authorization and ingress review.
   latest receipts descending; before=<seq> continues that history. after=<seq>
   selects incremental ascending receipts. Optional category and limit (1–50).
 - GET /api/feed/events/<seq>: same read permission, 404 for missing records.
-- POST /api/feed/events: existing gway:execute bearer AND a live explicit grant
+- POST /api/feed/events: gway:feed-publish or existing gway:execute bearer AND a live explicit grant
   for the stable authenticated principal. HTTP 201 insert, 200 replay, 409
   conflict, 403 denial, 413 oversized, 503 unavailable. Body <=16 KiB, strict
   UTF-8 JSON, duplicate keys rejected. No bearer IDs exposed in responses.
@@ -71,9 +71,8 @@ Stage 1B requires a separate authorization and ingress review.
   Reload on each publish. No credentials in grants or event bodies.
 - Explicit opt-in GWAY_ACTIVITY_FEED_ENABLED=1 and dedicated absolute
   GWAY_ACTIVITY_FEED_DATABASE path; startup validates grants. Existing service
-  and reverse proxy configuration remains untouched. No new scope or listener.
-  Do not give producers execute tokens: stage 2 must define a constrained
-  authenticated transport for external producers. Production activation needs
+  and reverse proxy configuration remains untouched. No new listener.
+  Stage 2 adds an exclusive feed publisher scope; never give producers execute tokens. Production activation needs
   reviewed path ownership, proxy limits, grant lifecycle and disk budget.
 - Test via python3 -m unittest tests.core.test_activity_feed tests.core.test_activity_feed_http -v.
 
@@ -100,8 +99,9 @@ gway-remote feed --flush
 
 An explicit --id requires --time for immutable producer retries. The standalone
 feed wrapper is optional via GWAY_INSTALL_FEED_ALIAS=1 during installation,
-not activated by this PR. Existing operator-managed timer/job may invoke
---flush; do not start a new daemon or deploy a timer in this stage.
+not activated by this PR. The reviewed user systemd unit pair under deploy/systemd can invoke --flush
+once per minute, or an existing operator-managed job can do so. The files are
+not installed or enabled by this PR. No new daemon is needed.
 Enqueue never connects to network; producer hooks use publish_best_effort or
 ignore/report CLI failure without failing primary work. SQLite lock timeout
 150ms per connection, full synchronous WAL, 2048 rows total, reject newest
@@ -113,5 +113,12 @@ Dead items count toward capacity and require explicit --purge-dead; delivered
 records expire on flush after 30 days. Do not change producer source or
 destination while queued without explicit reconciliation. A root credential
 rotation requires grant/identity migration; child rotation under the same
-root preserves identity. Automatic provisioning/timer, ingress review,
+root preserves identity. Automatic provisioning/activation, ingress review,
 physical disk budget and production activation remain acceptance work.
+
+The user timer is intended for the existing installation account, never a new
+service identity. During a separately authorized rollout, install the two
+activity-feed units into that account's user unit directory, reload its user
+manager, and enable only the timer. Stop/disable it before rollback; preserve
+the outbox. Provision config and scoped credentials first. Unit activation
+and actual TLS routing have not been field-tested in this Draft.
