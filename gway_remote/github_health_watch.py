@@ -268,7 +268,18 @@ def store_observation(db_path, completed_at, repositories):
         alerts.extend(reconcile_prs(connection, repositories, completed_at))
         alerts.extend(reconcile_extra(connection, repositories, completed_at))
         alerts.extend(reconcile_pending(connection, repositories, completed_at))
-        return alerts
+        # Only authoritative CI episode transitions; repeated ACTIVE snapshots
+        # and unrelated alert categories are not feed events.
+        transitions = connection.execute(
+            "SELECT id,repository,opened_at,resolved_at,resolution_kind "
+            "FROM ci_episodes WHERE opened_at=? OR resolved_at=?",
+            (completed_at, completed_at)).fetchall()
+    try:
+        from .github_health_feed import publish_transitions
+        publish_transitions(transitions, completed_at)
+    except Exception:
+        pass
+    return alerts
 
 
 def check(api, db_path, snapshot_path):

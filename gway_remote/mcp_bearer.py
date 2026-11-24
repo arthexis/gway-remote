@@ -11,14 +11,14 @@ import sqlite3
 import time
 from pathlib import Path
 
-SCOPES = frozenset({"gway:read", "gway:execute", "gway:lcd-sound"})
+SCOPES = frozenset({"gway:read", "gway:execute", "gway:lcd-sound", "gway:feed-publish"})
 COMBINED_SCOPE = "gway:execute gway:read"
 
 
 def _scope_grants(stored, required):
     """Legacy single-scope rows stay unchanged; combined grants are explicit."""
-    if required == "gway:lcd-sound":
-        return stored == "gway:lcd-sound"
+    if required in {"gway:lcd-sound", "gway:feed-publish"}:
+        return stored == required
     return (required in SCOPES and (stored == required or stored == COMBINED_SCOPE)
             or required == COMBINED_SCOPE and stored == COMBINED_SCOPE)
 
@@ -65,7 +65,7 @@ class BearerRegistry:
             raise ValueError("invalid_scope_or_lifetime")
         # Never let existing OAuth/delegation code mint execute credentials.
         # Only an explicit trusted console path may opt in.
-        if scope in {"gway:execute", "gway:lcd-sound"} and operator_approved is not True and parent_id is None:
+        if scope in {"gway:execute", "gway:lcd-sound", "gway:feed-publish"} and operator_approved is not True and parent_id is None:
             raise PermissionError("execution scope requires direct operator issuance")
         expires_at = int(time.time()) + lifetime
         if parent_id is not None:
@@ -263,6 +263,30 @@ class BearerVerifier:
         """Stable narrowly scoped source identity; never authorizes MCP tools."""
         if not self.verify(credential, required_scope="gway:lcd-sound"):
             raise PermissionError("LCD/Sound source credential required")
+        key_id = credential.split("_", 2)[1]
+        with sqlite3.connect("file:" + str(self.path.resolve()) + "?mode=ro",
+                             uri=True, timeout=3) as db:
+            seen = set()
+            current = key_id
+            for _ in range(32):
+                if current in seen:
+                    raise PermissionError("credential delegation cycle")
+                seen.add(current)
+                if not db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='delegations'").fetchone():
+                    return current
+                row = db.execute("SELECT parent_id FROM delegations WHERE key_id=?", (current,)).fetchone()
+                if row is None:
+                    return current
+                current = row[0]
+            raise PermissionError("credential delegation depth exceeded")
+
+    def feed_principal(self, credential):
+        """Stable feed-only producer identity, independent of MCP execution."""
+        if not self.verify(credential, required_scope="gway:feed-publish"):
+            raise PermissionError("feed publisher credential required")
+        return self._feed_root(credential)
+
+    def _feed_root(self, credential):
         key_id = credential.split("_", 2)[1]
         with sqlite3.connect("file:" + str(self.path.resolve()) + "?mode=ro",
                              uri=True, timeout=3) as db:

@@ -13,6 +13,7 @@ from urllib.error import HTTPError, URLError
 from urllib.request import Request, build_opener, HTTPRedirectHandler
 from .mcp_bearer import BearerVerifier
 from .mcp_tool_scope import required_scope
+from .activity_feed_mcp import FEED_TOOLS, FEED_NAMES, call_feed
 
 MAX_BODY = 65536
 MAX_RESPONSE = 262144
@@ -208,7 +209,7 @@ def _project_catalog(catalog, routes):
         # Watchtower-local execute tools keep their fixed OAuth requirement,
         # including the read-like diagnostic. Dynamic providers are classified
         # using the *authenticated* route, never a caller-provided scope.
-        scope = route[3] if route else ("execute" if name in EXEC_TOOL_NAMES else
+        scope = route[3] if route else ("execute" if name in EXEC_TOOL_NAMES or name == "feed__publish" else
                 required_scope(tool) if trusted_source_tool(tool) else "read")
         rows.append({"name": name, "origin": "federated" if route else "builtin",
                      "node": route[0] if route else None,
@@ -224,7 +225,7 @@ def inspect_federated_catalog(federation, *, builtins=()):
     return _project_catalog(*federation.discover(builtins=builtins))
 
 
-def effective_catalog(upstream_tools, *, federation=None, execution=None):
+def effective_catalog(upstream_tools, *, federation=None, execution=None, activity_feed=None):
     """Construct the *same* effective list for tools/list and mcp_catalog_inspect.
 
     No additional tool registrations, approvals, transports or lookups. The
@@ -232,7 +233,7 @@ def effective_catalog(upstream_tools, *, federation=None, execution=None):
     """
     if type(upstream_tools) is not list:
         raise ValueError("invalid backend catalog")
-    local_names = {tool["name"] for tool in NODE_TOOLS + EXEC_TOOLS}
+    local_names = {tool["name"] for tool in NODE_TOOLS + EXEC_TOOLS} | FEED_NAMES
     if any(type(tool) is not dict or type(tool.get("name")) is not str
            or tool["name"] in local_names for tool in upstream_tools):
         raise ValueError("invalid or shadowed backend tool")
@@ -242,12 +243,14 @@ def effective_catalog(upstream_tools, *, federation=None, execution=None):
     private_tools = [tool for tool in upstream_tools if tool["name"] in ALLOWED_TOOLS]
     if federation is not None:
         selected, routes = federation.discover(
-            builtins=private_tools + list(NODE_TOOLS) + list(EXEC_TOOLS))
+            builtins=private_tools + list(NODE_TOOLS) + list(EXEC_TOOLS) + list(FEED_TOOLS))
         # These local declarations are appended in their original order below.
         tools = [tool for tool in selected if tool["name"] not in local_names]
     else:
         tools, routes = private_tools, {}
     tools = tools + list(NODE_TOOLS) + (list(EXEC_TOOLS) if execution is not None else [])
+    if activity_feed is not None:
+        tools += list(FEED_TOOLS)
     projection = _project_catalog(tools, routes)
     scoped = [scoped_tool(tool, EXEC_SECURITY if row["required_scope"] == "gway:execute"
                           else READ_SECURITY)
@@ -318,6 +321,10 @@ class Handler(BaseHTTPRequestHandler):
             self.wfile.write(body)
 
     def do_GET(self):
+        if getattr(self.server, "activity_feed", None) is not None:
+            from .activity_feed_http import is_feed_path, handle
+            if is_feed_path(self.path):
+                return handle(self, "GET")
         self.reject(405)
 
     def _lcd_sound_post(self):
@@ -367,6 +374,10 @@ class Handler(BaseHTTPRequestHandler):
         self.wfile.write(body)
 
     def do_POST(self):
+        if getattr(self.server, "activity_feed", None) is not None:
+            from .activity_feed_http import is_feed_path, handle
+            if is_feed_path(self.path):
+                return handle(self, "POST")
         if (self.path == "/v1/lcd-sound/event"
                 and getattr(self.server, "lcd_sound_ingress_enabled", False)):
             return self._lcd_sound_post()
@@ -438,7 +449,7 @@ class Handler(BaseHTTPRequestHandler):
             try:
                 tools, _ = effective_catalog(
                     [], federation=self.server.federation,
-                    execution=self.server.execution)
+                    execution=self.server.execution, activity_feed=getattr(self.server, 'activity_feed', None))
             except (OSError, ValueError, RuntimeError, PermissionError, TypeError, KeyError):
                 return self.reject(502, failure_code="federation_unavailable")
             result = {"tools": tools}
@@ -488,6 +499,30 @@ class Handler(BaseHTTPRequestHandler):
             meta = payload.get("params", {}).get("_meta") if type(payload.get("params")) is dict else None
             if not isinstance(meta, dict) or meta.get("io.modelcontextprotocol/protocolVersion") != version:
                 return self.reject(400)
+        if payload["method"] == "tools/call" and payload.get("params", {}).get("name") in FEED_NAMES:
+            api = getattr(self.server, "activity_feed", None)
+            if api is None:
+                return self.reject(403)
+            name = payload["params"]["name"]
+            if name == "feed__publish" and not has_exec:
+                return self.reject(401, scope="gway:execute")
+            if "id" not in payload or set(payload["params"]) - {"name", "arguments", "_meta"}:
+                return self.reject(400)
+            result = call_feed(api, name, payload["params"].get("arguments", {}), token)
+            if version == "2026-07-28":
+                result = {"resultType": "complete", **result}
+            body = json.dumps({"jsonrpc": "2.0", "id": payload["id"], "result": result},
+                              separators=(",", ":")).encode()
+            if len(body) > MAX_RESPONSE:
+                return self.reject(502)
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("MCP-Protocol-Version", version)
+            self.send_header("Cache-Control", "no-store")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+            return
         # Report the same node-owned federation used by tools/list, not the
         # legacy upstream source policy. This makes missing node transport
         # visible without revealing endpoints, credentials or manifests.
@@ -541,7 +576,7 @@ class Handler(BaseHTTPRequestHandler):
                     backend_tools = json.loads(backend_reply)["result"]["tools"]
                 _, selected = effective_catalog(
                     backend_tools, federation=self.server.federation,
-                    execution=self.server.execution)
+                    execution=self.server.execution, activity_feed=getattr(self.server, 'activity_feed', None))
                 result = {"content": [{"type": "text",
                                       "text": json.dumps(selected, separators=(",", ":"))}]}
                 if version == "2026-07-28":
@@ -798,7 +833,7 @@ class Handler(BaseHTTPRequestHandler):
                 result = upstream_payload["result"]
                 result["tools"], _ = effective_catalog(
                     result["tools"], federation=self.server.federation,
-                    execution=self.server.execution)
+                    execution=self.server.execution, activity_feed=getattr(self.server, "activity_feed", None))
                 body = json.dumps(upstream_payload, separators=(",", ":")).encode()
             except (ValueError, TypeError, KeyError, UnicodeError, OSError, RuntimeError, TimeoutError):
                 return self.reject(502)
@@ -824,7 +859,7 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
-def make_server(address, registry, upstream, backend_token, *, execution=None, bridge_sessions=None, bridge_transport=None, approved_sources=None, federation=None, lcd_sound_ingress_enabled=False, lcd_sound_dispatch=None, lcd_sound_grants_loader=None):
+def make_server(address, registry, upstream, backend_token, *, execution=None, bridge_sessions=None, bridge_transport=None, approved_sources=None, federation=None, lcd_sound_ingress_enabled=False, lcd_sound_dispatch=None, lcd_sound_grants_loader=None, activity_feed=None):
     from urllib.parse import urlsplit
     parsed = urlsplit(upstream)
     if parsed.scheme != "http" or parsed.hostname != "127.0.0.1" or not parsed.port or parsed.path != "/mcp" or parsed.query or parsed.fragment or parsed.username or parsed.password:
@@ -845,6 +880,7 @@ def make_server(address, registry, upstream, backend_token, *, execution=None, b
             raise ValueError("invalid approved source policy")
     if type(lcd_sound_ingress_enabled) is not bool:
         raise ValueError("invalid LCD/Sound ingress activation")
+    server.activity_feed = activity_feed
     server.lcd_sound_ingress_enabled = lcd_sound_ingress_enabled
     server.lcd_sound_dispatch = lcd_sound_dispatch
     server.lcd_sound_grants_loader = lcd_sound_grants_loader
@@ -907,6 +943,20 @@ def main():
         from .lcd_sound_grant_store import load_operator_grants
         load_operator_grants()  # fail at startup for missing/unsafe grants
     verifier = BearerVerifier(args.database)
+    feed_switch = os.environ.get("GWAY_ACTIVITY_FEED_ENABLED", "0")
+    if feed_switch not in ("0", "1"):
+        raise ValueError("invalid Activity Feed activation flag")
+    activity_feed = None
+    if feed_switch == "1":
+        from .activity_feed_http import ActivityFeedAPI, load_feed_grants
+        from .activity_feed import ActivityFeedStore
+        from pathlib import Path
+        feed_path = Path(os.environ.get("GWAY_ACTIVITY_FEED_DATABASE", ""))
+        if (not feed_path.is_absolute() or ".." in feed_path.parts
+                or feed_path.resolve() == Path(args.database).resolve()):
+            raise ValueError("dedicated absolute Activity Feed database required")
+        load_feed_grants()  # fail closed before creating storage
+        activity_feed = ActivityFeedAPI(ActivityFeedStore(feed_path), verifier, load_feed_grants)
     from .mcp_bridge_bootstrap import start_bridge
     import signal
     previous_term = signal.getsignal(signal.SIGTERM)
@@ -931,7 +981,7 @@ def main():
         with make_server(("127.0.0.1", args.port), verifier, args.upstream,
                          token, execution=execution, approved_sources=approved_sources,
                          federation=federation,
-                         lcd_sound_ingress_enabled=ingress_enabled, **options) as service:
+                         lcd_sound_ingress_enabled=ingress_enabled, activity_feed=activity_feed, **options) as service:
             service.serve_forever()
     finally:
         if started is not None:

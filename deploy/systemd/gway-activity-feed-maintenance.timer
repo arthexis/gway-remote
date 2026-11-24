@@ -1,0 +1,11 @@
+[Unit]
+Description=Daily GWay Activity Feed retention
+
+[Timer]
+OnCalendar=daily
+Persistent=true
+RandomizedDelaySec=10min
+Unit=gway-activity-feed-maintenance.service
+
+[Install]
+WantedBy=timers.target
