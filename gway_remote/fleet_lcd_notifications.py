@@ -20,6 +20,9 @@ TARGETS = {
     "gelectriic.com": ("gway-mcp-gateway.service", "nginx.service"),
     "ocpp-abb-1": ("ocpp-reports-ingest.service", "ocpp-reports-collector.service",
                    "ocpp-csms.service"),
+    # gway-004 has a verified SSH host pin and dedicated installation user.
+    # Do not auto-enroll 002/005: DNS/host-pin prerequisites are not met.
+    "gway-004": ("node-ssh",),
 }
 STATE = Path.home() / ".local/state/gway-remote/fleet-notifications.json"
 SOUND = {"down": "critical", "unreachable": "warning",
@@ -35,8 +38,11 @@ def probe(node, service, *, run=subprocess.run):
     if node not in TARGETS or service not in TARGETS[node]:
         raise ValueError("unapproved fleet target")
     argv = ["ssh", "-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=yes",
-            "-o", "ConnectTimeout=5", "-o", "ConnectionAttempts=1",
-            "ubuntu@" + node, "/usr/bin/systemctl", "is-active", "--quiet", service]
+            "-o", "ConnectTimeout=5", "-o", "ConnectionAttempts=1"]
+    if node == "gway-004":
+        argv += ["arthe@" + node, "/usr/bin/true"]
+    else:
+        argv += ["ubuntu@" + node, "/usr/bin/systemctl", "is-active", "--quiet", service]
     try:
         result = run(argv, timeout=9, capture_output=True, check=False)
     except (OSError, subprocess.TimeoutExpired):
@@ -44,7 +50,7 @@ def probe(node, service, *, run=subprocess.run):
     if result.returncode == 0:
         return "healthy"
     if result.returncode == 3:
-        return "down"
+        return "degraded" if service == "node-ssh" else "down"
     if result.returncode == 255:
         return "unreachable"
     return "degraded"
@@ -147,7 +153,8 @@ def emit(document, *, sound=None, run=subprocess.run, home=None):
         return False
 
 
-def cycle(*, state=STATE, now=None, monitor=probe, sender=emit, allow_send=True):
+def cycle(*, state=STATE, now=None, monitor=probe, sender=emit, allow_send=True,
+          dry_run=False):
     if socket.gethostname().split(".", 1)[0] != "gway-001":
         raise PermissionError("fleet health monitor is approved on gway-001 only")
     now = now or datetime.now(timezone.utc)
@@ -177,8 +184,9 @@ def cycle(*, state=STATE, now=None, monitor=probe, sender=emit, allow_send=True)
                                                   next_state["episode"]), None))
         # The journal is committed before display/audio. A crash cannot
         # duplicate a confirmed state transition after restarting the timer.
-        save(state, checks)
-        if allow_send:
+        if not dry_run:
+            save(state, checks)
+        if allow_send and not dry_run:
             for document, sound in output:
                 sender(document, sound=sound)
         return {"checked": len(checks), "published": len(output),
@@ -193,7 +201,8 @@ def main(argv=None):
     parser.add_argument("--dry-run", action="store_true")
     args = parser.parse_args(argv)
     try:
-        print(json.dumps(cycle(allow_send=not args.dry_run), sort_keys=True))
+        print(json.dumps(cycle(allow_send=not args.dry_run, dry_run=args.dry_run),
+                         sort_keys=True))
         return 0
     except (OSError, ValueError, PermissionError, BlockingIOError):
         print(json.dumps({"status": "observer_unavailable"}))
