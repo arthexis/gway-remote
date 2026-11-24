@@ -2,6 +2,8 @@
 from __future__ import annotations
 import hashlib
 import json
+import os
+from pathlib import Path
 import re
 import socket
 
@@ -19,6 +21,23 @@ EVENT = {
     "rollback-verified": ("important", "ROLLBACK_OK", 30),
     "rollback-failed": ("critical", "ROLLBACK_FAILED", 120),
 }
+
+
+
+def enabled(*, home=None):
+    """Private deployment-owner opt-in; no privileged credential is copied."""
+    if os.environ.get("GWAY_DEPLOY_LCD_NOTIFICATIONS") == "1":
+        return True
+    home = Path.home() if home is None else Path(home)
+    path = home / ".config/gway-remote/lcd-notifications.enabled"
+    try:
+        info = path.lstat()
+        return (path.is_file() and not path.is_symlink()
+                and info.st_uid == os.geteuid() and info.st_mode & 0o077 == 0
+                and info.st_size <= 16
+                and path.read_text(encoding="ascii").strip() == "enabled")
+    except (OSError, ValueError, UnicodeError):
+        return False
 
 
 def document(repository, target_node, event, attempt_id, *, origin_node=None):
