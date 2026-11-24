@@ -211,10 +211,10 @@ class AuthorizedExecution:
                 raise PermissionError("invalid deployment receipt state")
             if state in {"succeeded", "failed"}:
                 self.ledger.record_result_state(request_id, state)
-                self._feed_deployment(application, node, request_id, state, stored[1])
                 if row["state"] not in {"succeeded", "failed", "cancelled", "timed_out"}:
                     # The node-owned receipt is correlated and durable BEFORE
                     # any LCD/audio side effect. Do not replay on later polls.
+                    self._feed_deployment(application, node, request_id, state, stored[1])
                     self._deployment_notice(application, node, request_id, state)
             elif row["state"] in {"succeeded", "failed", "cancelled", "timed_out"}:
                 raise PermissionError("node receipt contradicts terminal ledger")
@@ -278,6 +278,8 @@ class AuthorizedExecution:
             self._deployment_notice(application, node, request_id, result["state"])
         elif result["state"] in {"accepted", "running"}:
             self._deployment_notice(application, node, request_id, "running")
+        elif result["state"] == "uncertain":
+            self._feed_deployment(application, node, request_id, "uncertain", pinned_revision)
         return {"node": node, "request_id": request_id, "application": application,
                 "status": result["state"], "result": result}
 

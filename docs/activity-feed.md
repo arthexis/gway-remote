@@ -199,3 +199,5 @@ feed timer performs the bounded observation before flush. No new user or
 privileges, no recursive feed events. Hooks are best effort: local failure or
 crash between primary receipt and enqueue can lose a notification, not work.
 Actual AgentOps lifecycle integration belongs to its owner repository.
+
+AgentOps owner-side implementation: arthexis/gway-agent-ops PR #111. The hook uses the existing local CLI, with a 1.5-second bound, and is independently opt-in. It records admission, terminal process outcomes and explicit release only after durable journals. No remote operation or LCD/Sound dependency. Android cache operations now serialize across Home instances and reject stale credential writes/deletions; expired offline state is removed when refresh fails. Inventory checkpoint is bound to the producer route and rebaselines if identity changes. Terminal broker polling does not emit historical completed receipts again.

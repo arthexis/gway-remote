@@ -181,7 +181,7 @@ def main(argv=None, *, config_path=CONFIG, state_path=STATE):
         elif args.flush:
             # Watchtower-only opt-in under its existing authorized reader account.
             try:
-                flag = CONFIG.parent / "feed-inventory.enabled"
+                flag = Path(config_path).parent / "feed-inventory.enabled"
                 if read_private(flag, 16).strip() == b"enabled":
                     from .activity_feed_hooks import inventory_once
                     inventory_once(outbox, config)

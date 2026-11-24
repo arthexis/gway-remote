@@ -40,3 +40,15 @@ class ProducerTests(unittest.TestCase):
             box.flush(lambda e: seen.append(e) or "delivered")
             self.assertEqual([e["type"] for e in seen], ["fleet.contact_unknown"])
             self.assertEqual(seen[0]["data"]["severity"], "warning")
+
+    def test_inventory_checkpoint_rebaselines_on_route_change(self):
+        def snapshot(at, reach):
+            return {"generated_at":at,"nodes":[{"node":"gway-001","reachable":reach,"identity_verified":True}]}
+        with TemporaryDirectory() as tmp:
+            path = Path(tmp)/"queue"
+            config = {"source":"/gway/test"}
+            box = Outbox(path,binding="old")
+            self.assertEqual(inventory_once(box,config,loader=lambda:snapshot(STAMP,"reachable")),0)
+            box = Outbox(path,binding="new")
+            self.assertEqual(inventory_once(box,config,loader=lambda:snapshot("2026-11-24T10:05:00Z","unknown")),0)
+            self.assertEqual(box.status()["pending"],0)

@@ -70,14 +70,14 @@ internal fun ActivityFeedPanel(token: String, onOpenSettings: () -> Unit, onNavi
             if (e is FeedHttpError && e.status in setOf(401, 403, 404, 405)) {
                 state = FeedState()
                 offline = false
-                withContext(Dispatchers.IO) { cache.clear() }
+                withContext(Dispatchers.IO) { cache.clear(token) }
                 notice = if (e.status in setOf(401, 403)) "Acceso al feed no autorizado"
                     else "Activity Feed aún no habilitado"
             } else {
                 val now = System.currentTimeMillis()
                 if (state.savedAt !in (now - CACHE_AGE_MS)..now) {
                     state = FeedState()
-                    withContext(Dispatchers.IO) { cache.clear() }
+                    withContext(Dispatchers.IO) { cache.clear(token) }
                 }
                 offline = state.items.isNotEmpty()
                 notice = if (offline) "Sin conexión · mostrando historial guardado" else "Feed no disponible"

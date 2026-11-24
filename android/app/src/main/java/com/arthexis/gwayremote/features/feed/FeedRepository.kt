@@ -2,6 +2,7 @@ package com.arthexis.gwayremote.features.feed
 
 import android.content.Context
 import android.util.AtomicFile
+import com.arthexis.gwayremote.SecretStore
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
@@ -55,11 +56,15 @@ internal class FeedRepository {
 /** Private no-backup cache, scoped to exact credential and fixed origin. */
 internal class FeedCache(context: Context) {
     private val file = AtomicFile(File(context.noBackupFilesDir, "activity-feed.json"))
+    private val secrets = SecretStore(context.applicationContext)
+    // All Home instances and Settings share one file and synchronization boundary.
+    private companion object { val lock = Any() }
     private fun fingerprint(token: String): String = MessageDigest.getInstance("SHA-256")
         .digest("$FEED_ORIGIN\n$token".toByteArray()).joinToString("") { "%02x".format(it.toInt() and 255) }
 
-    @Synchronized fun read(token: String, now: Long = System.currentTimeMillis()): FeedState? {
-        return runCatching {
+    fun read(token: String, now: Long = System.currentTimeMillis()): FeedState? = synchronized(lock) {
+        runCatching {
+            require(secrets.feedToken == token)
             val raw = file.openRead().use { input ->
                 val out = ByteArrayOutputStream()
                 val buffer = ByteArray(4096)
@@ -79,15 +84,18 @@ internal class FeedCache(context: Context) {
         }.getOrNull()
     }
 
-    @Synchronized fun write(token: String, state: FeedState) {
-        if (!validFeedToken(token)) return
+    fun write(token: String, state: FeedState) = synchronized(lock) {
+        if (!validFeedToken(token) || secrets.feedToken != token) return@synchronized
         val bytes = JSONObject().put("binding", fingerprint(token)).put("state", state.json())
             .toString().toByteArray(Charsets.UTF_8)
-        if (bytes.size > MAX_FEED_RESPONSE) return
+        if (bytes.size > MAX_FEED_RESPONSE) return@synchronized
         val stream = file.startWrite()
         try { stream.write(bytes); file.finishWrite(stream) }
         catch (e: Exception) { file.failWrite(stream); throw e }
     }
 
-    @Synchronized fun clear() = file.delete()
+    fun clear(token: String? = null) = synchronized(lock) {
+        // A cancelled Home instance cannot delete a newer credential cache.
+        if (token == null || secrets.feedToken == token) file.delete()
+    }
 }

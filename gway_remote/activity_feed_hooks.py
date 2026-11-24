@@ -127,8 +127,11 @@ def inventory_once(outbox, config, *, loader=None):
     stamp = _utc(snapshot["generated_at"])
     with closing(outbox._connect()) as db, outbox._write(db):
         outbox._check_binding(db)
-        db.execute("CREATE TABLE IF NOT EXISTS inventory_feed (singleton INTEGER PRIMARY KEY CHECK(singleton=1), stamp TEXT NOT NULL, state TEXT NOT NULL)")
-        old = db.execute("SELECT stamp,state FROM inventory_feed WHERE singleton=1").fetchone()
+        db.execute("CREATE TABLE IF NOT EXISTS inventory_feed_v2 (binding TEXT PRIMARY KEY, stamp TEXT NOT NULL, state TEXT NOT NULL)")
+        if not outbox.binding:
+            raise PermissionError("bound inventory outbox required")
+        db.execute("DELETE FROM inventory_feed_v2 WHERE binding<>?", (outbox.binding,))
+        old = db.execute("SELECT stamp,state FROM inventory_feed_v2 WHERE binding=?", (outbox.binding,)).fetchone()
         if old and stamp <= old[0]:
             return 0
         current, changes = observe_inventory(snapshot, json.loads(old[1]) if old else None)
@@ -148,5 +151,5 @@ def inventory_once(outbox, config, *, loader=None):
             now = int(outbox.clock())
             db.execute("INSERT INTO queue(source,event_id,payload,created,due) VALUES(?,?,?,?,?)",
                        (value["source"], value["id"], _canonical(value), now, now))
-        db.execute("INSERT OR REPLACE INTO inventory_feed VALUES(1,?,?)", (stamp, json.dumps(current)))
+        db.execute("INSERT OR REPLACE INTO inventory_feed_v2 VALUES(?,?,?)", (outbox.binding, stamp, json.dumps(current)))
         return len(changes)
