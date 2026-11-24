@@ -42,6 +42,10 @@ def pipe_bundle(serial, *, reader, der):
                                 capture_output=True,timeout=15,check=False)
         if result.returncode or _private_command(serial,"chmod","600",SEED).returncode:
             raise RuntimeError("private write failed")
+        mode = _private_command(serial,"ls","-l",SEED)
+        words = mode.stdout.decode("utf-8",errors="replace").split()
+        if mode.returncode or not words or words[0] != "-rw-------":
+            raise RuntimeError("private handoff mode unconfirmed")
         result = _private_command(serial,"sha256sum",SEED)
         words = result.stdout.decode("ascii",errors="replace").split()
         if result.returncode or not words or not hmac.compare_digest(words[0],hashlib.sha256(payload).hexdigest()):
@@ -62,7 +66,8 @@ def tunnel(serial):
     # --no-rebind refuses a competing mapping; do not touch other ports.
     field.adb(serial,"reverse","--no-rebind",MAPPING,MAPPING,timeout=10)
     try:
-        if not _has_mapping(field.adb(serial,"reverse","--list",timeout=10)):
+        if not any(line.split()[-2:] == [MAPPING, MAPPING]
+                   for line in field.adb(serial,"reverse","--list",timeout=10).splitlines()):
             raise RuntimeError("USB mapping unconfirmed")
         yield
     finally:
@@ -85,8 +90,13 @@ def synthetic(session_state):
     opener = build_opener(ProxyHandler({}),NoRedirect(),HTTPSHandler(
         context=ssl.create_default_context(cafile=str(state["cert"]))))
     box.enqueue(event)
-    if box.flush(HTTPSPublisher(cfg,opener=opener))["delivered"] != 1:
+    publisher = HTTPSPublisher(cfg,opener=opener)
+    if box.flush(publisher)["delivered"] != 1:
         raise RuntimeError("synthetic delivery failed")
+    if publisher(event) != "delivered" or len(state["store"].list_after()["items"]) != 1:
+        raise RuntimeError("synthetic replay not deduplicated")
+    if box.metrics()["pending"] != 0:
+        raise RuntimeError("synthetic queue not drained")
     copy_database(state["store"].path,state["backup"]/"snapshot.sqlite")
     if status(state["backup"]/"snapshot.sqlite")["events"] != 1:
         raise RuntimeError("snapshot verification failed")

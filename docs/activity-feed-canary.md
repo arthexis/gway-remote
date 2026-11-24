@@ -76,3 +76,15 @@ only the owned USB mapping, restore original device settings and stop/remove
 only its isolated instance. If approved runner lacks this capability, stop;
 do not use arbitrary ADB or bypass the execution boundary.
 The previously built artifact 45473139196 is superseded for transport tests.
+
+The proposed node-owned entry point is gway_remote.android_feed_canary.run.
+It reuses existing artifact and physical USB validation, opens only the fixed
+loopback feed receiver (no MCP/other routes), requires three distinct bounded
+volumes, refuses an existing USB port mapping, and stages a synthetic event via
+the real outbox and HTTPS. Credentials are isolated, short-lived and revoked;
+the private Android seed is consumed by FeedCanaryProvisionTest and deleted.
+The server session cleans up its own temporary directories. The installer does
+not consent to a canary reset automatically. No new general node execution
+recipe is registered: the new field runner must be reviewed and explicitly
+approved through the existing node-owned canary mechanism before physical use.
+An ordinary CI emulator invocation skips the operator-only enrollment test.

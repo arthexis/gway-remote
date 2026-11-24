@@ -65,6 +65,13 @@ def session(central, producer, backup):
         check_volume(path, role)
     if os.geteuid() == 0:
         raise PermissionError("use existing non-root installation identity")
+    with _private_session(roots) as state:
+        yield state
+
+
+@contextmanager
+def _private_session(roots):
+    """Internal lifecycle; caller must validate volume isolation first."""
     with TemporaryDirectory(dir=roots[0], prefix="feed-canary-") as c, \
          TemporaryDirectory(dir=roots[1], prefix="feed-canary-") as q, \
          TemporaryDirectory(dir=roots[2], prefix="feed-canary-") as b:
@@ -96,11 +103,16 @@ def session(central, producer, backup):
             thread = Thread(target=srv.serve_forever, daemon=True)
             thread.start()
             yield {"reader":reader,"writer":writer,"principal":wk,"der":der,
-                   "cert":cert,"store":store,"queue":Path(q),"backup":Path(b)}
+                   "cert":cert,"store":store,"queue":Path(q),"backup":Path(b),
+                   "port":srv.server_port}
         finally:
-            registry.revoke(rk)
-            registry.revoke(wk)
-            if thread is not None:
-                srv.shutdown()
-                thread.join(8)
-            srv.server_close()
+            try:
+                registry.revoke(rk)
+            finally:
+                try:
+                    registry.revoke(wk)
+                finally:
+                    if thread is not None and thread.is_alive():
+                        srv.shutdown()
+                        thread.join(8)
+                    srv.server_close()
