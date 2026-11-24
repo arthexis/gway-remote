@@ -88,3 +88,35 @@ not consent to a canary reset automatically. No new general node execution
 recipe is registered: the new field runner must be reviewed and explicitly
 approved through the existing node-owned canary mechanism before physical use.
 An ordinary CI emulator invocation skips the operator-only enrollment test.
+
+## Reviewed field runner integration
+
+The draft extends the existing manual Android Canary Install workflow with
+`run_feed_tests=RUN_ISOLATED_FEED`. Its existing actor, main-only ref,
+self-hosted gway-001 and concurrency gates remain. The physical runner executes
+reviewed main code, not an arbitrary PR checkout. It requires PR 706,
+`canary_reset=no`, `run_compose_tests=no`, an exact source SHA and successful
+paired APK artifact with verified checksums. It does not activate while the
+workflow remains only in Draft.
+
+The runner uses three pre-existing owner-private, dedicated bounded mounts:
+`~/.local/state/gway-remote/feed-canary-volumes/{central,producer,backup}`.
+No fallback to root storage, no automatic mount or privilege change. Physical
+preflight checks the actual hostname, non-root identity, dedicated volumes,
+single authorized USB device, unlocked/awake screen and production package
+baseline. An operator may wake the device using the existing authorized
+Android control. Unknown state blocks. A successful run verifies the synthetic
+HTTPS receipt, the Android read and denial of a bogus bearer, and one Feed
+Compose test. The one-time reader is used only in memory, not persisted in
+Keystore or the shared cache. An existing seed/certificate blocks handoff;
+cleanup checks absence, and tunnel removal checks ownership. The server
+revokes credentials even when Android fails. The existing USB stay-awake
+guard restores its prior setting.
+
+Rollback is session rollback, not APK downgrade: the isolated canary APK and
+test APK remain installed if installation succeeded. No automatic signature
+reset or uninstall of either package, no production package change. All
+readers become unusable after the temporary registry is revoked and removed.
+If physical acceptance is blocked, no alternate general shell/ADB route is
+authorized. A separately reviewed runner activation and approved bounded
+volumes are prerequisites; do not merge or deploy main simply to run a test.
