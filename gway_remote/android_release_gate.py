@@ -23,7 +23,7 @@ def require(condition, reason):
 
 
 def gh(*args):
-    return subprocess.check_output(["gh", *args], text=True, timeout=90).strip()
+    return subprocess.check_output(["gh", *args], text=True, timeout=90, stderr=subprocess.PIPE).strip()
 
 
 def api(path, *args):
@@ -73,8 +73,21 @@ def status(sha, state, description, url):
 
 def wait_run(workflow, run_id, event, sha=None, timeout=1800):
     until = time.monotonic() + timeout
+    # Newly dispatched runs can return 404 during GitHub's indexing window.
+    # Only retry that exact run ID, never dispatch a replacement.
+    missing = 0
+    seen = False
     while time.monotonic() < until:
-        r = api(f"actions/runs/{run_id}")
+        try:
+            r = api(f"actions/runs/{run_id}")
+        except subprocess.CalledProcessError as exc:
+            if (not seen and event == "workflow_dispatch" and
+                    "HTTP 404" in (exc.stderr or "") and missing < 8):
+                missing += 1
+                time.sleep(15)
+                continue
+            raise
+        seen = True
         require(r["path"] == f".github/workflows/{workflow}" and r["event"] == event
                 and (event != "workflow_dispatch" or r["head_branch"] == "main")
                 and (sha is None or r["head_sha"] == sha), "unexpected workflow identity")
