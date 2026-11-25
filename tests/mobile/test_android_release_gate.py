@@ -159,3 +159,39 @@ class AndroidReleaseGateTests(unittest.TestCase):
                      "content": base64.b64encode(b"# ANDROID_PUBLICATION_HOLD_718").decode()})
         with self.assertRaisesRegex(RuntimeError, "publication suspended"):
             gate.assert_publication_ready()
+
+    def test_dispatched_run_retries_initial_404_only(self):
+        import subprocess
+        from unittest.mock import Mock
+        missing = subprocess.CalledProcessError(1, ["gh"], stderr="gh: Not Found (HTTP 404)")
+        run = {"path": ".github/workflows/android-canary.yml", "event": "workflow_dispatch",
+               "head_branch": "main", "status": "completed", "conclusion": "success"}
+        api = Mock(side_effect=[missing, missing, run])
+        self.replace(gate, "api", api)
+        self.replace(gate.time, "sleep", lambda _: None)
+        self.assertEqual(gate.wait_run("android-canary.yml", 123, "workflow_dispatch"), run)
+        self.assertEqual([c.args for c in api.call_args_list], [("actions/runs/123",)] * 3)
+
+    def test_run_does_not_retry_auth_denial_or_wrong_identity(self):
+        import subprocess
+        from unittest.mock import Mock
+        denied = subprocess.CalledProcessError(1, ["gh"], stderr="gh: Forbidden (HTTP 403)")
+        api = Mock(side_effect=denied)
+        self.replace(gate, "api", api)
+        with self.assertRaises(subprocess.CalledProcessError):
+            gate.wait_run("android-canary.yml", 123, "workflow_dispatch")
+        api.assert_called_once()
+        api.side_effect = None
+        api.return_value = {"path": ".github/workflows/other.yml", "event": "workflow_dispatch"}
+        with self.assertRaisesRegex(RuntimeError, "unexpected workflow identity"):
+            gate.wait_run("android-canary.yml", 123, "workflow_dispatch")
+
+    def test_dispatched_run_missing_retry_is_bounded(self):
+        import subprocess
+        from unittest.mock import Mock
+        api = Mock(side_effect=subprocess.CalledProcessError(1, ["gh"], stderr="HTTP 404"))
+        self.replace(gate, "api", api)
+        self.replace(gate.time, "sleep", lambda _: None)
+        with self.assertRaises(subprocess.CalledProcessError):
+            gate.wait_run("android-canary.yml", 123, "workflow_dispatch")
+        self.assertEqual(api.call_count, 9)
