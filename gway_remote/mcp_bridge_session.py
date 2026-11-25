@@ -108,8 +108,16 @@ class SessionBridgeDispatch:
             return local_node_result("node_exec_preview", args, execution=self.execution)
         if operation == "deployment.discovery" and set(args) == {"node"}:
             if self.execution is None:
-                raise PermissionError("execution unavailable")
-            return self.execution.deployment_discovery(**args)
+                from .mcp_bridge_transport import BridgeReadUnavailable
+                raise BridgeReadUnavailable("deployment_execution_disabled")
+            from .mcp_bridge_transport import BridgeReadUnavailable
+            try:
+                return self.execution.deployment_discovery(**args)
+            except (PermissionError, ValueError) as exc:
+                code = str(exc)
+                if code in BridgeReadUnavailable.CODES and code.startswith("deployment_"):
+                    raise BridgeReadUnavailable(code) from None
+                raise
         if operation == "deployment.preview" and set(args) in (
                 {"node", "application"}, {"node", "application", "revision"}):
             if self.execution is None:

@@ -72,3 +72,28 @@ class DeploymentDiscoveryTests(unittest.TestCase):
                 'gway_remote.mcp_deployment_broker.preview', side_effect=PermissionError('deployment_no_declaration')):
             response = node_exec_protocol.serve_one(json.dumps(request).encode(), hostname='gway-001')
         self.assertEqual(response['error'], 'deployment_no_declaration')
+
+    def test_discovery_registry_error_is_correlated_and_sanitized(self):
+        request = {'node': 'gway-001', 'request_id': 'b' * 32,
+                   'operation': 'deployment_discovery'}
+        with patch.object(node_exec_protocol, 'require_account'), patch(
+                'gway_remote.mcp_deployment_resolver.deployment_catalog',
+                side_effect=PermissionError('/private/manifest')):
+            response = node_exec_protocol.serve_one(json.dumps(request).encode(), hostname='gway-001')
+        self.assertEqual(response, {'node': 'gway-001', 'request_id': 'b' * 32,
+                                    'error': 'deployment_declaration_invalid'})
+        class Pinned:
+            def invoke(self, req):
+                return {'node': req['node'], 'request_id': req['request_id'],
+                        'error': 'deployment_declaration_invalid'}
+        with patch('gway_remote.watchtower_exec_auth.pinned_transport', return_value=Pinned()):
+            with self.assertRaisesRegex(PermissionError, '^deployment_declaration_invalid$'):
+                self.service.deployment_discovery(node='gway-001')
+
+    def test_discovery_transport_error_does_not_leak_details(self):
+        class Pinned:
+            def invoke(self, request):
+                raise OSError('/private/ssh/key')
+        with patch('gway_remote.watchtower_exec_auth.pinned_transport', return_value=Pinned()):
+            with self.assertRaisesRegex(PermissionError, '^deployment_ssh_unverified$'):
+                self.service.deployment_discovery(node='gway-001')

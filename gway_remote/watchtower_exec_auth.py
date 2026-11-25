@@ -164,11 +164,29 @@ class AuthorizedExecution:
         """Read the live node-owned declarations over its attested transport."""
         import secrets
         from .mcp_deployment_resolver import _APP, APPLICATION_ALIASES
-        self._allow_preview_eligibility(node)
-        pinned = pinned_transport(self.relay.transport, node)
+        from .watchtower_exec_transport import SSHTransportFailure
+        try:
+            self._allow_preview_eligibility(node)
+        except (PermissionError, ValueError, OSError):
+            if not self.enabled or not self.relay.enabled:
+                raise PermissionError("deployment_execution_disabled") from None
+            raise PermissionError("deployment_inventory_binding_denied") from None
+        try:
+            pinned = pinned_transport(self.relay.transport, node)
+        except (PermissionError, ValueError, AttributeError):
+            raise PermissionError("deployment_pinned_transport_unavailable") from None
         request_id = secrets.token_hex(16)
-        response = pinned.invoke({"operation": "deployment_discovery", "node": node,
-                                  "request_id": request_id})
+        try:
+            response = pinned.invoke({"operation": "deployment_discovery", "node": node,
+                                      "request_id": request_id})
+        except (SSHTransportFailure, OSError, subprocess.SubprocessError):
+            raise PermissionError("deployment_ssh_unverified") from None
+        except (ValueError, KeyError, TypeError):
+            raise PermissionError("deployment_node_protocol_unavailable") from None
+        if (type(response) is dict and response.get("node") == node and
+                response.get("request_id") == request_id and
+                response.get("error") == "deployment_declaration_invalid"):
+            raise PermissionError("deployment_declaration_invalid")
         if (type(response) is not dict or response.get("node") != node or
                 response.get("request_id") != request_id or
                 type(response.get("result")) is not list or len(response["result"]) > 32):

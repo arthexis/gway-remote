@@ -713,6 +713,7 @@ class Handler(BaseHTTPRequestHandler):
                 from .mcp_bridge_transport import BridgeReadUnavailable
                 code = (exc.code if isinstance(exc, (WorkspaceUnavailable, BridgeReadUnavailable))
                         else "deployment_preview_unavailable" if payload["params"]["name"] == "node_deploy_preview"
+                        else "deployment_node_protocol_unavailable" if payload["params"]["name"] == "node_deploy_discovery"
                         else "workspace_inspection_unavailable" if payload["params"]["name"] == "workspace_inspect"
                         else "node_inventory_unavailable")
                 result = {"content": [{"type": "text", "text": json.dumps({

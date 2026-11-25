@@ -102,7 +102,11 @@ def serve_one(raw, *, jobs=None, hostname=None):
         return {"node": host, "request_id": rid, "result": result}
     if op == "deployment_discovery":
         from .mcp_deployment_resolver import deployment_catalog
-        return {"node": host, "request_id": rid, "result": deployment_catalog()}
+        try:
+            result = deployment_catalog()
+        except (ValueError, PermissionError, OSError):
+            return {"node": host, "request_id": rid, "error": "deployment_declaration_invalid"}
+        return {"node": host, "request_id": rid, "result": result}
     if op in ("deployment_preview", "deployment_status", "deployment_run"):
         from .mcp_deployment_broker import preview, request_status, accept
         if op == "deployment_preview":
