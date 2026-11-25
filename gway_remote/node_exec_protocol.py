@@ -16,6 +16,8 @@ from .node_exec_contract import validate_command
 
 MAX_REQUEST_BYTES = 65536
 OPERATIONS = {
+    "feed_provision_status": frozenset({"operation","node","request_id"}),
+    "feed_provision_install": frozenset({"operation","node","request_id","principal","credential"}),
     "lcd_sound_event": frozenset({"operation", "node", "request_id", "event"}),
     "submit": frozenset({"operation", "node", "request_id", "command"}),
     "result": frozenset({"operation", "node", "request_id", "cursor"}),
@@ -53,6 +55,10 @@ def serve_one(raw, *, jobs=None, hostname=None):
     if not re.fullmatch(r"gway-[0-9]+", host) or req["node"] != host:
         raise PermissionError("unapproved node")
     rid = validate_request_id(req["request_id"])
+    if op in ("feed_provision_status", "feed_provision_install"):
+        from .activity_feed_provision_node import status, install
+        result = status(host) if op == "feed_provision_status" else install(host, req["principal"], req["credential"])
+        return {"node": host, "request_id": rid, "result": result}
     if op == "lcd_sound_event":
         from .lcd_sound_event import receive
         from .node_exec_identity import executor_path, selected_user

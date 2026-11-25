@@ -86,6 +86,16 @@ ID, callback, resource URL or exception text is recorded. Output is capped to
 A reproduced optional-parameter failure is evidence of an interoperability
 defect, not proof of why a particular ChatGPT attempt failed. Use the safe
 phase/reason diagnostics from a new real attempt to establish that boundary.
+Authorization diagnostics distinguish `invalid_scope` from `invalid_pkce`
+without recording either value. A malformed PKCE challenge produces the OAuth
+`invalid_request` error; an unsupported scope produces `invalid_scope`.
+Older releases recorded both cases as `invalid_scope_or_pkce`, which cannot be
+disambiguated retrospectively.
+The authorization endpoint accepts both advertised GWAY scopes in either
+order. The consent screen defaults to read-only; execute still requires an
+explicit selection and a parent credential that grants execute. Diagnostic
+booleans identify the presence of the two known scopes and unknown scope
+tokens without recording requested scope values.
 
 Reference: https://www.rfc-editor.org/rfc/rfc6749.html#section-3.1
 

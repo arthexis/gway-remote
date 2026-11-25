@@ -80,7 +80,8 @@ def route_provider_call(routes, name, arguments, *, authorized_scope, invoke):
     """
     if type(arguments) is not dict or name not in routes:
         raise FederationError("invalid_provider_call")
-    route = routes[name]
+    from .mcp_node_routing import selected_route
+    route, arguments = selected_route(routes[name], name, arguments)
     node, provider, tool, scope = route[:4]
     if scope == "execute" and authorized_scope != "execute":
         raise PermissionError("mcp_execute_scope_required")

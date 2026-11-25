@@ -205,3 +205,63 @@ AgentOps owner-side implementation: arthexis/gway-agent-ops PR #111. The hook us
 ## Stage 7 maintenance
 
 The zipapp exposes local operator-only feed-maintenance --database PATH status, prune, backup --destination NEW, restore-new --destination NEW, and audit-grants. Retention is 180 days by receipt time; prune at most 1000 rows per call and passive checkpoint. Page budgets 256 MiB central / 64 MiB outbox; WAL admission budgets 32 / 8 MiB respectively. SQLite page limits are not total disk limits; filesystem quota remains required. Snapshot and restore create private new files only, preserving sequence and payload, never activate a restored database. See docs/activity-feed-canary.md for acceptance and rollback. All activation remains separate.
+
+## Mobile API key reuse (#705)
+
+Production Android uses the saved HTTPS API origin and existing mobile API key.
+GET /api/v1/feed/events is an exact read-only Watchtower route. The existing
+mobile API on gway-001 authenticates each request via its fixed private
+WireGuard health endpoint (legacy key or revocable read/execute device key).
+No extra user credential, no stored copy at Watchtower, no redirect or proxy
+for credential verification. Invalid keys return 401; unavailable verifier
+returns 503. MCP OAuth and producer scopes remain unchanged. No write method
+is accepted by this route. Android removes the old feed-specific preference;
+cache identity includes the saved endpoint and key, and changes invalidate it.
+The USB canary continues to use its isolated TLS endpoint and ephemeral test
+credential, with no fallback or use of the mobile key. Central feed activation
+and bounded storage/grants remain independent prerequisites: valid mobile
+key returns 404 while the receiver is disabled. The normal reviewed Watchtower
+deploy installs only the exact mobile GET route using the existing snippet
+and Nginx validation/rollback mechanism.
+
+## Production activation (#705)
+The reviewed Watchtower deployment provisions a fixed 512 MiB regular-file ext4
+filesystem, never a physical block device. Existing backing files are not
+formatted; mount and backing identity are verified before changing ownership.
+The gateway writes only its private dedicated mount. Missing storage or invalid
+grants disable Feed without disabling MCP. A local receiver-ready receipt,
+trusted broker transitions, and periodic trusted inventory transitions use the
+same process/service identity; no extra bearer crosses this internal boundary.
+The timer also prunes retention. External publishers still require console-issued
+narrow bearer and root-owned explicit grants; the initial registry is empty.
+The exact producer POST route and mobile GET route remain separately authorized.
+Rollback removes newly installed gateway activation on failure, preserving the
+bounded filesystem and events; no physical media or charging operations.
+
+## Interactive producer provisioning
+The Watchtower operator can issue a per-node AgentOps publisher through the
+existing pinned node transport. Run on the Watchtower interactive root console:
+
+    gway-remote feed-provision gway-001 --repository arthexis/gway-agent-ops --repository arthexis/gway-remote
+
+The operator confirms the node name. The existing auth owner issues a 90-day
+root principal (never distributed) and a child limited to 30 days; only the
+child travels over the pinned forced-command stdin. The root-owned grant is
+exact for source, node, repos and AgentOps types, plus a real verification event.
+The node verifies HTTPS receipt before atomic config switch. Same-policy child
+rotation preserves the root and queued event identity. The superseded child is
+revoked after success; uncertain new children are revoked on failure. A root
+expiry or changed policy requires explicit reconciliation; no automatic grant
+expansion or root replacement. This command does not enable other services or
+restart charging. The producer timer and AgentOps opt-in are separate steps.
+No tokens go to command arguments, CI, MCP, or user-visible receipts.
+
+### Existing mounted Feed volume reservation
+A mounted loop image can lose allocated host blocks after trim/discard. The
+provisioner distinguishes backing identity from physical allocation and checks
+the active loop backing inode, offset, size limit, mount flags and capacity.
+If the verified mounted 512 MiB file is underallocated, it may restore its
+reservation with non-truncating posix_fallocate, after checking host free space
+plus a 256 MiB margin. It never formats, replaces, resizes, unmounts or deletes
+an existing image or database. Unsafe metadata, wrong loop identity, an
+unmounted underallocated image or insufficient free space still fail closed.

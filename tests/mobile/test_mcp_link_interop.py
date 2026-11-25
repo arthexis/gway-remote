@@ -138,6 +138,71 @@ class OAuthInteropTests(unittest.TestCase):
                                    {'Content-Type': 'application/x-www-form-urlencoded'})
         self.assertEqual(status, 400)
 
+    def test_scope_and_pkce_failures_are_distinct_and_redacted(self):
+        output = io.StringIO()
+        cases = [({'scope': 'private-invalid-scope'}, 'invalid_scope', 'invalid_scope'),
+                 ({'code_challenge': 'private-short-challenge'}, 'invalid_pkce', 'invalid_request'),
+                 ({'code_challenge': '!' * 43}, 'invalid_pkce', 'invalid_request')]
+        with patch('sys.stderr', output), patch.object(mcp_link_http, 'AUDIT', mcp_link_http.OAuthAudit()), patch.dict('os.environ', {'GWAY_MCP_OAUTH_DIAGNOSTICS': '1'}):
+            for changes, _, expected_error in cases:
+                status, headers, _ = self.authorize({**self.params, **changes})
+                self.assertEqual(status, 303)
+                self.assertEqual(parse_qs(urlsplit(headers['Location']).query)['error'], [expected_error])
+        records = [json.loads(line) for line in output.getvalue().splitlines()]
+        self.assertEqual([r['reason'] for r in records], [case[1] for case in cases])
+        self.assertNotIn('private-invalid-scope', output.getvalue())
+        self.assertNotIn('private-short-challenge', output.getvalue())
+        self.assertEqual(self.flow.pending, {})
+
+    def test_both_advertised_scopes_require_explicit_execute_consent(self):
+        for scope in ('gway:read gway:execute', 'gway:execute gway:read'):
+            with self.subTest(scope=scope):
+                status, headers, page = self.authorize({**self.params, 'scope': scope})
+                self.assertEqual(status, 200)
+                self.assertIn(b"value='gway:read' checked", page)
+                cookie = headers['Set-Cookie'].split(';', 1)[0]
+                session = cookie.split('=', 1)[1]
+                csrf = self.flow.pending[session][0]
+                proof = self.registry.issue_combined(operator_approved=True)
+                body = urlencode({'csrf': csrf, 'bearer': proof, 'scope': 'gway:execute'})
+                status, _, page = self.request('POST', '/connect', body,
+                    {'Content-Type': 'application/x-www-form-urlencoded', 'Cookie': cookie})
+                self.assertEqual(status, 200)
+                self.assertIn(b'Returning to ChatGPT', page)
+                self.assertEqual(next(reversed(self.flow.codes.values()))[3], 'gway:execute gway:read')
+                import html
+                import re
+                callback = html.unescape(re.search(rb"href='([^']+)'", page).group(1).decode())
+                code = parse_qs(urlsplit(callback).query)['code'][0]
+                result = self.flow.redeem(client_id=CLIENT, code=code, redirect_uri=CALLBACK,
+                                          code_verifier=self.verifier, grant_type='authorization_code', resource=RESOURCE)
+                self.assertEqual(result['scope'], 'gway:execute gway:read')
+                self.assertTrue(BearerVerifier(self.registry.path).verify(result['access_token'], required_scope='gway:execute'))
+                refreshed = self.flow.refresh(client_id=CLIENT, refresh_token=result['refresh_token'],
+                                              grant_type='refresh_token', resource=RESOURCE)
+                self.assertEqual(refreshed['scope'], 'gway:execute gway:read')
+
+                status, headers, _ = self.authorize({**self.params, 'scope': scope})
+                self.assertEqual(status, 200)
+                cookie = headers['Set-Cookie'].split(';', 1)[0]
+                session = cookie.split('=', 1)[1]
+                body = urlencode({'csrf': self.flow.pending[session][0], 'bearer': proof})
+                status, _, _ = self.request('POST', '/connect', body,
+                    {'Content-Type': 'application/x-www-form-urlencoded', 'Cookie': cookie})
+                self.assertEqual(status, 200)
+                self.assertEqual(next(reversed(self.flow.codes.values()))[3], 'gway:read')
+
+    def test_unknown_scopes_are_denied_without_logging_their_values(self):
+        output = io.StringIO()
+        with patch('sys.stderr', output), patch.object(mcp_link_http, 'AUDIT', mcp_link_http.OAuthAudit()), patch.dict('os.environ', {'GWAY_MCP_OAUTH_DIAGNOSTICS': '1'}):
+            status, _, _ = self.authorize({**self.params, 'scope': 'gway:read private-unknown-scope'})
+        self.assertEqual(status, 303)
+        record = json.loads(output.getvalue())
+        self.assertEqual(record['reason'], 'invalid_scope')
+        self.assertTrue(record['scope_read_present'])
+        self.assertTrue(record['scope_unknown_present'])
+        self.assertNotIn('private-unknown-scope', output.getvalue())
+
 
 class OAuthAuditTests(unittest.TestCase):
     def test_diagnostics_schema_rejects_request_text_and_limits_volume(self):

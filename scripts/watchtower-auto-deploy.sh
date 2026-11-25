@@ -68,6 +68,14 @@ ansible-playbook -i localhost, -c local \
 ansible-playbook -i localhost, -c local \
   "$tmp/source/ansible/playbooks/watchtower-odoo-pdf-route.yml"
 
+# Dedicated bounded Feed activation (no credential issuance).
+ansible-playbook -i localhost, -c local \
+  "$tmp/source/ansible/playbooks/watchtower-activity-feed.yml"
+
+# Same rollback-managed HTTPS snippet; only exact mobile read route.
+ansible-playbook -i localhost, -c local \
+  "$tmp/source/ansible/playbooks/watchtower-mobile-feed-route.yml"
+
 actual=$(readlink /opt/gway-mcp/current)
 [ "$actual" = "releases/$sha" ] || {
   echo "Watchtower current release does not match requested SHA" >&2; exit 1;

@@ -1,0 +1,16 @@
+[Unit]
+Description=GWay Activity Feed bounded maintenance and inventory observation
+After=var-lib-gwayfeed.mount
+[Service]
+Type=oneshot
+User=gway-mcp-gateway
+Group=gway-mcp-read
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/gwayfeed
+ExecStart=/usr/local/bin/gway-remote feed-maintenance --database /var/lib/gwayfeed/events.sqlite3 observe-inventory
+ExecStart=/usr/local/bin/gway-remote feed-maintenance --database /var/lib/gwayfeed/events.sqlite3 prune
+TimeoutStartSec=60

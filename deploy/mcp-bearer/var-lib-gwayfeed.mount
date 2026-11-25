@@ -1,0 +1,9 @@
+[Unit]
+Description=Dedicated persistent GWay Activity Feed filesystem
+[Mount]
+What=/var/lib/gwayfeed-image/feed.ext4
+Where=/var/lib/gwayfeed
+Type=ext4
+Options=loop,nodev,nosuid,noexec
+[Install]
+WantedBy=local-fs.target

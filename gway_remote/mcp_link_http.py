@@ -20,7 +20,7 @@ AUTHORIZE_FIELDS = frozenset({"client_id", "redirect_uri", "resource", "response
                              "code_challenge", "code_challenge_method", "state", "scope"})
 TOKEN_FIELDS = frozenset({"client_id", "code", "redirect_uri", "code_verifier", "grant_type", "resource", "refresh_token"})
 REASONS = frozenset({"page", "code", "issued", "discovery", "malformed", "missing_parameter",
-                     "invalid_client", "invalid_request", "invalid_scope_or_pkce", "invalid_pkce",
+                     "invalid_client", "invalid_request", "invalid_scope", "invalid_pkce",
                      "invalid_state", "link_capacity_reached", "expired_session", "session_unavailable", "csrf_denied",
                      "invalid_bearer", "scope_selection_denied", "invalid_parent_credential", "invalid_grant", "unsupported_auth"})
 
@@ -49,7 +49,7 @@ class OAuthAudit:
             else:
                 record = {"event": "oauth_link", "phase": phase, "reason": reason, "status": status}
                 if comparisons is not None:
-                    for key in ("client_match", "redirect_match", "resource_match", "scope_read", "pkce_s256", "grant_code"):
+                    for key in ("client_match", "redirect_match", "resource_match", "scope_read", "scope_read_present", "scope_execute_present", "scope_unknown_present", "pkce_s256", "grant_code"):
                         if type(comparisons.get(key)) is bool:
                             record[key] = comparisons[key]
             try:
@@ -113,10 +113,14 @@ class Handler(BaseHTTPRequestHandler):
         comparisons = None
         if values is not None:
             flow = self.server.link
+            requested_scopes = values.get("scope", "").split(" ")
             comparisons = {"client_match": values.get("client_id") == flow.client_id,
                            "redirect_match": values.get("redirect_uri") == flow.redirect_uri,
                            "resource_match": values.get("resource") == flow.resource,
                            "scope_read": values.get("scope") == "gway:read",
+                           "scope_read_present": "gway:read" in requested_scopes,
+                           "scope_execute_present": "gway:execute" in requested_scopes,
+                           "scope_unknown_present": any(s not in ("", "gway:read", "gway:execute") for s in requested_scopes),
                            "pkce_s256": values.get("code_challenge_method") == "S256",
                            "grant_code": values.get("grant_type") == "authorization_code"}
         AUDIT.emit(phase, reason, status, comparisons)
@@ -206,7 +210,7 @@ class Handler(BaseHTTPRequestHandler):
             # Valid registered clients receive RFC 9207 issuer identification
             # on OAuth errors, not just on successful authorization codes.
             reason = failure_reason(exc)
-            error = ("invalid_scope" if reason == "invalid_scope_or_pkce"
+            error = ("invalid_scope" if reason == "invalid_scope"
                      else "invalid_request")
             destination = self.server.link.authorization_error_redirect(
                 client_id=values.get("client_id"),

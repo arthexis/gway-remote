@@ -1,0 +1,127 @@
+---
+# Explicit operator transaction; never invoked by automatic deployment.
+- name: Converge Watchtower MCP node routing
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  become: true
+  tasks:
+    - name: Validate mode and reviewed revision
+      ansible.builtin.assert:
+        that:
+          - not ansible_check_mode
+          - (mcp_routing_mode | default('legacy')) in ['legacy', 'canonical-with-aliases', 'canonical']
+          - (mcp_routing_revision | default('')) is match('^[0-9a-f]{40}$')
+    - name: Verify installed release pointer
+      ansible.builtin.command:
+        argv: [readlink, /opt/gway-mcp/current]
+      register: routing_release
+      changed_when: false
+    - name: Require reviewed release already deployed
+      ansible.builtin.assert:
+        that:
+          - routing_release.stdout == 'releases/' + mcp_routing_revision
+    - name: Verify installed gateway supports routing mode
+      ansible.builtin.command:
+        argv: [grep, -q, GWAY_MCP_NODE_ROUTING, /opt/gway-mcp/current/gway_remote/mcp_bearer_gateway.py]
+      changed_when: false
+    - name: Inspect existing systemd drop-in directory
+      ansible.builtin.stat:
+        path: /etc/systemd/system/gway-mcp-gateway.service.d
+        follow: false
+      register: routing_dir
+    - name: Require trusted pre-existing directory
+      ansible.builtin.assert:
+        that:
+          - routing_dir.stat.isdir | default(false)
+          - routing_dir.stat.uid == 0
+          - routing_dir.stat.gid == 0
+          - not routing_dir.stat.wgrp
+          - not routing_dir.stat.woth
+    - name: Inspect dedicated drop-in
+      ansible.builtin.stat:
+        path: /etc/systemd/system/gway-mcp-gateway.service.d/80-node-routing.conf
+        follow: false
+      register: routing_old
+    - name: Reject unsafe existing drop-in
+      ansible.builtin.assert:
+        that:
+          - routing_old.stat.isreg
+          - routing_old.stat.uid == 0
+          - routing_old.stat.gid == 0
+          - routing_old.stat.mode == '0644'
+          - routing_old.stat.nlink == 1
+      when: routing_old.stat.exists
+    - name: Snapshot previous drop-in
+      ansible.builtin.slurp:
+        src: /etc/systemd/system/gway-mcp-gateway.service.d/80-node-routing.conf
+      register: routing_original
+      no_log: true
+      when: routing_old.stat.exists
+    - name: Read actual running mode before change
+      ansible.builtin.command:
+        argv: [/usr/bin/python3, "{{ playbook_dir }}/../../scripts/watchtower-routing-probe.py"]
+      register: routing_before
+      changed_when: false
+    - name: Refuse unmanaged content or inconsistent running mode
+      ansible.builtin.assert:
+        that:
+          - routing_before.stdout in ['legacy', 'canonical-with-aliases', 'canonical']
+          - not routing_old.stat.exists or (routing_original.content | default('') | b64decode) == ('[Service]\nEnvironment=GWAY_MCP_NODE_ROUTING=' + routing_before.stdout + '\n')
+          - routing_old.stat.exists or routing_before.stdout == 'legacy'
+    - name: Activate routing mode transaction
+      block:
+        - name: Persist selected mode in dedicated drop-in
+          ansible.builtin.copy:
+            content: "[Service]\nEnvironment=GWAY_MCP_NODE_ROUTING={{ mcp_routing_mode | default('legacy') }}\n"
+            dest: /etc/systemd/system/gway-mcp-gateway.service.d/80-node-routing.conf
+            owner: root
+            group: root
+            mode: '0644'
+          register: routing_change
+          when: routing_old.stat.exists or (mcp_routing_mode | default('legacy')) != 'legacy'
+        - name: Reload units and restart only gateway when changed
+          ansible.builtin.systemd:
+            daemon_reload: true
+            name: gway-mcp-gateway.service
+            state: restarted
+          when: routing_change.changed
+        - name: Verify gateway and effective mode
+          ansible.builtin.command:
+            argv: [/usr/bin/python3, "{{ playbook_dir }}/../../scripts/watchtower-routing-probe.py", "{{ mcp_routing_mode | default('legacy') }}"]
+          register: routing_health
+          retries: 5
+          delay: 1
+          until: routing_health.rc == 0
+          changed_when: false
+      rescue:
+        - name: Restore exact previous managed drop-in
+          ansible.builtin.copy:
+            content: "{{ routing_original.content | b64decode }}"
+            dest: /etc/systemd/system/gway-mcp-gateway.service.d/80-node-routing.conf
+            owner: root
+            group: root
+            mode: '0644'
+          when: routing_old.stat.exists
+        - name: Remove only newly created drop-in
+          ansible.builtin.file:
+            path: /etc/systemd/system/gway-mcp-gateway.service.d/80-node-routing.conf
+            state: absent
+          when: not routing_old.stat.exists
+        - name: Reload restored configuration and restart only gateway
+          ansible.builtin.systemd:
+            daemon_reload: true
+            name: gway-mcp-gateway.service
+            state: restarted
+          when: routing_change.changed | default(false) or routing_change.failed | default(false)
+        - name: Verify restored gateway and previous mode
+          ansible.builtin.command:
+            argv: [/usr/bin/python3, "{{ playbook_dir }}/../../scripts/watchtower-routing-probe.py", "{{ routing_before.stdout }}"]
+          register: routing_restored
+          retries: 5
+          delay: 1
+          until: routing_restored.rc == 0
+          changed_when: false
+        - name: Fail transaction after verified rollback
+          ansible.builtin.fail:
+            msg: Routing activation failed; previous drop-in and running mode restored.

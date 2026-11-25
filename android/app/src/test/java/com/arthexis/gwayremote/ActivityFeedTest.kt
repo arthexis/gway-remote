@@ -29,11 +29,27 @@ class ActivityFeedTest {
     }
 
     @Test fun isolatedCanaryOriginNeverFallsBack() {
-        assertEquals("https://remote.arthexis.com/api/feed/events?limit=20", feedTarget(PRODUCTION_PACKAGE, null).toString())
+        assertEquals("https://remote.arthexis.com/api/v1/feed/events?limit=20", feedTarget(PRODUCTION_PACKAGE, null).toString())
         assertEquals("https://127.0.0.1:18443/api/feed/events?limit=20&before=7", feedTarget(CANARY_PACKAGE, 7).toString())
         assertTrue(runCatching { feedOrigin("com.other.app") }.isFailure)
         assertTrue(runCatching { feedTarget(CANARY_PACKAGE, 0) }.isFailure)
         assertTrue(runCatching { loadCanaryCertificate(java.io.File("/nonexistent/canary-cert.der")) }.isFailure)
+    }
+
+    @Test fun mobileKeyUsesConfiguredHttpsOriginWithoutCanaryFallback() {
+        assertEquals("https://example.test:8443/api/v1/feed/events?limit=20&before=9",
+            feedTarget(PRODUCTION_PACKAGE, 9, "https://example.test:8443/").toString())
+        assertEquals("https://127.0.0.1:18443/api/feed/events?limit=20",
+            feedTarget(CANARY_PACKAGE, null, "https://example.test").toString())
+        for (bad in listOf("http://example.test", "https://user@example.test", "https://example.test/x",
+            "https://example.test?q=1", "https://example.test/#fragment")) {
+            assertTrue(runCatching { feedTarget(PRODUCTION_PACKAGE, null, bad) }.isFailure)
+        }
+        assertTrue(validMobileFeedKey("legacy-mobile-key"))
+        assertTrue(validMobileFeedKey("gwymob1_" + "a".repeat(24) + "_" + "b".repeat(43)))
+        assertFalse(validMobileFeedKey("bad\nheader"))
+        assertFalse(validMobileFeedKey(" "))
+        assertFalse(validMobileFeedKey("x".repeat(154)))
     }
 
     @Test fun malformedPageIsRejected() {

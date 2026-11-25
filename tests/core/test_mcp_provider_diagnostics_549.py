@@ -183,6 +183,44 @@ class ProviderDoctorTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "invalid_catalog_file"):
                 load_watchtower_catalog(path)
 
+    def test_canonical_multinode_snapshot_and_legacy_aliases(self):
+        value = snapshot()
+        for row in value["tools"]:
+            row.update(node=None, nodes=["gway-001", "gway-004"], legacy_alias=False)
+        value["tools"].append(dict(value["tools"][0], name="gway_004_fixture__lookup",
+                                   node="gway-004", nodes=["gway-004"], legacy_alias=True))
+        value["count"] = len(value["tools"])
+        with tempfile.TemporaryDirectory() as temp:
+            path = Path(temp) / "catalog.json"
+            path.write_text(json.dumps(value))
+            parsed = load_watchtower_catalog(path)
+            for node in ("gway-001", "gway-004"):
+                report = check_provider("fixture", node=node, watchtower_catalog=parsed,
+                                        discover=discovered([registration()]), list_providers=listed)
+                self.assertEqual(report["watchtower"]["state"], "matches_snapshot")
+            report = check_provider("fixture", node="gway-999", watchtower_catalog=parsed,
+                                    discover=discovered([registration()]), list_providers=listed)
+            self.assertEqual(report["watchtower"]["state"], "differs_snapshot")
+            for changes in ({"nodes": []}, {"node": "gway-001"},
+                            {"nodes": ["gway-004", "gway-001"]}, {"legacy_alias": True}):
+                bad = json.loads(json.dumps(value))
+                bad["tools"][0].update(changes)
+                path.write_text(json.dumps(bad))
+                with self.assertRaisesRegex(ValueError, "invalid_catalog_schema"):
+                    load_watchtower_catalog(path)
+
+    def test_legacy_remote_node_qualified_snapshot(self):
+        value = snapshot(node="gway-004")
+        for row in value["tools"]:
+            row["name"] = "gway_004_" + row["name"]
+        with tempfile.TemporaryDirectory() as temp:
+            path = Path(temp) / "catalog.json"
+            path.write_text(json.dumps(value))
+            parsed = load_watchtower_catalog(path)
+            report = check_provider("fixture", node="gway-004", watchtower_catalog=parsed,
+                                    discover=discovered([registration()]), list_providers=listed)
+            self.assertEqual(report["watchtower"]["state"], "matches_snapshot")
+
     def test_no_installation_or_tool_call_in_diagnosis(self):
         with patch("gway_remote.mcp_node_providers.provider_call") as invocation:
             report = check_provider("fixture", node="gway-001",

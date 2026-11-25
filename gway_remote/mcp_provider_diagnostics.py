@@ -58,10 +58,11 @@ def load_watchtower_catalog(path):
             or value["count"] != len(value["tools"])):
         raise ValueError("invalid_catalog_schema")
     seen = set()
+    base_fields = {"name", "origin", "node", "source",
+                   "classification", "required_scope"}
     for tool in value["tools"]:
         if (type(tool) is not dict
-                or set(tool) != {"name", "origin", "node", "source",
-                                 "classification", "required_scope"}
+                or set(tool) not in (base_fields, base_fields | {"nodes", "legacy_alias"})
                 or type(tool["name"]) is not str
                 or not 0 < len(tool["name"]) <= 128
                 or tool["name"] in seen
@@ -70,12 +71,31 @@ def load_watchtower_catalog(path):
                 or tool["required_scope"] != "gway:" + tool["classification"]):
             raise ValueError("invalid_catalog_schema")
         seen.add(tool["name"])
+        extended = "nodes" in tool
         if tool["origin"] == "builtin":
-            if tool["node"] is not None or tool["source"] is not None:
+            if extended or tool["node"] is not None or tool["source"] is not None:
                 raise ValueError("invalid_catalog_schema")
-        elif (type(tool["node"]) is not str or not tool["node"]
-              or type(tool["source"]) is not str or not tool["source"]
-              or not tool["name"].startswith(tool["source"] + "__")):
+            continue
+        source = tool["source"]
+        if type(source) is not str or not _SOURCE_ID.fullmatch(source):
+            raise ValueError("invalid_catalog_schema")
+        node = tool["node"]
+        if extended:
+            nodes = tool["nodes"]
+            alias = tool["legacy_alias"]
+            if (type(nodes) is not list or not nodes
+                    or any(type(item) is not str or not item for item in nodes)
+                    or nodes != sorted(set(nodes))
+                    or node != (nodes[0] if len(nodes) == 1 else None)
+                    or type(alias) is not bool
+                    or (alias and (len(nodes) != 1 or node == "gway-001"))):
+                raise ValueError("invalid_catalog_schema")
+            prefix = node.replace("-", "_") + "_" + source if alias else source
+        else:
+            if type(node) is not str or not node:
+                raise ValueError("invalid_catalog_schema")
+            prefix = source if node == "gway-001" else node.replace("-", "_") + "_" + source
+        if not tool["name"].startswith(prefix + "__"):
             raise ValueError("invalid_catalog_schema")
     return value
 
@@ -90,9 +110,16 @@ def _watchtower_compare(snapshot, source_id, node, advertised):
     for row in snapshot["tools"]:
         if row["source"] != source_id:
             continue
-        if row["node"] != node or row["name"] in observed:
+        if row.get("legacy_alias") or node not in row.get("nodes", [row["node"]]):
+            continue
+        name = row["name"]
+        if "nodes" not in row and node != "gway-001":
+            prefix = node.replace("-", "_") + "_"
+            if name.startswith(prefix):
+                name = name[len(prefix):]
+        if name in observed:
             return {"state": "differs_snapshot", "evidence": "caller_supplied_unverified"}
-        observed[row["name"]] = row["required_scope"]
+        observed[name] = row["required_scope"]
     return {"state": "matches_snapshot" if expected == observed else "differs_snapshot",
             "evidence": "caller_supplied_unverified", "expected_count": len(expected),
             "observed_count": len(observed)}

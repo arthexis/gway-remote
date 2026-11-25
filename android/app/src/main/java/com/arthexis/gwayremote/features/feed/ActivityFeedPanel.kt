@@ -8,7 +8,6 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
-import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import com.arthexis.gwayremote.ui.components.ModuleActions
 import com.arthexis.gwayremote.ui.components.ModuleNotice
@@ -18,45 +17,21 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 @Composable
-internal fun FeedCredentialSettings(current: String, onSave: (String) -> Unit) {
-    var draft by remember(current) { mutableStateOf("") }
-    var feedback by remember(current) { mutableStateOf("") }
-    Text("Activity Feed", style = MaterialTheme.typography.titleMedium)
-    Text(if (current.isBlank()) "Sin credencial de lectura" else "Credencial de lectura configurada")
-    Text("Usa un Bearer gway:read de Watchtower; no el token de operaciones.")
-    OutlinedTextField(draft, { draft = it }, label = { Text("Bearer de lectura") },
-        visualTransformation = PasswordVisualTransformation(), singleLine = true,
-        modifier = Modifier.fillMaxWidth())
-    ModuleActions {
-        Button(onClick = {
-            if (validFeedToken(draft.trim())) {
-                try { onSave(draft.trim()); draft = ""; feedback = "Credencial guardada" }
-                catch (_: Exception) { feedback = "No se pudo guardar la credencial" }
-            } else feedback = "Formato de credencial inválido"
-        }, enabled = draft.isNotBlank()) { Text("Guardar acceso al feed") }
-        if (current.isNotBlank()) OutlinedButton(onClick = {
-            try { onSave(""); draft = ""; feedback = "Acceso eliminado" }
-            catch (_: Exception) { feedback = "No se pudo eliminar el acceso" }
-        }) { Text("Eliminar acceso al feed") }
-    }
-    ModuleNotice(feedback)
-}
-
-@Composable
-internal fun ActivityFeedPanel(token: String, onOpenSettings: () -> Unit, onNavigate: (String) -> Unit) {
+internal fun ActivityFeedPanel(endpoint: String, token: String, onOpenSettings: () -> Unit, onNavigate: (String) -> Unit) {
     val context = LocalContext.current
-    val cache = remember(context) { FeedCache(context.applicationContext) }
-    val repository = remember(context) { FeedRepository(context.applicationContext) }
+    val cache = remember(context, endpoint) { FeedCache(context.applicationContext, endpoint) }
+    val repository = remember(context, endpoint) { FeedRepository(context.applicationContext, endpoint) }
     val isCanary = context.packageName == CANARY_PACKAGE
+    val configured = !isCanary && validMobileFeedKey(token) && runCatching { mobileFeedOrigin(endpoint) }.isSuccess
     val scope = rememberCoroutineScope()
-    var state by remember(token) { mutableStateOf(FeedState()) }
-    var category by remember(token) { mutableStateOf<String?>(null) }
-    var busy by remember(token) { mutableStateOf(validFeedToken(token)) }
-    var offline by remember(token) { mutableStateOf(false) }
-    var notice by remember(token) { mutableStateOf<String?>(null) }
+    var state by remember(endpoint, token) { mutableStateOf(FeedState()) }
+    var category by remember(endpoint, token) { mutableStateOf<String?>(null) }
+    var busy by remember(endpoint, token) { mutableStateOf(configured) }
+    var offline by remember(endpoint, token) { mutableStateOf(false) }
+    var notice by remember(endpoint, token) { mutableStateOf<String?>(null) }
 
     suspend fun refresh(fresh: Boolean) {
-        if (!validFeedToken(token) || busy) return
+        if (!configured || busy) return
         if (!fresh && (!state.more || state.next == null)) return
         busy = true
         try {
@@ -86,8 +61,8 @@ internal fun ActivityFeedPanel(token: String, onOpenSettings: () -> Unit, onNavi
         } finally { busy = false }
     }
 
-    LaunchedEffect(token) {
-        if (validFeedToken(token)) {
+    LaunchedEffect(endpoint, token) {
+        if (configured) {
             val saved = withContext(Dispatchers.IO) { cache.read(token) }
             if (saved != null) { state = saved; offline = true }
             busy = false
@@ -95,10 +70,10 @@ internal fun ActivityFeedPanel(token: String, onOpenSettings: () -> Unit, onNavi
         }
     }
     if (isCanary) Text("Activity Feed · CANARY (USB)", style = MaterialTheme.typography.labelMedium)
-    if (!validFeedToken(token)) {
+    if (!configured) {
         Text("Activity Feed", style = MaterialTheme.typography.titleMedium)
-        ModuleNotice("Configura acceso de lectura para ver la actividad.")
-        OutlinedButton(onClick = onOpenSettings) { Text("Configurar feed") }
+        ModuleNotice(if (isCanary) "Feed aislado: requiere prueba USB autorizada." else "Configura la API Key y el endpoint HTTPS de GWay Remote.")
+        if (!isCanary) OutlinedButton(onClick = onOpenSettings) { Text("Configuración") }
     } else {
         FeedContent(state, category, busy, offline, notice,
             onCategory = { category = it },
