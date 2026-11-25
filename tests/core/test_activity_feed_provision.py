@@ -80,8 +80,31 @@ class ProvisionTest(TestCase):
             if action=="status": return {"configured":True,"principal":ROOT,"credential_id":old}
             if action=="issue": return {"principal":ROOT,"credential":TOKEN}
             if action=="install": return {"configured":True,"principal":ROOT,"credential_id":CHILD,"delivered":True}
-            return {"revoked":True}
+            return {"verified":True}
         result=p.provision("gway-001",["arthexis/gway-remote"],30,child=child,read=lambda:{ROOT:policy},
                            save=lambda grants:self.fail("rotation must preserve grant"))
         self.assertTrue(result["rotation"])
-        self.assertEqual(calls,[("status",None,None),("issue",ROOT,None),("install",ROOT,None),("revoke",None,old)])
+        self.assertEqual(calls,[("status",None,None),("check-child",ROOT,old),("issue",ROOT,None),("install",ROOT,None),("revoke",ROOT,old)])
+
+    def test_revocation_checks_actual_registry_lineage_and_scope(self):
+        from gway_remote.mcp_bearer import BearerRegistry
+        with TemporaryDirectory() as temp:
+            registry=BearerRegistry(Path(temp)/"auth.sqlite")
+            root=registry.issue(scope="gway:feed-publish",operator_approved=True)
+            parent=root.split("_",2)[1]
+            other=registry.issue(scope="gway:feed-publish",operator_approved=True)
+            other_id=other.split("_",2)[1]
+            child=registry.issue(scope="gway:feed-publish",parent_id=parent)
+            key=child.split("_",2)[1]
+            execute=registry.issue(scope="gway:execute",operator_approved=True)
+            execute_id=execute.split("_",2)[1]
+            for principal, target in ((parent,parent),(other_id,key),(parent,execute_id)):
+                with self.assertRaises(PermissionError):
+                    p.check_child(registry,principal,target,revoke=True)
+            self.assertTrue(registry.verify(execute,required_scope="gway:execute"))
+            self.assertTrue(registry.verify(child,required_scope="gway:feed-publish"))
+            self.assertEqual(p.check_child(registry,parent,key),{"verified":True})
+            p.check_child(registry,parent,key,revoke=True)
+            self.assertFalse(registry.verify(child,required_scope="gway:feed-publish"))
+            self.assertTrue(registry.verify(root,required_scope="gway:feed-publish"))
+            self.assertTrue(registry.verify(other,required_scope="gway:feed-publish"))

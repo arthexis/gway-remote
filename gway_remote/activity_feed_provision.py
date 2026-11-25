@@ -6,7 +6,6 @@ import os
 from pathlib import Path
 import pwd
 import re
-import stat
 import select
 import signal
 import time
@@ -18,7 +17,6 @@ from .activity_feed_http import GRANT_PATH, load_feed_grants, validate_grants
 from .mcp_bearer import BearerRegistry, _lookup
 
 DATABASE = Path("/var/lib/gway-mcp-auth/credentials.sqlite3")
-RUNTIME = "/opt/gway-mcp/current/run.py"
 AUTH = "gway-mcp-auth"
 GATEWAY = "gway-mcp-gateway"
 TYPES = ["agentops.accepted","agentops.finished","agentops.codex_failed",
@@ -86,8 +84,27 @@ def _child(account, action, payload):
             os.waitpid(pid,0)
 
 
+def check_child(registry, principal, key, *, revoke=False):
+    """A node-reported ID may never revoke a root or another producer."""
+    if not ID.fullmatch(principal) or not ID.fullmatch(key) or key == principal:
+        raise PermissionError("invalid delegated producer identity")
+    with registry._db() as db:
+        db.execute("BEGIN IMMEDIATE")
+        row = db.execute(
+            "SELECT c.scope, d.parent_id, p.scope FROM credentials c "
+            "JOIN delegations d ON d.key_id=c.key_id "
+            "JOIN credentials p ON p.key_id=d.parent_id WHERE c.key_id=?",
+            (key,)).fetchone()
+        if row != ("gway:feed-publish", principal, "gway:feed-publish"):
+            raise PermissionError("credential does not belong to this producer")
+        if revoke:
+            db.execute("UPDATE credentials SET revoked_at=? WHERE key_id=? AND revoked_at IS NULL",
+                       (int(time.time()), key))
+    return {"verified":True}
+
+
 def internal(action, payload):
-    account = AUTH if action in ("issue","revoke") else GATEWAY
+    account = AUTH if action in ("issue","revoke","check-child") else GATEWAY
     if os.geteuid() != pwd.getpwnam(account).pw_uid:
         raise PermissionError("incorrect service owner")
     if action == "issue":
@@ -114,10 +131,11 @@ def internal(action, payload):
                 registry.revoke(principal)
             raise
         return {"principal":principal,"credential":token}
-    if action == "revoke":
-        if set(payload) != {"id"} or not ID.fullmatch(payload["id"]):
-            raise ValueError("invalid revocation")
-        return {"revoked":BearerRegistry(DATABASE).revoke(payload["id"])}
+    if action in ("revoke","check-child"):
+        if set(payload) != {"id","principal"}:
+            raise ValueError("invalid delegated credential request")
+        return check_child(BearerRegistry(DATABASE),payload["principal"],payload["id"],
+                           revoke=action=="revoke")
     from .watchtower_exec_service import load_service
     from .watchtower_exec_transport import pinned_transport
     if action == "status" and set(payload) == {"node"}:
@@ -166,6 +184,9 @@ def provision(node, repositories, days, *, child=_child, read=load_feed_grants, 
         raise PermissionError("existing grant differs; review policy separately")
     if old.get("configured") and (old.get("principal")!=principal or not ID.fullmatch(old.get("credential_id",""))):
         raise PermissionError("existing node binding differs")
+    if old.get("configured"):
+        if child(AUTH,"check-child",{"id":old["credential_id"],"principal":principal}) != {"verified":True}:
+            raise PermissionError("existing credential lineage unverified")
     issued = child(AUTH,"issue",{"principal":principal,"days":days})
     from .activity_feed_provision_node import TOKEN
     token = TOKEN.fullmatch(issued["credential"])
@@ -184,10 +205,10 @@ def provision(node, repositories, days, *, child=_child, read=load_feed_grants, 
     except BaseException:
         # The node may have committed the pointer before losing its ACK.
         # Keep the stable grant/root for retry; revoke only the uncertain child.
-        child(AUTH,"revoke",{"id":key})
+        child(AUTH,"revoke",{"id":key,"principal":root})
         raise
     if old.get("configured") and old["credential_id"] != key:
-        child(AUTH,"revoke",{"id":old["credential_id"]})
+        child(AUTH,"revoke",{"id":old["credential_id"],"principal":root})
     return {"node":node,"configured":True,"scope":"gway:feed-publish",
             "delivery":"verified","rotation":bool(old.get("configured"))}
 
