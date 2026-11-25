@@ -33,6 +33,7 @@ SUITE = ",".join((
 SUITES = {
     "baseline": (SUITE, 6),
     "quotations": ("com.arthexis.gwayremote.OdooQuotationRefreshTest", 5),
+    "opportunities": ("com.arthexis.gwayremote.OdooOpportunityCopyTest", 2),
 }
 FILES = ("gway-remote-canary.apk", "gway-remote-canary-test.apk")
 SHA = re.compile(r"[0-9a-f]{40}\Z")
@@ -272,7 +273,7 @@ def instrument(serial, *, wake=False, suite="baseline"):
 def state_path(suite="baseline"):
     if suite not in SUITES:
         raise CanaryError("unknown_test_suite")
-    filename = "android-canary.json" if suite == "baseline" else "android-canary-quotations.json"
+    filename = "android-canary.json" if suite == "baseline" else f"android-canary-{suite}.json"
     return Path.home() / ".local/state/gway-remote" / filename
 
 

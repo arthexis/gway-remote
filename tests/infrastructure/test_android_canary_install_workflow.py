@@ -62,7 +62,9 @@ class CanaryInstallWorkflowTests(unittest.TestCase):
         self.assertIn("--install --allow-canary-reset --wake", text)
         self.assertIn('r.get("source_sha") == os.environ["EXPECTED_SHA"]', text)
         self.assertIn('str(r.get("run_id")) == os.environ["ARTIFACT_RUN"]', text)
-        self.assertIn("n >= 6", text)
+        self.assertIn('"baseline": 6', text)
+        self.assertIn('"quotations": 5', text)
+        self.assertIn('"opportunities": 2', text)
         self.assertLess(text.index("Install ONLY isolated canary"), text.index("Run pinned hermetic Compose tests"))
 
     def test_named_quotation_suite_is_explicit_and_receipt_bound(self):
@@ -70,9 +72,9 @@ class CanaryInstallWorkflowTests(unittest.TestCase):
         self.assertIn("compose_suite:", text)
         self.assertIn("default: baseline", text)
         self.assertIn("COMPOSE_SUITE: ${{ inputs.compose_suite }}", text)
-        self.assertIn('case "$COMPOSE_SUITE" in baseline|quotations)', text)
+        self.assertIn('case "$COMPOSE_SUITE" in baseline|quotations|opportunities)', text)
         self.assertIn('--suite "$COMPOSE_SUITE"', text)
         self.assertIn('r.get("suite") == os.environ["COMPOSE_SUITE"]', text)
-        self.assertIn("else n >= 5", text)
+        self.assertIn('"opportunities": 2', text)
         self.assertIn('no) RESULT=$(python3 -m gway_remote.android_canary_field --pr "$PR_NUMBER" --install --wake --suite "$COMPOSE_SUITE")', text)
         self.assertIn('RESET_CANARY_ONLY) RESULT=$(python3 -m gway_remote.android_canary_field --pr "$PR_NUMBER" --install --allow-canary-reset --wake --suite "$COMPOSE_SUITE")', text)

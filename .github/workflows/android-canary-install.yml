@@ -43,6 +43,7 @@ on:
         options:
           - baseline
           - quotations
+          - opportunities
         default: baseline
         required: true
 
@@ -155,13 +156,13 @@ jobs:
           set -euo pipefail
           # Default preserves canary data; only the explicit reset selection
           # permits package replacement after a recognized signature conflict.
-          case "$COMPOSE_SUITE" in baseline|quotations) ;; *) exit 1 ;; esac
+          case "$COMPOSE_SUITE" in baseline|quotations|opportunities) ;; *) exit 1 ;; esac
           case "$CANARY_RESET" in
             no) RESULT=$(python3 -m gway_remote.android_canary_field --pr "$PR_NUMBER" --install --wake --suite "$COMPOSE_SUITE") ;;
             RESET_CANARY_ONLY) RESULT=$(python3 -m gway_remote.android_canary_field --pr "$PR_NUMBER" --install --allow-canary-reset --wake --suite "$COMPOSE_SUITE") ;;
             *) exit 1 ;;
           esac
-          COUNT=$(printf '%s' "$RESULT" | python3 -c 'import json, os, sys; r=json.load(sys.stdin); assert r.get("status") == "passed" and r.get("source_sha") == os.environ["EXPECTED_SHA"] and str(r.get("run_id")) == os.environ["ARTIFACT_RUN"] and r.get("pr") == int(os.environ["PR_NUMBER"]), "Canary field receipt not accepted"; n=r.get("tests_passed"); assert r.get("suite") == os.environ["COMPOSE_SUITE"], "Unexpected test suite"; assert type(n) is int and (n >= 6 if os.environ["COMPOSE_SUITE"] == "baseline" else n >= 5), "Compose suite incomplete"; print(n)')
+          COUNT=$(printf '%s' "$RESULT" | python3 -c 'import json, os, sys; r=json.load(sys.stdin); assert r.get("status") == "passed" and r.get("source_sha") == os.environ["EXPECTED_SHA"] and str(r.get("run_id")) == os.environ["ARTIFACT_RUN"] and r.get("pr") == int(os.environ["PR_NUMBER"]), "Canary field receipt not accepted"; n=r.get("tests_passed"); assert r.get("suite") == os.environ["COMPOSE_SUITE"], "Unexpected test suite"; assert type(n) is int and n >= {"baseline": 6, "quotations": 5, "opportunities": 2}[os.environ["COMPOSE_SUITE"]], "Compose suite incomplete"; print(n)')
           echo "### Physical Compose acceptance on gway-001" >> "$GITHUB_STEP_SUMMARY"
           echo "Source PR: #$PR_NUMBER; revision: $EXPECTED_SHA" >> "$GITHUB_STEP_SUMMARY"
           echo "Suite: $COMPOSE_SUITE" >> "$GITHUB_STEP_SUMMARY"
