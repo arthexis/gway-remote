@@ -104,11 +104,34 @@ class DeviceUsbProvisionTests(unittest.TestCase):
             patch.object(provision, "pipe_to_canary") as handoff,
             patch.object(provision, "_private_command") as private,
         ):
-            with self.assertRaisesRegex(provision.ProvisionError, "usb_mobile_provisioning_failed"):
+            with self.assertRaisesRegex(provision.ProvisionError, "usb_mobile_provisioning_failed:android_https"):
                 provision.run(pr=670, sha="a"*40, run_id=123, directory=Path("/safe"))
             registry.revoke.assert_called_once_with("a"*24)
             handoff.assert_called_once()
             private.assert_called_with("usb-serial", "rm", "-f", provision.PROVISION_FILE)
+
+    def test_wake_occurs_inside_usb_guard(self):
+        from contextlib import contextmanager
+        events = []
+        @contextmanager
+        def guard(serial):
+            events.append("guard_enter")
+            try:
+                yield
+            finally:
+                events.append("guard_exit")
+        def ready(*args, **kwargs):
+            events.append("ready")
+            raise provision.field.CanaryError("screen_not_awake")
+        with (patch.object(provision, "validate_artifact"),
+              patch.object(provision, "DeviceCredentials"),
+              patch.object(provision.field, "usb", return_value="usb"),
+              patch.object(provision.field, "keep_usb_screen_on", side_effect=guard),
+              patch.object(provision.field, "device_ready", side_effect=ready),
+              patch.object(provision, "_private_command")):
+            with self.assertRaisesRegex(provision.ProvisionError, "usb_mobile_provisioning_failed:device_ready"):
+                provision.run(pr=670, sha="a"*40, run_id=123, directory=Path("/safe"))
+        self.assertEqual(events, ["guard_enter", "ready", "guard_exit"])
 
     def test_full_success_exposes_only_safe_receipt(self):
         record = {"id": "b"*24,
