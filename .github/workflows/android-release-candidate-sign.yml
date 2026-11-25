@@ -88,9 +88,63 @@ jobs:
           AAPT="$SDK/build-tools/35.0.0/aapt"
           BADGING=$("$AAPT" dump badging "$SRC/gway-remote-unsigned.apk")
           grep -Fq "package: name='com.arthexis.gwayremote' versionCode='$APPROVED_VERSION' versionName='0.2.$APPROVED_VERSION'" <<< "$BADGING"
-          ! grep -q '^application-debuggable' <<< "$BADGING"
+          if grep -q '^application-debuggable' <<< "$BADGING"; then exit 1; fi
           XML=$("$AAPT" dump xmltree "$SRC/gway-remote-unsigned.apk" AndroidManifest.xml)
-          ! grep -Eq 'android:(debuggable|testOnly).*0xffffffff' <<< "$XML"
+          if grep -E 'android:(debuggable|testOnly)' <<< "$XML" | grep -Ev '0x0+
+          [[ "$(gh api "repos/$GITHUB_REPOSITORY/branches/main" --jq .commit.sha)" == "$WORKFLOW_SHA" ]]
+          # Independent verification of the previously published production signer.
+          [[ "$REFERENCE_TAG" =~ ^android-v0[.]2[.][1-9][0-9]*$ && "$REFERENCE_DIGEST" =~ ^[0-9a-f]{64}$ ]]
+          mkdir -m 700 "$RUNNER_TEMP/rc-reference"
+          gh release download "$REFERENCE_TAG" --repo "$GITHUB_REPOSITORY" --pattern gway-remote.apk --dir "$RUNNER_TEMP/rc-reference"
+          REF="$RUNNER_TEMP/rc-reference/gway-remote.apk"
+          [[ "$(sha256sum "$REF" | cut -d' ' -f1)" == "$REFERENCE_DIGEST" ]]
+          REPORT=$("$SDK/build-tools/35.0.0/apksigner" verify --verbose --print-certs "$REF")
+          REF_CERT=$(printf '%s\n' "$REPORT" | sed -nE 's/^Signer #1 certificate SHA-256 digest: ([0-9a-fA-F]{64})$/\1/p')
+          [[ "${REF_CERT,,}" == "$PINNED_CERT" ]]
+          [[ "$(grep -Ec '^Signer #[0-9]+ certificate SHA-256 digest:' <<< "$REPORT")" == 1 ]]
+          # Only a public, pinned transport certificate reaches the runner.
+          [[ "$TRANSPORT_CERT_PIN" =~ ^[0-9a-f]{64}$ && -n "$TRANSPORT_CERT_B64" ]]
+          printf '%s' "$TRANSPORT_CERT_B64" | base64 --decode > "$RUNNER_TEMP/rc-transport.pem"
+          [[ "$(openssl x509 -in "$RUNNER_TEMP/rc-transport.pem" -outform DER | sha256sum | cut -d' ' -f1)" == "$TRANSPORT_CERT_PIN" ]]
+          openssl x509 -in "$RUNNER_TEMP/rc-transport.pem" -checkend 3600 -noout
+      - name: Sign only the verified immutable candidate
+        shell: bash
+        env:
+          KEYSTORE: ${{ secrets.GWAY_APK_KEYSTORE_BASE64 }}
+          STORE_PASSWORD: ${{ secrets.GWAY_APK_STORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.GWAY_APK_KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.GWAY_APK_KEY_PASSWORD }}
+        run: |
+          set -euo pipefail
+          umask 077
+          : "${KEYSTORE:?}" "${STORE_PASSWORD:?}" "${KEY_ALIAS:?}" "${KEY_PASSWORD:?}"
+          KEY=$(mktemp "$RUNNER_TEMP/rc-key.XXXXXX")
+          RAW=$(mktemp -d "$RUNNER_TEMP/rc-raw.XXXXXX")
+          trap 'rm -f "$KEY" "$RAW/gway-remote.apk" "$RAW/gway-remote.apk.idsig"; rmdir "$RAW"' EXIT
+          printf '%s' "$KEYSTORE" | base64 --decode > "$KEY"
+          unset KEYSTORE
+          SRC="$RUNNER_TEMP/rc-input"
+          DEST="$RUNNER_TEMP/signed-release-candidate"
+          mkdir -m 700 "$DEST"
+          SDK="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-/usr/local/lib/android/sdk}}"
+          SIGNER="$SDK/build-tools/35.0.0/apksigner"
+          "$SIGNER" sign --ks "$KEY" --ks-key-alias "$KEY_ALIAS" --ks-pass env:STORE_PASSWORD --key-pass env:KEY_PASSWORD --out "$RAW/gway-remote.apk" "$SRC/gway-remote-unsigned.apk"
+          REPORT=$("$SIGNER" verify --verbose --print-certs "$RAW/gway-remote.apk")
+          CERT=$(printf '%s\n' "$REPORT" | sed -nE 's/^Signer #1 certificate SHA-256 digest: ([0-9a-fA-F]{64})$/\1/p')
+          [[ "${CERT,,}" == "$PINNED_CERT" ]]
+          [[ "$(grep -Ec '^Signer #[0-9]+ certificate SHA-256 digest:' <<< "$REPORT")" == 1 ]]
+          DIGEST=$(sha256sum "$RAW/gway-remote.apk" | cut -d' ' -f1)
+          openssl cms -encrypt -binary -aes-256-gcm -in "$RAW/gway-remote.apk" -outform DER -out "$DEST/gway-remote.apk.cms" -recip "$RUNNER_TEMP/rc-transport.pem" -keyopt rsa_padding_mode:oaep -keyopt rsa_oaep_md:sha256
+          CIPHER_DIGEST=$(sha256sum "$DEST/gway-remote.apk.cms" | cut -d' ' -f1)
+          jq --arg digest "$DIGEST" --arg cert "$PINNED_CERT" --arg cipher "$CIPHER_DIGEST" --arg transport "$TRANSPORT_CERT_PIN" --arg workflow "$WORKFLOW_SHA" --argjson artifact "$ARTIFACT_ID" --argjson run "$GITHUB_RUN_ID" '. + {apk_sha256:$digest, certificate_sha256:$cert, ciphertext_sha256:$cipher, transport_certificate_sha256:$transport, signing_workflow_sha:$workflow, unsigned_artifact_id:$artifact, signing_run_id:$run}' "$SRC/manifest.json" > "$DEST/manifest.json"
+          test ! -e "$DEST/gway-remote.apk"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: signed-release-candidate-${{ github.run_id }}
+          path: ${{ runner.temp }}/signed-release-candidate/
+          if-no-files-found: error
+          retention-days: 30
+ | grep -q .; then exit 1; fi
           [[ "$(gh api "repos/$GITHUB_REPOSITORY/branches/main" --jq .commit.sha)" == "$WORKFLOW_SHA" ]]
           # Independent verification of the previously published production signer.
           [[ "$REFERENCE_TAG" =~ ^android-v0[.]2[.][1-9][0-9]*$ && "$REFERENCE_DIGEST" =~ ^[0-9a-f]{64}$ ]]
