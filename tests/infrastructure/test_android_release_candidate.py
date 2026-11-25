@@ -90,3 +90,31 @@ class CandidateTests(unittest.TestCase):
                 self.assertTrue(ledger.record(self.c.candidate_id, "signed", {"digest":"c"*64}))
             finally:
                 ledger.close()
+
+    def test_dispatch_resume_and_uncertainty(self):
+        from unittest.mock import Mock
+        from gway_remote.android_release_candidate import CandidateLedger, dispatch_candidate
+        ledger = CandidateLedger(":memory:")
+        gate = Mock()
+        gate.api.return_value = {"commit":{"sha":self.c.source_sha}}
+        gate.create_run.return_value = 123
+        gate.await_dispatch_visibility.side_effect = RuntimeError("not visible")
+        try:
+            ledger.allocate(self.c, published_version=798, installed_version=799)
+            with self.assertRaisesRegex(RuntimeError, "not visible"):
+                dispatch_candidate(ledger, self.c, "built", gate=gate)
+            gate.await_dispatch_visibility.side_effect = None
+            self.assertEqual(dispatch_candidate(ledger, self.c, "built", gate=gate),123)
+            gate.create_run.assert_called_once()
+            gate.await_dispatch_visibility.assert_called_with("android-release-candidate.yml",123,self.c.source_sha)
+            ledger.record(self.c.candidate_id,"built",{"run_id":123,"artifact_id":234})
+            gate.create_run.side_effect = TimeoutError("uncertain")
+            with self.assertRaises(TimeoutError):
+                dispatch_candidate(ledger,self.c,"signed",artifact_id=234,build_run_id=123,gate=gate)
+            with self.assertRaisesRegex(ValueError,"dispatch_uncertain"):
+                dispatch_candidate(ledger,self.c,"signed",artifact_id=234,build_run_id=123,gate=gate)
+            self.assertEqual(gate.create_run.call_count,2)
+            with self.assertRaisesRegex(ValueError,"build_evidence_mismatch"):
+                dispatch_candidate(ledger,self.c,"signed",artifact_id=235,build_run_id=123,gate=gate)
+        finally:
+            ledger.close()
