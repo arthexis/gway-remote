@@ -152,3 +152,44 @@ class CandidateTests(unittest.TestCase):
                           ("apk_sha256","e"*64),("certificate_sha256","e"*64)):
             with self.assertRaises(ValueError):
                 plan_promotion(self.a,existing_release={**existing,key:value},**self.promote)
+
+    def test_reconcile_build_from_exact_run(self):
+        from dataclasses import asdict
+        from pathlib import Path
+        from unittest.mock import Mock
+        from gway_remote.android_release_candidate import CandidateLedger, dispatch_candidate, reconcile_artifact
+        import hashlib
+        import json
+        ledger = CandidateLedger(":memory:")
+        gate = Mock(OWNER="arthexis", REPO="arthexis/gway-remote")
+        artifact = b"unsigned candidate bytes"
+        digest = hashlib.sha256(artifact).hexdigest()
+        manifest = {**asdict(self.c),"repository":gate.REPO,"build_run_id":123,"unsigned_sha256":digest}
+        def api(path):
+            if path == "branches/main":
+                return {"commit":{"sha":self.c.source_sha}}
+            self.assertEqual(path,"actions/runs/123/artifacts?per_page=100")
+            return {"total_count":1,"artifacts":[{"name":"unsigned-release-candidate-123","id":234,"expired":False}]}
+        def download(run,name,directory):
+            self.assertEqual((run,name),(123,"unsigned-release-candidate-123"))
+            (Path(directory)/"gway-remote-unsigned.apk").write_bytes(artifact)
+            (Path(directory)/"manifest.json").write_text(json.dumps(manifest))
+        gate.api.side_effect = api
+        gate.download.side_effect = download
+        gate.create_run.return_value = 123
+        gate.wait_run.return_value = {"actor":{"login":"arthexis"},"triggering_actor":{"login":"arthexis"}}
+        try:
+            ledger.allocate(self.c,published_version=798,installed_version=799)
+            dispatch_candidate(ledger,self.c,"built",gate=gate)
+            manifest["source_tree"]="e"*40
+            with self.assertRaisesRegex(ValueError,"manifest_mismatch"):
+                reconcile_artifact(ledger,self.c,"built",gate=gate)
+            self.assertNotIn("built",ledger.read(self.c.candidate_id))
+            manifest["source_tree"]=self.c.source_tree
+            expected={"run_id":123,"artifact_id":234,"unsigned_sha256":digest}
+            self.assertEqual(reconcile_artifact(ledger,self.c,"built",gate=gate),expected)
+            self.assertEqual(reconcile_artifact(ledger,self.c,"built",gate=gate),expected)
+            gate.create_run.assert_called_once()
+            gate.wait_run.assert_called_with("android-release-candidate.yml",123,"workflow_dispatch",self.c.source_sha)
+        finally:
+            ledger.close()
