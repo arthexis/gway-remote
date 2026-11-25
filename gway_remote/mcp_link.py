@@ -119,7 +119,8 @@ def _serialized(method):
 class LinkFlow:
     """Ephemeral browser state; no token retained in session state."""
     def __init__(self, registry, *, client_id, redirect_uri, resource=RESOURCE):
-        if not client_id or not _safe_redirect(redirect_uri, redirect_uri):
+        from .mcp_bearer import PROBE_CLIENT
+        if not client_id or client_id == PROBE_CLIENT or not _safe_redirect(redirect_uri, redirect_uri):
             raise ValueError("pre_registered_https_redirect_required")
         if resource != RESOURCE:
             raise ValueError("unexpected_resource")
@@ -227,7 +228,8 @@ class LinkFlow:
 
     @_serialized
     def refresh(self, *, client_id, refresh_token, grant_type, resource=None):
-        if (client_id != self.client_id or resource not in (None, self.resource)
+        from .mcp_bearer import PROBE_CLIENT
+        if (client_id not in (self.client_id, PROBE_CLIENT) or resource not in (None, self.resource)
                 or grant_type != "refresh_token"):
             raise ValueError("invalid_grant")
         return self.registry.rotate_oauth_refresh(

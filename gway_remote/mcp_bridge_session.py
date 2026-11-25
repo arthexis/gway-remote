@@ -44,6 +44,16 @@ class SessionBridgeDispatch:
             raise PermissionError("expired or revoked session")
         if self.allowed_node(token, audience) is not True:
             raise PermissionError("node not authorized")
+        if scope == 'gway:health-probe' or operation in ('health_probe.start','health_probe.result','health_probe.diagnostic'):
+            if (scope != 'gway:health-probe' or audience != 'gway-001' or self.execution is None
+                    or operation not in ('health_probe.start','health_probe.result','health_probe.diagnostic')):
+                raise PermissionError('probe_scope_or_target_denied')
+            principal = self.verifier.health_probe_principal(token)
+            if envelope['principal'] != principal:
+                raise PermissionError('probe_principal_mismatch')
+            from .mcp_health_probe_execution import ProbeExecution
+            adapter = ProbeExecution(self.execution)
+            return {'health_probe.start':adapter.start,'health_probe.result':adapter.result,'health_probe.diagnostic':adapter.diagnostic}[operation](principal,args)
         # Execute requests are bound to the stable OAuth parent identity.
         if scope == "gway:execute":
             principal = self.verifier.execution_principal(token)

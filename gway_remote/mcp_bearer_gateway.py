@@ -416,6 +416,9 @@ class Handler(BaseHTTPRequestHandler):
         has_read = self.server.registry.verify(token)
         has_exec = self.server.registry.verify(token, required_scope="gway:execute")
         if not (has_read or has_exec):
+            if (getattr(self.server,'health_probe_enabled',False) is True
+                    and self.server.registry.verify(token,required_scope='gway:health-probe')):
+                return self._process_authenticated(token,False,False,probe=True)
             return self.reject(401)
         # Node audiences are resolved after validating each tool call, not
         # fixed to gway-001 for the lifetime of an entire HTTP request.
@@ -491,7 +494,7 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
-    def _process_authenticated(self, token, has_read, has_exec):
+    def _process_authenticated(self, token, has_read, has_exec, *, probe=False):
         if self.headers.get("Content-Type", "").split(";", 1)[0].strip().lower() != "application/json":
             return self.reject(415)
         if (self.headers.get("Transfer-Encoding") is not None
@@ -505,6 +508,26 @@ class Handler(BaseHTTPRequestHandler):
         if not 0 < length <= MAX_BODY:
             return self.reject(413)
         raw = self.rfile.read(length)
+        if probe:
+            if self.headers.get('MCP-Protocol-Version','2025-03-26')!='2025-03-26':
+                return self.reject(400)
+            from .mcp_health_probe_ingress import rpc
+            try:
+                response=rpc(self.server,token,json.loads(raw))
+            except (PermissionError,ValueError,RuntimeError,OSError,TypeError,KeyError):
+                return self.reject(403)
+            body=b'' if response is None else json.dumps(response,separators=(',',':')).encode()
+            if len(body)>8192:
+                return self.reject(502)
+            self.send_response(202 if response is None else 200)
+            if response is not None:
+                self.send_header('Content-Type','application/json')
+            self.send_header('MCP-Protocol-Version','2025-03-26')
+            self.send_header('Cache-Control','no-store')
+            self.send_header('Content-Length',str(len(body)))
+            self.end_headers()
+            if body:self.wfile.write(body)
+            return
         if not inspect_rpc(raw, self.server.approved_sources):
             return self.reject(403)
         # Only a valid read credential reaches here. Missing execute scope
@@ -899,7 +922,7 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
-def make_server(address, registry, upstream, backend_token, *, execution=None, bridge_sessions=None, bridge_transport=None, approved_sources=None, federation=None, lcd_sound_ingress_enabled=False, lcd_sound_dispatch=None, lcd_sound_grants_loader=None, activity_feed=None):
+def make_server(address, registry, upstream, backend_token, *, execution=None, bridge_sessions=None, bridge_transport=None, approved_sources=None, federation=None, lcd_sound_ingress_enabled=False, lcd_sound_dispatch=None, lcd_sound_grants_loader=None, activity_feed=None, health_probe_enabled=False):
     from urllib.parse import urlsplit
     parsed = urlsplit(upstream)
     if parsed.scheme != "http" or parsed.hostname != "127.0.0.1" or not parsed.port or parsed.path != "/mcp" or parsed.query or parsed.fragment or parsed.username or parsed.password:
@@ -920,6 +943,9 @@ def make_server(address, registry, upstream, backend_token, *, execution=None, b
             raise ValueError("invalid approved source policy")
     if type(lcd_sound_ingress_enabled) is not bool:
         raise ValueError("invalid LCD/Sound ingress activation")
+    if type(health_probe_enabled) is not bool:
+        raise ValueError('invalid probe activation')
+    server.health_probe_enabled=health_probe_enabled
     server.activity_feed = activity_feed
     server.lcd_sound_ingress_enabled = lcd_sound_ingress_enabled
     server.lcd_sound_dispatch = lcd_sound_dispatch
@@ -1041,7 +1067,8 @@ def main():
         with make_server(("127.0.0.1", args.port), verifier, args.upstream,
                          token, execution=execution, approved_sources=approved_sources,
                          federation=federation,
-                         lcd_sound_ingress_enabled=ingress_enabled, activity_feed=activity_feed, **options) as service:
+                         lcd_sound_ingress_enabled=ingress_enabled, activity_feed=activity_feed,
+                         health_probe_enabled=os.environ.get("GWAY_MCP_HEALTH_PROBE_ENABLED")=="1", **options) as service:
             service.serve_forever()
     finally:
         if started is not None:

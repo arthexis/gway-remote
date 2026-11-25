@@ -3,11 +3,13 @@
 import fcntl
 import json
 import os
+import re
 from pathlib import Path
 import stat
 import sys
 import tempfile
 import time
+import uuid
 from urllib.error import HTTPError, URLError
 from urllib.parse import urlencode
 from urllib.request import Request, urlopen, build_opener, HTTPRedirectHandler
@@ -28,7 +30,7 @@ def _private_parent(path):
         raise ValueError('unsafe credential directory')
 
 
-def _read_state(path):
+def _read_state(path, *, probe=False):
     _private_parent(path)
     fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
     with os.fdopen(fd, 'rb') as stream:
@@ -37,8 +39,12 @@ def _read_state(path):
                 or info.st_mode & 0o077 or not 0 < info.st_size <= 16384):
             raise ValueError('unsafe credential')
         state = json.loads(stream.read(16385))
+    return validate_state(state,probe=probe)
+
+
+def validate_state(state, *, probe=False):
     required = {'client_id', 'access_token', 'refresh_token', 'expires_at', 'refresh_state'}
-    if (type(state) is not dict or set(state) != required | {'parent_expires_at'}
+    if (type(state) is not dict or set(state) != required | {'parent_expires_at'} | ({'parent_id'} if probe else set())
             or any(type(state.get(k)) is not str or not state[k]
                    or len(state[k]) > 4096 or any(ord(c) <= 32 or ord(c) >= 127 for c in state[k])
                    for k in ('client_id', 'access_token', 'refresh_token'))
@@ -46,6 +52,8 @@ def _read_state(path):
             or type(state.get('parent_expires_at')) is not int
             or state.get('refresh_state') not in ('ready', 'uncertain')):
         raise ValueError('invalid credential')
+    if probe and (type(state['parent_id']) is not str or not re.fullmatch('[0-9a-f]{24}',state['parent_id']) or state['client_id']!='gway-health-probe-001' or not re.fullmatch(r'gwr_[0-9a-f]{24}_[A-Za-z0-9_-]{43}',state['access_token']) or not re.fullmatch(r'gwf_[0-9a-f]{24}_[A-Za-z0-9_-]{43}',state['refresh_token'])):
+        raise ValueError('invalid probe credential')
     return state
 
 
@@ -70,19 +78,23 @@ def _write_state(path, state):
             os.unlink(name)
 
 
-def access_token(path=TOKEN_FILE, *, opener=urlopen, now=time.time):
+def access_token(path=TOKEN_FILE, *, opener=urlopen, now=time.time, scope="gway:read", client=None):
     """Refresh with a durable, fail-closed marker before a one-use request.
 
     A crash or uncertain response requires explicit re-provisioning, never replay.
     """
     _private_parent(path)
-    lockfd = os.open(path.parent / '.oauth.lock', os.O_CREAT | os.O_RDWR | os.O_NOFOLLOW | os.O_NONBLOCK, 0o600)
+    lockfd = os.open(path.parent / ('.oauth.lock' if scope=='gway:read' else '.probe-oauth.lock'), os.O_CREAT | os.O_RDWR | os.O_NOFOLLOW | os.O_NONBLOCK, 0o600)
     try:
         info = os.fstat(lockfd)
         if not stat.S_ISREG(info.st_mode) or info.st_uid != os.geteuid() or info.st_mode & 0o077:
             raise ValueError('unsafe lock')
         fcntl.flock(lockfd, fcntl.LOCK_EX)
-        state = _read_state(path)
+        state = _read_state(path,probe=scope=='gway:health-probe')
+        if scope=='gway:health-probe' and state['parent_expires_at']<=int(now()):
+            raise ValueError('probe parent expired')
+        if client is not None and state['client_id']!=client:
+            raise ValueError('wrong observer client')
         if state['refresh_state'] != 'ready':
             raise RefreshUncertain()
         if state['expires_at'] > int(now()) + 120:
@@ -99,7 +111,7 @@ def access_token(path=TOKEN_FILE, *, opener=urlopen, now=time.time):
                 if response.status != 200 or len(raw) > 16384:
                     raise ValueError('refresh failed')
             result = json.loads(raw)
-            if (type(result) is not dict or result.get('scope') != 'gway:read'
+            if (type(result) is not dict or result.get('scope') != scope
                     or type(result.get('token_type')) is not str
                     or result['token_type'].lower() != 'bearer'
                     or type(result.get('expires_in')) is not int
@@ -289,6 +301,111 @@ def publish_extended(token, *, base_status="ok", path=PROJECTION, now=time.time,
             os.unlink(name)
 
 
+PROBE_TOKEN=Path('/etc/gway-mcp-monitor/probe-oauth.json')
+PROBE_STATUS=Path('/var/lib/gway-mcp-execution-health/status.json')
+
+
+def execution_probe(token, *, rid, submit, opener=None, sleep=time.sleep):
+    opener=opener or build_opener(NoRedirect()).open
+    if not re.fullmatch("[0-9a-f]{32}",rid):raise ValueError("invalid pending nonce")
+    def call(name,args):
+        req=Request(URL,json.dumps({'jsonrpc':'2.0','id':1,'method':'tools/call','params':{'name':name,'arguments':args}}).encode(),{'Authorization':'Bearer '+token,'Content-Type':'application/json','Accept':'application/json','MCP-Protocol-Version':'2025-03-26'},method='POST')
+        with opener(req,timeout=20) as r:
+            raw=r.read(8193)
+        if len(raw)>8192:raise ValueError('response_limit')
+        d=json.loads(raw)
+        if d.get('id')!=1 or 'error' in d:raise ValueError('invalid_rpc')
+        return decode_tool_result(d['result'])
+    def valid(d):
+        return type(d) is dict and set(d)=={'schema','node','request_id','status','nonce_match'} and d['schema']==1 and d['node']=='gway-001' and d['request_id']==rid and type(d['nonce_match']) is bool
+    def diagnostic(terminal=False):
+        d=call('node_exec_diagnostic',{'request_id':rid})
+        if d.get('request_id')==rid and d.get('status')=='failure' and d.get('stage') in ('ssh_transport','worker_readiness'):
+            return 'exec_infra_failure',d['stage'],terminal
+        return 'execution_unverified',None,terminal
+    try:
+        if submit:
+            d=call('node_exec',{'node':'gway-001','request_id':rid,'command':'printf %s '+rid,'wait_seconds':0})
+            if not valid(d):return 'execution_unverified',None,False
+            if d['status']=='uncertain':return diagnostic()
+        for _ in range(3):
+            try:
+                d=call('node_result',{'request_id':rid})
+            except HTTPError as e:
+                if e.code!=403:raise
+                e.close();return diagnostic()
+            if not valid(d):return 'execution_unverified',None,False
+            if d['status']=='succeeded' and d['nonce_match']:return 'ok',None,True
+            if d['status'] in ('succeeded','failed','cancelled','timed_out','unknown'):return diagnostic(True)
+            if d['status'] not in ('queued','running','dispatched'):return diagnostic()
+            sleep(1)
+        return 'execution_unverified',None,False
+    except HTTPError as e:
+        code=e.code;e.close()
+        return ('authorization' if code in (401,403) else 'http_failure' if 500<=code<600 else 'execution_unverified'),None,False
+    except (OSError,ValueError,TypeError,KeyError,AttributeError):
+        return 'transport_or_protocol',None,False
+
+
+def probe_catalog(token, *, opener=None):
+    opener=opener or build_opener(NoRedirect()).open
+    req=Request(URL,b'{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}',{'Authorization':'Bearer '+token,'Content-Type':'application/json','Accept':'application/json','MCP-Protocol-Version':'2025-03-26'},method='POST')
+    with opener(req,timeout=15) as response:
+        raw=response.read(8193)
+    if len(raw)>8192:raise ValueError('probe catalog too large')
+    data=json.loads(raw)
+    if data.get('id')!=1 or {t['name'] for t in data['result']['tools']}!={'node_exec','node_result','node_exec_diagnostic'}:raise ValueError('probe catalog not exclusive')
+
+
+def publish_execution(*, path=PROBE_STATUS, token_path=PROBE_TOKEN, now=time.time, get_token=access_token, probe=execution_probe, catalog=probe_catalog):
+    _private_parent(path)
+    stamp=int(now())
+    previous=read_projection(path)
+    if isinstance(previous,dict) and type(previous.get('sample_at')) is int and 0<=stamp-previous['sample_at']<900:
+        return
+    try:
+        token=get_token(token_path,opener=build_opener(NoRedirect()).open,scope='gway:health-probe',client='gway-health-probe-001')
+        pending=token_path.parent/'probe-pending.json'
+        # The systemd unit is single-instance; also lock against manual invocation.
+        fd=os.open(token_path.parent/'.probe-attempt.lock',os.O_CREAT|os.O_RDWR|os.O_NOFOLLOW|os.O_NONBLOCK,0o600)
+        try:
+            info=os.fstat(fd)
+            if not stat.S_ISREG(info.st_mode) or info.st_uid!=os.geteuid() or info.st_mode&0o077:raise ValueError('unsafe probe lock')
+            fcntl.flock(fd,fcntl.LOCK_EX|fcntl.LOCK_NB)
+            parent=_read_state(token_path,probe=True)['parent_id']
+            try:
+                pinfo=pending.lstat()
+                if not stat.S_ISREG(pinfo.st_mode) or pinfo.st_uid!=os.geteuid() or pinfo.st_mode&0o077 or pinfo.st_size>512:raise ValueError('unsafe pending probe')
+                claim=json.loads(pending.read_text())
+                if set(claim)!={'parent_id','request_id'} or claim['parent_id']!=parent or not re.fullmatch('[0-9a-f]{32}',claim['request_id']):raise ValueError('pending probe requires console reconciliation')
+                submit=False
+            except FileNotFoundError:
+                catalog(token)
+                claim={'parent_id':parent,'request_id':uuid.uuid4().hex}
+                _write_state(pending,claim)
+                submit=True
+            outcome,stage,terminal=probe(token,rid=claim['request_id'],submit=submit)
+            if terminal:pending.unlink()
+        finally:os.close(fd)
+    except HTTPError as e:
+        code=e.code;e.close()
+        outcome,stage=('authorization' if code in (401,403) else 'http_failure' if 500<=code<600 else 'execution_unverified'),None
+    except RefreshUncertain:
+        outcome,stage='credential_unavailable',None
+    except (OSError,ValueError,TypeError):
+        outcome,stage='credential_unavailable',None
+    # Do not assert loss of independent cloud repair routes from this node's own probe.
+    data={'schema':1,'sample_at':stamp,'execute':outcome,'failure_stage':stage,'alternate_routes':'unverified'}
+    fd,name=tempfile.mkstemp(prefix='.probe-',dir=path.parent)
+    try:
+        with os.fdopen(fd,'w') as f:
+            os.fchmod(f.fileno(),0o644)
+            json.dump(data,f,sort_keys=True);f.flush();os.fsync(f.fileno())
+        os.replace(name,path)
+    finally:
+        if os.path.exists(name):os.unlink(name)
+
+
 def main(extended=False):
     token=None
     try:
@@ -310,5 +427,31 @@ def main(extended=False):
     return 0 if result == 'ok' else 1
 
 
+def install_probe_console(path=PROBE_TOKEN):
+    import getpass
+    import socket
+    if os.geteuid()!=0 or socket.gethostname()!='gway-001' or not (sys.stdin.isatty() and sys.stdout.isatty()):
+        raise PermissionError('trusted node console required')
+    _private_parent(path)
+    if path.exists() or path.is_symlink() or (path.parent/'probe-pending.json').exists():
+        raise PermissionError('existing identity or pending receipt requires explicit console reconciliation')
+    state=validate_state(json.loads(getpass.getpass('Paste dedicated probe credential JSON (hidden): ')),probe=True)
+    now=int(time.time())
+    if state['refresh_state']!='ready' or not now<state['expires_at']<=min(now+3600,state['parent_expires_at']) or state['parent_expires_at']>now+30*86400:
+        raise ValueError('invalid probe expiry')
+    if input('Type gway-001 to install this isolated probe identity: ')!='gway-001':raise PermissionError('installation cancelled')
+    _write_state(path,state)
+    print('Dedicated probe credential installed; no existing grant modified.')
+
+
 if __name__ == '__main__':
+    if sys.argv[1:]==["--install-probe"]:
+        try:install_probe_console()
+        except (OSError,ValueError,TypeError,PermissionError):
+            print('Probe credential installation refused',file=sys.stderr);sys.exit(1)
+        sys.exit(0)
+    if sys.argv[1:]==["--execution"]:
+        try:publish_execution()
+        except (OSError,ValueError,TypeError):sys.exit(1)
+        sys.exit(0)
     sys.exit(main(extended=sys.argv[1:]==["--extended"]))

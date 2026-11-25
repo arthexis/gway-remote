@@ -19,6 +19,10 @@ class DurableRequestTests(unittest.TestCase):
         account = patch("gway_remote.node_exec_worker.require_account")
         account.start()
         self.addCleanup(account.stop)
+        for name,value in (("selected_user","gway-exec"),("user_manager_env",{})):
+            mocked=patch("gway_remote.node_exec_worker."+name,return_value=value)
+            mocked.start()
+            self.addCleanup(mocked.stop)
         self.launches = []
 
     def launcher(self, argv, **kwargs):
