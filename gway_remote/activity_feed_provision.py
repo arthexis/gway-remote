@@ -7,7 +7,9 @@ from pathlib import Path
 import pwd
 import re
 import stat
-import subprocess
+import select
+import signal
+import time
 import sys
 import tempfile
 import uuid
@@ -25,7 +27,7 @@ ID = re.compile(r"[a-f0-9]{24}\Z")
 
 
 def grant(node, repositories):
-    if not re.fullmatch(r"gway-[0-9]{3,}",node) or not 1 <= len(repositories) <= 32:
+    if not isinstance(node,str) or not re.fullmatch(r"gway-[0-9]{3,}",node) or not 1 <= len(repositories) <= 32:
         raise ValueError("explicit enrolled node and repositories required")
     if any(not re.fullmatch(r"arthexis/[A-Za-z0-9_.-]{1,100}", x) for x in repositories):
         raise ValueError("invalid repository allowlist")
@@ -34,27 +36,60 @@ def grant(node, repositories):
 
 
 def _child(account, action, payload):
-    # Use the existing service owners, never alter their privileges or expose
-    # credentials in process arguments. The private pipe is captured in memory.
+    """Private root-console child, never an externally callable issuer CLI."""
+    if os.geteuid() != 0 or account not in (AUTH,GATEWAY):
+        raise PermissionError("root operator required")
     who = pwd.getpwnam(account)
-    result = subprocess.run(
-        ["/usr/bin/python3","-I",RUNTIME,"cli","feed-provision","--internal",action],
-        input=json.dumps(payload).encode("ascii"), stdout=subprocess.PIPE,
-        stderr=subprocess.DEVNULL, timeout=20, check=True,
-        user=who.pw_uid, group=who.pw_gid, extra_groups=os.getgrouplist(account,who.pw_gid),
-        env={"PATH":"/usr/bin:/bin","HOME":who.pw_dir})
-    if len(result.stdout) > 4096:
-        raise RuntimeError("unexpected private provisioning response")
-    return json.loads(result.stdout)
+    readfd, writefd = os.pipe()
+    pid = os.fork()
+    if pid == 0:
+        try:
+            os.close(readfd)
+            os.setgroups(os.getgrouplist(account,who.pw_gid))
+            os.setgid(who.pw_gid)
+            os.setuid(who.pw_uid)
+            os.environ.clear()
+            os.environ.update({"PATH":"/usr/bin:/bin","HOME":who.pw_dir})
+            result = json.dumps(internal(action,payload)).encode("ascii")
+            if len(result)>4096:
+                raise RuntimeError("private result too large")
+            os.write(writefd,result)
+            os._exit(0)
+        except BaseException:
+            os._exit(1)
+    os.close(writefd)
+    try:
+        raw = bytearray()
+        deadline = time.monotonic()+25
+        while True:
+            remaining = deadline-time.monotonic()
+            if remaining<=0 or not select.select([readfd],[],[],remaining)[0]:
+                raise TimeoutError("private operation timed out")
+            chunk = os.read(readfd,4097-len(raw))
+            if not chunk:
+                break
+            raw.extend(chunk)
+            if len(raw)>4096:
+                raise RuntimeError("private response exceeds bound")
+        _, result = os.waitpid(pid,0)
+        pid = None
+        if result != 0:
+            raise RuntimeError("private provisioning operation failed")
+        return json.loads(raw)
+    finally:
+        os.close(readfd)
+        if pid is not None:
+            try:
+                os.kill(pid,signal.SIGKILL)
+            except ProcessLookupError:
+                pass
+            os.waitpid(pid,0)
 
 
-def internal(action):
-    # The existing auth owner already owns the issuer database; the existing
-    # gateway owner already owns the pinned transport. Neither is a new API.
+def internal(action, payload):
     account = AUTH if action in ("issue","revoke") else GATEWAY
     if os.geteuid() != pwd.getpwnam(account).pw_uid:
         raise PermissionError("incorrect service owner")
-    payload = json.loads(sys.stdin.buffer.read(4097))
     if action == "issue":
         if set(payload) != {"principal","days"} or type(payload["days"]) is not int or not 1<=payload["days"]<=30:
             raise ValueError("invalid credential request")
@@ -132,7 +167,11 @@ def provision(node, repositories, days, *, child=_child, read=load_feed_grants, 
     if old.get("configured") and (old.get("principal")!=principal or not ID.fullmatch(old.get("credential_id",""))):
         raise PermissionError("existing node binding differs")
     issued = child(AUTH,"issue",{"principal":principal,"days":days})
-    key = issued["credential"].split("_",2)[1]
+    from .activity_feed_provision_node import TOKEN
+    token = TOKEN.fullmatch(issued["credential"])
+    if not token or not ID.fullmatch(issued["principal"]):
+        raise RuntimeError("invalid private issuer receipt")
+    key = token[1]
     root = issued["principal"]
     try:
         if principal is not None and root != principal:
@@ -158,14 +197,8 @@ def main(argv=None):
     p.add_argument("node",nargs="?")
     p.add_argument("--repository",action="append",default=[])
     p.add_argument("--days",type=int,default=30)
-    p.add_argument("--internal",choices=("issue","revoke","status","install"),help=argparse.SUPPRESS)
     args = p.parse_args(argv)
     try:
-        if args.internal:
-            # Internal private subprocess output is consumed by the operator
-            # process, not a console/log; only existing service owners allowed.
-            print(json.dumps(internal(args.internal)))
-            return 0
         if os.geteuid()!=0 or not sys.stdin.isatty() or not sys.stdout.isatty():
             raise PermissionError("interactive Watchtower root console required")
         if not 1<=args.days<=30:

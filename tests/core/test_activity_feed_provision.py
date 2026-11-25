@@ -58,3 +58,30 @@ class ProvisionTest(TestCase):
         with self.assertRaises(ValueError): p.grant("gway-001",["arthexis/*"])
         with patch.object(p.sys.stdin,"isatty",return_value=False):
             self.assertEqual(p.main(["gway-001","--repository","arthexis/gway-remote"]),1)
+
+    def test_failed_delivery_preserves_old_pointer(self):
+        if os.geteuid()==0: self.skipTest("installation owner test requires nonroot")
+        with TemporaryDirectory() as temp:
+            home=Path(temp)
+            n.install("gway-001",ROOT,TOKEN,home=home,publisher=lambda cfg:lambda value:"delivered")
+            other="d"*24
+            with self.assertRaises(RuntimeError):
+                n.install("gway-001",ROOT,"gwr_"+other+"_"+"y"*43,home=home,
+                          publisher=lambda cfg:lambda value:"retry")
+            self.assertEqual(n.status("gway-001",home=home)["credential_id"],CHILD)
+            self.assertFalse((home/".config/gway-remote"/("feed-token-"+other)).exists())
+
+    def test_rotation_uses_existing_principal_and_revokes_old_after_ack(self):
+        policy=p.grant("gway-001",["arthexis/gway-remote"])
+        old="d"*24
+        calls=[]
+        def child(account,action,payload):
+            calls.append((action,payload.get("principal"),payload.get("id")))
+            if action=="status": return {"configured":True,"principal":ROOT,"credential_id":old}
+            if action=="issue": return {"principal":ROOT,"credential":TOKEN}
+            if action=="install": return {"configured":True,"principal":ROOT,"credential_id":CHILD,"delivered":True}
+            return {"revoked":True}
+        result=p.provision("gway-001",["arthexis/gway-remote"],30,child=child,read=lambda:{ROOT:policy},
+                           save=lambda grants:self.fail("rotation must preserve grant"))
+        self.assertTrue(result["rotation"])
+        self.assertEqual(calls,[("status",None,None),("issue",ROOT,None),("install",ROOT,None),("revoke",None,old)])

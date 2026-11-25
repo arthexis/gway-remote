@@ -98,9 +98,17 @@ def install(node, principal, credential, *, home=None, publisher=HTTPSPublisher)
             atomic(root / "feed.json", json.dumps(cfg, sort_keys=True).encode("ascii"))
         except BaseException:
             # Do not remove active credential on uncertain post-rename fsync.
-            if not (root/"feed.json").exists():
-                token_path.unlink(missing_ok=True)
+            try:
+                current = status(node,home=home)
+                if current.get("credential_id") != child:
+                    token_path.unlink(missing_ok=True)
+            except (OSError, ValueError, RuntimeError):
+                pass
             raise
+        # Old material is no longer used. The console independently revokes
+        # the old child only after receiving the successful installation ACK.
+        if old.get("configured") and old["credential_id"] != child:
+            (root/("feed-token-"+old["credential_id"])).unlink(missing_ok=True)
         return {"configured":True,"principal":principal,"credential_id":child,"delivered":True}
     finally:
         os.close(lockfd)
