@@ -168,3 +168,20 @@ class ExtendedHealthTests(unittest.TestCase):
             self.assertEqual(path.stat().st_mode&0o777,0o644)
             health.publish_extended('private',path=path,now=lambda:1300,probe=healthy)
             self.assertEqual(len(calls),2)
+
+
+class FederatedEnvelopeTests(unittest.TestCase):
+    @staticmethod
+    def wrap(payload, **extra):
+        return {'content':[{'type':'text','text':json.dumps(payload)}],**extra}
+
+    def test_builtin_and_federated(self):
+        payload={'schedule':{'id':'gway-001-daily-health'}}
+        self.assertEqual(health.decode_tool_result(self.wrap(payload)),payload)
+        self.assertEqual(health.decode_tool_result(self.wrap(self.wrap(payload))),payload)
+
+    def test_reject_nested_error_and_third_envelope(self):
+        for v in (self.wrap(self.wrap({},isError=True)),self.wrap(self.wrap(self.wrap({}))),self.wrap({'error':'private'}),{'content':[]}):
+            with self.subTest():
+                with self.assertRaises(ValueError):
+                    health.decode_tool_result(v)
