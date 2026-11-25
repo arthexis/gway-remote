@@ -237,3 +237,21 @@ narrow bearer and root-owned explicit grants; the initial registry is empty.
 The exact producer POST route and mobile GET route remain separately authorized.
 Rollback removes newly installed gateway activation on failure, preserving the
 bounded filesystem and events; no physical media or charging operations.
+
+## Interactive producer provisioning
+The Watchtower operator can issue a per-node AgentOps publisher through the
+existing pinned node transport. Run on the Watchtower interactive root console:
+
+    gway-remote feed-provision gway-001 --repository arthexis/gway-agent-ops --repository arthexis/gway-remote
+
+The operator confirms the node name. The existing auth owner issues a 90-day
+root principal (never distributed) and a child limited to 30 days; only the
+child travels over the pinned forced-command stdin. The root-owned grant is
+exact for source, node, repos and AgentOps types, plus a real verification event.
+The node verifies HTTPS receipt before atomic config switch. Same-policy child
+rotation preserves the root and queued event identity. The superseded child is
+revoked after success; uncertain new children are revoked on failure. A root
+expiry or changed policy requires explicit reconciliation; no automatic grant
+expansion or root replacement. This command does not enable other services or
+restart charging. The producer timer and AgentOps opt-in are separate steps.
+No tokens go to command arguments, CI, MCP, or user-visible receipts.
