@@ -80,9 +80,19 @@ SSH material or run execution smoke as a read-only test.
 3. Activate canonical-with-aliases separately through a persistent,
    operator-managed Ansible transaction for a dedicated gateway systemd
    drop-in (Environment=GWAY_MCP_NODE_ROUTING=canonical-with-aliases).
-   This transaction is a rollout prerequisite, not implemented by this
-   PR. Preserve other drop-ins, snapshot previous state, validate effective
-   mode without secrets, restart only gateway. Verify no-op convergence.
+   Use the explicit operator wrapper from a clean checkout matching the
+   installed reviewed release:
+       sh scripts/watchtower-routing-activate.sh <full-installed-sha> canonical-with-aliases
+   Wrapper uses the existing deploy.lock; automatic deployment does not call
+   it. Ansible accepts only the three modes, requires an existing root-owned
+   safe drop-in directory and rejects unmanaged content or inconsistent active
+   state. It changes only 80-node-routing.conf, restores exact prior bytes
+   (or absence) on failure, and verifies the effective process environment
+   and existing loopback gateway health without exposing secrets. An identical
+   invocation makes no changes/restarts. No override with default legacy
+   leaves the file absent. Do not use --check as a live activation substitute.
+   To revert mode explicitly use the same wrapper with legacy. If rollback
+   health fails, the play fails and operator recovery is required.
 4. Verify OAuth, canonical reads on 001/004, legacy reads, 004 alias,
    exact nodes/scopes and negative read admission; refresh MCP clients.
    Confirm no ABB routes and compare health with baseline.
@@ -118,3 +128,14 @@ prior receiver/provider configuration if changed and verifies CSMS
 continuity; keep enrollment and unrelated services intact.
 Stage 3 removes qualified 004 aliases only after consumer migration and
 ABB acceptance; canonical-only is separately approved and reversible.
+
+## 004 scheduled_list diagnosis (2026-11-24 Monterrey)
+Real alias returned provider_unavailable; local installed AgentOps release
+8f0cf253afea6 has a private tasks.sqlite3 (0600, single link), with tables
+events/provenance/repository_registry/tasks but no schedules. Direct
+scheduler.list_schedules raised ValueError schedule_schema_missing, which
+MCP _safe_error redacts to provider_unavailable. The timer is disabled and
+inactive. No schema or timer change was performed. Future AgentOps work
+should distinguish an uninitialized scheduler from provider outage without
+creating or migrating tables from a read operation; explicit initialization
+only if authorized. This is not a canonical routing regression.
