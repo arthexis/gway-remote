@@ -61,20 +61,9 @@ class CanaryWorkflowTests(unittest.TestCase):
         self.assertIn("Canary certificate SHA256:", content)
         self.assertIn("Canary test certificate SHA256:", content)
 
-    def test_persistent_signing_is_opt_in_and_separate(self):
-        content = CANARY.read_text()
-        signing = (ROOT / ".github/workflows/android-canary-signing.yml").read_text()
-        self.assertNotIn("secrets.", content)
-        self.assertIn("workflow_dispatch:", signing)
-        self.assertIn("artifact_run_id:", signing)
-        self.assertIn("environment: android-canary-signing", signing)
-        self.assertIn("github.actor == 'arthexis'", signing)
-        self.assertIn("gh run download", signing)
-        self.assertNotIn("actions/checkout", signing)
-        self.assertNotIn("setup-gradle", signing)
-        self.assertIn("CANARY_CERT_SHA256", signing)
-        self.assertIn("persistent-canary-candidate-", signing)
-        self.assertIn("persistent-canary-v1", signing)
+    def test_no_separate_persistent_canary_signer(self):
+        self.assertFalse((ROOT / ".github/workflows/android-canary-signing.yml").exists())
+        self.assertNotIn("secrets.", CANARY.read_text())
 
 
 if __name__ == "__main__":
