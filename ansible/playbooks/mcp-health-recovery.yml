@@ -1,0 +1,47 @@
+---
+# Install a fixed reviewed recovery recipe; disabled unless separately enabled.
+- name: Publish bounded MCP health recovery recipe on gway-001
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  vars:
+    mcp_source: "{{ playbook_dir }}/../.."
+    recovery_enabled: false
+  tasks:
+    - name: Verify approved pinned checkout and installation owner
+      ansible.builtin.assert:
+        that:
+          - lookup('pipe', 'hostname -s') == 'gway-001'
+          - lookup('pipe', 'id -un') == 'arthe'
+          - recovery_revision is defined
+          - recovery_revision is match('^[0-9a-f]{40}$')
+          - lookup('pipe', 'git -C ' ~ mcp_source ~ ' rev-parse HEAD') == recovery_revision
+    - name: Verify installed runtime pin
+      ansible.builtin.command:
+        argv: [readlink, /opt/gway-mcp/current]
+      register: current_runtime
+      changed_when: false
+    - name: Refuse mismatched runtime
+      ansible.builtin.assert:
+        that: current_runtime.stdout == 'releases/' ~ recovery_revision
+    - name: Install root-owned fixed recovery runner
+      become: true
+      ansible.builtin.copy:
+        src: "{{ mcp_source }}/scripts/mcp-health-recovery.py"
+        dest: /usr/local/libexec/gway-mcp-health-recovery
+        owner: root
+        group: root
+        mode: '0755'
+    - name: Measure installed runner digest
+      ansible.builtin.stat:
+        path: /usr/local/libexec/gway-mcp-health-recovery
+        checksum_algorithm: sha256
+      register: recovery_runner
+    - name: Publish explicit recovery policy without credentials
+      become: true
+      ansible.builtin.copy:
+        dest: /etc/gway-remote/mcp-health-recovery.json
+        owner: root
+        group: root
+        mode: '0644'
+        content: "{{ {'schema': 1, 'enabled': (recovery_enabled | bool), 'runner_sha256': recovery_runner.stat.checksum, 'revision': recovery_revision} | to_json }}\n"

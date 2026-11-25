@@ -128,3 +128,43 @@ class ExternalHealthTests(unittest.TestCase):
         self.assertEqual(health.probe('private-token', opener=denied), 'authentication_failed')
         self.assertEqual(health.probe('private-token', opener=lambda *a, **kw:
             Response(b'{"id":1,"result":{"isError":true}}')), 'tool_failed')
+
+
+class ExtendedHealthTests(unittest.TestCase):
+    def test_fixed_calls_and_no_secrets_in_report(self):
+        seen=[]
+        names=['agentops__daily_health_status','agentops__status','android__status']
+        def open_request(request, timeout):
+            doc=json.loads(request.data)
+            if not request.has_header('Authorization'):
+                raise HTTPError('private-url',401,'private',{},None)
+            method=doc['method']; params=doc['params']
+            seen.append((method,params))
+            if method=='initialize':
+                result={'protocolVersion':'2025-03-26'}
+            elif method=='tools/list':
+                result={'tools':[{'name':n,'inputSchema':{'properties':{'node':{}}}} for n in names]}
+            else:
+                name=params['name']
+                payload={'tools':[{'name':n,'required_scope':'gway:read','nodes':['gway-001','gway-004'] if n=='agentops__status' else ['gway-001']} for n in names]} if name=='mcp_catalog_inspect' else {'schedule':{'id':'gway-001-daily-health'}} if name==names[0] else {'node':'gway-001','status':'preview_only','authorization':{'required_scope':'gway:execute'}} if name=='node_exec_preview' else {'private':'never-publish'}
+                result={'content':[{'type':'text','text':json.dumps(payload)}]}
+            return Response(json.dumps({'id':1,'result':result}).encode())
+        report=health.extended_probe('private-token',opener=open_request)
+        self.assertEqual(report,{'anonymous':'denied','read':'ok','optional_failures':0,'optional_checked':3})
+        self.assertIn(('tools/call',{'name':'agentops__status','arguments':{'node':'gway-004'}}),seen)
+        self.assertNotIn('private',repr(report))
+
+    def test_projection_caches_healthy_but_not_failure_or_auth(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path=Path(tmp)/'status.json'; calls=[]
+            def healthy(token):
+                calls.append(1)
+                return {'anonymous':'denied','read':'ok','optional_failures':0,'optional_checked':3}
+            health.publish_extended('private',path=path,now=lambda:1000,probe=healthy)
+            health.publish_extended('private',path=path,now=lambda:1100,probe=healthy)
+            self.assertEqual(len(calls),1)
+            health.publish_extended(None,base_status='credential_unavailable',path=path,now=lambda:1200,probe=healthy)
+            self.assertEqual(json.loads(path.read_text())['read'],'authorization')
+            self.assertEqual(path.stat().st_mode&0o777,0o644)
+            health.publish_extended('private',path=path,now=lambda:1300,probe=healthy)
+            self.assertEqual(len(calls),2)

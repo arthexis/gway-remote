@@ -6,7 +6,10 @@ Wants=network-online.target
 [Service]
 Type=oneshot
 User=root
-ExecStart=/usr/local/libexec/gway-mcp-external-health
+ExecStart=/usr/local/libexec/gway-mcp-external-health --extended
+StateDirectory=gway-mcp-external-health
+StateDirectoryMode=0755
+TimeoutStartSec=150
 NoNewPrivileges=true
 PrivateTmp=true
 ProtectSystem=strict
