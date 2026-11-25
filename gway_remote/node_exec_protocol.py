@@ -16,15 +16,20 @@ from .node_exec_contract import validate_command
 
 MAX_REQUEST_BYTES = 65536
 OPERATIONS = {
+    "probe_provision_status": frozenset({"operation","node","request_id"}),
+    "probe_provision_install": frozenset({"operation","node","request_id","credential"}),
     "feed_provision_status": frozenset({"operation","node","request_id"}),
     "feed_provision_install": frozenset({"operation","node","request_id","principal","credential"}),
     "lcd_sound_event": frozenset({"operation", "node", "request_id", "event"}),
     "submit": frozenset({"operation", "node", "request_id", "command"}),
+    "health_probe_submit": frozenset({"operation", "node", "request_id"}),
+    "health_probe_result": frozenset({"operation", "node", "request_id"}),
     "result": frozenset({"operation", "node", "request_id", "cursor"}),
     "cancel": frozenset({"operation", "node", "request_id"}),
     "limits": frozenset({"operation", "node", "request_id"}),
     "file_read": frozenset({"operation", "node", "request_id", "filename", "offset"}),
     "workspace_inspect": frozenset({"operation", "node", "request_id", "repository"}),
+    "deployment_discovery": frozenset({"operation", "node", "request_id"}),
     "deployment_preview": frozenset({"operation", "node", "request_id", "application"}),
     "deployment_status": frozenset({"operation", "node", "request_id", "application"}),
     "deployment_run": frozenset({"operation", "node", "request_id", "application", "expected_revision"}),
@@ -55,6 +60,12 @@ def serve_one(raw, *, jobs=None, hostname=None):
     if not re.fullmatch(r"gway-[0-9]+", host) or req["node"] != host:
         raise PermissionError("unapproved node")
     rid = validate_request_id(req["request_id"])
+    if op in ('probe_provision_status','probe_provision_install'):
+        from .node_exec_identity import selected_user
+        if host!='gway-001' or selected_user()!='arthe':raise PermissionError('probe provision target or owner denied')
+        from .probe_provision_node import deliver
+        result=deliver(op,req.get('credential'))
+        return {'node':host,'request_id':rid,'result':result}
     if op in ("feed_provision_status", "feed_provision_install"):
         from .activity_feed_provision_node import status, install
         result = status(host) if op == "feed_provision_status" else install(host, req["principal"], req["credential"])
@@ -99,14 +110,25 @@ def serve_one(raw, *, jobs=None, hostname=None):
         result = inspect_authorized({"node": host, "repository": req["repository"]},
                                     trusted_node=host)
         return {"node": host, "request_id": rid, "result": result}
+    if op == "deployment_discovery":
+        from .mcp_deployment_resolver import deployment_catalog
+        try:
+            result = deployment_catalog()
+        except (ValueError, PermissionError, OSError):
+            return {"node": host, "request_id": rid, "error": "deployment_declaration_invalid"}
+        return {"node": host, "request_id": rid, "result": result}
     if op in ("deployment_preview", "deployment_status", "deployment_run"):
         from .mcp_deployment_broker import preview, request_status, accept
-        if op == "deployment_preview":
-            result = preview(req["application"])
-        elif op == "deployment_status":
-            result = request_status(req["application"], rid)
-        else:
-            result = accept(req["application"], rid, expected_revision=req["expected_revision"])
+        from .mcp_deployment_resolver import deployment_error_code
+        try:
+            if op == "deployment_preview":
+                result = preview(req["application"])
+            elif op == "deployment_status":
+                result = request_status(req["application"], rid)
+            else:
+                result = accept(req["application"], rid, expected_revision=req["expected_revision"])
+        except (ValueError, PermissionError, OSError) as exc:
+            return {"node": host, "request_id": rid, "error": deployment_error_code(exc)}
         return {"node": host, "request_id": rid, "result": result}
     if op in ("provider_list", "provider_call", "provider_read"):
         from .mcp_node_providers import dispatch_node_provider_request
@@ -134,6 +156,20 @@ def serve_one(raw, *, jobs=None, hostname=None):
                 "concurrent_jobs_per_node": configured_max_active()}
     if jobs is None:
         jobs = Jobs()
+    if op in ('health_probe_submit', 'health_probe_result'):
+        from .mcp_health_probe_contract import NODE, nonce_command, project_result
+        if host != NODE:
+            raise PermissionError('probe_node_denied')
+        command = nonce_command(rid)
+        if op == 'health_probe_submit':
+            try:
+                jobs.submit(host, command, request_id=rid,health_probe=True)
+            except RuntimeError as exc:
+                if str(exc) == 'executor user manager unavailable':
+                    return {'node':host,'request_id':rid,'status':'rejected','failure_stage':'worker_readiness'}
+                raise
+            return {'node':host,'request_id':rid,'status':'accepted'}
+        return jobs.probe_result(rid)
     if op == "submit":
         validate_command(host, req["command"])
         try:

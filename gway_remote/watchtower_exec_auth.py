@@ -114,9 +114,10 @@ class AuthorizedExecution:
 
     def deployment_preview(self, *, node, application, revision="main"):
         """Read-only pinned preview with sanitized stage-specific failures."""
-        from .mcp_deployment_resolver import _APP
+        from .mcp_deployment_resolver import normalize_application
         from .watchtower_exec_transport import SSHTransportFailure
-        if type(node) is not str or type(application) is not str or not _APP.fullmatch(application) or revision != "main":
+        application = normalize_application(application)
+        if type(node) is not str or revision != "main":
             raise ValueError("unsupported deployment revision or target")
         try:
             self._allow_preview_eligibility(node)
@@ -138,6 +139,12 @@ class AuthorizedExecution:
             raise PermissionError("deployment_ssh_unverified") from None
         except (ValueError, KeyError, TypeError):
             raise PermissionError("deployment_node_protocol_unavailable") from None
+        if (type(response) is dict and response.get("node") == node and
+                response.get("request_id") == request_id and response.get("error") in {
+                    "deployment_invalid_application", "deployment_unknown_application",
+                    "deployment_not_enabled", "deployment_no_declaration",
+                    "deployment_declaration_invalid"}):
+            raise PermissionError(response["error"])
         if (type(response) is not dict or response.get("node") != node or
                 response.get("request_id") != request_id or
                 type(response.get("result")) is not dict):
@@ -153,6 +160,50 @@ class AuthorizedExecution:
                 "status": "eligible", "execution": "node-owned-operator",
                 "note": "read-only; execution revalidates installed provider"}
 
+    def deployment_discovery(self, *, node):
+        """Read the live node-owned declarations over its attested transport."""
+        import secrets
+        from .mcp_deployment_resolver import _APP, APPLICATION_ALIASES
+        from .watchtower_exec_transport import SSHTransportFailure
+        try:
+            self._allow_preview_eligibility(node)
+        except (PermissionError, ValueError, OSError):
+            if not self.enabled or not self.relay.enabled:
+                raise PermissionError("deployment_execution_disabled") from None
+            raise PermissionError("deployment_inventory_binding_denied") from None
+        try:
+            pinned = pinned_transport(self.relay.transport, node)
+        except (PermissionError, ValueError, AttributeError):
+            raise PermissionError("deployment_pinned_transport_unavailable") from None
+        request_id = secrets.token_hex(16)
+        try:
+            response = pinned.invoke({"operation": "deployment_discovery", "node": node,
+                                      "request_id": request_id})
+        except (SSHTransportFailure, OSError, subprocess.SubprocessError):
+            raise PermissionError("deployment_ssh_unverified") from None
+        except (ValueError, KeyError, TypeError):
+            raise PermissionError("deployment_node_protocol_unavailable") from None
+        if (type(response) is dict and response.get("node") == node and
+                response.get("request_id") == request_id and
+                response.get("error") == "deployment_declaration_invalid"):
+            raise PermissionError("deployment_declaration_invalid")
+        if (type(response) is not dict or response.get("node") != node or
+                response.get("request_id") != request_id or
+                type(response.get("result")) is not list or len(response["result"]) > 32):
+            raise PermissionError("deployment_node_protocol_unavailable")
+        seen = set()
+        for row in response["result"]:
+            if (type(row) is not dict or set(row) != {"application", "alias", "revision", "status"}
+                    or type(row["application"]) is not str or not _APP.fullmatch(row["application"])
+                    or row["application"] in seen
+                    or row["alias"] != next((a for a, c in APPLICATION_ALIASES.items() if c == row["application"]), None)
+                    or row["status"] not in {"declared", "not_enabled", "no_declaration", "declaration_invalid"}
+                    or (row["status"] == "declared" and (type(row["revision"]) is not str or not re.fullmatch(r"[0-9a-f]{40}", row["revision"])))
+                    or (row["status"] != "declared" and row["revision"] is not None)):
+                raise PermissionError("deployment_node_protocol_unavailable")
+            seen.add(row["application"])
+        return {"node": node, "applications": response["result"]}
+
     def _allow_preview_eligibility(self, node):
         if not self.enabled or not self.relay.enabled:
             raise PermissionError("deployment execution is not enabled")
@@ -165,14 +216,14 @@ class AuthorizedExecution:
         Execution remains disabled until the node-local asynchronous runner
         can persist a receipt before acknowledging an SSH dispatch.
         """
-        from .mcp_deployment_resolver import _APP
+        from .mcp_deployment_resolver import normalize_application, DEPLOYMENT_NODE_ERRORS
         from .watchtower_exec_transport import _digest
+        application = normalize_application(application)
         if type(status) is not bool:
             raise ValueError("invalid deployment status")
         self._allow(principal)
         validate_request_id(request_id)
-        if (type(application) is not str or not _APP.fullmatch(application)
-                or revision != "main"):
+        if (revision != "main"):
             raise ValueError("unsupported deployment target")
         self._current_eligibility(node)
         if status:
@@ -197,6 +248,10 @@ class AuthorizedExecution:
             response = pinned.invoke({
                 "operation": "deployment_status", "node": node,
                 "request_id": request_id, "application": application})
+            if (type(response) is dict and response.get("node") == node
+                    and response.get("request_id") == request_id
+                    and response.get("error") in DEPLOYMENT_NODE_ERRORS):
+                raise PermissionError(response["error"])
             if (type(response) is not dict or response.get("node") != node or
                     response.get("request_id") != request_id or
                     type(response.get("result")) is not dict):
@@ -252,10 +307,15 @@ class AuthorizedExecution:
         if not self.ledger.claim_dispatch(request_id):
             return {"node": node, "request_id": request_id, "application": application,
                     "status": self.ledger.get(request_id)["state"]}
+        node_error = None
         try:
             response = pinned.invoke({"operation": "deployment_run", "node": node,
                                       "request_id": request_id, "application": application,
                                       "expected_revision": pinned_revision})
+            if (type(response) is dict and response.get("node") == node
+                    and response.get("request_id") == request_id
+                    and response.get("error") in DEPLOYMENT_NODE_ERRORS):
+                node_error = response["error"]
             result = response.get("result") if type(response) is dict else None
             if (type(response) is not dict or response.get("node") != node
                     or response.get("request_id") != request_id
@@ -269,7 +329,7 @@ class AuthorizedExecution:
             self.ledger.mark_dispatched(request_id, confirmed=False)
             self._feed_deployment(application, node, request_id, "uncertain", pinned_revision)
             return {"node": node, "request_id": request_id, "application": application,
-                    "status": "uncertain"}
+                    "status": "uncertain", **({"code": node_error} if node_error else {})}
         self.ledger.mark_dispatched(request_id, confirmed=True)
         self._feed_deployment(application, node, request_id, "running", pinned_revision)
         if result["state"] in {"succeeded", "failed"}:

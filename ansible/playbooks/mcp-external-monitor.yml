@@ -3,6 +3,7 @@
 # The credential must be provisioned separately through a protected channel.
 - name: Configure an independent authenticated public MCP observer
   hosts: localhost
+  tags: [mcp_external_monitor]
   connection: local
   gather_facts: false
   vars:
@@ -83,6 +84,7 @@
         mode: '0644'
       loop:
         - gway-mcp-external-health.service
+        - gway-mcp-execution-health.service
         - gway-mcp-external-health.timer
       register: external_monitor_units
 

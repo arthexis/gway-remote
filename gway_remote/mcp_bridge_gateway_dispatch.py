@@ -15,6 +15,7 @@ OPERATIONS = {
     "workspace_inspect": ("workspace.inspect", "gway:read"),
     "node_capabilities": ("inventory.capabilities", "gway:read"),
     "node_exec_preview": ("execution.preview", "gway:read"),
+    "node_deploy_discovery": ("deployment.discovery", "gway:read"),
     "node_deploy_preview": ("deployment.preview", "gway:read"),
     "node_exec": ("execution.start", "gway:execute"),
     "node_result": ("execution.result", "gway:execute"),
@@ -81,7 +82,7 @@ def dispatch_node_tool(*, socket_path, key, session_id, audience, principal,
         "arguments": arguments,
     }
     result = call_unix(socket_path, key, envelope, session_id=session_id,
-                       require_signed_reply=name in {"node_exec", "node_result", "node_cancel", "workspace_inspect", "node_deploy_preview", "node_file_download", "node_deploy", "node_deploy_status"})
+                       require_signed_reply=name in {"node_exec", "node_result", "node_cancel", "workspace_inspect", "node_deploy_preview", "node_deploy_discovery", "node_file_download", "node_deploy", "node_deploy_status"})
     if name in {"node_exec", "node_deploy", "node_deploy_status"}:
         if (type(result) is not dict or
                 result.get("request_id") != arguments["request_id"] or

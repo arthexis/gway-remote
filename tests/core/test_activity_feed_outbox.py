@@ -8,7 +8,7 @@ import json
 import unittest
 
 from gway_remote.activity_feed import EventConflict, FeedCapacityError, validate_event
-from gway_remote.activity_feed_outbox import Outbox, publish_best_effort, MAX_AGE
+from gway_remote.activity_feed_outbox import Outbox, publish_best_effort, MAX_AGE, RETAIN_AGE
 from gway_remote.activity_feed_cli import main, HTTPSPublisher
 from tests.core.test_activity_feed import event
 
@@ -97,3 +97,36 @@ class OutboxTests(unittest.TestCase):
         self.box.enqueue(event("two"))
         self.box.enqueue(event("three"))
         self.assertEqual(self.box.status(), {"pending": 2, "dead": 0, "delivered": 0})
+
+
+    def test_retry_expires_and_dead_retention_releases_capacity(self):
+        self.box.enqueue(event())
+        self.box.enqueue(event("two"))
+        self.box.flush(lambda _: "retry")
+        self.now += MAX_AGE
+        counts = self.box.flush(lambda _: self.fail("expired event sent"))
+        self.assertEqual(counts["expired"], 2)
+        self.assertEqual(self.box.status()["dead"], 2)
+        self.now += RETAIN_AGE - MAX_AGE - 1
+        self.box.flush(lambda _: self.fail("dead event sent"))
+        self.assertEqual(self.box.status()["dead"], 2)
+        self.now += 1
+        self.assertEqual(self.box.flush(lambda _: self.fail("expired event sent"))["purged"], 2)
+        self.assertEqual(self.box.enqueue(event("three")), "pending")
+
+    def test_enqueue_reclaims_old_dead_records_without_flusher(self):
+        self.box.enqueue(event())
+        self.box.enqueue(event("two"))
+        self.box.flush(lambda _: "dead")
+        self.now += RETAIN_AGE
+        self.assertEqual(self.box.enqueue(event("three")), "pending")
+        self.assertEqual(self.box.status()["dead"], 0)
+
+    def test_delivered_receipt_retention_independent_of_retry_window(self):
+        self.box.enqueue(event())
+        self.box.flush(lambda _: "delivered")
+        self.now += MAX_AGE
+        self.box.flush(lambda _: self.fail("delivered event replayed"))
+        self.assertEqual(self.box.status()["delivered"], 1)
+        self.now += RETAIN_AGE - MAX_AGE
+        self.assertEqual(self.box.flush(lambda _: self.fail("delivered event replayed"))["purged"], 1)

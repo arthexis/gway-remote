@@ -34,7 +34,8 @@ class BridgeSessions:
         if self.allowed_node(token, audience) is not True:
             raise PermissionError("node denied")
         if not (self.verifier.verify(token, required_scope="gway:read")
-                or self.verifier.verify(token, required_scope="gway:execute")):
+                or self.verifier.verify(token, required_scope="gway:execute")
+                or (audience == "gway-001" and self.verifier.verify(token, required_scope="gway:health-probe"))):
             raise PermissionError("invalid bearer")
         with self.lock:
             now = time.monotonic()

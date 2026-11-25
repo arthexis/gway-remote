@@ -265,3 +265,11 @@ reservation with non-truncating posix_fallocate, after checking host free space
 plus a 256 MiB margin. It never formats, replaces, resizes, unmounts or deletes
 an existing image or database. Unsafe metadata, wrong loop identity, an
 unmounted underallocated image or insufficient free space still fail closed.
+
+### Local outbox expiration
+Pending events expire after seven days from enqueue, becoming dead without
+another network attempt. Dead and delivered rows are removed at 30 days from
+enqueue during flush or enqueue; operators can still explicitly purge dead rows.
+Delivered receipts may also be evicted earlier under capacity pressure. Central
+Feed retention and event identity are unchanged. Flush reports expired and purged
+counts separately from delivery attempts.

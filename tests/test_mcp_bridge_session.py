@@ -88,6 +88,22 @@ class SessionDispatchTests(unittest.TestCase):
         with self.assertRaises(PermissionError):
             self.dispatch(self.request)
 
+    def test_discovery_preserves_only_allowlisted_diagnostic(self):
+        from unittest.mock import Mock
+        from gway_remote.mcp_bridge_transport import BridgeReadUnavailable
+        self.request.update(principal="reader", scope="gway:read",
+                            operation="deployment.discovery",
+                            arguments={"node": "gway-001"})
+        self.execution.deployment_discovery = Mock(
+            side_effect=PermissionError("deployment_declaration_invalid"))
+        with self.assertRaises(BridgeReadUnavailable) as caught:
+            self.dispatch(self.request)
+        self.assertEqual(caught.exception.code, "deployment_declaration_invalid")
+        self.execution.deployment_discovery.side_effect = PermissionError("/private/path")
+        with self.assertRaises(PermissionError) as caught:
+            self.dispatch(self.request)
+        self.assertNotIsInstance(caught.exception, BridgeReadUnavailable)
+
     def test_result_and_cancel_keep_principal(self):
         self.request.update(operation="execution.result", arguments={"request_id": "b" * 32})
         self.dispatch(self.request)
