@@ -1,0 +1,95 @@
+name: Android release candidate (sign only)
+on:
+  workflow_dispatch:
+    inputs:
+      build_run_id:
+        required: true
+        type: string
+      artifact_id:
+        required: true
+        type: string
+      expected_sha:
+        required: true
+        type: string
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: android-release-candidate-sign
+  cancel-in-progress: false
+jobs:
+  sign:
+    if: github.ref == 'refs/heads/main' && github.actor == 'arthexis' && github.triggering_actor == 'arthexis'
+    environment: android-release-signing
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      GH_TOKEN: ${{ github.token }}
+      BUILD_RUN: ${{ inputs.build_run_id }}
+      ARTIFACT_ID: ${{ inputs.artifact_id }}
+      EXPECTED_SHA: ${{ inputs.expected_sha }}
+      APPROVED_DIGEST: ${{ vars.RC_APPROVED_UNSIGNED_SHA256 }}
+      APPROVED_RUN: ${{ vars.RC_APPROVED_BUILD_RUN }}
+      APPROVED_ARTIFACT: ${{ vars.RC_APPROVED_ARTIFACT_ID }}
+      APPROVED_VERSION: ${{ vars.RC_APPROVED_VERSION_CODE }}
+      PINNED_CERT: ${{ vars.RC_PRODUCTION_CERT_SHA256 }}
+      ENABLED: ${{ vars.ANDROID_RC_SIGNING_ENABLED }}
+    steps:
+      - name: Verify explicit candidate authorization and exact build artifact
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "$ENABLED" == true && "$BUILD_RUN" == "$APPROVED_RUN" && "$ARTIFACT_ID" == "$APPROVED_ARTIFACT" ]]
+          [[ "$BUILD_RUN" =~ ^[1-9][0-9]*$ && "$ARTIFACT_ID" =~ ^[1-9][0-9]*$ ]]
+          [[ "$EXPECTED_SHA" =~ ^[0-9a-f]{40}$ && "$EXPECTED_SHA" == "$GITHUB_SHA" ]]
+          [[ "$APPROVED_DIGEST" =~ ^[0-9a-f]{64}$ && "$PINNED_CERT" =~ ^[0-9a-f]{64}$ ]]
+          [[ "$APPROVED_VERSION" =~ ^[1-9][0-9]{0,9}$ ]]
+          gh api "repos/$GITHUB_REPOSITORY/actions/runs/$BUILD_RUN" | jq -e --arg sha "$EXPECTED_SHA" '.path == ".github/workflows/android-release-candidate.yml" and .head_sha == $sha and .head_branch == "main" and .event == "workflow_dispatch" and .conclusion == "success" and .actor.login == "arthexis"' >/dev/null
+          gh api "repos/$GITHUB_REPOSITORY/actions/artifacts/$ARTIFACT_ID" | jq -e --arg run "$BUILD_RUN" --arg sha "$EXPECTED_SHA" '.expired == false and .name == ("unsigned-release-candidate-" + $run) and (.workflow_run.id|tostring) == $run and .workflow_run.head_sha == $sha' >/dev/null
+          gh run download "$BUILD_RUN" --repo "$GITHUB_REPOSITORY" --name "unsigned-release-candidate-$BUILD_RUN" --dir "$RUNNER_TEMP/rc-input"
+          SRC="$RUNNER_TEMP/rc-input"
+          [[ -f "$SRC/gway-remote-unsigned.apk" && ! -L "$SRC/gway-remote-unsigned.apk" ]]
+          [[ "$(sha256sum "$SRC/gway-remote-unsigned.apk" | cut -d' ' -f1)" == "$APPROVED_DIGEST" ]]
+          TREE=$(gh api "repos/$GITHUB_REPOSITORY/git/commits/$EXPECTED_SHA" --jq .tree.sha)
+          jq -e --arg sha "$EXPECTED_SHA" --arg tree "$TREE" --arg digest "$APPROVED_DIGEST" --arg run "$BUILD_RUN" --arg version "$APPROVED_VERSION" --arg repo "$GITHUB_REPOSITORY" '.repository == $repo and .source_sha == $sha and .source_tree == $tree and .unsigned_sha256 == $digest and (.build_run_id|tostring) == $run and (.version_code|tostring) == $version and .version_name == ("0.2." + $version) and .package == "com.arthexis.gwayremote"' "$SRC/manifest.json" >/dev/null
+          SDK="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-/usr/local/lib/android/sdk}}"
+          AAPT="$SDK/build-tools/35.0.0/aapt"
+          BADGING=$("$AAPT" dump badging "$SRC/gway-remote-unsigned.apk")
+          grep -Fq "package: name='com.arthexis.gwayremote' versionCode='$APPROVED_VERSION' versionName='0.2.$APPROVED_VERSION'" <<< "$BADGING"
+          ! grep -q '^application-debuggable' <<< "$BADGING"
+          XML=$("$AAPT" dump xmltree "$SRC/gway-remote-unsigned.apk" AndroidManifest.xml)
+          ! grep -Eq 'android:(debuggable|testOnly).*0xffffffff' <<< "$XML"
+          [[ "$(gh api "repos/$GITHUB_REPOSITORY/branches/main" --jq .commit.sha)" == "$EXPECTED_SHA" ]]
+      - name: Sign only the verified immutable candidate
+        shell: bash
+        env:
+          KEYSTORE: ${{ secrets.GWAY_APK_KEYSTORE_BASE64 }}
+          STORE_PASSWORD: ${{ secrets.GWAY_APK_STORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.GWAY_APK_KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.GWAY_APK_KEY_PASSWORD }}
+        run: |
+          set -euo pipefail
+          umask 077
+          : "${KEYSTORE:?}" "${STORE_PASSWORD:?}" "${KEY_ALIAS:?}" "${KEY_PASSWORD:?}"
+          KEY=$(mktemp "$RUNNER_TEMP/rc-key.XXXXXX")
+          trap 'rm -f "$KEY"' EXIT
+          printf '%s' "$KEYSTORE" | base64 --decode > "$KEY"
+          unset KEYSTORE
+          SRC="$RUNNER_TEMP/rc-input"
+          DEST="$RUNNER_TEMP/signed-release-candidate"
+          mkdir -m 700 "$DEST"
+          SDK="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-/usr/local/lib/android/sdk}}"
+          SIGNER="$SDK/build-tools/35.0.0/apksigner"
+          "$SIGNER" sign --ks "$KEY" --ks-key-alias "$KEY_ALIAS" --ks-pass env:STORE_PASSWORD --key-pass env:KEY_PASSWORD --out "$DEST/gway-remote.apk" "$SRC/gway-remote-unsigned.apk"
+          REPORT=$("$SIGNER" verify --verbose --print-certs "$DEST/gway-remote.apk")
+          CERT=$(printf '%s\n' "$REPORT" | sed -nE 's/^Signer #1 certificate SHA-256 digest: ([0-9a-fA-F]{64})$/\1/p')
+          [[ "${CERT,,}" == "$PINNED_CERT" ]]
+          DIGEST=$(sha256sum "$DEST/gway-remote.apk" | cut -d' ' -f1)
+          jq --arg digest "$DIGEST" --arg cert "$PINNED_CERT" --argjson artifact "$ARTIFACT_ID" --argjson run "$GITHUB_RUN_ID" '. + {apk_sha256:$digest, certificate_sha256:$cert, unsigned_artifact_id:$artifact, signing_run_id:$run}' "$SRC/manifest.json" > "$DEST/manifest.json"
+          rm -f "$DEST/"*.idsig
+      - uses: actions/upload-artifact@v4
+        with:
+          name: signed-release-candidate-${{ github.run_id }}
+          path: ${{ runner.temp }}/signed-release-candidate/
+          if-no-files-found: error
+          retention-days: 30

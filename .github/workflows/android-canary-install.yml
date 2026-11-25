@@ -148,7 +148,7 @@ jobs:
           echo "Verified pinned APK and provenance for PR #$PR_NUMBER"
 
       - name: Install ONLY isolated canary on one authorized USB Android
-        if: inputs.run_feed_tests == 'no'
+        if: ${{ inputs.run_feed_tests == 'no' && inputs.run_compose_tests == 'no' }}
         shell: bash
         env:
           CANARY_RESET: ${{ inputs.canary_reset }}

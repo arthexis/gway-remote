@@ -1,0 +1,83 @@
+name: Android release candidate (build only)
+run-name: "Android RC build ${{ inputs.expected_sha }} version ${{ inputs.version_code }}"
+on:
+  workflow_dispatch:
+    inputs:
+      expected_sha:
+        description: Exact reviewed main revision
+        required: true
+        type: string
+      version_code:
+        description: Candidate version reserved by the coordinator
+        required: true
+        type: string
+permissions:
+  contents: read
+concurrency:
+  group: android-release-candidate-build
+  cancel-in-progress: false
+jobs:
+  build:
+    if: github.ref == 'refs/heads/main' && github.actor == 'arthexis' && github.triggering_actor == 'arthexis'
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    env:
+      EXPECTED_SHA: ${{ inputs.expected_sha }}
+      VERSION_CODE: ${{ inputs.version_code }}
+    steps:
+      - name: Validate exact reviewed source and version syntax
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "$EXPECTED_SHA" =~ ^[0-9a-f]{40}$ && "$GITHUB_SHA" == "$EXPECTED_SHA" ]]
+          [[ "$VERSION_CODE" =~ ^[1-9][0-9]{0,9}$ ]]
+          (( VERSION_CODE <= 2100000000 ))
+          echo "GWAY_ANDROID_VERSION_CODE=$VERSION_CODE" >> "$GITHUB_ENV"
+          echo "GWAY_ANDROID_VERSION_NAME=0.2.$VERSION_CODE" >> "$GITHUB_ENV"
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.expected_sha }}
+          persist-credentials: false
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.10.2'
+          cache-read-only: true
+      - name: Build unsigned distribution APK
+        working-directory: android
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "$(git rev-parse HEAD)" == "$EXPECTED_SHA" ]]
+          gradle :app:testDebugUnitTest :app:assembleRelease --no-daemon
+          APK=app/build/outputs/apk/release/app-release-unsigned.apk
+          test -s "$APK"
+          DEST="$RUNNER_TEMP/unsigned-release-candidate"
+          mkdir -m 700 "$DEST"
+          cp "$APK" "$DEST/gway-remote-unsigned.apk"
+          export DEST SOURCE_TREE="$(git rev-parse HEAD^{tree})"
+          python3 - <<'PY'
+          import hashlib, json, os
+          from pathlib import Path
+          p = Path(os.environ["DEST"])
+          manifest = {
+              "repository": os.environ["GITHUB_REPOSITORY"],
+              "source_sha": os.environ["EXPECTED_SHA"],
+              "source_tree": os.environ["SOURCE_TREE"],
+              "version_code": int(os.environ["VERSION_CODE"]),
+              "version_name": os.environ["GWAY_ANDROID_VERSION_NAME"],
+              "package": "com.arthexis.gwayremote",
+              "build_run_id": int(os.environ["GITHUB_RUN_ID"]),
+              "unsigned_sha256": hashlib.sha256((p/"gway-remote-unsigned.apk").read_bytes()).hexdigest(),
+          }
+          (p/"manifest.json").write_text(json.dumps(manifest, sort_keys=True))
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: unsigned-release-candidate-${{ github.run_id }}
+          path: ${{ runner.temp }}/unsigned-release-candidate/
+          if-no-files-found: error
+          retention-days: 30

@@ -1,0 +1,46 @@
+name: Android installed certificate evidence (manual)
+on:
+  workflow_dispatch:
+    inputs:
+      package:
+        type: choice
+        options: [canary, stable]
+        default: stable
+        required: true
+      expected_certificate:
+        description: Independently verified SHA-256 signer pin (stable audit requires it)
+        type: string
+        required: false
+permissions:
+  contents: read
+concurrency:
+  group: gway-001-android-canary-install
+  cancel-in-progress: false
+jobs:
+  audit:
+    if: github.ref == 'refs/heads/main' && github.actor == 'arthexis' && github.triggering_actor == 'arthexis'
+    runs-on: [self-hosted, Linux, ARM64, gway-001]
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Read installed public APK evidence only
+        env:
+          PACKAGE: ${{ inputs.package }}
+          EXPECTED_CERT: ${{ inputs.expected_certificate }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "$(hostname -s)" == "gway-001" ]]
+          case "$PACKAGE" in
+            stable)
+              [[ "$EXPECTED_CERT" =~ ^[0-9a-f]{64}$ ]]
+              RECEIPT=$(python3 -m gway_remote.android_canary_certificate --stable)
+              printf '%s\n' "$RECEIPT"
+              python3 -c 'import json,os,sys; e=json.loads(sys.argv[1]); assert e["package"]=="com.arthexis.gwayremote" and e["certificate_sha256"]==os.environ["EXPECTED_CERT"], "installed_signer_mismatch"' "$RECEIPT"
+              ;;
+            canary) python3 -m gway_remote.android_canary_certificate ;;
+            *) exit 1 ;;
+          esac
