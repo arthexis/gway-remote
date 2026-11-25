@@ -1,0 +1,8 @@
+[Unit]
+Description=Observe Watchtower inventory and maintain Activity Feed
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec=5min
+Unit=gway-feed-maintenance.service
+[Install]
+WantedBy=timers.target

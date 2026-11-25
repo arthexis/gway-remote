@@ -189,6 +189,30 @@ jobs:
                   raise SystemExit(f"Retired AgentOps tool still advertised by {module}")
           print("Active gway-001 MCP backend has expected revision and no retired AgentOps tools")
           PY
+      - name: Verify authenticated mobile Feed delivery
+        if: steps.revision.outputs.skip != 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          export XDG_RUNTIME_DIR="/run/user/$(id -u)"
+          export DBUS_SESSION_BUS_ADDRESS="unix:path=$XDG_RUNTIME_DIR/bus"
+          python3 - <<'PY'
+          import json
+          from urllib.request import Request, build_opener, ProxyHandler
+          from gway_remote.activity_feed_cli import NoRedirect
+          from gway_remote.deployment import local_api_token
+          try:
+              req = Request("https://remote.arthexis.com/api/v1/feed/events?limit=1",
+                            headers={"Authorization":"Bearer "+local_api_token()})
+              with build_opener(ProxyHandler({}), NoRedirect()).open(req, timeout=8) as response:
+                  raw = response.read(1048577)
+                  assert response.status == 200 and len(raw) <= 1048576
+                  items = json.loads(raw)["items"]
+                  assert items and all("producer" not in item for item in items)
+              print("Authenticated mobile Feed: HTTP 200, nonempty receipt page")
+          except Exception:
+              raise SystemExit("Authenticated mobile Feed acceptance failed") from None
+          PY
       - name: Watchtower deployment summary
         if: steps.revision.outputs.skip != 'true'
         env:

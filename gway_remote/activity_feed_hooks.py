@@ -24,6 +24,9 @@ REPO = re.compile(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+\Z")
 
 
 def enabled():
+    from . import activity_feed_local
+    if activity_feed_local.bound():
+        return True
     if os.environ.get("GWAY_ACTIVITY_FEED_HOOKS") == "1":
         return True
     try:
@@ -78,6 +81,9 @@ def deployment(source, *, repository, node, attempt, state, at, sha=None):
 
 
 def broker(application, node, attempt, state, at, sha=None):
+    from . import activity_feed_local
+    if activity_feed_local.bound():
+        return activity_feed_local.broker(application, node, attempt, state, at, sha)
     from .watchtower_deploy_notices import REPOSITORIES
     repository = REPOSITORIES.get(application)
     if repository is None:

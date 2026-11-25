@@ -150,7 +150,7 @@ def check_volume(path, role):
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--database", default=os.environ.get("GWAY_ACTIVITY_FEED_DATABASE"))
-    parser.add_argument("operation", choices=("init", "status", "prune", "backup", "restore-new", "audit-grants", "check-volume"))
+    parser.add_argument("operation", choices=("init", "status", "prune", "backup", "restore-new", "audit-grants", "check-volume", "observe-inventory"))
     parser.add_argument("--destination")
     parser.add_argument("--volume")
     parser.add_argument("--role", choices=("central","producer","backup"))
@@ -177,6 +177,10 @@ def main(argv=None):
             else:
                 ActivityFeedStore(path)
                 result = {"initialized":True,"created":True}
+        elif args.operation == "observe-inventory":
+            from .activity_feed_local import inventory
+            check_volume(Path(args.database).parent, "central")
+            result = {"observed_changes": inventory(ActivityFeedStore(args.database))}
         elif args.operation == "status":
             result = status(args.database)
         elif args.operation == "prune":

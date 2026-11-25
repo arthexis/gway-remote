@@ -10,6 +10,15 @@
     feed_gateway_vhost: /etc/nginx/sites-enabled/remote.arthexis.com
     feed_gateway_route: |
       # Exact read-only mobile Feed; existing mobile auth is checked over WireGuard.
+      location = /api/feed/events {
+          limit_except POST { deny all; }
+          client_max_body_size 16k;
+          proxy_pass http://127.0.0.1:19010;
+          proxy_set_header Authorization $http_authorization;
+          proxy_set_header X-Gway-Feed-Principal $http_x_gway_feed_principal;
+          proxy_connect_timeout 3s;
+          proxy_read_timeout 8s;
+      }
       location = /api/v1/feed/events {
           limit_except GET { deny all; }
           proxy_pass http://127.0.0.1:19010;
@@ -55,8 +64,8 @@
       ansible.builtin.assert:
         that:
           - >-
-            'location = /api/v1/feed/events {' not in
-            (feed_gateway_original.content | b64decode)
+            ('location = /api/v1/feed/events {' not in (feed_gateway_original.content | b64decode)
+             and 'location = /api/feed/events {' not in (feed_gateway_original.content | b64decode))
             or '# BEGIN GWAY MOBILE ACTIVITY FEED' in
             (feed_gateway_original.content | b64decode)
         fail_msg: mobile Feed route exists without managed markers; review before deployment.
@@ -103,6 +112,17 @@
             name: nginx.service
             state: reloaded
           when: feed_gateway_change.changed
+
+        - name: Verify producer ingress denies anonymous publication
+          ansible.builtin.uri:
+            url: https://remote.arthexis.com/api/feed/events
+            method: POST
+            follow_redirects: none
+            status_code: 401
+            timeout: 8
+            use_proxy: false
+            validate_certs: true
+          changed_when: false
 
         - name: Verify the live HTTPS route rejects unauthenticated requests
           ansible.builtin.uri:
