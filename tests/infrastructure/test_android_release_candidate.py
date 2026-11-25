@@ -273,3 +273,108 @@ class CandidateTests(unittest.TestCase):
         workflow = yaml.safe_load(content)
         self.assertEqual(set(workflow["jobs"]), {"sign"})
         self.assertEqual(len(workflow["jobs"]["sign"]["steps"]),3)
+
+
+    def test_live_health_gate(self):
+        from gway_remote.android_release_candidate import health_is_authenticated
+        tree = {"truncated":False,"elements":[{"text":"API health"},{"text":'{"status":"ok","api":"gway-remote/v1"}'}]}
+        self.assertTrue(health_is_authenticated(tree))
+        for invalid in (
+            dict(tree,truncated=True),
+            {"truncated":False,"elements":[{"text":"API health"},{"text":"Token is required"}]},
+            {"truncated":False,"elements":[{"text":'{"status":"ok","api":"gway-remote/v1"}'}]},
+            {"truncated":False,"elements":[{"text":"API health"},{"text":'{"status":"ok"}'}]},
+        ):
+            self.assertFalse(health_is_authenticated(invalid))
+
+    def test_stable_installer_preflight_update_and_replay(self):
+        import hashlib
+        import tempfile
+        from pathlib import Path
+        from types import SimpleNamespace
+        from unittest.mock import Mock, patch
+        from gway_remote.android_release_candidate import CandidateLedger, install_stable_candidate
+        from gway_remote.android_canary_install import CANARY, PRODUCTION
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            root.chmod(0o700)
+            apk = root/f"{self.c.candidate_id}.apk"
+            apk.write_bytes(b"x"*12000)
+            apk.chmod(0o600)
+            digest = hashlib.sha256(apk.read_bytes()).hexdigest()
+            signed = {"artifact_id":10,"run_id":20,"apk_sha256":digest,
+                      "certificate_sha256":"d"*64,"workflow_sha":"e"*40}
+            ledger = CandidateLedger(":memory:")
+            gate = Mock(OWNER="arthexis")
+            revision = "f"*40
+            run = {"id":30,"path":".github/workflows/android-release-candidate-install.yml",
+                   "event":"workflow_dispatch","head_branch":"main","head_sha":revision,
+                   "status":"in_progress","run_attempt":1,"actor":{"login":"arthexis"},
+                   "triggering_actor":{"login":"arthexis"}}
+            sign = dict(run,path=".github/workflows/android-release-candidate-sign.yml",
+                        head_sha="e"*40,conclusion="success")
+            meta = {"expired":False,"name":"signed-release-candidate-20",
+                    "workflow_run":{"id":20,"head_sha":"e"*40}}
+            def api(path):
+                return {"actions/runs/30":run,"actions/runs/20":sign,
+                        "actions/artifacts/10":meta,"branches/main":{"commit":{"sha":revision}}}[path]
+            gate.api.side_effect = api
+            device = Mock()
+            device.screen_state.return_value = {"screen_on":True,"locked":False}
+            device.ui_tree.return_value = {"truncated":False,"elements":[{"text":"API health"},{"text":"Token is required"}]}
+            before = dict(package=PRODUCTION,apk_sha256="b"*64,certificate_sha256="d"*64,version_code=799)
+            after = dict(before,apk_sha256=digest,version_code=800)
+            inspect = Mock(return_value=before)
+            calls = []
+            def call(argv, timeout):
+                calls.append(argv)
+                if argv[3:7] == ["shell","pm","path",CANARY]:
+                    return SimpleNamespace(returncode=0,stdout="package:/data/app/canary/base.apk",stderr="")
+                if argv[3:5] == ["install","-r"]:
+                    self.assertEqual(argv[5],str(apk))
+                    inspect.return_value = after
+                    return SimpleNamespace(returncode=0,stdout="Success",stderr="")
+                self.fail("unexpected USB operation")
+            kwargs = dict(artifact_dir=root,workflow_sha=revision,install_run_id=30,
+                          expected_digest=digest,expected_certificate="d"*64,expected_artifact_id=10,
+                          gate=gate,call=call,device=device,inspect=inspect,hostname="gway-001")
+            try:
+                ledger.allocate(self.c,published_version=798,installed_version=799)
+                ledger.record(self.c.candidate_id,"built",{"run_id":19,"artifact_id":9})
+                ledger.record(self.c.candidate_id,"signed",signed)
+                with patch("gway_remote.android_release_candidate.validate_install_revision"), \
+                     patch("gway_remote.android_release_candidate.validate_signing_revision"), \
+                     patch("gway_remote.android_canary_install.authorized_usb",return_value="LAB"), \
+                     patch("gway_remote.android_canary_certificate.certificate_sha256",return_value="d"*64):
+                    blocked = install_stable_candidate(ledger,self.c,preflight_only=True,**kwargs)
+                    self.assertEqual(blocked["status"],"blocked")
+                    with self.assertRaisesRegex(ValueError,"credential_missing_or_unverified"):
+                        install_stable_candidate(ledger,self.c,**kwargs)
+                    self.assertEqual(calls,[])
+                    self.assertNotIn("installed",ledger.read(self.c.candidate_id))
+                    device.ui_tree.return_value = {"truncated":False,"elements":[{"text":"API health"},{"text":'{"status":"ok","api":"gway-remote/v1"}'}]}
+                    self.assertEqual(install_stable_candidate(ledger,self.c,preflight_only=True,**kwargs)["status"],"ready")
+                    receipt = install_stable_candidate(ledger,self.c,**kwargs)
+                    self.assertEqual(receipt["installed_after"],after)
+                    self.assertEqual(receipt["status"],"installed")
+                    self.assertTrue(receipt["canary_path_unchanged"])
+                    self.assertEqual(install_stable_candidate(ledger,self.c,**kwargs),receipt)
+                    self.assertEqual(sum(x[3:5]==["install","-r"] for x in calls),1)
+                    self.assertNotIn("accepted",ledger.read(self.c.candidate_id))
+            finally:
+                ledger.close()
+
+    def test_stable_workflow_is_manual_and_shared_hardware_group(self):
+        from pathlib import Path
+        workflow = (Path(__file__).resolve().parents[2]/".github/workflows/android-release-candidate-install.yml").read_text()
+        self.assertIn("workflow_dispatch:",workflow)
+        self.assertIn("group: gway-001-android-canary-install",workflow)
+        self.assertIn("cancel-in-progress: false",workflow)
+        self.assertIn("github.actor == 'arthexis'",workflow)
+        self.assertIn("github.triggering_actor == 'arthexis'",workflow)
+        self.assertIn("github.ref == 'refs/heads/main'",workflow)
+        self.assertIn("default: preflight",workflow)
+        self.assertNotIn("secrets.",workflow)
+        self.assertNotIn("assembleRelease",workflow)
+        self.assertNotIn("gh release create",workflow)
+        self.assertNotIn("uninstall",workflow)
