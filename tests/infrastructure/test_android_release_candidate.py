@@ -40,3 +40,26 @@ class CandidateTests(unittest.TestCase):
                           ("downloaded_digest","e"*64)):
             with self.subTest(key=key), self.assertRaises(ValueError):
                 self.a.validate_promotion(**{**self.promote,key:value})
+
+    def test_workflow_trust_boundary(self):
+        from pathlib import Path
+        root = Path(__file__).resolve().parents[2] / ".github/workflows"
+        build = (root / "android-release-candidate.yml").read_text()
+        sign = (root / "android-release-candidate-sign.yml").read_text()
+        for workflow in (build, sign):
+            self.assertIn("workflow_dispatch:", workflow)
+            self.assertIn("github.ref == 'refs/heads/main'", workflow)
+            self.assertIn("github.triggering_actor == 'arthexis'", workflow)
+            self.assertNotIn("gh release create", workflow)
+            self.assertNotIn("contents: write", workflow)
+        self.assertNotIn("secrets.", build)
+        self.assertIn(":app:assembleRelease", build)
+        self.assertIn("app-release-unsigned.apk", build)
+        self.assertNotIn("actions/checkout", sign)
+        self.assertNotIn("gradle", sign)
+        self.assertIn("environment: android-release-signing", sign)
+        self.assertIn('"$ENABLED" == true', sign)
+        self.assertIn("RC_APPROVED_ARTIFACT_ID", sign)
+        self.assertIn("RC_PRODUCTION_CERT_SHA256", sign)
+        self.assertIn("GWAY_APK_KEYSTORE_BASE64", sign)
+        self.assertLess(sign.index("Verify explicit candidate authorization"), sign.index("secrets.GWAY_APK_KEYSTORE_BASE64"))
