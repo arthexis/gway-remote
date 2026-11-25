@@ -1,0 +1,35 @@
+name: Android installed canary certificate (manual)
+on:
+  workflow_dispatch:
+    inputs:
+      package:
+        type: choice
+        options: [canary, stable]
+        default: stable
+        required: true
+permissions:
+  contents: read
+concurrency:
+  group: gway-001-android-canary-install
+  cancel-in-progress: false
+jobs:
+  audit:
+    if: github.ref == 'refs/heads/main' && github.actor == 'arthexis' && github.triggering_actor == 'arthexis'
+    runs-on: [self-hosted, Linux, ARM64, gway-001]
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Read installed public APK evidence only
+        env:
+          PACKAGE: ${{ inputs.package }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          case "$PACKAGE" in
+            stable) python3 -m gway_remote.android_canary_certificate --stable ;;
+            canary) python3 -m gway_remote.android_canary_certificate ;;
+            *) exit 1 ;;
+          esac

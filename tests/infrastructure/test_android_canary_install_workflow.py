@@ -78,3 +78,12 @@ class CanaryInstallWorkflowTests(unittest.TestCase):
         self.assertIn('"opportunities": 2', text)
         self.assertIn('no) RESULT=$(python3 -m gway_remote.android_canary_field --pr "$PR_NUMBER" --install --wake --expected-run "$ARTIFACT_RUN" --suite "$COMPOSE_SUITE")', text)
         self.assertIn('RESET_CANARY_ONLY) RESULT=$(python3 -m gway_remote.android_canary_field --pr "$PR_NUMBER" --install --allow-canary-reset --wake --expected-run "$ARTIFACT_RUN" --suite "$COMPOSE_SUITE")', text)
+
+    def test_standalone_install_excludes_compose_and_feed(self):
+        text = WORKFLOW.read_text()
+        standalone = text.split("Install ONLY isolated canary", 1)[1].split("Run pinned hermetic Compose tests", 1)[0]
+        self.assertIn("inputs.run_feed_tests == 'no' && inputs.run_compose_tests == 'no'", standalone)
+        self.assertIn("gway_remote.android_canary_install", standalone)
+        compose = text.split("Run pinned hermetic Compose tests", 1)[1].split("Upload sanitized physical acceptance receipt", 1)[0]
+        self.assertIn("inputs.run_compose_tests == 'RUN_HERMETIC_TESTS'", compose)
+        self.assertIn("gway_remote.android_canary_field", compose)
