@@ -1,5 +1,6 @@
 """Offline durable claim and no redispatch contracts."""
 import os
+import subprocess
 from pathlib import Path
 import tempfile
 import unittest
@@ -9,6 +10,20 @@ from gway_remote import mcp_deployment_broker as broker
 
 
 class AsyncDeploymentTests(unittest.TestCase):
+    def test_worker_imports_exact_package_without_pythonpath_or_checkout_cwd(self):
+        argv = broker._worker_argv("sample", "a" * 32)
+        self.assertEqual(argv[1:4], ["-I", "-B", "-c"])
+        self.assertEqual(Path(argv[5]), Path(broker.__file__).resolve().parents[1])
+        self.assertEqual(argv[-3:], ["worker", "sample", "a" * 32])
+        with tempfile.TemporaryDirectory() as root:
+            # Exercise the actual child interpreter under the broker's minimal
+            # environment. Help exercises imports without touching live state.
+            result = subprocess.run(argv[:-3] + ["--help"], cwd=root,
+                                    env={"PATH": "/usr/local/bin:/usr/bin:/bin", "HOME": root},
+                                    capture_output=True, text=True, timeout=15, check=True)
+            self.assertIn("worker", result.stdout)
+            self.assertIn("request_id", result.stdout)
+
     def test_changed_manifest_before_first_accept_never_claims_or_spawns(self):
         with tempfile.TemporaryDirectory() as root:
             state = Path(root)
