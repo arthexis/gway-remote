@@ -1,8 +1,23 @@
 import unittest
+import tempfile
+from pathlib import Path
 from unittest.mock import patch
 from gway_remote import mobile_odoo_opportunities as m
 
 class OpportunityTests(unittest.TestCase):
+    def setUp(self):
+        p = patch.object(m, '_consent_bindings', return_value={})
+        p.start()
+        self.addCleanup(p.stop)
+
+    def test_consent_identity(self):
+        evidence = {'7': {'partner_id': 5, 'ticket': '42', 'file_id': 'example_file_12345'}}
+        self.assertEqual(m._consent_url(evidence, 7, 5, '42'), 'https://drive.google.com/file/d/example_file_12345/view')
+        for args in ((8, 5, '42'), (7, 6, '42'), (7, 5, '43'), (7, 5, None)):
+            self.assertIsNone(m._consent_url(evidence, *args))
+        evidence['7']['file_id'] = 'https://example.invalid'
+        self.assertIsNone(m._consent_url(evidence, 7, 5, '42'))
+
     def test_request_type(self):
         self.assertEqual(m._request_type("<p>Urgente - Nueva - Model</p>"), "new")
         self.assertEqual(m._request_type("Alta - Desmontado y Montado - Model"), "remove_and_install")
