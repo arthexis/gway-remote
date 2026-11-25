@@ -4,6 +4,7 @@ Use shared fixtures for stable protocol data and parameterization for invalid
 inputs; subprocess and HTTP are always replaced in unit tests.
 """
 import base64
+from pathlib import Path
 
 import pytest
 
@@ -32,6 +33,17 @@ def enrollment():
 @pytest.fixture
 def root(monkeypatch):
     monkeypatch.setattr(satellite.os, "geteuid", lambda: 0)
+    # On real field nodes /sys/class/net/gway exists. These are fresh-node
+    # simulations, not attempts to adopt a live WireGuard interface. Isolate
+    # only that kernel-visible path; leave all temporary-file checks intact.
+    exists = satellite.Path.exists
+
+    def isolated_exists(path):
+        if path == Path("/sys/class/net/gway"):
+            return False
+        return exists(path)
+
+    monkeypatch.setattr(satellite.Path, "exists", isolated_exists)
     # No host-owned /etc/ssh key can leak into an offline test.
     monkeypatch.setattr(satellite, "_ssh_host_public_key",
                         lambda: "ssh-ed25519 " + base64.b64encode(
@@ -137,6 +149,24 @@ def test_repair_attests_existing_legacy_tunnel_without_rewriting_config(tmp_path
     assert seen["kwargs"]["repair_host_identity"] is True
     assert "ssh_host_key" in seen["kwargs"]
     assert not any(args[0] == "wg" and args[1] == "set" for args, _ in commands)
+
+
+def test_active_unowned_interface_refuses_fresh_adoption(tmp_path, monkeypatch, root, commands):
+    config = tmp_path / "gway.conf"
+    previous = satellite.Path.exists
+
+    def active_interface(path):
+        if path == Path("/sys/class/net/gway"):
+            return True
+        return previous(path)
+
+    monkeypatch.setattr(satellite.Path, "exists", active_interface)
+    monkeypatch.setattr(satellite, "_enroll",
+                        lambda *args, **kwargs: pytest.fail("must not enroll"))
+    with pytest.raises(ValueError, match="existing active gway interface"):
+        satellite.bootstrap(DEVICE, OTHER, TOKEN, config=config)
+    assert not config.exists()
+    assert not commands
 
 
 def test_fresh_bootstrap_writes_config_and_activates(tmp_path, monkeypatch, root, commands, enrollment):

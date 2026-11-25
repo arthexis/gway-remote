@@ -52,6 +52,29 @@
           - "'--port 8788' in enrollment_unit.stdout"
         fail_msg: "Enrollment service is not the expected loopback-only production owner."
 
+    - name: Read exactly reviewed Git release
+      ansible.builtin.command:
+        argv: [git, -C, "{{ enrollment_source }}", rev-parse, --verify, HEAD]
+      changed_when: false
+      register: enrollment_reviewed_revision
+
+    - name: Refuse a checkout without a full committed release
+      ansible.builtin.assert:
+        that:
+          - enrollment_reviewed_revision.stdout is match('^[0-9a-f]{40}$')
+
+    - name: Refuse modified bootstrap source in the release checkout
+      ansible.builtin.command:
+        argv: [git, -C, "{{ enrollment_source }}", status, --porcelain, --untracked-files=all, --,
+               gway_remote, scripts, ansible]
+      changed_when: false
+      register: enrollment_source_dirty
+
+    - name: Require clean reviewed bootstrap inputs
+      ansible.builtin.assert:
+        that:
+          - enrollment_source_dirty.stdout | trim == ''
+
     - name: Copy reviewed application modules without touching enrollment state
       ansible.builtin.copy:
         src: "{{ enrollment_source }}/gway_remote/"
@@ -60,6 +83,15 @@
         group: root
         mode: preserve
       register: enrollment_code
+
+    - name: Stage root-only reviewed bootstrap release revision
+      ansible.builtin.copy:
+        dest: "{{ enrollment_root }}/bootstrap-release.sha"
+        content: "{{ enrollment_reviewed_revision.stdout }}\n"
+        owner: root
+        group: root
+        mode: '0600'
+      register: enrollment_release_marker
 
     - name: Check installed named-host validator
       ansible.builtin.command:
@@ -74,7 +106,7 @@
       ansible.builtin.systemd:
         name: "{{ enrollment_service }}"
         state: restarted
-      when: enrollment_code.changed
+      when: enrollment_code.changed or enrollment_release_marker.changed
 
     - name: Verify enrollment owner remains active
       ansible.builtin.command:

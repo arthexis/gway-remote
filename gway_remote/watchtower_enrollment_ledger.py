@@ -241,7 +241,8 @@ class Ledger:
             row = connection.execute(
                 "SELECT * FROM bootstrap_sessions WHERE session_hash=?", (_digest(secret),),
             ).fetchone()
-            if row is None or row["device"] != device or row["revoked_at"]:
+            if (row is None or row["device"] != device or row["revoked_at"]
+                    or row["expires_at"] <= _now()):
                 raise EnrollmentRejected("bootstrap rejected")
             peer = connection.execute(
                 "SELECT 1 FROM devices WHERE device=? AND public_key=? AND state='active'",

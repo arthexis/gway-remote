@@ -1,0 +1,136 @@
+---
+# #641: bounded bootstrap of a freshly enrolled local node.
+# No enrollment/Watchtower grant, GitHub credentials, provider registration,
+# AgentOps workspaces, or remote repository deployment are permitted here.
+- name: Converge the existing GWay Remote receiver and restricted relay locally
+  hosts: localhost
+  connection: local
+  become: true
+  gather_facts: true
+  vars:
+    gway_remote_install_root: /opt/gway-remote
+    gway_remote_exec_user: gway-exec
+    gway_remote_exec_state_dir: /var/lib/gway-exec
+    gway_remote_runner_user: "{{ gway_bootstrap_installer }}"
+    gway_remote_executor_override: "{{ gway_bootstrap_executor_override | default('') }}"
+  tasks:
+    - name: Reject an unreviewed revision, unexpected host, or missing operator identity
+      ansible.builtin.assert:
+        that:
+          - gway_bootstrap_revision is defined
+          - gway_bootstrap_revision is match('^[0-9a-f]{40}$')
+          - gway_bootstrap_node is defined
+          - gway_bootstrap_node is match('^gway-[0-9]{3}$')
+          - ansible_hostname == gway_bootstrap_node
+          - gway_bootstrap_installer is defined
+          - gway_bootstrap_installer is match('^[a-z_][a-z0-9_-]*$')
+          - gway_bootstrap_installer not in ['root', 'gway-exec', 'gway-relay']
+          - gway_bootstrap_relay_key_file is defined
+          - gway_bootstrap_relay_key_file is match('^/[^ ]+$')
+          - "'..' not in gway_bootstrap_relay_key_file.split('/')"
+        fail_msg: Node bootstrap requires a pinned release, matching hostname and verified installer.
+
+    - name: Verify the pinned local Git revision
+      ansible.builtin.command:
+        argv: [git, -C, "{{ playbook_dir }}/..", rev-parse, --verify, HEAD]
+      changed_when: false
+      register: gway_bootstrap_source_sha
+
+    - name: Refuse a release checkout at another revision
+      ansible.builtin.assert:
+        that:
+          - gway_bootstrap_source_sha.stdout == gway_bootstrap_revision
+
+    - name: Verify only clean reviewed package and provisioning sources
+      ansible.builtin.command:
+        argv: [git, -C, "{{ playbook_dir }}/..", status, --porcelain, --untracked-files=all, --,
+               gway_remote, ansible, scripts]
+      changed_when: false
+      register: gway_bootstrap_dirty
+
+    - name: Refuse unreviewed or modified installer code
+      ansible.builtin.assert:
+        that:
+          - gway_bootstrap_dirty.stdout | trim == ''
+
+    - name: Verify selected existing user and relay key format
+      ansible.builtin.getent:
+        database: passwd
+        key: "{{ gway_bootstrap_installer }}"
+
+    - name: Ensure input key is single-line and well formed
+      ansible.builtin.set_fact:
+        gway_exec_relay_public_key: "{{ lookup('file', gway_bootstrap_relay_key_file) | trim }}"
+
+    - name: Refuse malformed relay identity
+      ansible.builtin.assert:
+        that:
+          - gway_exec_relay_public_key is match('^ssh-ed25519 [A-Za-z0-9+/=]+$')
+        fail_msg: Only an attested existing Watchtower relay Ed25519 public key is accepted.
+
+    - name: Resolve persistent executor identity without migrating existing nodes
+      ansible.builtin.command:
+        argv: [/usr/bin/python3, "{{ playbook_dir }}/../scripts/resolve-executor-user.py",
+               --installer, "{{ gway_bootstrap_installer }}",
+               --override, "{{ gway_remote_executor_override }}"]
+      changed_when: false
+      register: gway_bootstrap_selected_user
+
+    - name: Bind resolved executor for existing guarded provisioning
+      ansible.builtin.set_fact:
+        gway_remote_exec_run_user: "{{ gway_bootstrap_selected_user.stdout }}"
+        gway_remote_resolved_executor_user: "{{ gway_bootstrap_selected_user.stdout }}"
+
+    - name: Provision only the existing dormant non-privileged executor
+      ansible.builtin.include_tasks: roles/gway_remote/tasks/node-exec-prepare.yml
+
+    - name: Ensure reviewed package root is root controlled
+      ansible.builtin.file:
+        path: "{{ gway_remote_install_root }}"
+        state: directory
+        owner: root
+        group: root
+        mode: '0755'
+        follow: false
+
+    - name: Install exact reviewed GWay Remote package atomically
+      ansible.builtin.command:
+        argv: [/usr/bin/python3, "{{ playbook_dir }}/../scripts/install-package-archive.py",
+               --source, "{{ playbook_dir }}/..", --root, "{{ gway_remote_install_root }}"]
+      changed_when: (gway_bootstrap_package.stdout | from_json).changed | bool
+      register: gway_bootstrap_package
+
+    - name: Converge selected user manager, bus, runtime and compatible identity
+      ansible.builtin.include_tasks: roles/gway_remote/tasks/node-exec-select.yml
+
+    - name: Install existing restricted SSH relay using Watchtower public key only
+      ansible.builtin.include_tasks: roles/gway_remote/tasks/node-exec-relay.yml
+
+    - name: Verify the installed receiver under its selected non-root account
+      ansible.builtin.command:
+        argv: [/usr/bin/sudo, -n, -H, -u, "{{ gway_remote_exec_run_user }}",
+               /usr/bin/env, "PYTHONPATH={{ gway_remote_install_root }}",
+               /usr/bin/python3, -c,
+               "from gway_remote.node_exec_worker import require_account; require_account()"]
+      changed_when: false
+
+    - name: Verify the final effective SSH policy
+      ansible.builtin.command:
+        argv: [/usr/sbin/sshd, -t]
+      changed_when: false
+
+    - name: Verify the relay's restricted sudo policy
+      ansible.builtin.command:
+        argv: [/usr/sbin/visudo, -cf, /etc/sudoers.d/gway-exec-relay]
+      changed_when: false
+
+    - name: Emit sanitized local readiness receipt only
+      ansible.builtin.debug:
+        msg:
+          node: "{{ gway_bootstrap_node }}"
+          revision: "{{ gway_bootstrap_revision }}"
+          executor: "{{ gway_remote_exec_run_user }}"
+          stages: [package, user_manager, restricted_relay, receiver]
+          locally_configured: true
+          watchtower_grant: false
+          remote_execution_verified: false

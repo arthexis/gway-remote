@@ -12,6 +12,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
 from .bootstrap_script import render_bootstrap_script
+from .bootstrap_release import artifacts as reviewed_release_artifacts, ReleaseUnavailable
 from .watchtower_enrollment_ledger import EnrollmentRejected
 from .watchtower_enrollment_provisioner import Provisioner
 from .wireguard_enrollment_contract import (
@@ -21,7 +22,8 @@ from .wireguard_enrollment_contract import (
 
 
 def make_handler(provisioner: Provisioner | None, *, public_url: str, wireguard_endpoint: str,
-                 read_only_stage: bool = False):
+                 read_only_stage: bool = False, release_provider=None):
+    release_provider = release_provider or reviewed_release_artifacts
     class Handler(BaseHTTPRequestHandler):
         server_version = "gway-remote-watchtower"
         sys_version = ""
@@ -43,8 +45,15 @@ def make_handler(provisioner: Provisioner | None, *, public_url: str, wireguard_
                     *, repair_host_identity: bool = False) -> bytes:
             """HTTPS-distributed stage-one script; never includes an invitation token."""
             # URL bearer characters are restricted by the route regexp.
+            if repair_host_identity or not re.fullmatch(r"gway-[0-9]{3}", device):
+                return render_bootstrap_script(secret, device, server_key,
+                                               repair_host_identity=repair_host_identity)
+            metadata = release_provider()
             return render_bootstrap_script(secret, device, server_key,
-                                           repair_host_identity=repair_host_identity)
+                                           repair_host_identity=repair_host_identity,
+                                           release_revision=metadata["revision"],
+                                           relay_public_key=metadata["relay_public_key"],
+                                           client_sha256=metadata["client_sha256"])
 
         def _send_artifact(self, data: bytes, media_type: str) -> None:
             self.send_response(200)
@@ -85,6 +94,8 @@ def make_handler(provisioner: Provisioner | None, *, public_url: str, wireguard_
                                          repair_host_identity=session["repair_host_identity"]),
                             "text/x-shellscript; charset=utf-8",
                         )
+                except (ReleaseUnavailable, KeyError, ValueError):
+                    self._send(503, {"error": "bootstrap_release_unavailable"})
                 except (EnrollmentRejected, OSError, subprocess.CalledProcessError):
                     self._send(404, {"error": "not_found"})
                 return
@@ -105,19 +116,36 @@ def make_handler(provisioner: Provisioner | None, *, public_url: str, wireguard_
                     if not 0 < size <= 1024:
                         raise ValueError("bad request")
                     data = json.loads(self.rfile.read(size))
-                    if not isinstance(data, dict) or set(data) != {"device", "public_key"}:
+                    if not isinstance(data, dict):
                         raise ValueError("bad request")
+                    legacy = set(data) == {"device", "public_key"}
+                    staged = set(data) == {"device", "public_key", "revision", "stages"}
+                    if not legacy and not staged:
+                        raise ValueError("bad request")
+                    if staged:
+                        if not re.fullmatch(r"gway-[0-9]{3}", data.get("device", "")):
+                            raise ValueError("local receiver stages unavailable for named satellites")
+                        metadata = release_provider()
+                        if (type(data["revision"]) is not str or
+                                data["revision"] != metadata["revision"] or
+                                data["stages"] != ["wireguard", "package", "user_manager",
+                                                   "restricted_relay", "receiver"]):
+                            raise ValueError("invalid installed release or stage receipt")
                     device, public_key, _session = validate_enrollment(
                         {"device": data["device"], "public_key": data["public_key"],
                          "token": completion.group(1)}
                     )
                     provisioner.ledger.complete_bootstrap(completion.group(1), device, public_key)
-                except (ValueError, TypeError, KeyError):
+                except (ValueError, TypeError, KeyError, ReleaseUnavailable):
                     self._send(400, {"error": "invalid_request"})
                 except EnrollmentRejected:
                     self._send(403, {"error": "enrollment_rejected"})
                 else:
-                    self._send(200, {"complete": True})
+                    # A node can report local stages, but only an independent
+                    # attested SSH limits probe can establish operational READY.
+                    self._send(200, {"complete": True, "local_setup_reported": staged,
+                                     "local_ready_verified": False,
+                                     "remote_execution_verified": False})
                 return
             if self.path != "/v1/enroll":
                 self._send(404, {"error": "not_found"})

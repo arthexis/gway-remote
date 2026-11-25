@@ -38,8 +38,8 @@ def set_eligibility(node, enabled, *, ledger=LEDGER, operator="root"):
         db.execute("BEGIN IMMEDIATE")
         db.execute(DDL)
         device = db.execute("SELECT state FROM devices WHERE device=?", (node,)).fetchone()
-        if device is None or device[0] != "active":
-            raise PermissionError("node must be actively enrolled")
+        if device is None or (enabled and device[0] != "active"):
+            raise PermissionError("grant requires an actively enrolled node")
         identity = db.execute(
             "SELECT host_public_key, state, valid_until FROM host_identities WHERE device=?",
             (node,)).fetchone()
@@ -60,7 +60,7 @@ def run_action(action, node):
     """Shared CLI entrypoint; never exposed through MCP."""
     if os.geteuid() != 0:
         raise PermissionError("root required")
-    if action not in ("grant", "revoke", "status"):
+    if action not in ("grant", "revoke", "status", "recover"):
         raise ValueError("invalid execution eligibility action")
     from .node_registry_inventory import NODE
     if not isinstance(node, str) or not NODE.fullmatch(node):
@@ -71,14 +71,15 @@ def run_action(action, node):
         if result is None:
             raise ValueError("node not actively enrolled")
         return {"node": node, "eligible": result["execute_eligible"]}
-    result = set_eligibility(node, action == "grant")
-    publish(build(probe=True))
-    return result
+    from .watchtower_exec_convergence import converge, recover
+    if action == "recover":
+        return recover(node)
+    return converge(action, node)
 
 
 def main(argv=None):
     p=argparse.ArgumentParser(description="Root-only central execution eligibility")
-    p.add_argument("action",choices=("grant","revoke","status"))
+    p.add_argument("action",choices=("grant","revoke","status","recover"))
     p.add_argument("node")
     args=p.parse_args(argv)
     print(json.dumps(run_action(args.action, args.node), sort_keys=True))
