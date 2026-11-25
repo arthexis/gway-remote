@@ -223,3 +223,17 @@ and bounded storage/grants remain independent prerequisites: valid mobile
 key returns 404 while the receiver is disabled. The normal reviewed Watchtower
 deploy installs only the exact mobile GET route using the existing snippet
 and Nginx validation/rollback mechanism.
+
+## Production activation (#705)
+The reviewed Watchtower deployment provisions a fixed 512 MiB regular-file ext4
+filesystem, never a physical block device. Existing backing files are not
+formatted; mount and backing identity are verified before changing ownership.
+The gateway writes only its private dedicated mount. Missing storage or invalid
+grants disable Feed without disabling MCP. A local receiver-ready receipt,
+trusted broker transitions, and periodic trusted inventory transitions use the
+same process/service identity; no extra bearer crosses this internal boundary.
+The timer also prunes retention. External publishers still require console-issued
+narrow bearer and root-owned explicit grants; the initial registry is empty.
+The exact producer POST route and mobile GET route remain separately authorized.
+Rollback removes newly installed gateway activation on failure, preserving the
+bounded filesystem and events; no physical media or charging operations.

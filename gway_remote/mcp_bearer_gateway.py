@@ -958,8 +958,23 @@ def main():
         if (not feed_path.is_absolute() or ".." in feed_path.parts
                 or feed_path.resolve() == Path(args.database).resolve()):
             raise ValueError("dedicated absolute Activity Feed database required")
-        load_feed_grants()  # fail closed before creating storage
-        activity_feed = ActivityFeedAPI(ActivityFeedStore(feed_path), verifier, load_feed_grants)
+        if os.environ.get("GWAY_ACTIVITY_FEED_REQUIRE_VOLUME") == "1":
+            from .activity_feed_maintenance import check_volume
+            from . import activity_feed_local
+            try:
+                check_volume(feed_path.parent, "central")
+                load_feed_grants()
+                store = ActivityFeedStore(feed_path)
+                activity_feed_local.ready(store)
+                activity_feed_local.bind(store)
+                activity_feed = ActivityFeedAPI(store, verifier, load_feed_grants)
+            except (OSError, ValueError, RuntimeError, __import__("sqlite3").Error):
+                print("activity_feed_unavailable", file=sys.stderr, flush=True)
+                # A missing mount or unsafe grant must never disable existing MCP.
+                activity_feed = None
+        else:
+            load_feed_grants()  # fail closed before creating storage
+            activity_feed = ActivityFeedAPI(ActivityFeedStore(feed_path), verifier, load_feed_grants)
     from .mcp_bridge_bootstrap import start_bridge
     import signal
     previous_term = signal.getsignal(signal.SIGTERM)
