@@ -76,5 +76,5 @@ class CanaryInstallWorkflowTests(unittest.TestCase):
         self.assertIn('--suite "$COMPOSE_SUITE"', text)
         self.assertIn('r.get("suite") == os.environ["COMPOSE_SUITE"]', text)
         self.assertIn('"opportunities": 2', text)
-        self.assertIn('no) RESULT=$(python3 -m gway_remote.android_canary_field --pr "$PR_NUMBER" --install --wake --suite "$COMPOSE_SUITE")', text)
-        self.assertIn('RESET_CANARY_ONLY) RESULT=$(python3 -m gway_remote.android_canary_field --pr "$PR_NUMBER" --install --allow-canary-reset --wake --suite "$COMPOSE_SUITE")', text)
+        self.assertIn('no) RESULT=$(python3 -m gway_remote.android_canary_field --pr "$PR_NUMBER" --install --wake --expected-run "$ARTIFACT_RUN" --suite "$COMPOSE_SUITE")', text)
+        self.assertIn('RESET_CANARY_ONLY) RESULT=$(python3 -m gway_remote.android_canary_field --pr "$PR_NUMBER" --install --allow-canary-reset --wake --expected-run "$ARTIFACT_RUN" --suite "$COMPOSE_SUITE")', text)

@@ -1,0 +1,81 @@
+name: Android release acceptance
+run-name: "Android acceptance ${{ inputs.mode || 'conditional' }} PR #${{ inputs.pr_number || github.event.pull_request.number }} SHA ${{ inputs.expected_sha || github.event.pull_request.head.sha }} reset ${{ inputs.canary_reset || 'no' }}"
+on:
+  pull_request_target:
+    branches: [main]
+    types: [opened, reopened, synchronize, ready_for_review, edited]
+  workflow_dispatch:
+    inputs:
+      mode:
+        type: choice
+        options: [accept, classify]
+        default: accept
+      pr_number:
+        type: string
+        required: true
+      expected_sha:
+        type: string
+        required: true
+      expected_base:
+        type: string
+        required: true
+      minimum_tests:
+        type: number
+        default: 6
+      canary_reset:
+        type: choice
+        options: ["no", RESET_CANARY_ONLY]
+        default: "no"
+      auto_merge:
+        type: boolean
+        default: false
+concurrency:
+  group: android-acceptance-pr-${{ inputs.pr_number || github.event.pull_request.number }}
+  cancel-in-progress: false
+permissions:
+  contents: read
+  pull-requests: read
+  statuses: write
+jobs:
+  classify:
+    if: github.event_name == 'pull_request_target' || (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && github.actor == 'arthexis' && inputs.mode == 'classify')
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.base.sha || github.sha }}
+          persist-credentials: false
+      - env:
+          GH_TOKEN: ${{ github.token }}
+          PR: ${{ inputs.pr_number || github.event.pull_request.number }}
+          SHA: ${{ inputs.expected_sha || github.event.pull_request.head.sha }}
+        run: python3 -m gway_remote.android_release_gate conditional --pr "$PR" --sha "$SHA" --url "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
+  accept:
+    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && github.actor == 'arthexis' && inputs.mode == 'accept'
+    runs-on: ubuntu-latest
+    timeout-minutes: 100
+    permissions:
+      contents: write
+      actions: write
+      pull-requests: write
+      issues: read
+      statuses: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - env:
+          GH_TOKEN: ${{ github.token }}
+          PR: ${{ inputs.pr_number }}
+          SHA: ${{ inputs.expected_sha }}
+          BASE: ${{ inputs.expected_base }}
+          RESET: ${{ inputs.canary_reset }}
+          MINIMUM: ${{ inputs.minimum_tests }}
+          MERGE: ${{ inputs.auto_merge }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          args=()
+          if [[ "$MERGE" == true ]]; then args+=(--merge); fi
+          python3 -m gway_remote.android_release_gate accept --pr "$PR" --sha "$SHA" --base "$BASE" --reset "$RESET" --minimum "$MINIMUM" --authorization "$GITHUB_RUN_ID" --url "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" "${args[@]}"

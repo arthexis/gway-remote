@@ -41,6 +41,9 @@ object FeatureRegistry {
             FeatureKind.OPERATION, operation,
             if (operation.id in homeOperationIds) FeatureGroup.HOME else FeatureGroup.TOOLS)
     } + listOf(
+        FeatureSpec("odoo-opportunities", "Oportunidades", "file-text",
+            setOf("odoo", "crm", "oportunidades", "pendientes", "consentimiento", "ventas"),
+            FeatureKind.LOCAL_PANEL, group = FeatureGroup.HOME),
         FeatureSpec("odoo-quotations", "Cotizaciones", "file-text",
             setOf("odoo", "cotizaciones", "presupuesto", "pdf", "ventas"),
             FeatureKind.LOCAL_PANEL, group = FeatureGroup.HOME),
