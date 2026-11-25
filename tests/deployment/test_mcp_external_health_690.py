@@ -199,3 +199,23 @@ class ExecutionProjectionTests(unittest.TestCase):
                 health.publish_execution(path=path,token_path=token,now=lambda:stamp,get_token=lambda *a,**kw:'private',probe=probe,catalog=lambda _:None)
             self.assertEqual(len(calls),2);self.assertEqual(calls[0][0],calls[1][0]);self.assertEqual([x[1] for x in calls],[True,False])
             self.assertFalse((root/'probe-pending.json').exists());self.assertEqual(json.loads(path.read_text())['execute'],'ok');self.assertNotIn(calls[0][0],path.read_text())
+
+
+class ProbeInstallDeliveryTests(unittest.TestCase):
+    def test_fixed_install_private_and_no_replace(self):
+        import time
+        with tempfile.TemporaryDirectory() as tmp:
+            path=Path(tmp)/'probe-oauth.json';now=int(time.time())
+            state={'client_id':'gway-health-probe-001','access_token':'gwr_'+'a'*24+'_'+'b'*43,'refresh_token':'gwf_'+'a'*24+'_'+'c'*43,'parent_id':'d'*24,'parent_expires_at':now+86400,'expires_at':now+3600,'refresh_state':'ready'}
+            self.assertEqual(health.probe_install_status(path),{'configured':False})
+            receipt=health.install_probe_state(state,path)
+            self.assertEqual(receipt['parent_id'],state['parent_id'])
+            self.assertNotIn('access_token',receipt);self.assertNotIn('refresh_token',receipt)
+            self.assertEqual(path.stat().st_mode&0o777,0o600)
+            with self.assertRaises(PermissionError):health.install_probe_state(state,path)
+            self.assertEqual(json.loads(path.read_text()),state)
+
+    def test_pending_identity_not_replaced(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path=Path(tmp)/'probe-oauth.json';(path.parent/'probe-pending.json').write_text('{}')
+            with self.assertRaises(PermissionError):health.probe_install_status(path)

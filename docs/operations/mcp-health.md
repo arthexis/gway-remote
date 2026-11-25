@@ -137,3 +137,19 @@ markers prevent ordinary matching commands from being accepted as probe jobs.
 The public projection contains fixed categories, timestamp and typed stage.
 Independent cloud repair-route evidence is required separately; the node helper
 always reports that evidence as unverified. Recovery remains disabled.
+
+### Preferred one-command provisioning
+
+Once the pinned Watchtower and node rollout and tagged observer convergence
+are verified, run `sudo gway-remote probe-provision gway-001` at the trusted
+Watchtower console and type the node name. The fixed private operation uses
+existing pinned SSH host identity, verifies current enrollment, and transfers
+only the purpose-exclusive credential via stdin. The node writes the state
+under its root-owned observer directory. No credentials appear in the command
+line or console receipt. Repeat invocation checks the existing parent rather
+than replacing it. Lost acknowledgments are reconciled with node status;
+unverified delivery revokes the newly issued parent. A revoked/uncertain
+existing identity requires explicit console reconciliation. This command does
+not enable the ingress or recovery policy. It reports live probe acceptance
+as pending; perform separate controlled acceptance afterward. The existing
+read-only observer and all operator grants are unchanged.

@@ -292,9 +292,11 @@ class SSHTransport:
         self._run = run
 
     def invoke(self, payload):
-        if type(payload) is not dict or payload.get("operation") not in {"submit","result","health_probe_submit","health_probe_result","cancel","limits","lcd_sound_event","provider_list","provider_call","provider_read","file_read","deployment_discovery","deployment_preview","deployment_status","deployment_run","workspace_inspect","feed_provision_status","feed_provision_install"}:
+        if type(payload) is not dict or payload.get("operation") not in {"submit","result","health_probe_submit","health_probe_result","cancel","limits","lcd_sound_event","provider_list","provider_call","provider_read","file_read","deployment_discovery","deployment_preview","deployment_status","deployment_run","workspace_inspect","feed_provision_status","feed_provision_install","probe_provision_status","probe_provision_install"}:
             raise ValueError("invalid node operation")
-        fields = {"feed_provision_status":{"operation","node","request_id"},
+        fields = {"probe_provision_status":{"operation","node","request_id"},
+                  "probe_provision_install":{"operation","node","request_id","credential"},
+                  "feed_provision_status":{"operation","node","request_id"},
                   "feed_provision_install":{"operation","node","request_id","principal","credential"},
                   "submit":{"operation","node","request_id","command"},
                   "health_probe_submit":{"operation","node","request_id"},
@@ -322,7 +324,7 @@ class SSHTransport:
         if payload.get("node") != self.node.node:
             raise ValueError("wrong pinned node")
         validate_request_id(payload.get("request_id"))
-        if payload['operation'] in ('health_probe_submit','health_probe_result') and self.node.node != 'gway-001':
+        if payload['operation'] in ('health_probe_submit','health_probe_result','probe_provision_status','probe_provision_install') and self.node.node != 'gway-001':
             raise PermissionError('probe_node_denied')
         raw = json.dumps(payload, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
         if len(raw) > (65536 if payload["operation"] in ("provider_call", "provider_read") else 8192):

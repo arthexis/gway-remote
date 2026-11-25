@@ -33,7 +33,7 @@ def grant(node, repositories):
             "repositories":[None,*sorted(set(repositories))],"types":TYPES}
 
 
-def _child(account, action, payload):
+def _child(account, action, payload, *, handler=None):
     """Private root-console child, never an externally callable issuer CLI."""
     if os.geteuid() != 0 or account not in (AUTH,GATEWAY):
         raise PermissionError("root operator required")
@@ -48,7 +48,7 @@ def _child(account, action, payload):
             os.setuid(who.pw_uid)
             os.environ.clear()
             os.environ.update({"PATH":"/usr/bin:/bin","HOME":who.pw_dir})
-            result = json.dumps(internal(action,payload)).encode("ascii")
+            result = json.dumps((handler or internal)(action,payload)).encode("ascii")
             if len(result)>4096:
                 raise RuntimeError("private result too large")
             os.write(writefd,result)

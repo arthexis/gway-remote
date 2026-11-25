@@ -16,6 +16,8 @@ from .node_exec_contract import validate_command
 
 MAX_REQUEST_BYTES = 65536
 OPERATIONS = {
+    "probe_provision_status": frozenset({"operation","node","request_id"}),
+    "probe_provision_install": frozenset({"operation","node","request_id","credential"}),
     "feed_provision_status": frozenset({"operation","node","request_id"}),
     "feed_provision_install": frozenset({"operation","node","request_id","principal","credential"}),
     "lcd_sound_event": frozenset({"operation", "node", "request_id", "event"}),
@@ -58,6 +60,11 @@ def serve_one(raw, *, jobs=None, hostname=None):
     if not re.fullmatch(r"gway-[0-9]+", host) or req["node"] != host:
         raise PermissionError("unapproved node")
     rid = validate_request_id(req["request_id"])
+    if op in ('probe_provision_status','probe_provision_install'):
+        if host!='gway-001':raise PermissionError('probe provision target denied')
+        from .probe_provision_node import deliver
+        result=deliver(op,req.get('credential'))
+        return {'node':host,'request_id':rid,'result':result}
     if op in ("feed_provision_status", "feed_provision_install"):
         from .activity_feed_provision_node import status, install
         result = status(host) if op == "feed_provision_status" else install(host, req["principal"], req["credential"])
