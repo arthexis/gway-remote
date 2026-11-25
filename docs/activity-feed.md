@@ -255,3 +255,13 @@ expiry or changed policy requires explicit reconciliation; no automatic grant
 expansion or root replacement. This command does not enable other services or
 restart charging. The producer timer and AgentOps opt-in are separate steps.
 No tokens go to command arguments, CI, MCP, or user-visible receipts.
+
+### Existing mounted Feed volume reservation
+A mounted loop image can lose allocated host blocks after trim/discard. The
+provisioner distinguishes backing identity from physical allocation and checks
+the active loop backing inode, offset, size limit, mount flags and capacity.
+If the verified mounted 512 MiB file is underallocated, it may restore its
+reservation with non-truncating posix_fallocate, after checking host free space
+plus a 256 MiB margin. It never formats, replaces, resizes, unmounts or deletes
+an existing image or database. Unsafe metadata, wrong loop identity, an
+unmounted underallocated image or insufficient free space still fail closed.
