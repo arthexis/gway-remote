@@ -333,3 +333,60 @@ def reconcile_artifact(ledger, candidate, stage, *, pinned_certificate=None, gat
                         "certificate_sha256":pinned_certificate}
     ledger.record(candidate.candidate_id, stage, evidence)
     return evidence
+
+
+def main(argv=None):
+    """Owner-side entrypoint for the pre-install candidate stages only."""
+    import argparse
+    from pathlib import Path
+    import os
+    from gway_remote import android_release_gate as gate
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--ledger", type=Path, required=True)
+    parser.add_argument("--sha", required=True)
+    parser.add_argument("--tree", required=True)
+    parser.add_argument("--version", type=int, required=True)
+    sub = parser.add_subparsers(dest="action", required=True)
+    allocate = sub.add_parser("allocate")
+    allocate.add_argument("--published-version", type=int, required=True)
+    allocate.add_argument("--installed-version", type=int, required=True)
+    for action in ("dispatch", "reconcile"):
+        command = sub.add_parser(action)
+        command.add_argument("stage", choices=("built", "signed"))
+        if action == "reconcile":
+            command.add_argument("--certificate")
+    sub.add_parser("status")
+    args = parser.parse_args(argv)
+    candidate = Candidate(args.sha, args.tree, args.version, f"0.2.{args.version}")
+    os.umask(0o077)
+    path = args.ledger
+    require(path.is_absolute() and path.parent.is_dir() and not path.is_symlink(),
+            "invalid_ledger_path")
+    require(not path.exists() or (path.is_file() and path.stat().st_mode & 0o077 == 0
+                                  and path.stat().st_uid == os.getuid()), "insecure_ledger_path")
+    ledger = CandidateLedger(path)
+    try:
+        if args.action == "allocate":
+            require(gate.api("branches/main")["commit"]["sha"] == candidate.source_sha,
+                    "candidate_superseded")
+            require(gate.api(f"git/commits/{candidate.source_sha}")["tree"]["sha"] == candidate.source_tree,
+                    "source_tree_mismatch")
+            result = {"candidate_id":candidate.candidate_id,
+                      "allocated":ledger.allocate(candidate,published_version=args.published_version,
+                                                   installed_version=args.installed_version)}
+        elif args.action == "dispatch":
+            # Only an existing local reservation can request a run.
+            built = ledger.read(candidate.candidate_id).get("built", {})
+            result = {"run_id":dispatch_candidate(ledger,candidate,args.stage,
+                       artifact_id=built.get("artifact_id"),build_run_id=built.get("run_id"))}
+        elif args.action == "reconcile":
+            result = reconcile_artifact(ledger,candidate,args.stage,pinned_certificate=args.certificate)
+        else:
+            result = {"candidate_id":candidate.candidate_id,"evidence":ledger.read(candidate.candidate_id)}
+        print(json.dumps(result,sort_keys=True))
+    finally:
+        ledger.close()
+
+
+if __name__ == "__main__":
+    main()
