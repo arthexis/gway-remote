@@ -63,3 +63,30 @@ class CandidateTests(unittest.TestCase):
         self.assertIn("RC_PRODUCTION_CERT_SHA256", sign)
         self.assertIn("GWAY_APK_KEYSTORE_BASE64", sign)
         self.assertLess(sign.index("Verify explicit candidate authorization"), sign.index("secrets.GWAY_APK_KEYSTORE_BASE64"))
+
+    def test_durable_ledger(self):
+        import tempfile
+        from pathlib import Path
+        from gway_remote.android_release_candidate import CandidateLedger
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "ledger.sqlite"
+            ledger = CandidateLedger(path)
+            try:
+                self.assertTrue(ledger.allocate(self.c, published_version=798, installed_version=799))
+                self.assertFalse(ledger.allocate(self.c, published_version=798, installed_version=799))
+                with self.assertRaises(ValueError):
+                    ledger.allocate(replace(self.c, source_tree="f"*40), published_version=798, installed_version=799)
+                with self.assertRaises(ValueError):
+                    ledger.record(self.c.candidate_id, "signed", {"digest":"c"*64})
+                self.assertTrue(ledger.record(self.c.candidate_id, "built", {"run":100}))
+                self.assertFalse(ledger.record(self.c.candidate_id, "built", {"run":100}))
+                with self.assertRaises(ValueError):
+                    ledger.record(self.c.candidate_id, "built", {"run":101})
+            finally:
+                ledger.close()
+            ledger = CandidateLedger(path)
+            try:
+                self.assertEqual(ledger.read(self.c.candidate_id)["built"], {"run":100})
+                self.assertTrue(ledger.record(self.c.candidate_id, "signed", {"digest":"c"*64}))
+            finally:
+                ledger.close()
