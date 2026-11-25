@@ -10,7 +10,6 @@ import com.arthexis.gwayremote.features.odoo.OdooQuotationsPanel
 import com.arthexis.gwayremote.features.mcp.McpAccessPanel
 import com.arthexis.gwayremote.features.updates.rememberAppUpdateController
 import com.arthexis.gwayremote.features.feed.ActivityFeedPanel
-import com.arthexis.gwayremote.features.feed.FeedCredentialSettings
 import com.arthexis.gwayremote.features.feed.FeedCache
 
 import android.content.Context
@@ -48,7 +47,8 @@ fun CompanionScreen(
             store.endpoint.ifBlank { "https://remote.arthexis.com" }, store.token
         ))
     }
-    var feedToken by remember { mutableStateOf(store.feedToken) }
+    var feedConnection by remember { mutableStateOf(store.endpoint.ifBlank { "https://remote.arthexis.com" } to store.token) }
+    LaunchedEffect(store) { store.removeLegacyFeedToken() }
     var selectedModuleId by rememberSaveable { mutableStateOf(ModuleRegistry.HOME) }
     var feedback by remember { mutableStateOf("") }
     val drawerState = rememberDrawerState(DrawerValue.Closed)
@@ -136,8 +136,8 @@ fun CompanionScreen(
                             onCheckUpdate = updates.check,
                             onOpenSettings = { navigate(ModuleRegistry.SETTINGS) }
                         )
-                        key(feedToken) {
-                            ActivityFeedPanel(feedToken, onOpenSettings = { navigate(ModuleRegistry.SETTINGS) },
+                        key(feedConnection) {
+                            ActivityFeedPanel(feedConnection.first, feedConnection.second, onOpenSettings = { navigate(ModuleRegistry.SETTINGS) },
                                 onNavigate = ::navigate)
                         }
                     }
@@ -153,6 +153,9 @@ fun CompanionScreen(
                                     ApiClient(settings.endpoint.trim(), settings.token)
                                     store.endpoint = settings.endpoint.trim()
                                     store.token = settings.token
+                                    val next = store.endpoint to store.token
+                                    if (feedConnection != next) FeedCache(context).clear()
+                                    feedConnection = next
                                     settings = settings.saved()
                                     feedback = "Configuración guardada"
                                 } catch (e: Exception) {
@@ -161,11 +164,6 @@ fun CompanionScreen(
                             },
                             feedback = feedback
                         )
-                        FeedCredentialSettings(feedToken) { next ->
-                            store.feedToken = next
-                            if (feedToken != next) FeedCache(context).clear()
-                            feedToken = next
-                        }
                     }
                     "app-update" -> ModulePage {
                         ModuleUpdatePage(

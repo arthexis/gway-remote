@@ -19,15 +19,25 @@ internal const val PRODUCTION_PACKAGE = "com.arthexis.gwayremote"
 internal const val CANARY_FEED_ORIGIN = "https://127.0.0.1:18443"
 internal const val CANARY_CERT_FILE = "feed-canary-cert.der"
 
-internal fun feedOrigin(packageName: String): String = when (packageName) {
-    PRODUCTION_PACKAGE -> FEED_ORIGIN
+internal fun mobileFeedOrigin(endpoint: String): String {
+    val uri = java.net.URI(endpoint.trim())
+    require(uri.scheme.equals("https", ignoreCase = true) && uri.host != null &&
+        uri.userInfo == null && uri.rawQuery == null && uri.rawFragment == null &&
+        uri.rawPath.orEmpty().trimEnd('/').isEmpty() && (uri.port == -1 || uri.port in 1..65535))
+    return java.net.URI("https", null, uri.host.lowercase(java.util.Locale.ROOT),
+        uri.port, null, null, null).toASCIIString()
+}
+
+internal fun feedOrigin(packageName: String, endpoint: String = FEED_ORIGIN): String = when (packageName) {
+    PRODUCTION_PACKAGE -> mobileFeedOrigin(endpoint)
     CANARY_PACKAGE -> CANARY_FEED_ORIGIN
     else -> throw SecurityException("Unsupported feed application")
 }
 
-internal fun feedTarget(packageName: String, before: Long?): URL {
+internal fun feedTarget(packageName: String, before: Long?, endpoint: String = FEED_ORIGIN): URL {
     require(before == null || before > 0)
-    return URL("${feedOrigin(packageName)}/api/feed/events?limit=$PAGE_SIZE" +
+    val path = if (packageName == CANARY_PACKAGE) "/api/feed/events" else "/api/v1/feed/events"
+    return URL("${feedOrigin(packageName, endpoint)}$path?limit=$PAGE_SIZE" +
         (before?.let { "&before=$it" } ?: ""))
 }
 
@@ -73,13 +83,13 @@ internal fun pinnedTrustManager(cert: X509Certificate): X509TrustManager {
     }
 }
 
-internal class FeedTransport(private val context: Context) {
+internal class FeedTransport(private val context: Context, private val endpoint: String = FEED_ORIGIN) {
     val isCanary: Boolean = context.packageName == CANARY_PACKAGE
     private fun certificate(): X509Certificate =
         loadCanaryCertificate(File(context.noBackupFilesDir, CANARY_CERT_FILE))
 
     fun cacheIdentity(): String {
-        val origin = feedOrigin(context.packageName)
+        val origin = feedOrigin(context.packageName, endpoint)
         if (!isCanary) return origin
         val digest = MessageDigest.getInstance("SHA-256").digest(certificate().encoded)
             .joinToString("") { "%02x".format(it.toInt() and 255) }
@@ -91,7 +101,7 @@ internal class FeedTransport(private val context: Context) {
         val factory = if (isCanary) SSLContext.getInstance("TLS").apply {
             init(null, arrayOf(pinnedTrustManager(certificate())), null)
         }.socketFactory else null
-        val result = feedTarget(context.packageName, before)
+        val result = feedTarget(context.packageName, before, endpoint)
             .openConnection(java.net.Proxy.NO_PROXY) as HttpsURLConnection
         if (factory != null) result.sslSocketFactory = factory
         // Default hostname verification stays active. Never follow redirects.

@@ -331,6 +331,9 @@ class Handler(BaseHTTPRequestHandler):
             self.wfile.write(body)
 
     def do_GET(self):
+        from .mobile_feed_read import is_mobile_feed_path, handle_mobile_feed
+        if is_mobile_feed_path(self.path):
+            return handle_mobile_feed(self)
         if getattr(self.server, "activity_feed", None) is not None:
             from .activity_feed_http import is_feed_path, handle
             if is_feed_path(self.path):
