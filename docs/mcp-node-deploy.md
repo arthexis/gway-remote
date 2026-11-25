@@ -11,6 +11,11 @@ are both required. The provider's trusted manifest supplies the application,
 checkout, runner and pinned 40-character revision; the MCP caller supplies
 **none** of those filesystem paths or commands.
 
+- `node_deploy_discovery` (`gway:read`): reads the live provider declarations
+  on the attested node, returning only canonical source IDs, fixed aliases,
+  pinned target revisions and declaration status. `declared` does not prove
+  runner availability or an installed application revision. Enrollment
+  capability inventory is separate and is not live deployment discovery.
 - `node_deploy_preview` (`gway:read`): verifies current Watchtower eligibility,
   pinned SSH node identity and a correlated node declaration. The caller's
   optional `revision` is `main` only. The response returns the installed
@@ -26,6 +31,13 @@ checkout, runner and pinned 40-character revision; the MCP caller supplies
   correlated node receipt. A caller may not use another principal's ID, change
   the application/revision, or treat an unverified response as success.
 
+The code-owned aliases `gway-lcd-sound` and `gway-agent-ops` normalize to
+`lcd_sound` and `agentops` before preview, request binding and status checks.
+The provider installation revision and declared deployment target are distinct.
+`main` selects the already installed target pin; it does not fetch or refresh it.
+A provider-owned provisioning workflow must refresh and publish a verified pin
+before a new request. Existing requests stay bound to their original pin.
+
 The request carries `node`, `application`, optional `revision="main"`,
 and a server-reconciled `request_id` for start/status. It carries no shell
 arguments, sudo target, systemd unit, checkout path or arbitrary SHA. The old
@@ -39,6 +51,31 @@ states and Git checkout HEAD must not be presented as proof that a particular
 application release is installed. The integration does not implement a general
 rollback of application releases; its Ansible executor identity cutover has a
 separate verified atomic SSH/sudoers/identity compensation path.
+
+## Provider ownership and applicability (#724)
+
+The gway-001 audit identifies three currently authorized broker applications:
+`repo` (existing), `lcd_sound` and `agentops`. The latter two register
+their runner via root-controlled provider publication from clean detached
+full-SHA checkouts owned by the existing installation user. No client-supplied
+paths or fresh credentials are involved. Their provider repositories document
+the staging and pin-refresh procedure. Existing declaration targets are retained
+on ordinary provider republication; an explicit approved pin refresh is
+required to change the desired target. Do not prune a referenced checkout.
+
+`android` is part of GWay Remote's deployment, not a separate independently
+authorized broker application. `ocpp` and `odoo` have separate service
+deployment ownership and live operational constraints; `webos` has its
+own device deployment flow. All four remain without broker declarations until
+a separately reviewed revision-pinned runner and node authorization exist.
+Runtime sidecars (for example AgentOps runtime metadata) are not applications.
+Inventory and provider presence alone never confer deployment eligibility.
+
+Sanitized failures include invalid/unknown application, disabled provider,
+missing/invalid declaration, declaration drift, permission denied, missing
+request and transport/protocol unavailability. A correlated run error is
+reported without releasing or retrying an uncertain dispatch claim. Preview
+and discovery do not change node state.
 
 ## Read-only workspace inspection (integration #538)
 

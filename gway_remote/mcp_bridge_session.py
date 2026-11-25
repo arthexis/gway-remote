@@ -44,6 +44,16 @@ class SessionBridgeDispatch:
             raise PermissionError("expired or revoked session")
         if self.allowed_node(token, audience) is not True:
             raise PermissionError("node not authorized")
+        if scope == 'gway:health-probe' or operation in ('health_probe.start','health_probe.result','health_probe.diagnostic'):
+            if (scope != 'gway:health-probe' or audience != 'gway-001' or self.execution is None
+                    or operation not in ('health_probe.start','health_probe.result','health_probe.diagnostic')):
+                raise PermissionError('probe_scope_or_target_denied')
+            principal = self.verifier.health_probe_principal(token)
+            if envelope['principal'] != principal:
+                raise PermissionError('probe_principal_mismatch')
+            from .mcp_health_probe_execution import ProbeExecution
+            adapter = ProbeExecution(self.execution)
+            return {'health_probe.start':adapter.start,'health_probe.result':adapter.result,'health_probe.diagnostic':adapter.diagnostic}[operation](principal,args)
         # Execute requests are bound to the stable OAuth parent identity.
         if scope == "gway:execute":
             principal = self.verifier.execution_principal(token)
@@ -106,6 +116,18 @@ class SessionBridgeDispatch:
         if operation == "execution.preview" and set(args) == {"node", "command"}:
             from .mcp_bearer_gateway import local_node_result
             return local_node_result("node_exec_preview", args, execution=self.execution)
+        if operation == "deployment.discovery" and set(args) == {"node"}:
+            if self.execution is None:
+                from .mcp_bridge_transport import BridgeReadUnavailable
+                raise BridgeReadUnavailable("deployment_execution_disabled")
+            from .mcp_bridge_transport import BridgeReadUnavailable
+            try:
+                return self.execution.deployment_discovery(**args)
+            except (PermissionError, ValueError) as exc:
+                code = str(exc)
+                if code in BridgeReadUnavailable.CODES and code.startswith("deployment_"):
+                    raise BridgeReadUnavailable(code) from None
+                raise
         if operation == "deployment.preview" and set(args) in (
                 {"node", "application"}, {"node", "application", "revision"}):
             if self.execution is None:
@@ -113,7 +135,7 @@ class SessionBridgeDispatch:
             from .mcp_bridge_transport import BridgeReadUnavailable
             try:
                 return self.execution.deployment_preview(**args)
-            except PermissionError as exc:
+            except (PermissionError, ValueError) as exc:
                 code = str(exc)
                 if code in BridgeReadUnavailable.CODES and code.startswith("deployment_"):
                     raise BridgeReadUnavailable(code) from None
@@ -132,7 +154,14 @@ class SessionBridgeDispatch:
         if operation in ("deployment.start", "deployment.status") and set(args) in (
                 {"node", "application", "request_id"},
                 {"node", "application", "request_id", "revision"}):
-            return self.execution.deployment(
-                principal=principal, status=operation == "deployment.status", **args)
+            from .mcp_bridge_transport import BridgeReadUnavailable
+            try:
+                return self.execution.deployment(
+                    principal=principal, status=operation == "deployment.status", **args)
+            except (PermissionError, ValueError) as exc:
+                code = str(exc)
+                if code in BridgeReadUnavailable.CODES and code.startswith("deployment_"):
+                    raise BridgeReadUnavailable(code) from None
+                raise
         raise InvalidBridgeRequest("unsupported operation or arguments")
 

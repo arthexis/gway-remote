@@ -51,6 +51,13 @@ class CliSecurityA3Tests(unittest.TestCase):
             auth.assert_not_called()
             self.assertIn('requires an interactive console', error.getvalue())
 
+    def test_probe_issue_requires_tty_before_registry(self):
+        args=SimpleNamespace(command='bearer',bearer_action='issue-health-probe')
+        with patch('sys.stdin.isatty',return_value=False),patch('gway_remote.mcp_bearer_cli.assume_auth_identity') as auth:
+            with redirect_stderr(StringIO()),self.assertRaises(SystemExit):
+                dispatch(args,argparse.ArgumentParser())
+            auth.assert_not_called()
+
     def test_watchtower_nonroot_denied_before_ledger(self):
         args = SimpleNamespace(command='watchtower', read_only_stage=False, action='status')
         with patch('os.geteuid', return_value=1000), \

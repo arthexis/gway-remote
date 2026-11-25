@@ -111,7 +111,28 @@ def pipe_to_canary(serial, credential):
 
 
 
-def run(*, pr, sha, run_id, directory):
+def verify_installed_pair(serial, directory):
+    """Require byte-for-byte identity of both installed, unsplit canary APKs.
+
+    Only the two fixed canary packages are inspected; no production mutation.
+    Unrecognized paths, split APKs or digest output fail closed.
+    """
+    for name, package in zip(field.FILES, (field.APP, field.TEST)):
+        source = Path(directory) / name
+        expected = hashlib.sha256(source.read_bytes()).hexdigest()
+        paths = field.adb(serial, "shell", "pm", "path", package, timeout=10).splitlines()
+        if len(paths) != 1:
+            raise ProvisionError("installed_canary_path_unverified")
+        match = re.fullmatch(r"package:(/data/app/[A-Za-z0-9_./=+-]+/base\.apk)", paths[0].strip())
+        if not match or any(part in (".", "..") for part in match[1].split("/")):
+            raise ProvisionError("installed_canary_path_unverified")
+        digest = field.adb(serial, "shell", "sha256sum", match[1], timeout=30).strip()
+        actual = re.fullmatch(r"([0-9a-f]{64})\s+" + re.escape(match[1]), digest)
+        if not actual or not hmac.compare_digest(actual[1], expected):
+            raise ProvisionError("installed_canary_digest_mismatch")
+
+
+def run(*, pr, sha, run_id, directory, verified_installed=False):
     # Verify downloaded artifacts before touching Android or minting credentials.
     validate_artifact(pr=pr, sha=sha, run_id=run_id, directory=directory)
     registry = DeviceCredentials()
@@ -119,14 +140,25 @@ def run(*, pr, sha, run_id, directory):
     record = None
     was_awake = False
     initialized = False
+    stage = "usb_power_guard"
     try:
-        was_awake = field.device_ready(serial, wake=True)
-        initialized = True
         with field.keep_usb_screen_on(serial):
-            field.install(serial, directory, allow_canary_reset=True)
+            stage = "device_ready"
+            was_awake = field.device_ready(serial, wake=True)
+            initialized = True
+            if verified_installed:
+                stage = "installed_pair_verification"
+                verify_installed_pair(serial, directory)
+            else:
+                stage = "paired_install"
+                field.install(serial, directory, allow_canary_reset=True)
+            stage = "post_install_ready"
             field.device_ready(serial, wake=True)
+            stage = "credential_issue"
             record = registry.issue(label=LABEL, scope="read", days=30)
+            stage = "private_handoff"
             pipe_to_canary(serial, record["token"])
+            stage = "android_https"
             # Instrumentation itself consumes/delete the private seed and probes
             # the real HTTPS endpoint with the imported AndroidKeystore bearer.
             result = field.adb(
@@ -138,7 +170,9 @@ def run(*, pr, sha, run_id, directory):
                     or "INSTRUMENTATION_CODE: -1" not in result
                     or "FAILURES" in result):
                 raise ProvisionError("android_https_authentication_failed")
+            stage = "baseline_compose"
             compose = field.instrument(serial, wake=True)
+            stage = "power_restore"
             return {
                 "status": "passed", "label": LABEL, "credential_id": record["id"],
                 "scope": record["scope"], "expires_at": record["expires_at"],
@@ -151,7 +185,7 @@ def run(*, pr, sha, run_id, directory):
                 registry.revoke(record["id"])
             except Exception:
                 pass
-        raise ProvisionError("usb_mobile_provisioning_failed") from None
+        raise ProvisionError("usb_mobile_provisioning_failed:" + stage) from None
     finally:
         try:
             _private_command(serial, "rm", "-f", PROVISION_FILE)
@@ -170,12 +204,19 @@ def main():
     parser.add_argument("--sha", type=str, required=True)
     parser.add_argument("--run-id", type=int, required=True)
     parser.add_argument("--artifact-dir", type=Path, required=True)
+    parser.add_argument("--verified-installed", action="store_true",
+                        help="require matching installed canary and test APK hashes; do not reinstall")
     args = parser.parse_args()
     try:
         print(json.dumps(run(pr=args.pr, sha=args.sha, run_id=args.run_id,
-                             directory=args.artifact_dir), sort_keys=True))
-    except (field.CanaryError, ProvisionError, ValueError, OSError):
-        print(json.dumps({"status": "blocked", "reason": "canary_provision_unverified"}))
+                             directory=args.artifact_dir,
+                             verified_installed=args.verified_installed), sort_keys=True))
+    except (field.CanaryError, ProvisionError, ValueError, OSError) as exc:
+        stages = ("usb_power_guard", "device_ready", "paired_install", "installed_pair_verification", "post_install_ready",
+                  "credential_issue", "private_handoff", "android_https", "baseline_compose", "power_restore")
+        allowed = {"usb_mobile_provisioning_failed:" + stage for stage in stages}
+        reason = str(exc) if isinstance(exc, ProvisionError) and str(exc) in allowed else "canary_provision_unverified"
+        print(json.dumps({"status": "blocked", "reason": reason}))
         raise SystemExit(1)
 
 

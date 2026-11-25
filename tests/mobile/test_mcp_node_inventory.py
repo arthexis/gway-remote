@@ -92,10 +92,10 @@ class GatewayNodeInventoryTests(unittest.TestCase):
                 status, result = self.rpc("tools/list", version=version)
                 self.assertEqual(status, 200)
                 tools = result["result"]["tools"]
-                self.assertEqual(len(tools), 7)
+                self.assertEqual(len(tools), 8)
                 self.assertNotIn("github_workflow_runs", {x["name"] for x in tools})
                 self.assertTrue({"node_list", "node_capabilities", "node_file_download",
-                                 "node_exec_preview", "node_deploy_preview",
+                                 "node_exec_preview", "node_deploy_preview", "node_deploy_discovery",
                                  "workspace_inspect"} <= {x["name"] for x in tools})
                 self.assertTrue(all(x["annotations"]["readOnlyHint"] for x in tools))
                 self.assertNotIn("agent_submit", {x["name"] for x in tools})
@@ -133,6 +133,24 @@ class GatewayNodeInventoryTests(unittest.TestCase):
                 self.assertEqual(by_name["agentops__status"]["required_scope"], "gway:read")
                 self.assertEqual(by_name["mcp_catalog_inspect"]["origin"], "builtin")
                 self.assertNotIn("private-backend-secret", json.dumps(diagnostic))
+
+    def test_local_deployment_diagnostics_preserve_only_fixed_codes(self):
+        from unittest.mock import Mock
+        self.gateway.execution = Mock()
+        for tool, method, args, fallback in (
+            ("node_deploy_preview", "deployment_preview", {"node": "gway-001", "application": "unknown"}, "deployment_preview_unavailable"),
+            ("node_deploy_discovery", "deployment_discovery", {"node": "gway-001"}, "deployment_node_protocol_unavailable"),
+        ):
+            for error, expected in ((PermissionError("deployment_no_declaration"), "deployment_no_declaration"),
+                                    (ValueError("deployment_invalid_application"), "deployment_invalid_application"),
+                                    (PermissionError("/private/credential"), fallback)):
+                with self.subTest(tool=tool, expected=expected):
+                    getattr(self.gateway.execution, method).side_effect = error
+                    status, response = self.rpc("tools/call", {"name": tool, "arguments": args})
+                    self.assertEqual(status, 200)
+                    self.assertTrue(response["result"]["isError"])
+                    self.assertEqual(json.loads(response["result"]["content"][0]["text"])["code"], expected)
+                    self.assertNotIn("/private/credential", json.dumps(response))
 
     def test_node_list_excludes_private_ip_and_never_claims_reachability(self):
         status, response = self.rpc("tools/call",

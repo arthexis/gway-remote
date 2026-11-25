@@ -175,6 +175,7 @@ class Jobs:
                 id TEXT PRIMARY KEY, node TEXT NOT NULL, command_sha256 TEXT NOT NULL,
                 status TEXT NOT NULL
             )""")
+            db.execute("CREATE TABLE IF NOT EXISTS health_probe_jobs (id TEXT PRIMARY KEY)")
             with db:
                 yield db
         finally:
@@ -216,28 +217,34 @@ class Jobs:
                 changed += 1
         return changed
 
-    def submit(self, node, command, *, request_id=None, execute=subprocess.run, python=sys.executable):
+    def submit(self, node, command, *, request_id=None, execute=subprocess.run, python=sys.executable, health_probe=False):
         validate_command(node, command)
         # Avoid fallback to root, system manager or a shell on the submitting host.
         require_account()
         # The upstream relay owns a stable request ID across retries. Reusing
         # it with different command bytes/node is an error, never another job.
         job_id = validate_request_id(request_id) if request_id is not None else secrets.token_hex(16)
+        if type(health_probe) is not bool:
+            raise ValueError('invalid job purpose')
+        if health_probe:
+            from .mcp_health_probe_contract import NODE, nonce_command
+            if node!=NODE or command!=nonce_command(job_id):raise PermissionError('probe command denied')
         # Old queued/running rows without an actual systemd unit must not
         # consume capacity forever. Reconcile only aged rows, before the
         # admission transaction, so we never nest SQLite write locks.
         self.reconcile_stale_capacity()
         with self.connection() as db:
             db.execute("BEGIN IMMEDIATE")
+            marked=bool(db.execute('SELECT 1 FROM health_probe_jobs WHERE id=?',(job_id,)).fetchone())
             existing = db.execute("SELECT node, command FROM jobs WHERE id=?", (job_id,)).fetchone()
             if existing is not None:
-                if existing["node"] != node or existing["command"] != command:
+                if existing["node"] != node or existing["command"] != command or marked != health_probe:
                     raise ValueError("request ID conflict")
                 return job_id
             tombstone = db.execute("SELECT node, command_sha256 FROM job_tombstones WHERE id=?", (job_id,)).fetchone()
             digest = hashlib.sha256(command.encode("utf-8")).hexdigest()
             if tombstone is not None:
-                if tombstone["node"] != node or tombstone["command_sha256"] != digest:
+                if tombstone["node"] != node or tombstone["command_sha256"] != digest or marked != health_probe:
                     raise ValueError("request ID conflict")
                 return job_id
             count = db.execute("SELECT count(*) FROM jobs").fetchone()[0]
@@ -255,6 +262,8 @@ class Jobs:
             active = db.execute("SELECT count(*) FROM jobs WHERE status IN ('queued','running')").fetchone()[0]
             if active >= self.max_active:
                 raise RuntimeError("executor busy")
+            if marked:raise PermissionError('orphan probe purpose')
+            if health_probe:db.execute('INSERT INTO health_probe_jobs VALUES (?)',(job_id,))
             db.execute("INSERT INTO jobs (id,node,command,status,created_at) VALUES (?,?,?,?,?)",
                        (job_id, node, command, "queued", utcnow()))
         # The systemd user manager does not inherit the caller's Python import
@@ -281,6 +290,19 @@ class Jobs:
                            (utcnow(), diagnostic, job_id))
             raise RuntimeError(diagnostic) from None
         return job_id
+
+    def probe_result(self, job_id):
+        from .mcp_health_probe_contract import NODE, nonce_command, project_result
+        command=nonce_command(job_id)
+        with self.connection() as db:
+            if not db.execute('SELECT 1 FROM health_probe_jobs WHERE id=?',(job_id,)).fetchone():raise PermissionError('probe receipt denied')
+            row=db.execute('SELECT node,command FROM jobs WHERE id=?',(job_id,)).fetchone()
+            if row is not None:
+                if row['node']!=NODE or row['command']!=command:raise PermissionError('probe binding denied')
+            else:
+                old=db.execute('SELECT node,command_sha256 FROM job_tombstones WHERE id=?',(job_id,)).fetchone()
+                if not old or old['node']!=NODE or old['command_sha256']!=hashlib.sha256(command.encode()).hexdigest():raise PermissionError('probe binding denied')
+        return project_result(self.result(job_id,0),job_id)
 
     def row(self, job_id):
         unit_name(job_id)
