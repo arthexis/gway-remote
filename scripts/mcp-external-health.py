@@ -165,15 +165,36 @@ class NoRedirect(HTTPRedirectHandler):
         return None
 
 
+def decode_tool_result(result):
+    """Gateway builtins wrap once; federated stdio providers wrap twice."""
+    def unwrap(envelope):
+        if not isinstance(envelope,dict) or envelope.get('isError') is True:
+            raise ValueError('tool_failed')
+        content=envelope.get('content')
+        if not isinstance(content,list) or len(content)!=1 or not isinstance(content[0],dict) or content[0].get('type')!='text' or not isinstance(content[0].get('text'),str):
+            raise ValueError('invalid_tool_envelope')
+        return json.loads(content[0]['text'])
+    payload=unwrap(result)
+    if isinstance(payload,dict) and 'content' in payload:
+        payload=unwrap(payload)
+    if not isinstance(payload,(dict,list)) or isinstance(payload,dict) and ('content' in payload or 'error' in payload or payload.get('isError') is True):
+        raise ValueError('invalid_tool_payload')
+    return payload
+
+
 def extended_probe(token, *, opener=None):
     """Fixed read-only calls; no response content or credentials in projection."""
     opener = opener or build_opener(NoRedirect()).open
+    deadline=time.monotonic()+105
     def rpc(method, params, auth=True):
         headers={'Content-Type':'application/json','Accept':'application/json, text/event-stream','MCP-Protocol-Version':'2025-03-26'}
         if auth:
             headers['Authorization']='Bearer '+token
         req=Request(URL,json.dumps({'jsonrpc':'2.0','id':1,'method':method,'params':params}).encode(),headers,method='POST')
-        with opener(req,timeout=8) as response:
+        remaining=deadline-time.monotonic()
+        if remaining<=0:
+            raise TimeoutError('probe_budget')
+        with opener(req,timeout=min(20,remaining)) as response:
             raw=response.read(1048577)
             if response.status!=200 or len(raw)>1048576:
                 raise ValueError('response_limit')
@@ -183,9 +204,7 @@ def extended_probe(token, *, opener=None):
         return doc['result']
     def call(name,args):
         result=rpc('tools/call',{'name':name,'arguments':args})
-        if result.get('isError'):
-            raise ValueError('tool_failed')
-        return json.loads(result['content'][0]['text'])
+        return decode_tool_result(result)
     report={'anonymous':'unavailable','read':'unavailable','optional_failures':0,'optional_checked':0}
     try:
         rpc('tools/list',{},False)
