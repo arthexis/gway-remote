@@ -75,3 +75,82 @@ class SignedArtifact:
         require(accepted_candidate_id == self.candidate.candidate_id, "candidate_mismatch")
         require(accepted_digest == self.apk_sha256 == downloaded_digest, "artifact_digest_mismatch")
         require(current_main == self.candidate.source_sha, "candidate_superseded")
+
+
+class CandidateLedger:
+    """Durable local storage primitive; evidence admission belongs to the coordinator.
+
+    Each stage has immutable evidence. A replay with identical evidence is a no-op.
+    No stage record alone confers signing, installation or publication authority.
+    """
+    def __init__(self, path):
+        import sqlite3
+        self.db = sqlite3.connect(path, timeout=10, isolation_level=None)
+        self.db.execute("PRAGMA foreign_keys=ON")
+        self.db.executescript("""
+            CREATE TABLE IF NOT EXISTS candidate (
+                id TEXT PRIMARY KEY, version INTEGER NOT NULL UNIQUE, manifest TEXT NOT NULL
+            );
+            CREATE TABLE IF NOT EXISTS evidence (
+                candidate_id TEXT NOT NULL REFERENCES candidate(id),
+                stage TEXT NOT NULL, payload TEXT NOT NULL,
+                PRIMARY KEY(candidate_id,stage)
+            );
+        """)
+
+    @staticmethod
+    def encode(value):
+        return json.dumps(value, sort_keys=True, separators=(",", ":"), allow_nan=False)
+
+    def close(self):
+        self.db.close()
+
+    def allocate(self, candidate, *, published_version, installed_version):
+        candidate.require_newer_than(published_version, installed_version)
+        identifier = candidate.candidate_id
+        manifest = self.encode(asdict(candidate))
+        self.db.execute("BEGIN IMMEDIATE")
+        try:
+            prior = self.db.execute("SELECT manifest FROM candidate WHERE id=?", (identifier,)).fetchone()
+            if prior:
+                require(prior[0] == manifest, "allocation_conflict")
+                self.db.commit()
+                return False
+            floor = self.db.execute("SELECT MAX(version) FROM candidate").fetchone()[0]
+            require(floor is None or candidate.version_code > floor, "version_already_reserved")
+            self.db.execute("INSERT INTO candidate VALUES (?,?,?)",
+                            (identifier, candidate.version_code, manifest))
+            self.db.execute("INSERT INTO evidence VALUES (?,?,?)",
+                            (identifier, "allocated", manifest))
+            self.db.commit()
+            return True
+        except BaseException:
+            self.db.rollback()
+            raise
+
+    def record(self, candidate_id, stage, evidence):
+        require(stage in STAGES[1:] and isinstance(evidence, dict) and bool(evidence),
+                "invalid_stage_evidence")
+        payload = self.encode(evidence)
+        self.db.execute("BEGIN IMMEDIATE")
+        try:
+            prior = self.db.execute("SELECT payload FROM evidence WHERE candidate_id=? AND stage=?",
+                                    (candidate_id, stage)).fetchone()
+            if prior:
+                require(prior[0] == payload, "immutable_evidence_conflict")
+                self.db.commit()
+                return False
+            predecessor = STAGES[STAGES.index(stage)-1]
+            require(self.db.execute("SELECT 1 FROM evidence WHERE candidate_id=? AND stage=?",
+                                    (candidate_id, predecessor)).fetchone() is not None,
+                    "previous_stage_missing")
+            self.db.execute("INSERT INTO evidence VALUES (?,?,?)", (candidate_id, stage, payload))
+            self.db.commit()
+            return True
+        except BaseException:
+            self.db.rollback()
+            raise
+
+    def read(self, candidate_id):
+        return {stage: json.loads(payload) for stage, payload in self.db.execute(
+            "SELECT stage,payload FROM evidence WHERE candidate_id=?", (candidate_id,))}
