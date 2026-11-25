@@ -79,3 +79,26 @@ def resolve_deployment(application, *, discover=discover_installed_providers):
         return validate_deployment(matches[0].deployment)
     except (ValueError, TypeError, KeyError):
         raise PermissionError("deployment_declaration_invalid") from None
+
+DEPLOYMENT_NODE_ERRORS = frozenset({
+    "deployment_invalid_application", "deployment_unknown_application",
+    "deployment_not_enabled", "deployment_no_declaration",
+    "deployment_declaration_invalid", "deployment_declaration_drift",
+    "deployment_permission_denied", "deployment_request_not_found",
+    "deployment_node_protocol_unavailable",
+})
+
+def deployment_error_code(exc):
+    # Match only fixed origin messages; never emit exception text or paths.
+    if str(exc) in DEPLOYMENT_NODE_ERRORS:
+        return str(exc)
+    if str(exc) in {"deployment revision changed since preview",
+                    "request bound to another deployment revision"}:
+        return "deployment_declaration_drift"
+    if str(exc) == "deployment request not found":
+        return "deployment_request_not_found"
+    if str(exc) == "invalid deployment application":
+        return "deployment_invalid_application"
+    if isinstance(exc, PermissionError):
+        return "deployment_permission_denied"
+    return "deployment_node_protocol_unavailable"

@@ -144,7 +144,14 @@ class SessionBridgeDispatch:
         if operation in ("deployment.start", "deployment.status") and set(args) in (
                 {"node", "application", "request_id"},
                 {"node", "application", "request_id", "revision"}):
-            return self.execution.deployment(
-                principal=principal, status=operation == "deployment.status", **args)
+            from .mcp_bridge_transport import BridgeReadUnavailable
+            try:
+                return self.execution.deployment(
+                    principal=principal, status=operation == "deployment.status", **args)
+            except (PermissionError, ValueError) as exc:
+                code = str(exc)
+                if code in BridgeReadUnavailable.CODES and code.startswith("deployment_"):
+                    raise BridgeReadUnavailable(code) from None
+                raise
         raise InvalidBridgeRequest("unsupported operation or arguments")
 

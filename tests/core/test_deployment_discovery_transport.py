@@ -97,3 +97,16 @@ class DeploymentDiscoveryTests(unittest.TestCase):
         with patch('gway_remote.watchtower_exec_auth.pinned_transport', return_value=Pinned()):
             with self.assertRaisesRegex(PermissionError, '^deployment_ssh_unverified$'):
                 self.service.deployment_discovery(node='gway-001')
+
+    def test_run_and_status_errors_are_correlated_and_sanitized(self):
+        for op, method, message, expected in (
+                ("deployment_run", "accept", "deployment revision changed since preview", "deployment_declaration_drift"),
+                ("deployment_status", "request_status", "deployment request not found", "deployment_request_not_found"),
+                ("deployment_status", "request_status", "/private/receipt", "deployment_permission_denied")):
+            request = {"node": "gway-001", "request_id": "b"*32, "operation": op, "application": "lcd_sound"}
+            if op == "deployment_run":
+                request["expected_revision"] = "a"*40
+            with patch.object(node_exec_protocol, "require_account"), patch(
+                    "gway_remote.mcp_deployment_broker."+method, side_effect=PermissionError(message)):
+                result = node_exec_protocol.serve_one(json.dumps(request).encode(), hostname="gway-001")
+            self.assertEqual(result, {"node": "gway-001", "request_id": "b"*32, "error": expected})

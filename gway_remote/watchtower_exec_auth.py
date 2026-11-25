@@ -216,7 +216,7 @@ class AuthorizedExecution:
         Execution remains disabled until the node-local asynchronous runner
         can persist a receipt before acknowledging an SSH dispatch.
         """
-        from .mcp_deployment_resolver import normalize_application
+        from .mcp_deployment_resolver import normalize_application, DEPLOYMENT_NODE_ERRORS
         from .watchtower_exec_transport import _digest
         application = normalize_application(application)
         if type(status) is not bool:
@@ -248,6 +248,10 @@ class AuthorizedExecution:
             response = pinned.invoke({
                 "operation": "deployment_status", "node": node,
                 "request_id": request_id, "application": application})
+            if (type(response) is dict and response.get("node") == node
+                    and response.get("request_id") == request_id
+                    and response.get("error") in DEPLOYMENT_NODE_ERRORS):
+                raise PermissionError(response["error"])
             if (type(response) is not dict or response.get("node") != node or
                     response.get("request_id") != request_id or
                     type(response.get("result")) is not dict):
@@ -303,10 +307,15 @@ class AuthorizedExecution:
         if not self.ledger.claim_dispatch(request_id):
             return {"node": node, "request_id": request_id, "application": application,
                     "status": self.ledger.get(request_id)["state"]}
+        node_error = None
         try:
             response = pinned.invoke({"operation": "deployment_run", "node": node,
                                       "request_id": request_id, "application": application,
                                       "expected_revision": pinned_revision})
+            if (type(response) is dict and response.get("node") == node
+                    and response.get("request_id") == request_id
+                    and response.get("error") in DEPLOYMENT_NODE_ERRORS):
+                node_error = response["error"]
             result = response.get("result") if type(response) is dict else None
             if (type(response) is not dict or response.get("node") != node
                     or response.get("request_id") != request_id
@@ -320,7 +329,7 @@ class AuthorizedExecution:
             self.ledger.mark_dispatched(request_id, confirmed=False)
             self._feed_deployment(application, node, request_id, "uncertain", pinned_revision)
             return {"node": node, "request_id": request_id, "application": application,
-                    "status": "uncertain"}
+                    "status": "uncertain", **({"code": node_error} if node_error else {})}
         self.ledger.mark_dispatched(request_id, confirmed=True)
         self._feed_deployment(application, node, request_id, "running", pinned_revision)
         if result["state"] in {"succeeded", "failed"}:

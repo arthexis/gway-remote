@@ -678,7 +678,14 @@ class Handler(BaseHTTPRequestHandler):
                     if isinstance(exc, ExecutionStageError):
                         _EXEC_FAILURES.record(args.get("request_id"), principal,
                                               exc.stage, "failure")
-                result = {"content":[{"type":"text","text":"Execution request rejected"}],"isError":True}
+                from .mcp_bridge_transport import BridgeReadUnavailable
+                code = str(exc)
+                if (name in {"node_deploy", "node_deploy_status"} and
+                        code in BridgeReadUnavailable.CODES and code.startswith("deployment_")):
+                    result = {"content": [{"type": "text", "text": json.dumps({
+                        "error": "Deployment request rejected", "code": code})}], "isError": True}
+                else:
+                    result = {"content":[{"type":"text","text":"Execution request rejected"}],"isError":True}
             if version == "2026-07-28":
                 result = {"resultType":"complete", **result}
             body = json.dumps({"jsonrpc":"2.0","id":payload.get("id"),"result":result},

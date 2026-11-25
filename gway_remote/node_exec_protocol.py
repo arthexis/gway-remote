@@ -109,18 +109,16 @@ def serve_one(raw, *, jobs=None, hostname=None):
         return {"node": host, "request_id": rid, "result": result}
     if op in ("deployment_preview", "deployment_status", "deployment_run"):
         from .mcp_deployment_broker import preview, request_status, accept
-        if op == "deployment_preview":
-            try:
+        from .mcp_deployment_resolver import deployment_error_code
+        try:
+            if op == "deployment_preview":
                 result = preview(req["application"])
-            except (ValueError, PermissionError) as exc:
-                allowed = {"deployment_unknown_application", "deployment_not_enabled",
-                           "deployment_no_declaration", "deployment_declaration_invalid"}
-                code = str(exc) if str(exc) in allowed else "deployment_invalid_application"
-                return {"node": host, "request_id": rid, "error": code}
-        elif op == "deployment_status":
-            result = request_status(req["application"], rid)
-        else:
-            result = accept(req["application"], rid, expected_revision=req["expected_revision"])
+            elif op == "deployment_status":
+                result = request_status(req["application"], rid)
+            else:
+                result = accept(req["application"], rid, expected_revision=req["expected_revision"])
+        except (ValueError, PermissionError, OSError) as exc:
+            return {"node": host, "request_id": rid, "error": deployment_error_code(exc)}
         return {"node": host, "request_id": rid, "result": result}
     if op in ("provider_list", "provider_call", "provider_read"):
         from .mcp_node_providers import dispatch_node_provider_request
