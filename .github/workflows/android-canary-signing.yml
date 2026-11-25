@@ -1,0 +1,103 @@
+name: Android persistent canary signing (manual)
+on:
+  workflow_dispatch:
+    inputs:
+      pr_number:
+        required: true
+        type: string
+      expected_sha:
+        required: true
+        type: string
+      artifact_run_id:
+        required: true
+        type: string
+permissions:
+  contents: read
+  actions: read
+jobs:
+  persistent-signing:
+    # Separate fresh runner: no checkout, Gradle, PR scripts or shared cache.
+    if: github.ref == 'refs/heads/main' && github.actor == 'arthexis' && github.triggering_actor == 'arthexis'
+    runs-on: ubuntu-latest
+    environment: android-canary-signing
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - name: Verify source run and download exact artifact
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SOURCE_RUN: ${{ inputs.artifact_run_id }}
+          PR_NUMBER: ${{ inputs.pr_number }}
+          EXPECTED_SHA: ${{ inputs.expected_sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "$SOURCE_RUN" =~ ^[1-9][0-9]*$ ]]
+          [[ "$PR_NUMBER" =~ ^[1-9][0-9]{0,6}$ ]]
+          [[ "$EXPECTED_SHA" =~ ^[0-9a-f]{40}$ ]]
+          gh api "repos/$GITHUB_REPOSITORY/actions/runs/$SOURCE_RUN" | jq -e '.path == ".github/workflows/android-canary.yml" and .head_branch == "main" and .event == "workflow_dispatch" and .conclusion == "success"' >/dev/null
+          gh api "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER" | jq -e --arg sha "$EXPECTED_SHA" --arg repo "$GITHUB_REPOSITORY" '.head.sha == $sha and .head.repo.full_name == $repo' >/dev/null
+          gh run download "$SOURCE_RUN" --repo "$GITHUB_REPOSITORY" --name "android-canary-pr$PR_NUMBER-${EXPECTED_SHA:0:12}" --dir "$RUNNER_TEMP/unsigned-candidate"
+      - name: Verify and sign isolated candidate
+        shell: bash
+        env:
+          CANARY_KEYSTORE_B64: ${{ secrets.CANARY_KEYSTORE_B64 }}
+          CANARY_STORE_PASSWORD: ${{ secrets.CANARY_STORE_PASSWORD }}
+          CANARY_KEY_PASSWORD: ${{ secrets.CANARY_KEY_PASSWORD }}
+          CANARY_KEY_ALIAS: ${{ vars.CANARY_KEY_ALIAS }}
+          EXPECTED_CERT: ${{ vars.CANARY_CERT_SHA256 }}
+          SOURCE_RUN: ${{ inputs.artifact_run_id }}
+          EXPECTED_SHA: ${{ inputs.expected_sha }}
+          PR_NUMBER: ${{ inputs.pr_number }}
+        run: |
+          set -euo pipefail
+          umask 077
+          [[ "$EXPECTED_CERT" =~ ^[0-9a-f]{64}$ ]]
+          [[ "$EXPECTED_SHA" =~ ^[0-9a-f]{40}$ ]]
+          [[ "$PR_NUMBER" =~ ^[1-9][0-9]{0,6}$ ]]
+          : "${CANARY_KEYSTORE_B64:?missing canary key}" "${CANARY_STORE_PASSWORD:?}" "${CANARY_KEY_PASSWORD:?}" "${CANARY_KEY_ALIAS:?}"
+          SRC="$RUNNER_TEMP/unsigned-candidate"
+          DEST="$RUNNER_TEMP/persistent-candidate"
+          mkdir -m 700 "$DEST"
+          KEY=$(mktemp "$RUNNER_TEMP/canary-key.XXXXXX")
+          trap 'rm -f "$KEY"' EXIT
+          printf '%s' "$CANARY_KEYSTORE_B64" | base64 --decode > "$KEY"
+          unset CANARY_KEYSTORE_B64
+          SDK="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-/usr/local/lib/android/sdk}}"
+          SIGNER="$SDK/build-tools/35.0.0/apksigner"
+          AAPT="$SDK/build-tools/35.0.0/aapt"
+          grep -Fxq "Repository: $GITHUB_REPOSITORY" "$SRC/PROVENANCE.txt"
+          grep -Fxq "Source-Commit: $EXPECTED_SHA" "$SRC/PROVENANCE.txt"
+          grep -Fxq "Pull-Request: $PR_NUMBER" "$SRC/PROVENANCE.txt"
+          grep -Fxq "Actions-Run: $SOURCE_RUN" "$SRC/PROVENANCE.txt"
+          for kind in app test; do
+            if [[ "$kind" == app ]]; then
+              NAME=gway-remote-canary.apk
+              PACKAGE=com.arthexis.gwayremote.canary
+            else
+              NAME=gway-remote-canary-test.apk
+              PACKAGE=com.arthexis.gwayremote.canary.test
+            fi
+            [[ -f "$SRC/$NAME" && ! -L "$SRC/$NAME" ]]
+            HASH=$(sha256sum "$SRC/$NAME" | cut -d' ' -f1)
+            grep -Fxq "$HASH  $NAME" "$SRC/SHA256SUMS"
+            BADGING=$("$AAPT" dump badging "$SRC/$NAME")
+            grep -Fq "package: name='$PACKAGE' " <<< "$BADGING"
+            "$SIGNER" sign --ks "$KEY" --ks-key-alias "$CANARY_KEY_ALIAS" \
+              --ks-pass env:CANARY_STORE_PASSWORD --key-pass env:CANARY_KEY_PASSWORD \
+              --out "$DEST/$NAME" "$SRC/$NAME"
+            REPORT=$("$SIGNER" verify --verbose --print-certs "$DEST/$NAME")
+            CERT=$(printf '%s\n' "$REPORT" | sed -nE 's/^Signer #1 certificate SHA-256 digest: ([0-9a-fA-F]{64})$/\1/p')
+            [[ "${CERT,,}" == "$EXPECTED_CERT" ]]
+          done
+          rm -f "$DEST/"*.idsig
+          (cd "$DEST" && sha256sum gway-remote-canary.apk gway-remote-canary-test.apk > SHA256SUMS)
+          printf 'Repository: %s\nPull-Request: %s\nSource-Commit: %s\nActions-Run: %s\nSigning: persistent-canary-v1\nCertificate-SHA256: %s\n' \
+            "$GITHUB_REPOSITORY" "$PR_NUMBER" "$EXPECTED_SHA" "$GITHUB_RUN_ID" "$EXPECTED_CERT" > "$DEST/PROVENANCE.txt"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: persistent-canary-candidate-${{ github.run_id }}
+          path: ${{ runner.temp }}/persistent-candidate/
+          if-no-files-found: error
+          retention-days: 14
