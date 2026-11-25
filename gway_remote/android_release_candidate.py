@@ -164,7 +164,7 @@ class CandidateLedger:
 
     def claim_dispatch(self, candidate_id, stage, inputs):
         """Reserve before network mutation; an uncertain intent is never replayed."""
-        require(stage in ("built", "signed"), "unsupported_dispatch_stage")
+        require(stage in ("built", "signed", "installed"), "unsupported_dispatch_stage")
         payload = self.encode(inputs)
         self.db.execute("BEGIN IMMEDIATE")
         try:
@@ -417,6 +417,160 @@ def persist_private_apk(file, artifact_dir, candidate_id, digest):
         os.unlink(name)
 
 
+INSTALL_WORKFLOW = "android-release-candidate-install.yml"
+INSTALL_FIX_PATHS = DELIVERY_FIX_PATHS | frozenset({
+    ".github/workflows/" + INSTALL_WORKFLOW,
+    "gway_remote/deploy_impact.py",
+    "tests/deployment/test_deploy_impact.py",
+})
+
+
+def validate_install_revision(candidate, revision, gate):
+    """Verify the reviewed delivery-only revision, not arbitrary new app code."""
+    require(isinstance(revision,str) and SHA.fullmatch(revision), "invalid_workflow_revision")
+    require(gate.api("branches/main")["commit"]["sha"] == revision, "candidate_superseded")
+    comparison = gate.api(f"compare/{candidate.source_sha}...{revision}")
+    files = comparison.get("files", [])
+    require(comparison.get("status") == "ahead"
+            and (comparison.get("merge_base_commit") or {}).get("sha") == candidate.source_sha
+            and type(comparison.get("total_commits")) is int
+            and 0 < comparison["total_commits"] <= 60 and 0 < len(files) < 300
+            and all(f.get("status") in ("added","modified") and f.get("filename") in INSTALL_FIX_PATHS for f in files),
+            "candidate_superseded")
+    for pair in (("android","tree"),):
+        def subtree(sha):
+            matches = [r.get("sha") for r in gate.api(f"git/trees/{sha}")["tree"]
+                       if (r.get("path"),r.get("type")) == pair]
+            require(len(matches) == 1 and isinstance(matches[0],str) and SHA.fullmatch(matches[0]),
+                    "android_tree_unverified")
+            return matches[0]
+        require(subtree(candidate.source_sha) == subtree(revision), "android_tree_changed")
+
+
+def health_is_authenticated(tree):
+    """Only a visible exact health response counts, never a stored token or UI label."""
+    if not isinstance(tree,dict) or tree.get("truncated") is not False:
+        return False
+    elements = tree.get("elements", [])
+    if not any(e.get("text") == "API health" for e in elements):
+        return False
+    texts = [e.get("text","") for e in elements if isinstance(e.get("text"),str)]
+    if any(t in ("Token is required","Unauthorized: check your token","Access denied","Connection failed")
+           for t in texts):
+        return False
+    for text in texts:
+        try:
+            value = json.loads(text)
+        except (ValueError,TypeError):
+            continue
+        if value == {"status":"ok","api":"gway-remote/v1"}:
+            return True
+    return False
+
+
+def install_stable_candidate(ledger, candidate, *, artifact_dir, workflow_sha, install_run_id,
+                             expected_digest, expected_certificate, expected_artifact_id,
+                             preflight_only=False, gate=None, call=None, device=None,
+                             inspect=None, hostname=None):
+    """Reviewed hardware workflow only. No credential reads, reset or publication."""
+    import socket
+    from gway_remote import android_canary_install as usb
+    from gway_remote.android_canary_certificate import installed_evidence, certificate_sha256
+    from gway_remote.mcp_android import Device
+    if gate is None:
+        from gway_remote import android_release_gate as gate
+    call = call or usb.run_command
+    inspect = inspect or installed_evidence
+    device = device or Device()
+    require((hostname or socket.gethostname()).split(".")[0] == "gway-001", "wrong_device")
+    validate_install_revision(candidate, workflow_sha, gate)
+    run = gate.api(f"actions/runs/{install_run_id}")
+    require(run.get("id") == install_run_id and run.get("path") == ".github/workflows/"+INSTALL_WORKFLOW
+            and run.get("event") == "workflow_dispatch" and run.get("head_sha") == workflow_sha
+            and run.get("head_branch") == "main" and run.get("status") == "in_progress"
+            and run.get("run_attempt") == 1 and (run.get("actor") or {}).get("login") == gate.OWNER
+            and (run.get("triggering_actor") or {}).get("login") == gate.OWNER,
+            "install_run_identity_mismatch")
+    state = ledger.read(candidate.candidate_id)
+    require(state.get("allocated") == asdict(candidate), "candidate_not_allocated")
+    signed = state.get("signed", {})
+    require(signed.get("artifact_id") == expected_artifact_id
+            and signed.get("apk_sha256") == expected_digest
+            and signed.get("certificate_sha256") == expected_certificate, "signed_evidence_mismatch")
+    artifact = SignedArtifact(candidate,expected_digest,expected_certificate,
+                              expected_artifact_id,signed.get("run_id"))
+    validate_signing_revision(candidate,signed.get("workflow_sha"),gate)
+    sign_run = gate.api(f"actions/runs/{artifact.signing_run_id}")
+    require(sign_run.get("conclusion") == "success" and sign_run.get("run_attempt") == 1
+            and sign_run.get("path") == ".github/workflows/android-release-candidate-sign.yml"
+            and sign_run.get("head_sha") == signed["workflow_sha"]
+            and sign_run.get("event") == "workflow_dispatch" and sign_run.get("head_branch") == "main"
+            and (sign_run.get("actor") or {}).get("login") == gate.OWNER
+            and (sign_run.get("triggering_actor") or {}).get("login") == gate.OWNER,
+            "signing_run_mismatch")
+    meta = gate.api(f"actions/artifacts/{artifact.artifact_id}")
+    require(meta.get("expired") is False and meta.get("name") == f"signed-release-candidate-{artifact.signing_run_id}"
+            and (meta.get("workflow_run") or {}).get("id") == artifact.signing_run_id
+            and (meta.get("workflow_run") or {}).get("head_sha") == signed["workflow_sha"],
+            "signed_artifact_unavailable")
+    apk = _private_artifact_dir(artifact_dir) / f"{candidate.candidate_id}.apk"
+    import os
+    require(apk.is_file() and not apk.is_symlink() and apk.stat().st_uid == os.getuid()
+            and apk.stat().st_mode & 0o077 == 0 and 10000 < apk.stat().st_size < 104857600,
+            "invalid_local_candidate")
+    require(hashlib.sha256(apk.read_bytes()).hexdigest() == artifact.apk_sha256
+            and certificate_sha256(apk) == artifact.certificate_sha256, "local_candidate_mismatch")
+    serial = usb.authorized_usb(call)
+    screen = device.screen_state(serial)
+    require(screen.get("screen_on") is True and screen.get("locked") is False, "device_locked_or_unknown")
+    before = inspect(usb.PRODUCTION,call=call)
+    require(before.get("package") == PACKAGE and before.get("certificate_sha256") == expected_certificate,
+            "installed_signer_mismatch")
+    require(type(before.get("version_code")) is int and before["version_code"] <= candidate.version_code,
+            "version_not_increasing")
+    # Require real authenticated UI evidence, not owner assertion or a copied secret.
+    authenticated = health_is_authenticated(device.ui_tree(serial))
+    receipt = {"candidate_id":candidate.candidate_id,"device":"gway-001",
+               "artifact_id":artifact.artifact_id,"apk_sha256":artifact.apk_sha256,
+               "certificate_sha256":artifact.certificate_sha256,"installed_before":before,
+               "credential_before":authenticated}
+    if preflight_only:
+        return {**receipt,"status":"ready" if authenticated else "blocked",
+                "reason":None if authenticated else "credential_missing_or_unverified"}
+    action = plan_lab_install(artifact,installed=before,pinned_certificate=expected_certificate,
+                              device="gway-001",lab_authorized=True,
+                              credential_present=authenticated,screen_unlocked=True)
+    prior = state.get("installed")
+    if prior is not None:
+        require(action == "verify_noop" and prior.get("installed_after") == before,
+                "installed_evidence_conflict")
+        return prior
+    # Persist the install intent BEFORE ADB. Unknown outcomes are never replayed.
+    inputs = {"workflow_sha":workflow_sha,"artifact_id":artifact.artifact_id,
+              "apk_sha256":artifact.apk_sha256}
+    new, recorded_run = ledger.claim_dispatch(candidate.candidate_id,"installed",inputs)
+    if not new:
+        require(action == "verify_noop" and recorded_run is not None,
+                "install_uncertain_reconcile_before_retry")
+    else:
+        ledger.bind_dispatch(candidate.candidate_id,"installed",install_run_id)
+        require(gate.api("branches/main")["commit"]["sha"] == workflow_sha, "candidate_superseded")
+        require(usb.authorized_usb(call) == serial, "usb_identity_changed")
+        if action == "incremental_update":
+            result = call(["/usr/bin/adb","-s",serial,"install","-r",str(apk)],100)
+            require(usb.adb_install_succeeded(result), "stable_install_unconfirmed_no_reset")
+    require(usb.authorized_usb(call) == serial, "usb_identity_changed")
+    after = inspect(usb.PRODUCTION,call=call)
+    require(after.get("package") == PACKAGE and after.get("apk_sha256") == artifact.apk_sha256
+            and after.get("certificate_sha256") == artifact.certificate_sha256
+            and after.get("version_code") == candidate.version_code, "post_install_identity_mismatch")
+    # This is physical installation evidence, not authenticated module acceptance.
+    receipt = {**receipt,"status":"installed","installed_after":after,
+               "install_run_id":recorded_run or install_run_id,"operation":action}
+    ledger.record(candidate.candidate_id,"installed",receipt)
+    return receipt
+
+
 def main(argv=None):
     """Owner-side entrypoint for the pre-install candidate stages only."""
     import argparse
@@ -441,6 +595,14 @@ def main(argv=None):
         else:
             command.add_argument("--workflow-sha")
     sub.add_parser("status")
+    lab = sub.add_parser("lab-install")
+    lab.add_argument("--artifact-dir", type=Path, required=True)
+    lab.add_argument("--workflow-sha", required=True)
+    lab.add_argument("--run-id", type=int, required=True)
+    lab.add_argument("--artifact-id", type=int, required=True)
+    lab.add_argument("--digest", required=True)
+    lab.add_argument("--certificate", required=True)
+    lab.add_argument("--preflight-only", action="store_true")
     args = parser.parse_args(argv)
     candidate = Candidate(args.sha, args.tree, args.version, f"0.2.{args.version}")
     os.umask(0o077)
@@ -466,6 +628,11 @@ def main(argv=None):
                        artifact_id=built.get("artifact_id"),build_run_id=built.get("run_id"),workflow_sha=args.workflow_sha)}
         elif args.action == "reconcile":
             result = reconcile_artifact(ledger,candidate,args.stage,pinned_certificate=args.certificate,artifact_dir=args.artifact_dir)
+        elif args.action == "lab-install":
+            result = install_stable_candidate(ledger,candidate,artifact_dir=args.artifact_dir,
+                       workflow_sha=args.workflow_sha,install_run_id=args.run_id,
+                       expected_artifact_id=args.artifact_id,expected_digest=args.digest,
+                       expected_certificate=args.certificate,preflight_only=args.preflight_only)
         else:
             result = {"candidate_id":candidate.candidate_id,"evidence":ledger.read(candidate.candidate_id)}
         print(json.dumps(result,sort_keys=True))
