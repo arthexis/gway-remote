@@ -35,14 +35,22 @@ def internal(action,payload):
     from .watchtower_exec_transport import pinned_transport
     service=load_service();service._current_eligibility(NODE)
     transport=pinned_transport(service.relay.transport,NODE)
-    if transport.node.remote_user!='arthe':raise PermissionError('installation owner required')
+    if transport.node.remote_user not in ('arthe','gway-relay'):raise PermissionError('approved installation transport required')
     rid=uuid.uuid4().hex
     result=transport.invoke({'operation':op,'node':NODE,'request_id':rid,**payload})
     if result.get('node')!=NODE or result.get('request_id')!=rid or type(result.get('result')) is not dict:raise PermissionError('uncorrelated delivery')
     return result['result']
 
 
-def child(account,action,payload):return _child(account,action,payload,handler=internal)
+class ProvisionStageError(RuntimeError):
+    def __init__(self,stage):
+        self.stage=stage
+        super().__init__('private provisioning stage failed')
+
+
+def child(account,action,payload):
+    try:return _child(account,action,payload,handler=internal)
+    except Exception:raise ProvisionStageError(action if action in ('status','issue','install','verify','revoke') else 'unknown') from None
 
 
 def check_receipt(receipt,*,invoke):
@@ -78,5 +86,7 @@ def main(argv=None):
             print(json.dumps(provision(args.days),sort_keys=True))
         finally:os.close(fd)
         return 0
+    except ProvisionStageError as exc:
+        print('Probe provisioning failed at stage: '+exc.stage+'. Reconcile before replacement. No recovery activation.',file=sys.stderr);return 1
     except (Exception,KeyboardInterrupt):
         print('Probe provisioning refused or uncertain; reconcile before replacement. No recovery activation.',file=sys.stderr);return 1

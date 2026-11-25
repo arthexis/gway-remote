@@ -61,7 +61,8 @@ def serve_one(raw, *, jobs=None, hostname=None):
         raise PermissionError("unapproved node")
     rid = validate_request_id(req["request_id"])
     if op in ('probe_provision_status','probe_provision_install'):
-        if host!='gway-001':raise PermissionError('probe provision target denied')
+        from .node_exec_identity import selected_user
+        if host!='gway-001' or selected_user()!='arthe':raise PermissionError('probe provision target or owner denied')
         from .probe_provision_node import deliver
         result=deliver(op,req.get('credential'))
         return {'node':host,'request_id':rid,'result':result}
