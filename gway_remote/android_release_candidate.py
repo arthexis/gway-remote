@@ -202,8 +202,40 @@ class CandidateLedger:
             raise
 
 
+DELIVERY_FIX_PATHS = frozenset({
+    ".github/workflows/android-release-candidate-sign.yml",
+    "gway_remote/android_release_candidate.py",
+    "gway_remote/android_release_gate.py",
+    "tests/infrastructure/test_android_release_candidate.py",
+    "tests/mobile/test_android_release_gate.py",
+    "docs/android-single-release-candidate.md",
+})
+
+
+def validate_signing_revision(candidate, workflow_sha, gate):
+    """Keep immutable build identity; permit only explicitly reviewed delivery fixes."""
+    require(isinstance(workflow_sha, str) and SHA.fullmatch(workflow_sha), "invalid_workflow_revision")
+    if workflow_sha == candidate.source_sha:
+        return
+    comparison = gate.api(f"compare/{candidate.source_sha}...{workflow_sha}")
+    files = comparison.get("files", [])
+    require(comparison.get("status") == "ahead"
+            and (comparison.get("merge_base_commit") or {}).get("sha") == candidate.source_sha
+            and type(comparison.get("total_commits")) is int
+            and 0 < comparison["total_commits"] <= 30 and 0 < len(files) < 300
+            and all(f.get("status") in ("added", "modified")
+                    and f.get("filename") in DELIVERY_FIX_PATHS for f in files),
+            "candidate_superseded")
+    def android_tree(sha):
+        rows = gate.api(f"git/trees/{sha}").get("tree", [])
+        matches = [r["sha"] for r in rows if r.get("path") == "android" and r.get("type") == "tree"]
+        require(len(matches) == 1 and SHA.fullmatch(matches[0]), "android_tree_unverified")
+        return matches[0]
+    require(android_tree(candidate.source_sha) == android_tree(workflow_sha), "android_tree_changed")
+
+
 def dispatch_candidate(ledger, candidate, stage, *, artifact_id=None, build_run_id=None,
-                       gate=None):
+                       workflow_sha=None, gate=None):
     """Owner-side coordinator adapter. Resume only the exact recorded run.
 
     This is not a publication or device operation. Signing remains subject to
@@ -213,9 +245,10 @@ def dispatch_candidate(ledger, candidate, stage, *, artifact_id=None, build_run_
         from gway_remote import android_release_gate as gate
     state = ledger.read(candidate.candidate_id)
     require(state.get("allocated") == asdict(candidate), "candidate_not_allocated")
-    require(gate.api("branches/main")["commit"]["sha"] == candidate.source_sha,
-            "candidate_superseded")
+    workflow_sha = candidate.source_sha if workflow_sha is None else workflow_sha
+    require(gate.api("branches/main")["commit"]["sha"] == workflow_sha, "candidate_superseded")
     if stage == "built":
+        require(workflow_sha == candidate.source_sha, "build_revision_mismatch")
         workflow = "android-release-candidate.yml"
         inputs = {"expected_sha": candidate.source_sha, "version_code": str(candidate.version_code)}
     elif stage == "signed":
@@ -224,9 +257,10 @@ def dispatch_candidate(ledger, candidate, stage, *, artifact_id=None, build_run_
         built = state.get("built", {})
         require(built.get("artifact_id") == artifact_id and built.get("run_id") == build_run_id,
                 "build_evidence_mismatch")
+        validate_signing_revision(candidate, workflow_sha, gate)
         workflow = "android-release-candidate-sign.yml"
         inputs = {"expected_sha": candidate.source_sha, "build_run_id": str(build_run_id),
-                  "artifact_id": str(artifact_id)}
+                  "artifact_id": str(artifact_id), "workflow_sha": workflow_sha}
     else:
         raise ValueError("unsupported_dispatch_stage")
     new, run_id = ledger.claim_dispatch(candidate.candidate_id, stage, inputs)
@@ -234,7 +268,7 @@ def dispatch_candidate(ledger, candidate, stage, *, artifact_id=None, build_run_
         run_id = gate.create_run(workflow, **inputs)
         ledger.bind_dispatch(candidate.candidate_id, stage, run_id)
     require(run_id is not None, "dispatch_uncertain_reconcile_before_retry")
-    gate.await_dispatch_visibility(workflow, run_id, candidate.source_sha)
+    gate.await_dispatch_visibility(workflow, run_id, workflow_sha)
     return run_id
 
 
@@ -274,7 +308,7 @@ def plan_promotion(artifact, *, existing_release, **acceptance):
     return "verify_noop"
 
 
-def reconcile_artifact(ledger, candidate, stage, *, pinned_certificate=None, gate=None):
+def reconcile_artifact(ledger, candidate, stage, *, pinned_certificate=None, transport_dir=None, gate=None):
     """Accept only the exact successful, owner-dispatched workflow and its artifact."""
     import tempfile
     from pathlib import Path
@@ -283,14 +317,19 @@ def reconcile_artifact(ledger, candidate, stage, *, pinned_certificate=None, gat
     require(stage in ("built", "signed"), "unsupported_reconciliation_stage")
     state = ledger.read(candidate.candidate_id)
     require(state.get("allocated") == asdict(candidate), "candidate_not_allocated")
-    row = ledger.db.execute("SELECT run_id FROM dispatch_intent WHERE candidate_id=? AND stage=?",
+    row = ledger.db.execute("SELECT run_id, inputs FROM dispatch_intent WHERE candidate_id=? AND stage=?",
                             (candidate.candidate_id, stage)).fetchone()
     require(row is not None and type(row[0]) is int and row[0] > 0,
             "dispatch_uncertain_reconcile_before_retry")
     run_id = row[0]
     workflow = ("android-release-candidate.yml" if stage == "built"
                 else "android-release-candidate-sign.yml")
-    run = gate.wait_run(workflow, run_id, "workflow_dispatch", candidate.source_sha)
+    intent = json.loads(row[1])
+    workflow_sha = candidate.source_sha if stage == "built" else intent.get("workflow_sha")
+    require(isinstance(workflow_sha,str) and SHA.fullmatch(workflow_sha), "missing_signing_workflow_revision")
+    if stage == "signed":
+        validate_signing_revision(candidate, workflow_sha, gate)
+    run = gate.wait_run(workflow, run_id, "workflow_dispatch", workflow_sha)
     require((run.get("actor") or {}).get("login") == gate.OWNER
             and (run.get("triggering_actor") or {}).get("login") == gate.OWNER,
             "unexpected_run_actor")
@@ -305,7 +344,7 @@ def reconcile_artifact(ledger, candidate, stage, *, pinned_certificate=None, gat
     with tempfile.TemporaryDirectory() as directory:
         gate.download(run_id, name, directory)
         root = Path(directory)
-        file = root / ("gway-remote-unsigned.apk" if stage == "built" else "gway-remote.apk")
+        file = root / ("gway-remote-unsigned.apk" if stage == "built" else "gway-remote.apk.cms")
         manifest_path = root / "manifest.json"
         require(file.is_file() and not file.is_symlink() and 0 < file.stat().st_size < 104857600
                 and manifest_path.is_file() and not manifest_path.is_symlink()
@@ -314,6 +353,12 @@ def reconcile_artifact(ledger, candidate, stage, *, pinned_certificate=None, gat
         require(all(manifest.get(k) == v for k,v in asdict(candidate).items())
                 and manifest.get("repository") == gate.REPO, "candidate_manifest_mismatch")
         digest = hashlib.sha256(file.read_bytes()).hexdigest()
+        if stage == "signed":
+            require(manifest.get("signing_workflow_sha") == workflow_sha and manifest.get("ciphertext_sha256") == digest,
+                    "ciphertext_evidence_mismatch")
+            require(not (root / "gway-remote.apk").exists(), "unencrypted_signed_artifact_denied")
+            file = decrypt_candidate(file, manifest, transport_dir, root)
+            digest = hashlib.sha256(file.read_bytes()).hexdigest()
         if stage == "built":
             require(manifest.get("build_run_id") == run_id
                     and manifest.get("unsigned_sha256") == digest, "unsigned_evidence_mismatch")
@@ -329,10 +374,72 @@ def reconcile_artifact(ledger, candidate, stage, *, pinned_certificate=None, gat
             require(isinstance(pinned_certificate,str) and HEX.fullmatch(pinned_certificate)
                     and manifest.get("certificate_sha256") == pinned_certificate
                     and certificate_sha256(file) == pinned_certificate, "certificate_mismatch")
+            persist_private_apk(file, transport_dir, candidate.candidate_id, digest)
             evidence = {"run_id":run_id, "artifact_id":artifact_id, "apk_sha256":digest,
-                        "certificate_sha256":pinned_certificate}
+                        "certificate_sha256":pinned_certificate, "workflow_sha":workflow_sha}
     ledger.record(candidate.candidate_id, stage, evidence)
     return evidence
+
+
+def _private_transport_dir(path):
+    import os
+    from pathlib import Path
+    require(path is not None, "transport_directory_required")
+    path = Path(path)
+    require(path.is_absolute() and path.is_dir() and not path.is_symlink()
+            and path.stat().st_uid == os.getuid() and path.stat().st_mode & 0o077 == 0,
+            "insecure_transport_directory")
+    return path
+
+
+def decrypt_candidate(ciphertext, manifest, transport_dir, temporary):
+    """Decrypt authenticated CMS only with the local owner-only transport key."""
+    import os
+    import subprocess
+    path = _private_transport_dir(transport_dir)
+    cert, key = path / "transport-cert.pem", path / "transport-key.pem"
+    for item in (cert,key):
+        require(item.is_file() and not item.is_symlink() and item.stat().st_uid == os.getuid()
+                and item.stat().st_mode & 0o077 == 0, "insecure_transport_file")
+    der = subprocess.check_output(["openssl","x509","-in",str(cert),"-outform","DER"],timeout=10)
+    require(manifest.get("transport_certificate_sha256") == hashlib.sha256(der).hexdigest(),
+            "transport_certificate_mismatch")
+    output = temporary / "verified.apk"
+    result = subprocess.run(["openssl","cms","-decrypt","-binary","-inform","DER","-in",
+                             str(ciphertext),"-recip",str(cert),"-inkey",str(key),"-out",str(output)],
+                            capture_output=True,timeout=30,check=False)
+    require(result.returncode == 0 and output.is_file() and 0 < output.stat().st_size < 104857600,
+            "encrypted_artifact_verification_failed")
+    output.chmod(0o600)
+    return output
+
+
+def persist_private_apk(file, transport_dir, candidate_id, digest):
+    import os
+    import tempfile
+    directory = _private_transport_dir(transport_dir)
+    require(isinstance(candidate_id,str) and HEX.fullmatch(candidate_id), "invalid_candidate_id")
+    path = directory / f"{candidate_id}.apk"
+    require(hashlib.sha256(file.read_bytes()).hexdigest() == digest, "private_artifact_digest_mismatch")
+    fd, name = tempfile.mkstemp(prefix=".rc-", dir=directory)
+    try:
+        with os.fdopen(fd,"wb") as output:
+            output.write(file.read_bytes())
+            output.flush()
+            os.fsync(output.fileno())
+        try:
+            os.link(name,path,follow_symlinks=False)
+        except FileExistsError:
+            require(path.is_file() and not path.is_symlink() and path.stat().st_uid == os.getuid()
+                    and path.stat().st_mode & 0o077 == 0 and hashlib.sha256(path.read_bytes()).hexdigest() == digest,
+                    "private_artifact_conflict")
+        dirfd = os.open(directory,os.O_RDONLY|os.O_DIRECTORY)
+        try:
+            os.fsync(dirfd)
+        finally:
+            os.close(dirfd)
+    finally:
+        os.unlink(name)
 
 
 def main(argv=None):
@@ -355,6 +462,9 @@ def main(argv=None):
         command.add_argument("stage", choices=("built", "signed"))
         if action == "reconcile":
             command.add_argument("--certificate")
+            command.add_argument("--transport-dir", type=Path)
+        else:
+            command.add_argument("--workflow-sha")
     sub.add_parser("status")
     args = parser.parse_args(argv)
     candidate = Candidate(args.sha, args.tree, args.version, f"0.2.{args.version}")
@@ -378,9 +488,9 @@ def main(argv=None):
             # Only an existing local reservation can request a run.
             built = ledger.read(candidate.candidate_id).get("built", {})
             result = {"run_id":dispatch_candidate(ledger,candidate,args.stage,
-                       artifact_id=built.get("artifact_id"),build_run_id=built.get("run_id"))}
+                       artifact_id=built.get("artifact_id"),build_run_id=built.get("run_id"),workflow_sha=args.workflow_sha)}
         elif args.action == "reconcile":
-            result = reconcile_artifact(ledger,candidate,args.stage,pinned_certificate=args.certificate)
+            result = reconcile_artifact(ledger,candidate,args.stage,pinned_certificate=args.certificate,transport_dir=args.transport_dir)
         else:
             result = {"candidate_id":candidate.candidate_id,"evidence":ledger.read(candidate.candidate_id)}
         print(json.dumps(result,sort_keys=True))

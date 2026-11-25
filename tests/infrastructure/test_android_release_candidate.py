@@ -62,6 +62,12 @@ class CandidateTests(unittest.TestCase):
         self.assertIn("RC_APPROVED_ARTIFACT_ID", sign)
         self.assertIn("RC_PRODUCTION_CERT_SHA256", sign)
         self.assertIn("GWAY_APK_KEYSTORE_BASE64", sign)
+        self.assertIn("openssl cms -encrypt -binary -aes-256-gcm", sign)
+        self.assertIn("gway-remote.apk.cms", sign)
+        self.assertNotIn('--out "$DEST/gway-remote.apk"', sign)
+        self.assertIn("RC_APPROVED_SOURCE_SHA", sign)
+        self.assertIn("RC_APPROVED_WORKFLOW_SHA", sign)
+        self.assertIn("RC_REFERENCE_APK_SHA256", sign)
         self.assertLess(sign.index("Verify explicit candidate authorization"), sign.index("secrets.GWAY_APK_KEYSTORE_BASE64"))
 
     def test_durable_ledger(self):
@@ -193,3 +199,66 @@ class CandidateTests(unittest.TestCase):
             gate.wait_run.assert_called_with("android-release-candidate.yml",123,"workflow_dispatch",self.c.source_sha)
         finally:
             ledger.close()
+
+
+    def test_signing_revision_allows_only_delivery_fix(self):
+        from unittest.mock import Mock
+        from gway_remote.android_release_candidate import validate_signing_revision
+        gate = Mock()
+        revision = "e"*40
+        comparison = {"status":"ahead","merge_base_commit":{"sha":self.c.source_sha},
+                      "total_commits":2,"files":[{"filename":"gway_remote/android_release_candidate.py","status":"modified"}]}
+        tree = {"tree":[{"path":"android","type":"tree","sha":"f"*40}]}
+        gate.api.side_effect = [comparison,tree,tree]
+        validate_signing_revision(self.c,revision,gate)
+        for bad in ("android/app/build.gradle.kts","gway_remote/mcp_http.py"):
+            gate.api.side_effect = [dict(comparison,files=[{"filename":bad,"status":"modified"}])]
+            with self.assertRaisesRegex(ValueError,"candidate_superseded"):
+                validate_signing_revision(self.c,revision,gate)
+        gate.api.side_effect = [comparison,tree,{"tree":[{"path":"android","type":"tree","sha":"a"*40}]}]
+        with self.assertRaisesRegex(ValueError,"android_tree_changed"):
+            validate_signing_revision(self.c,revision,gate)
+
+    def test_authenticated_private_artifact_roundtrip_and_replay(self):
+        import hashlib
+        import subprocess
+        import tempfile
+        from pathlib import Path
+        from gway_remote.android_release_candidate import decrypt_candidate, persist_private_apk
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d)
+            transport = root / "transport"
+            transport.mkdir(mode=0o700)
+            cert,key = transport/"transport-cert.pem",transport/"transport-key.pem"
+            subprocess.run(["openssl","req","-x509","-newkey","rsa:2048","-nodes",
+                            "-subj","/CN=Hermetic RC Test","-days","1","-keyout",str(key),
+                            "-out",str(cert)],check=True,capture_output=True)
+            cert.chmod(0o600)
+            key.chmod(0o600)
+            raw = root / "original.apk"
+            raw.write_bytes(b"exact signed candidate test bytes")
+            cipher = root / "candidate.cms"
+            subprocess.run(["openssl","cms","-encrypt","-binary","-aes-256-gcm",
+                            "-in",str(raw),"-outform","DER","-out",str(cipher),
+                            "-recip",str(cert),"-keyopt","rsa_padding_mode:oaep",
+                            "-keyopt","rsa_oaep_md:sha256"],check=True,capture_output=True)
+            der = subprocess.check_output(["openssl","x509","-in",str(cert),"-outform","DER"])
+            manifest = {"transport_certificate_sha256":hashlib.sha256(der).hexdigest()}
+            decoded = decrypt_candidate(cipher,manifest,transport,root)
+            self.assertEqual(decoded.read_bytes(),raw.read_bytes())
+            digest = hashlib.sha256(raw.read_bytes()).hexdigest()
+            persist_private_apk(decoded,transport,self.c.candidate_id,digest)
+            persist_private_apk(decoded,transport,self.c.candidate_id,digest)
+            saved = transport/f"{self.c.candidate_id}.apk"
+            self.assertEqual(saved.read_bytes(),raw.read_bytes())
+            self.assertEqual(saved.stat().st_mode & 0o777,0o600)
+            saved.write_bytes(b"conflict")
+            with self.assertRaisesRegex(ValueError,"private_artifact_conflict"):
+                persist_private_apk(decoded,transport,self.c.candidate_id,digest)
+            with self.assertRaisesRegex(ValueError,"transport_certificate_mismatch"):
+                decrypt_candidate(cipher,{"transport_certificate_sha256":"e"*64},transport,root)
+            corrupted = bytearray(cipher.read_bytes())
+            corrupted[-5] ^= 1
+            cipher.write_bytes(corrupted)
+            with self.assertRaisesRegex(ValueError,"encrypted_artifact_verification_failed"):
+                decrypt_candidate(cipher,manifest,transport,root)
