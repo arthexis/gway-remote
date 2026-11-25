@@ -1,6 +1,9 @@
 """Read-only opportunity projection; no partner-only quotation matching."""
 import json
 import re
+import os
+import stat
+from pathlib import Path
 from html import unescape
 from .mobile_odoo_quotations import _run
 
@@ -31,6 +34,36 @@ def _request_type(description):
         return ""
     return "new" if match[1].lower() == "nueva" else "remove_and_install"
 
+def _consent_bindings():
+    """Operator-maintained evidence only; never infer consent from a customer."""
+    path = Path.home() / ".local/state/gway-remote/odoo-consents.json"
+    try:
+        fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+    except FileNotFoundError:
+        return {}
+    try:
+        with os.fdopen(fd, "r", encoding="utf-8") as stream:
+            info = os.fstat(stream.fileno())
+            if not stat.S_ISREG(info.st_mode) or info.st_uid != os.getuid() or info.st_mode & 0o077 or info.st_size > 262144:
+                raise ValueError("unsafe evidence store")
+            data = json.load(stream)
+            if type(data) is not dict:
+                raise ValueError("invalid evidence store")
+            return data
+    except (OSError, ValueError, UnicodeError):
+        raise RuntimeError("odoo_consent_store_invalid") from None
+
+def _consent_url(bindings, ident, partner_id, ticket):
+    record = bindings.get(str(ident))
+    if not ticket or type(partner_id) is not int or type(record) is not dict:
+        return None
+    if type(record.get("partner_id")) is not int or record["partner_id"] != partner_id or record.get("ticket") != ticket:
+        return None
+    file_id = record.get("file_id")
+    if not isinstance(file_id, str) or not re.fullmatch(r"[A-Za-z0-9_-]{10,150}", file_id):
+        return None
+    return "https://drive.google.com/file/d/" + file_id + "/view"
+
 def search(arguments):
     if type(arguments) is not dict or set(arguments) - {"page", "limit"}:
         raise ValueError("invalid_arguments")
@@ -39,6 +72,7 @@ def search(arguments):
         raise ValueError("invalid_pagination")
     leads = _query("crm.lead", [["type", "=", "opportunity"], ["active", "=", True], ["probability", "<", 100]],
                    "id,name,partner_id,priority,description", limit + 1, (page - 1) * limit)
+    bindings = _consent_bindings()
     rows = []
     for lead in leads[:limit]:
         ident = lead.get("id")
@@ -79,6 +113,6 @@ def search(arguments):
                      "complete_address": ", ".join(filter(None, address)),
                      "priority": {"3": "Urgente", "2": "Alta", "1": "Normal"}.get(_text(lead, "priority"), ""),
                      "request_type": _request_type(_text(lead, "description")), "vehicle_model": _text(vehicle, "model"), "vin": _text(vehicle, "vin"),
-                     "consent_url": None, "quotation_name": _text(order, "name") or None,
+                     "consent_url": _consent_url(bindings, ident, partner_id, ticket.group(1) if ticket else None), "quotation_name": _text(order, "name") or None,
                      "quotation_state": state or None})
     return {"opportunities": rows, "has_next": len(leads) > limit}
