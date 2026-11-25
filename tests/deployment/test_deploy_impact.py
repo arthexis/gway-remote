@@ -22,6 +22,8 @@ class PushImpactTests(unittest.TestCase):
 
     def test_android_delivery_only_and_mixed_paths(self):
         self.assertEqual(classify_paths(sorted(ANDROID_DELIVERY_PATHS)), "skip")
+        self.assertEqual(classify_paths([".github/workflows/android-release-candidate-install.yml"]), "skip")
+        self.assertEqual(classify_paths([".github/workflows/android-release-candidate-install.yml", "gway_remote/api.py"]), "deploy")
         for path in ("android/app/src/main/AndroidManifest.xml",
                      "gway_remote/mobile_http.py", "gway_remote/mcp_android.py",
                      "gway_remote/android_unknown.py", ".github/workflows/android-unknown.yml",
