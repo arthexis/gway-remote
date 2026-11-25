@@ -121,14 +121,18 @@ def await_dispatch_visibility(workflow, run_id, sha=None):
                        "reconcile this ID before another dispatch")
 
 
-def dispatch(workflow, **inputs):
+def create_run(workflow, **inputs):
     # Dispatch is a mutation: no retries, including uncertain CLI failures.
     out = subprocess.check_output(
                  ["gh", "workflow", "run", workflow, "-R", REPO, "--ref", "main", "--json"],
                  input=json.dumps(inputs), text=True, timeout=90).strip()
     m = re.fullmatch(rf"https://github[.]com/{re.escape(REPO)}/actions/runs/([1-9][0-9]*)", out)
     require(m, "dispatch did not return exact repository run URL; reconcile before retry")
-    run_id = int(m.group(1))
+    return int(m.group(1))
+
+
+def dispatch(workflow, **inputs):
+    run_id = create_run(workflow, **inputs)
     print(f"Dispatched {workflow} run {run_id}; checking visibility", flush=True)
     # For canaries expected_sha identifies the PR artifact, not the main workflow.
     # Production release dispatch pins the workflow revision itself.
