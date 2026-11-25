@@ -104,6 +104,17 @@
             state: reloaded
           when: feed_gateway_change.changed
 
+        - name: Verify the live HTTPS route rejects unauthenticated requests
+          ansible.builtin.uri:
+            url: https://remote.arthexis.com/api/v1/feed/events
+            method: GET
+            follow_redirects: none
+            status_code: 401
+            timeout: 8
+            use_proxy: false
+            validate_certs: true
+          changed_when: false
+
       rescue:
         - name: Restore the exact original proxy snippet
           become: true

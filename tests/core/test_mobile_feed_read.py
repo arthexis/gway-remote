@@ -93,6 +93,12 @@ class MobileFeedTest(TestCase):
         self.assertEqual(self.request(key="legacy-key")[0], 404)
         self.assertEqual(self.request(key="invalid")[0], 401)
 
+    def test_mobile_route_is_exact_and_does_not_trust_forwarded_identity(self):
+        self.assertEqual(self.request(key=None, headers={"X-Gway-Caller-Scope":"gway:read",
+            "X-Forwarded-User":"operator"})[0], 401)
+        self.assertEqual(self.request(mobile.MOBILE_PATH+"/1", "legacy-key")[0], 405)
+        self.assertEqual(self.request(mobile.MOBILE_PATH+"?limit=1&limit=2", "legacy-key")[0], 400)
+
     def test_verifier_never_follows_redirect(self):
         with patch.object(mobile.http.client, "HTTPConnection") as factory:
             conn = factory.return_value

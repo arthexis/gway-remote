@@ -63,7 +63,7 @@ internal class FeedCache(context: Context, private val endpoint: String = FEED_O
     // All Home instances and Settings share one file and synchronization boundary.
     private companion object { val lock = Any() }
     private fun fingerprint(token: String): String = MessageDigest.getInstance("SHA-256")
-        .digest("${transport.cacheIdentity()}\n$token".toByteArray()).joinToString("") { "%02x".format(it.toInt() and 255) }
+        .digest("mobile-feed-v1\n${transport.cacheIdentity()}\n$token".toByteArray()).joinToString("") { "%02x".format(it.toInt() and 255) }
 
     fun read(token: String, now: Long = System.currentTimeMillis()): FeedState? = synchronized(lock) {
         runCatching {
