@@ -106,7 +106,6 @@ class CandidateLedger:
         self.db.close()
 
     def allocate(self, candidate, *, published_version, installed_version):
-        candidate.require_newer_than(published_version, installed_version)
         identifier = candidate.candidate_id
         manifest = self.encode(asdict(candidate))
         self.db.execute("BEGIN IMMEDIATE")
@@ -116,6 +115,7 @@ class CandidateLedger:
                 require(prior[0] == manifest, "allocation_conflict")
                 self.db.commit()
                 return False
+            candidate.require_newer_than(published_version, installed_version)
             floor = self.db.execute("SELECT MAX(version) FROM candidate").fetchone()[0]
             require(floor is None or candidate.version_code > floor, "version_already_reserved")
             self.db.execute("INSERT INTO candidate VALUES (?,?,?)",
