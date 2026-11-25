@@ -16,6 +16,8 @@ permissions:
 
 jobs:
   build:
+    # Temporary #718 staged rollout: do not publish on a main push until physical CRM acceptance.
+    if: github.event_name != 'push'
     runs-on: ubuntu-latest
     env:
       GWAY_ANDROID_VERSION_CODE: ${{ github.run_number }}
