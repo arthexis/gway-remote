@@ -49,7 +49,7 @@ class OAuthAudit:
             else:
                 record = {"event": "oauth_link", "phase": phase, "reason": reason, "status": status}
                 if comparisons is not None:
-                    for key in ("client_match", "redirect_match", "resource_match", "scope_read", "pkce_s256", "grant_code"):
+                    for key in ("client_match", "redirect_match", "resource_match", "scope_read", "scope_read_present", "scope_execute_present", "scope_unknown_present", "pkce_s256", "grant_code"):
                         if type(comparisons.get(key)) is bool:
                             record[key] = comparisons[key]
             try:
@@ -113,10 +113,14 @@ class Handler(BaseHTTPRequestHandler):
         comparisons = None
         if values is not None:
             flow = self.server.link
+            requested_scopes = values.get("scope", "").split(" ")
             comparisons = {"client_match": values.get("client_id") == flow.client_id,
                            "redirect_match": values.get("redirect_uri") == flow.redirect_uri,
                            "resource_match": values.get("resource") == flow.resource,
                            "scope_read": values.get("scope") == "gway:read",
+                           "scope_read_present": "gway:read" in requested_scopes,
+                           "scope_execute_present": "gway:execute" in requested_scopes,
+                           "scope_unknown_present": any(s not in ("", "gway:read", "gway:execute") for s in requested_scopes),
                            "pkce_s256": values.get("code_challenge_method") == "S256",
                            "grant_code": values.get("grant_type") == "authorization_code"}
         AUDIT.emit(phase, reason, status, comparisons)

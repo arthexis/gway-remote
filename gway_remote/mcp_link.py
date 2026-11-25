@@ -144,7 +144,8 @@ class LinkFlow:
             raise ValueError("invalid_client")
         if resource != self.resource or response_type != "code" or code_challenge_method != "S256":
             raise ValueError("invalid_request")
-        if scope not in (None, "gway:read", "gway:execute"):
+        combined_request = scope in ("gway:read gway:execute", "gway:execute gway:read")
+        if scope not in (None, "gway:read", "gway:execute") and not combined_request:
             raise ValueError("invalid_scope")
         if not isinstance(code_challenge, str) or len(code_challenge) != 43:
             raise ValueError("invalid_pkce")
@@ -160,9 +161,10 @@ class LinkFlow:
         # Explicit operator consent can grant a broader scope than a read-only
         # client requested (RFC 6749 section 3.3). The token response carries
         # the actual scope; no implicit escalation is permitted.
-        selectable = scope in (None, "gway:read")
+        selectable = scope in (None, "gway:read") or combined_request
+        requested_scope = "gway:read" if combined_request else scope or "gway:read"
         self.pending[session] = (csrf, code_challenge, state, time.monotonic() + 300,
-                                 scope or "gway:read", selectable)
+                                 requested_scope, selectable)
         return session, _html(csrf, requested_scope=scope or "gway:read", selectable=selectable)
 
     @_serialized
