@@ -1,5 +1,6 @@
 import importlib.util
 import os
+import unittest
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -7,16 +8,6 @@ path=Path(__file__).resolve().parents[2]/'scripts/mcp-health-recovery.py'
 spec=importlib.util.spec_from_file_location('mcp_health_recovery',path)
 r=importlib.util.module_from_spec(spec)
 spec.loader.exec_module(r)
-
-
-def test_inactive_enabled_pinned_only():
-    s={'LoadState':'loaded','UnitFileState':'enabled','ActiveState':'failed'}
-    assert r.eligible('a'*40,pin=lambda _:True,inspect=lambda:s,local=lambda:'absent')
-    assert not r.eligible('a'*40,pin=lambda _:True,inspect=lambda:s,local=lambda:'unknown')
-    s['ActiveState']='active'
-    assert not r.eligible('a'*40,pin=lambda _:True,inspect=lambda:s,local=lambda:'absent')
-    s['ActiveState']='failed';s['UnitFileState']='disabled'
-    assert not r.eligible('a'*40,pin=lambda _:True,inspect=lambda:s,local=lambda:'absent')
 
 
 def scenario(verify):
@@ -35,13 +26,24 @@ def scenario(verify):
     return result,calls
 
 
-def test_success_only_starts_fixed_service():
-    result,calls=scenario(True)
-    assert result=={'outcome':'applied'}
-    assert calls==[['/usr/bin/systemctl','--user','start',r.UNIT]]
+class RecoveryRecipeTests(unittest.TestCase):
+    def test_inactive_enabled_pinned_only(self):
+        s={'LoadState':'loaded','UnitFileState':'enabled','ActiveState':'failed'}
+        assert r.eligible('a'*40,pin=lambda _:True,inspect=lambda:s,local=lambda:'absent')
+        assert not r.eligible('a'*40,pin=lambda _:True,inspect=lambda:s,local=lambda:'unknown')
+        s['ActiveState']='active'
+        assert not r.eligible('a'*40,pin=lambda _:True,inspect=lambda:s,local=lambda:'absent')
+        s['ActiveState']='failed';s['UnitFileState']='disabled'
+        assert not r.eligible('a'*40,pin=lambda _:True,inspect=lambda:s,local=lambda:'absent')
 
 
-def test_failed_verification_rolls_back_own_invocation():
-    result,calls=scenario(False)
-    assert result=={'outcome':'rolled_back'}
-    assert calls==[['/usr/bin/systemctl','--user','start',r.UNIT],['/usr/bin/systemctl','--user','stop',r.UNIT]]
+    def test_success_only_starts_fixed_service(self):
+        result,calls=scenario(True)
+        assert result=={'outcome':'applied'}
+        assert calls==[['/usr/bin/systemctl','--user','start',r.UNIT]]
+
+
+    def test_failed_verification_rolls_back_own_invocation(self):
+        result,calls=scenario(False)
+        assert result=={'outcome':'rolled_back'}
+        assert calls==[['/usr/bin/systemctl','--user','start',r.UNIT],['/usr/bin/systemctl','--user','stop',r.UNIT]]
