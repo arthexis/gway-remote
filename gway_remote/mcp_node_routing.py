@@ -25,7 +25,7 @@ def canonical_node_index(declarations, routes):
             raise FederationError("reserved_routing_argument")
         if scope != required_scope(declaration):
             raise FederationError("incompatible_tool_scope")
-        signature = (schema, declaration.get("annotations"), scope)
+        signature = (source, operation, schema, declaration.get("annotations"), scope)
         if name in contracts and contracts[name][0] != signature:
             raise FederationError("incompatible_tool_contract")
         if name not in contracts:
@@ -61,3 +61,45 @@ def resolve_node_route(index, name, arguments, *, legacy_read_node=None):
     if type(node) is not str or node not in candidates:
         raise FederationError("node_route_unavailable")
     return candidates[node], downstream
+
+
+def canonical_catalog(builtins, declarations, routes, *, legacy_aliases=True):
+    """Project canonical public operations and optionally pinned old aliases."""
+    from .mcp_catalog import compose_catalog
+    public, index = canonical_node_index(declarations, routes)
+    projected = {}
+    for name, candidates in index.items():
+        # Scope is identical for every candidate by contract validation.
+        representative = candidates.get("gway-001") or next(iter(candidates.values()))
+        projected[name] = (*representative, candidates)
+    for alias, route in routes.items():
+        if alias in index and route[1] + "__" + route[2] != alias:
+            raise FederationError("ambiguous_public_alias")
+    aliases = []
+    if legacy_aliases:
+        for tool in declarations:
+            name = tool["name"]
+            if name not in routes:
+                continue
+            if name in index:
+                continue
+            pinned = deepcopy(tool)
+            pinned["inputSchema"].setdefault("properties", {})["node"] = {
+                "type": "string", "enum": [routes[name][0]],
+            }
+            aliases.append(pinned)
+            projected[name] = (*routes[name], {routes[name][0]: routes[name]}, "alias")
+    return compose_catalog(builtins, public, aliases), projected
+
+
+def selected_route(route, name, arguments):
+    """Select from the exact discovery snapshot; old mode stays unchanged."""
+    if len(route) < 6:
+        return route, arguments
+    if len(route) > 6 and route[6] == "alias":
+        downstream = dict(arguments)
+        if "node" in downstream and downstream.pop("node") != route[0]:
+            raise FederationError("alias_node_mismatch")
+        return route[5][route[0]], downstream
+    return resolve_node_route({name: route[5]}, name, arguments,
+                              legacy_read_node="gway-001")
