@@ -205,3 +205,21 @@ AgentOps owner-side implementation: arthexis/gway-agent-ops PR #111. The hook us
 ## Stage 7 maintenance
 
 The zipapp exposes local operator-only feed-maintenance --database PATH status, prune, backup --destination NEW, restore-new --destination NEW, and audit-grants. Retention is 180 days by receipt time; prune at most 1000 rows per call and passive checkpoint. Page budgets 256 MiB central / 64 MiB outbox; WAL admission budgets 32 / 8 MiB respectively. SQLite page limits are not total disk limits; filesystem quota remains required. Snapshot and restore create private new files only, preserving sequence and payload, never activate a restored database. See docs/activity-feed-canary.md for acceptance and rollback. All activation remains separate.
+
+## Mobile API key reuse (#705)
+
+Production Android uses the saved HTTPS API origin and existing mobile API key.
+GET /api/v1/feed/events is an exact read-only Watchtower route. The existing
+mobile API on gway-001 authenticates each request via its fixed private
+WireGuard health endpoint (legacy key or revocable read/execute device key).
+No extra user credential, no stored copy at Watchtower, no redirect or proxy
+for credential verification. Invalid keys return 401; unavailable verifier
+returns 503. MCP OAuth and producer scopes remain unchanged. No write method
+is accepted by this route. Android removes the old feed-specific preference;
+cache identity includes the saved endpoint and key, and changes invalidate it.
+The USB canary continues to use its isolated TLS endpoint and ephemeral test
+credential, with no fallback or use of the mobile key. Central feed activation
+and bounded storage/grants remain independent prerequisites: valid mobile
+key returns 404 while the receiver is disabled. The normal reviewed Watchtower
+deploy installs only the exact mobile GET route using the existing snippet
+and Nginx validation/rollback mechanism.

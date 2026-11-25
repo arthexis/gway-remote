@@ -51,7 +51,7 @@ class SecretStore(context: Context) {
         get() = readToken("token")
         set(value) = writeToken("token", value)
 
-    var feedToken: String
-        get() = readToken("feed_token")
-        set(value) = writeToken("feed_token", value)
+    fun removeLegacyFeedToken() {
+        prefs.edit().remove("feed_token").apply()
+    }
 }
