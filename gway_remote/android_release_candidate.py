@@ -530,6 +530,10 @@ def install_stable_candidate(ledger, candidate, *, artifact_dir, workflow_sha, i
             "version_not_increasing")
     # Require real authenticated UI evidence, not owner assertion or a copied secret.
     authenticated = health_is_authenticated(device.ui_tree(serial))
+    require(isinstance(before.get("apk_sha256"),str) and HEX.fullmatch(before["apk_sha256"]),
+            "installed_identity_unknown")
+    require(before["version_code"] < candidate.version_code or before["apk_sha256"] == artifact.apk_sha256,
+            "version_not_increasing")
     receipt = {"candidate_id":candidate.candidate_id,"device":"gway-001",
                "artifact_id":artifact.artifact_id,"apk_sha256":artifact.apk_sha256,
                "certificate_sha256":artifact.certificate_sha256,"installed_before":before,
@@ -545,6 +549,9 @@ def install_stable_candidate(ledger, candidate, *, artifact_dir, workflow_sha, i
         require(action == "verify_noop" and prior.get("installed_after") == before,
                 "installed_evidence_conflict")
         return prior
+    canary_before = usb.require_success(call(["/usr/bin/adb","-s",serial,"shell","pm","path",usb.CANARY],30),
+                                         "canary_path_unverified")
+    require(canary_before.startswith("package:"), "canary_path_unverified")
     # Persist the install intent BEFORE ADB. Unknown outcomes are never replayed.
     inputs = {"workflow_sha":workflow_sha,"artifact_id":artifact.artifact_id,
               "apk_sha256":artifact.apk_sha256}
@@ -564,9 +571,12 @@ def install_stable_candidate(ledger, candidate, *, artifact_dir, workflow_sha, i
     require(after.get("package") == PACKAGE and after.get("apk_sha256") == artifact.apk_sha256
             and after.get("certificate_sha256") == artifact.certificate_sha256
             and after.get("version_code") == candidate.version_code, "post_install_identity_mismatch")
+    canary_after = usb.require_success(call(["/usr/bin/adb","-s",serial,"shell","pm","path",usb.CANARY],30),
+                                        "canary_path_unverified")
+    require(canary_before == canary_after, "canary_path_changed")
     # This is physical installation evidence, not authenticated module acceptance.
     receipt = {**receipt,"status":"installed","installed_after":after,
-               "install_run_id":recorded_run or install_run_id,"operation":action}
+               "install_run_id":recorded_run or install_run_id,"operation":action,"canary_path_unchanged":True}
     ledger.record(candidate.candidate_id,"installed",receipt)
     return receipt
 
