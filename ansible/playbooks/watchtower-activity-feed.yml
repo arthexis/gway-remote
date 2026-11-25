@@ -14,6 +14,18 @@
       register: feed_prepare
       changed_when: "'changed=true' in feed_prepare.stdout"
 
+    - name: Inspect exact managed mount unit before any replacement
+      ansible.builtin.stat:
+        path: /etc/systemd/system/var-lib-gwayfeed.mount
+        follow: false
+        checksum_algorithm: sha256
+      register: feed_prior_mount
+
+    - name: Refuse unrelated mount unit
+      ansible.builtin.assert:
+        that:
+          - not feed_prior_mount.stat.exists or (feed_prior_mount.stat.isreg | default(false) and feed_prior_mount.stat.uid == 0 and feed_prior_mount.stat.checksum == (lookup('file', feed_src + '/deploy/mcp-bearer/var-lib-gwayfeed.mount', rstrip=False) | hash('sha256')))
+
     - name: Install dedicated mount unit
       ansible.builtin.copy:
         src: "{{ feed_src }}/deploy/mcp-bearer/var-lib-gwayfeed.mount"
@@ -35,6 +47,26 @@
         argv: [/usr/bin/python3, "{{ feed_src }}/scripts/provision-watchtower-feed-volume.py", finish]
       register: feed_finish
       changed_when: "'changed=true' in feed_finish.stdout"
+
+    - name: Inspect existing grant directory
+      ansible.builtin.stat:
+        path: /etc/gway-remote
+        follow: false
+      register: feed_grant_dir
+
+    - name: Refuse unsafe existing grant directory
+      ansible.builtin.assert:
+        that:
+          - not feed_grant_dir.stat.exists or (feed_grant_dir.stat.isdir | default(false) and feed_grant_dir.stat.uid == 0 and not (feed_grant_dir.stat.wgrp | default(true)) and not (feed_grant_dir.stat.woth | default(true)))
+
+    - name: Create grant directory only if absent
+      ansible.builtin.file:
+        path: /etc/gway-remote
+        state: directory
+        owner: root
+        group: root
+        mode: '0755'
+      when: not feed_grant_dir.stat.exists
 
     - name: Preserve existing grant registry or initialize empty policy
       ansible.builtin.copy:
@@ -63,7 +95,7 @@
     - name: Refuse replacing unrelated activation settings
       ansible.builtin.assert:
         that:
-          - not feed_prior.stat.exists or (feed_prior.stat.isreg | default(false) and feed_prior.stat.uid == 0 and feed_prior.stat.checksum == lookup('file', feed_src + '/deploy/mcp-bearer/70-activity-feed.conf', rstrip=False) | hash('sha256'))
+          - not feed_prior.stat.exists or (feed_prior.stat.isreg | default(false) and feed_prior.stat.uid == 0 and feed_prior.stat.checksum == (lookup('file', feed_src + '/deploy/mcp-bearer/70-activity-feed.conf', rstrip=False) | hash('sha256')))
 
     - name: Activate receiver with rollback
       block:
@@ -94,6 +126,17 @@
           until: feed_mcp_health.status | default(0) == 405
           changed_when: false
 
+        - name: Verify active receiver rejects unauthenticated access
+          ansible.builtin.uri:
+            url: http://127.0.0.1:19010/api/feed/events
+            status_code: 401
+            timeout: 5
+          register: feed_receiver_health
+          retries: 6
+          delay: 2
+          until: feed_receiver_health.status | default(0) == 401
+          changed_when: false
+
         - name: Verify central DB initialized by gateway owner
           ansible.builtin.stat:
             path: /var/lib/gwayfeed/events.sqlite3
@@ -120,6 +163,13 @@
           loop:
             - gway-feed-maintenance.service
             - gway-feed-maintenance.timer
+
+        - name: Verify real inventory baseline and retention locally
+          ansible.builtin.systemd:
+            name: gway-feed-maintenance.service
+            daemon_reload: true
+            state: started
+          when: feed_change.changed
 
         - name: Enable maintenance timer
           ansible.builtin.systemd:

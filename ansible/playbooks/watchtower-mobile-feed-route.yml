@@ -113,6 +113,17 @@
             state: reloaded
           when: feed_gateway_change.changed
 
+        - name: Verify producer ingress denies anonymous publication
+          ansible.builtin.uri:
+            url: https://remote.arthexis.com/api/feed/events
+            method: POST
+            follow_redirects: none
+            status_code: 401
+            timeout: 8
+            use_proxy: false
+            validate_certs: true
+          changed_when: false
+
         - name: Verify the live HTTPS route rejects unauthenticated requests
           ansible.builtin.uri:
             url: https://remote.arthexis.com/api/v1/feed/events

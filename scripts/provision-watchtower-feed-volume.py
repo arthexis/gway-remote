@@ -72,7 +72,7 @@ def prepare():
         os.close(fd)
         fd = -1
         # Only the exclusive, newly allocated regular file is formatted.
-        subprocess.run(["mkfs.ext4","-q","-F","-m","0",name], check=True,
+        subprocess.run(["mkfs.ext4","-q","-F","-E","nodiscard","-m","0",name], check=True,
                        timeout=60, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         with open(name,"rb") as stream:
             os.fsync(stream.fileno())

@@ -1,13 +1,11 @@
 """Fixed trusted Watchtower-local publishers. No public caller or bearer issuance."""
 from datetime import datetime, timezone
 from pathlib import Path
-from contextlib import closing
 import fcntl
 import json
 import os
 import tempfile
 from .activity_feed import EventConflict
-from .activity_feed_maintenance import check_volume
 from .activity_feed_hooks import deployment, observe_inventory, event
 from .watchtower_deploy_notices import REPOSITORIES
 
