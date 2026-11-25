@@ -272,3 +272,64 @@ def plan_promotion(artifact, *, existing_release, **acceptance):
             and existing_release.get("certificate_sha256") == artifact.certificate_sha256,
             "existing_release_conflict")
     return "verify_noop"
+
+
+def reconcile_artifact(ledger, candidate, stage, *, pinned_certificate=None, gate=None):
+    """Accept only the exact successful, owner-dispatched workflow and its artifact."""
+    import tempfile
+    from pathlib import Path
+    if gate is None:
+        from gway_remote import android_release_gate as gate
+    require(stage in ("built", "signed"), "unsupported_reconciliation_stage")
+    state = ledger.read(candidate.candidate_id)
+    require(state.get("allocated") == asdict(candidate), "candidate_not_allocated")
+    row = ledger.db.execute("SELECT run_id FROM dispatch_intent WHERE candidate_id=? AND stage=?",
+                            (candidate.candidate_id, stage)).fetchone()
+    require(row is not None and type(row[0]) is int and row[0] > 0,
+            "dispatch_uncertain_reconcile_before_retry")
+    run_id = row[0]
+    workflow = ("android-release-candidate.yml" if stage == "built"
+                else "android-release-candidate-sign.yml")
+    run = gate.wait_run(workflow, run_id, "workflow_dispatch", candidate.source_sha)
+    require((run.get("actor") or {}).get("login") == gate.OWNER
+            and (run.get("triggering_actor") or {}).get("login") == gate.OWNER,
+            "unexpected_run_actor")
+    name = ("unsigned" if stage == "built" else "signed") + f"-release-candidate-{run_id}"
+    listing = gate.api(f"actions/runs/{run_id}/artifacts?per_page=100")
+    matches = [a for a in listing["artifacts"] if a.get("name") == name]
+    require(len(matches) == 1 and matches[0].get("expired") is False
+            and type(matches[0].get("id")) is int and matches[0]["id"] > 0,
+            "artifact_missing_or_expired")
+    require(listing.get("total_count") == len(listing["artifacts"]), "incomplete_artifact_listing")
+    artifact_id = matches[0]["id"]
+    with tempfile.TemporaryDirectory() as directory:
+        gate.download(run_id, name, directory)
+        root = Path(directory)
+        file = root / ("gway-remote-unsigned.apk" if stage == "built" else "gway-remote.apk")
+        manifest_path = root / "manifest.json"
+        require(file.is_file() and not file.is_symlink() and 0 < file.stat().st_size < 104857600
+                and manifest_path.is_file() and not manifest_path.is_symlink()
+                and manifest_path.stat().st_size < 65536, "invalid_artifact_files")
+        manifest = json.loads(manifest_path.read_text())
+        require(all(manifest.get(k) == v for k,v in asdict(candidate).items())
+                and manifest.get("repository") == gate.REPO, "candidate_manifest_mismatch")
+        digest = hashlib.sha256(file.read_bytes()).hexdigest()
+        if stage == "built":
+            require(manifest.get("build_run_id") == run_id
+                    and manifest.get("unsigned_sha256") == digest, "unsigned_evidence_mismatch")
+            evidence = {"run_id":run_id, "artifact_id":artifact_id, "unsigned_sha256":digest}
+        else:
+            from gway_remote.android_canary_certificate import certificate_sha256
+            built = state.get("built", {})
+            require(manifest.get("build_run_id") == built.get("run_id")
+                    and manifest.get("unsigned_artifact_id") == built.get("artifact_id")
+                    and manifest.get("unsigned_sha256") == built.get("unsigned_sha256")
+                    and manifest.get("signing_run_id") == run_id
+                    and manifest.get("apk_sha256") == digest, "signed_evidence_mismatch")
+            require(isinstance(pinned_certificate,str) and HEX.fullmatch(pinned_certificate)
+                    and manifest.get("certificate_sha256") == pinned_certificate
+                    and certificate_sha256(file) == pinned_certificate, "certificate_mismatch")
+            evidence = {"run_id":run_id, "artifact_id":artifact_id, "apk_sha256":digest,
+                        "certificate_sha256":pinned_certificate}
+    ledger.record(candidate.candidate_id, stage, evidence)
+    return evidence
