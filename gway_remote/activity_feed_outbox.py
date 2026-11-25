@@ -14,7 +14,8 @@ from .activity_feed import EventConflict, FeedCapacityError, _canonical, validat
 from .activity_feed_quota import OUTBOX_BYTES, OUTBOX_WAL, configure, admit, file_sizes
 
 MAX_PENDING = 2048
-MAX_AGE = 30 * 86400
+MAX_AGE = 7 * 86400
+RETAIN_AGE = 30 * 86400
 MAX_BATCH = 20
 
 
@@ -98,19 +99,28 @@ class Outbox:
             if not row or row[0] != self.binding:
                 raise PermissionError("outbox route changed")
 
+    @staticmethod
+    def _expire(db, now):
+        expired = db.execute("UPDATE queue SET state='dead' WHERE state='pending' AND created<=?",
+                             (now - MAX_AGE,)).rowcount
+        purged = db.execute("DELETE FROM queue WHERE state IN ('dead','delivered') AND created<=?",
+                            (now - RETAIN_AGE,)).rowcount
+        return expired, purged
+
     def enqueue(self, event):
         event = validate_event(event)
         payload = _canonical(event)
         key = (event["source"], event["id"])
         with closing(self._connect()) as db, self._write(db):
             self._check_binding(db)
+            now = int(self.clock())
+            self._expire(db, now)
             row = db.execute("SELECT payload,state FROM queue WHERE source=? AND event_id=?", key).fetchone()
             if row:
                 if row["payload"] != payload:
                     raise EventConflict("different event with same identity")
                 return row["state"]
             admit(self.path, OUTBOX_WAL)
-            now = int(self.clock())
             if db.execute("SELECT COUNT(*) FROM queue").fetchone()[0] >= self.capacity:
                 db.execute("DELETE FROM queue WHERE seq IN (SELECT seq FROM queue WHERE state='delivered' ORDER BY seq LIMIT 1)")
                 if db.execute("SELECT COUNT(*) FROM queue").fetchone()[0] >= self.capacity:
@@ -154,14 +164,11 @@ class Outbox:
             now = int(self.clock())
             with closing(self._connect()) as db, self._write(db):
                 self._check_binding(db)
-                # Never replay beyond the defined 30-day window. Retain
-                # expired pending/dead entries until explicit operator purge.
-                db.execute("UPDATE queue SET state='dead' WHERE state='pending' AND created<=?",
-                           (now - MAX_AGE,))
-                db.execute("DELETE FROM queue WHERE state='delivered' AND created<=?", (now - MAX_AGE,))
+                expired, purged = self._expire(db, now)
                 rows = db.execute("SELECT * FROM queue WHERE state='pending' AND due<=? ORDER BY due,seq LIMIT ?",
                                   (now, limit)).fetchall()
-            counts = {"busy": False, "attempted": 0, "delivered": 0, "retry": 0, "dead": 0}
+            counts = {"busy": False, "attempted": 0, "delivered": 0, "retry": 0, "dead": 0,
+                      "expired": expired, "purged": purged}
             for row in rows:
                 if int(self.clock()) - row["created"] >= MAX_AGE:
                     outcome = "dead"
