@@ -62,9 +62,9 @@ class CandidateTests(unittest.TestCase):
         self.assertIn("RC_APPROVED_ARTIFACT_ID", sign)
         self.assertIn("RC_PRODUCTION_CERT_SHA256", sign)
         self.assertIn("GWAY_APK_KEYSTORE_BASE64", sign)
-        self.assertIn("openssl cms -encrypt -binary -aes-256-gcm", sign)
-        self.assertIn("gway-remote.apk.cms", sign)
-        self.assertNotIn('--out "$DEST/gway-remote.apk"', sign)
+        self.assertNotIn("openssl cms", sign)
+        self.assertNotIn("TRANSPORT_CERT", sign)
+        self.assertIn('--out "$DEST/gway-remote.apk"', sign)
         self.assertIn("RC_APPROVED_SOURCE_SHA", sign)
         self.assertIn("RC_APPROVED_WORKFLOW_SHA", sign)
         self.assertIn("RC_REFERENCE_APK_SHA256", sign)
@@ -219,46 +219,57 @@ class CandidateTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError,"android_tree_changed"):
             validate_signing_revision(self.c,revision,gate)
 
-    def test_authenticated_private_artifact_roundtrip_and_replay(self):
+    def test_exact_artifact_persistence_and_replay(self):
         import hashlib
-        import subprocess
         import tempfile
         from pathlib import Path
-        from gway_remote.android_release_candidate import decrypt_candidate, persist_private_apk
+        from gway_remote.android_release_candidate import persist_private_apk
         with tempfile.TemporaryDirectory() as d:
             root = Path(d)
-            transport = root / "transport"
-            transport.mkdir(mode=0o700)
-            cert,key = transport/"transport-cert.pem",transport/"transport-key.pem"
-            subprocess.run(["openssl","req","-x509","-newkey","rsa:2048","-nodes",
-                            "-subj","/CN=Hermetic RC Test","-days","1","-keyout",str(key),
-                            "-out",str(cert)],check=True,capture_output=True)
-            cert.chmod(0o600)
-            key.chmod(0o600)
+            destination = root / "artifacts"
+            destination.mkdir(mode=0o700)
             raw = root / "original.apk"
             raw.write_bytes(b"exact signed candidate test bytes")
-            cipher = root / "candidate.cms"
-            subprocess.run(["openssl","cms","-encrypt","-binary","-aes-256-gcm",
-                            "-in",str(raw),"-outform","DER","-out",str(cipher),
-                            "-recip",str(cert),"-keyopt","rsa_padding_mode:oaep",
-                            "-keyopt","rsa_oaep_md:sha256"],check=True,capture_output=True)
-            der = subprocess.check_output(["openssl","x509","-in",str(cert),"-outform","DER"])
-            manifest = {"transport_certificate_sha256":hashlib.sha256(der).hexdigest()}
-            decoded = decrypt_candidate(cipher,manifest,transport,root)
-            self.assertEqual(decoded.read_bytes(),raw.read_bytes())
             digest = hashlib.sha256(raw.read_bytes()).hexdigest()
-            persist_private_apk(decoded,transport,self.c.candidate_id,digest)
-            persist_private_apk(decoded,transport,self.c.candidate_id,digest)
-            saved = transport/f"{self.c.candidate_id}.apk"
+            persist_private_apk(raw,destination,self.c.candidate_id,digest)
+            persist_private_apk(raw,destination,self.c.candidate_id,digest)
+            saved = destination/f"{self.c.candidate_id}.apk"
             self.assertEqual(saved.read_bytes(),raw.read_bytes())
             self.assertEqual(saved.stat().st_mode & 0o777,0o600)
+            with self.assertRaisesRegex(ValueError,"private_artifact_digest_mismatch"):
+                persist_private_apk(raw,destination,self.c.candidate_id,"e"*64)
             saved.write_bytes(b"conflict")
             with self.assertRaisesRegex(ValueError,"private_artifact_conflict"):
-                persist_private_apk(decoded,transport,self.c.candidate_id,digest)
-            with self.assertRaisesRegex(ValueError,"transport_certificate_mismatch"):
-                decrypt_candidate(cipher,{"transport_certificate_sha256":"e"*64},transport,root)
-            corrupted = bytearray(cipher.read_bytes())
-            corrupted[-5] ^= 1
-            cipher.write_bytes(corrupted)
-            with self.assertRaisesRegex(ValueError,"encrypted_artifact_verification_failed"):
-                decrypt_candidate(cipher,manifest,transport,root)
+                persist_private_apk(raw,destination,self.c.candidate_id,digest)
+
+    def test_signing_workflow_yaml_and_shell_syntax(self):
+        import subprocess
+        from pathlib import Path
+        from textwrap import dedent
+        root = Path(__file__).resolve().parents[2]
+        content = (root/".github/workflows/android-release-candidate-sign.yml").read_text()
+        lines = content.splitlines()
+        self.assertTrue(all(not line or line.startswith("    ") or
+                            line in ("permissions:", "concurrency:", "jobs:", "on:") or
+                            line.startswith(("name:", "  ")) for line in lines))
+        self.assertEqual(sum(line.startswith("      - ") for line in lines),3)
+        starts = [i for i,line in enumerate(lines) if line == "        run: |"]
+        self.assertEqual(len(starts),2)
+        for start in starts:
+            end = start + 1
+            while end < len(lines) and (not lines[end] or lines[end].startswith("          ")):
+                end += 1
+            script = dedent("\n".join(lines[start+1:end])) + "\n"
+            result = subprocess.run(["bash","-n"],input=script,text=True,capture_output=True)
+            self.assertEqual(result.returncode,0,result.stderr)
+        self.assertEqual(content.count("retention-days: 30"),1)
+        self.assertIn('path: ${{ runner.temp }}/signed-release-candidate/',content)
+        try:
+            import yaml
+        except ImportError:
+            # The dependency-free CI suite still checks the exact block layout
+            # and Bash syntax; full YAML parsing is also run on the lab host.
+            return
+        workflow = yaml.safe_load(content)
+        self.assertEqual(set(workflow["jobs"]), {"sign"})
+        self.assertEqual(len(workflow["jobs"]["sign"]["steps"]),3)
