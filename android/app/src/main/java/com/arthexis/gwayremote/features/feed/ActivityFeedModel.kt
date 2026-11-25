@@ -92,7 +92,7 @@ internal data class FeedState(
         else copy(read = (read + seq).sortedDescending().take(CACHE_LIMIT).toSet())
 
     fun visible(category: String?): List<FeedItem> =
-        if (category == null) items else items.filter { it.category == category }
+        items.filter { it.seq !in read && (category == null || it.category == category) }
 
     fun json() = JSONObject().put("items", JSONArray(items.map { it.json() }))
         .put("read", JSONArray(read.toList())).put("next", next ?: JSONObject.NULL)

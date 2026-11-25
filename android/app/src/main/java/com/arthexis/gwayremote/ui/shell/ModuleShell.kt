@@ -15,6 +15,7 @@ import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
@@ -60,9 +61,7 @@ internal fun ModuleHomePage(
     availableUpdate: AvailableUpdate?,
     updateStatus: String,
     updating: Boolean,
-    onOpenUpdate: () -> Unit,
-    onCheckUpdate: () -> Unit,
-    onOpenSettings: () -> Unit
+    onOpenUpdate: () -> Unit
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
         ModuleHeader("Aplicación")
@@ -71,21 +70,14 @@ internal fun ModuleHomePage(
                 Text("GWay Remote", style = MaterialTheme.typography.titleLarge)
                 Text("Versión instalada: " + installedVersion)
                 Text("API: " + configuredEndpoint)
-                Text(if (availableUpdate == null) "Sin actualización pendiente detectada"
-                    else "Actualización disponible: " + availableUpdate.version)
+                availableUpdate?.let { Text("Actualización disponible: " + it.version) }
                 ModuleLoading(updating)
                 ModuleNotice(updateStatus, isError = updateStatus.startsWith("Update check failed"))
                 ModuleActions {
                     Button(onClick = onOpenUpdate) { Text("Actualizaciones") }
-                    OutlinedButton(onClick = onCheckUpdate, enabled = !updating) {
-                        Text("Comprobar")
-                    }
                 }
             }
         }
-        OutlinedButton(onClick = onOpenSettings) { Text("Configuración") }
-        Text("Abre el menú ☰ para seleccionar un módulo. Cada módulo tiene su propia pantalla.",
-            style = MaterialTheme.typography.bodyMedium)
     }
 }
 
@@ -99,13 +91,13 @@ internal fun ModuleUpdatePage(
     onDownload: () -> Unit,
     onInstall: () -> Unit
 ) {
+    LaunchedEffect(Unit) { onCheck() }
     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
         ModuleHeader("Actualizaciones de la aplicación")
         ModuleLoading(updating)
         Text(if (update == null) "No hay una actualización disponible detectada."
             else "Nueva versión: " + update.version)
         ModuleNotice(updateStatus, isError = updateStatus.startsWith("Update check failed"))
-        OutlinedButton(onClick = onCheck, enabled = !updating) { Text("Comprobar actualizaciones") }
         if (update != null) {
             Button(onClick = onDownload, enabled = !updating) {
                 Text("Descargar y verificar APK")

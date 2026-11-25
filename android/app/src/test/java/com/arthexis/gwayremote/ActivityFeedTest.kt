@@ -15,7 +15,12 @@ class ActivityFeedTest {
         assertEquals(listOf(3L, 2L, 1L), merged.items.map { it.seq })
         assertEquals(setOf(3L), merged.read)
         assertEquals(listOf(1L), merged.visible("fleet").map { it.seq })
-        assertEquals(merged, FeedState.fromJson(JSONObject(merged.json().toString())))
+        val restored = FeedState.fromJson(JSONObject(merged.json().toString()))
+        assertEquals(merged, restored)
+        assertEquals(listOf(2L, 1L), restored.visible(null).map { it.seq })
+        assertEquals(listOf(2L), restored.visible("deployment").map { it.seq })
+        val refreshed = restored.merge(FeedPage(listOf(item(4), item(3), item(2)), 2, true), true, 300)
+        assertEquals(listOf(4L, 2L), refreshed.visible(null).map { it.seq })
         assertEquals(setOf(3L), merged.merge(FeedPage(listOf(item(4)), 4, true), true, 300).read)
     }
 

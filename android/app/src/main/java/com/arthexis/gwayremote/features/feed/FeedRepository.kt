@@ -87,14 +87,15 @@ internal class FeedCache(context: Context, private val endpoint: String = FEED_O
         }.getOrNull()
     }
 
-    fun write(token: String, state: FeedState) = synchronized(lock) {
-        if (!matches(token)) return@synchronized
+    fun write(token: String, state: FeedState): Boolean = synchronized(lock) {
+        if (!matches(token)) return@synchronized false
         val bytes = JSONObject().put("binding", fingerprint(token)).put("state", state.json())
             .toString().toByteArray(Charsets.UTF_8)
-        if (bytes.size > MAX_FEED_RESPONSE) return@synchronized
+        if (bytes.size > MAX_FEED_RESPONSE) return@synchronized false
         val stream = file.startWrite()
         try { stream.write(bytes); file.finishWrite(stream) }
         catch (e: Exception) { file.failWrite(stream); throw e }
+        true
     }
 
     fun clear(token: String? = null) = synchronized(lock) {
