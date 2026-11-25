@@ -138,6 +138,22 @@ class OAuthInteropTests(unittest.TestCase):
                                    {'Content-Type': 'application/x-www-form-urlencoded'})
         self.assertEqual(status, 400)
 
+    def test_scope_and_pkce_failures_are_distinct_and_redacted(self):
+        output = io.StringIO()
+        cases = [({'scope': 'private-invalid-scope'}, 'invalid_scope', 'invalid_scope'),
+                 ({'code_challenge': 'private-short-challenge'}, 'invalid_pkce', 'invalid_request'),
+                 ({'code_challenge': '!' * 43}, 'invalid_pkce', 'invalid_request')]
+        with patch('sys.stderr', output), patch.object(mcp_link_http, 'AUDIT', mcp_link_http.OAuthAudit()), patch.dict('os.environ', {'GWAY_MCP_OAUTH_DIAGNOSTICS': '1'}):
+            for changes, _, expected_error in cases:
+                status, headers, _ = self.authorize({**self.params, **changes})
+                self.assertEqual(status, 303)
+                self.assertEqual(parse_qs(urlsplit(headers['Location']).query)['error'], [expected_error])
+        records = [json.loads(line) for line in output.getvalue().splitlines()]
+        self.assertEqual([r['reason'] for r in records], [case[1] for case in cases])
+        self.assertNotIn('private-invalid-scope', output.getvalue())
+        self.assertNotIn('private-short-challenge', output.getvalue())
+        self.assertEqual(self.flow.pending, {})
+
 
 class OAuthAuditTests(unittest.TestCase):
     def test_diagnostics_schema_rejects_request_text_and_limits_volume(self):

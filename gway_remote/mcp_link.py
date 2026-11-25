@@ -144,8 +144,10 @@ class LinkFlow:
             raise ValueError("invalid_client")
         if resource != self.resource or response_type != "code" or code_challenge_method != "S256":
             raise ValueError("invalid_request")
-        if scope not in (None, "gway:read", "gway:execute") or not isinstance(code_challenge, str) or len(code_challenge) != 43:
-            raise ValueError("invalid_scope_or_pkce")
+        if scope not in (None, "gway:read", "gway:execute"):
+            raise ValueError("invalid_scope")
+        if not isinstance(code_challenge, str) or len(code_challenge) != 43:
+            raise ValueError("invalid_pkce")
         if any(c not in "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_" for c in code_challenge):
             raise ValueError("invalid_pkce")
         if not isinstance(state, str) or not 8 <= len(state) <= 2048:
