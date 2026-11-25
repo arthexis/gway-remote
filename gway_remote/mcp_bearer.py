@@ -13,10 +13,13 @@ from pathlib import Path
 
 SCOPES = frozenset({"gway:read", "gway:execute", "gway:lcd-sound", "gway:feed-publish"})
 COMBINED_SCOPE = "gway:execute gway:read"
+PROBE_SCOPE = "gway:health-probe"
 
 
 def _scope_grants(stored, required):
     """Legacy single-scope rows stay unchanged; combined grants are explicit."""
+    if PROBE_SCOPE in (stored, required):
+        return stored == required == PROBE_SCOPE
     if required in {"gway:lcd-sound", "gway:feed-publish"}:
         return stored == required
     return (required in SCOPES and (stored == required or stored == COMBINED_SCOPE)
@@ -83,6 +86,19 @@ class BearerRegistry:
                 con.execute("INSERT INTO delegations VALUES (?, ?)", (key_id, parent_id))
         return credential
 
+
+    def issue_health_probe(self, *, lifetime=3600, operator_approved=False):
+        """Dedicated issuance API only; not a generic grant or OAuth scope."""
+        if operator_approved is not True:
+            raise PermissionError('direct_administrator_approval_required')
+        if type(lifetime) is not int or not 60 <= lifetime <= 3600:
+            raise ValueError('invalid_probe_lifetime')
+        key_id = secrets.token_hex(12)
+        secret = secrets.token_urlsafe(32)
+        with self._db() as con:
+            con.execute('INSERT INTO credentials VALUES (?, ?, ?, ?, NULL)',
+                        (key_id, _digest(secret), PROBE_SCOPE, int(time.time()) + lifetime))
+        return TOKEN_PREFIX + key_id + '_' + secret
 
     def issue_combined(self, *, lifetime=86400, operator_approved=False):
         """Issue one explicitly approved, combined read+execute parent token.
@@ -167,7 +183,7 @@ class BearerRegistry:
                 "scope": row[3]}
 
     def verify(self, credential, *, required_scope="gway:read"):
-        if required_scope not in SCOPES or not isinstance(credential, str):
+        if required_scope not in SCOPES | {PROBE_SCOPE} or not isinstance(credential, str):
             return False
         parts = credential.split("_", 2)
         if len(parts) != 3 or parts[0] != "gwr" or len(parts[1]) != 24:
@@ -245,7 +261,7 @@ class BearerVerifier:
         self.path = Path(path)
 
     def verify(self, credential, *, required_scope="gway:read"):
-        if required_scope not in SCOPES or not isinstance(credential, str):
+        if required_scope not in SCOPES | {PROBE_SCOPE} or not isinstance(credential, str):
             return False
         parts = credential.split("_", 2)
         if len(parts) != 3 or parts[0] != "gwr" or len(parts[1]) != 24:
@@ -303,6 +319,16 @@ class BearerVerifier:
                     return current
                 current = row[0]
             raise PermissionError("credential delegation depth exceeded")
+
+    def health_probe_principal(self, credential):
+        """Probe grants are direct, exclusive and non-delegable in v1."""
+        if not self.verify(credential, required_scope=PROBE_SCOPE):
+            raise PermissionError('probe_credential_required')
+        key_id = credential.split('_', 2)[1]
+        with sqlite3.connect('file:' + str(self.path.resolve()) + '?mode=ro', uri=True, timeout=3) as db:
+            if db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='delegations'").fetchone() and db.execute('SELECT 1 FROM delegations WHERE key_id=?',(key_id,)).fetchone():
+                raise PermissionError('probe_delegation_denied')
+        return key_id
 
     def execution_principal(self, credential):
         """Stable parent identity across OAuth reconnects; requires valid execute scope."""

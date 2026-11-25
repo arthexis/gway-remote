@@ -85,3 +85,32 @@ SHA-bound policy with `recovery_enabled=false` by default. Do not enable it unti
 a separately approved synthetic execution identity and controlled acceptance
 are available. Do not reuse the observer's read-only OAuth credential or widen
 its grant. A subsequent runtime revision requires policy re-publication.
+
+### Constrained execution probe (#738, implementation increment)
+
+The purpose-exclusive `gway:health-probe` scope is distinct from all ordinary
+read, execute, combined, feed and LCD grants. The registry has a dedicated
+short-lived direct issuance API (maximum one hour); generic issuance, delegation
+and OAuth pairing cannot issue it. No console provisioning or renewal workflow
+is available yet. The HTTP server accepts this identity only under a separate
+explicit `health_probe_enabled` constructor flag, default false; production
+startup does not enable it. Never provision a general execute token instead.
+
+The restricted ingress exposes only nonce execution, owned result and owned
+fixed diagnostic. It validates exact arguments and selects the ordinary private
+bridge if configured (no fallback on bridge rejection), otherwise the ordinary
+pinned local execution adapter. The bridge rechecks exclusive scope, principal,
+audience and arguments. The trusted relay transmits separate probe operations;
+older node receivers reject them. The node reconstructs the fixed nonce command,
+uses real worker admission, and returns a nonce-match boolean, never raw output.
+A separate durable ledger in the existing execution database reserves probe IDs
+against normal jobs/deployments, binds them to principal and host pin, limits one
+in-flight and three attempts per 30 minutes, and never replays uncertain claims.
+Uncertain jobs require reconciliation; they may block later probes rather than
+silently free the slot. Bounded retained receipt storage fails closed at capacity.
+
+Remaining before activation: reviewed console provisioning, stable renewable
+service identity and protected root helper, typed failure/reconciliation across
+all shared transport stages, AgentOps consumption of sanitized probe receipts,
+independent alternate-repair-route evidence, isolated full-chain canary and
+production rollout acceptance. The recovery policy remains disabled.

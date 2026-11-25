@@ -20,6 +20,8 @@ OPERATIONS = {
     "feed_provision_install": frozenset({"operation","node","request_id","principal","credential"}),
     "lcd_sound_event": frozenset({"operation", "node", "request_id", "event"}),
     "submit": frozenset({"operation", "node", "request_id", "command"}),
+    "health_probe_submit": frozenset({"operation", "node", "request_id"}),
+    "health_probe_result": frozenset({"operation", "node", "request_id"}),
     "result": frozenset({"operation", "node", "request_id", "cursor"}),
     "cancel": frozenset({"operation", "node", "request_id"}),
     "limits": frozenset({"operation", "node", "request_id"}),
@@ -146,6 +148,23 @@ def serve_one(raw, *, jobs=None, hostname=None):
                 "concurrent_jobs_per_node": configured_max_active()}
     if jobs is None:
         jobs = Jobs()
+    if op in ('health_probe_submit', 'health_probe_result'):
+        from .mcp_health_probe_contract import NODE, nonce_command, project_result
+        if host != NODE:
+            raise PermissionError('probe_node_denied')
+        command = nonce_command(rid)
+        if op == 'health_probe_submit':
+            try:
+                jobs.submit(host, command, request_id=rid)
+            except RuntimeError as exc:
+                if str(exc) == 'executor user manager unavailable':
+                    return {'node':host,'request_id':rid,'status':'rejected','failure_stage':'worker_readiness'}
+                raise
+            return {'node':host,'request_id':rid,'status':'accepted'}
+        row = jobs.row(rid)
+        if row['node'] != host or row['command'] != command:
+            raise PermissionError('probe_receipt_denied')
+        return project_result(jobs.result(rid, 0), rid)
     if op == "submit":
         validate_command(host, req["command"])
         try:
