@@ -1,4 +1,5 @@
 """Read-only certificate evidence from the physical canary; no app data access."""
+import argparse
 import hashlib
 import json
 from pathlib import Path
@@ -6,7 +7,7 @@ import re
 import struct
 import tempfile
 
-from gway_remote.android_canary_install import CANARY, authorized_usb, require_success, run_command, InstallBlocked
+from gway_remote.android_canary_install import CANARY, PRODUCTION, authorized_usb, require_success, run_command, InstallBlocked
 
 
 def certificate_sha256(apk):
@@ -62,11 +63,13 @@ def certificate_sha256(apk):
         raise InstallBlocked("unsupported_or_malformed_apk_signing_block") from exc
 
 
-def installed_certificate(call=run_command):
+def installed_evidence(package=CANARY, call=run_command):
+    if package not in (CANARY, PRODUCTION):
+        raise InstallBlocked("package_not_allowed")
     serial = authorized_usb(call)
     def adb(*args, timeout=30):
         return call(["/usr/bin/adb", "-s", serial, *args], timeout)
-    output = require_success(adb("shell", "pm", "path", CANARY), "canary_package_inspection_failed")
+    output = require_success(adb("shell", "pm", "path", package), "canary_package_inspection_failed")
     paths = [line.removeprefix("package:") for line in output.splitlines()
              if re.fullmatch(r"package:/data/app/[A-Za-z0-9._=~/-]+/base\.apk", line)]
     if len(paths) != 1:
@@ -76,12 +79,20 @@ def installed_certificate(call=run_command):
         require_success(adb("pull", paths[0], str(apk), timeout=90), "canary_apk_read_failed")
         if not apk.is_file() or not 0 < apk.stat().st_size < 104857600:
             raise InstallBlocked("invalid_canary_base_apk")
-        return certificate_sha256(apk)
+        info = require_success(adb("shell", "dumpsys", "package", package), "package_version_inspection_failed")
+        versions = set(re.findall(r"(?m)^\s*versionCode=(\d+)(?:\s|$)", info))
+        if len(versions) != 1:
+            raise InstallBlocked("package_version_unconfirmed")
+        return {"package": package, "certificate_sha256": certificate_sha256(apk),
+                "apk_sha256": hashlib.sha256(apk.read_bytes()).hexdigest(),
+                "version_code": int(versions.pop()), "scope": "installed_apk_v2_certificate_evidence"}
 
 
 if __name__ == "__main__":
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--stable", action="store_true")
+    args = parser.parse_args()
     try:
-        print(json.dumps({"package": CANARY, "certificate_sha256": installed_certificate(),
-                          "scope": "installed_apk_v2_certificate_evidence"}))
+        print(json.dumps(installed_evidence(PRODUCTION if args.stable else CANARY)))
     except InstallBlocked as exc:
         raise SystemExit(str(exc))
