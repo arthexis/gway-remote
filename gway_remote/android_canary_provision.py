@@ -119,14 +119,21 @@ def run(*, pr, sha, run_id, directory):
     record = None
     was_awake = False
     initialized = False
+    stage = "usb_power_guard"
     try:
-        was_awake = field.device_ready(serial, wake=True)
-        initialized = True
         with field.keep_usb_screen_on(serial):
+            stage = "device_ready"
+            was_awake = field.device_ready(serial, wake=True)
+            initialized = True
+            stage = "paired_install"
             field.install(serial, directory, allow_canary_reset=True)
+            stage = "post_install_ready"
             field.device_ready(serial, wake=True)
+            stage = "credential_issue"
             record = registry.issue(label=LABEL, scope="read", days=30)
+            stage = "private_handoff"
             pipe_to_canary(serial, record["token"])
+            stage = "android_https"
             # Instrumentation itself consumes/delete the private seed and probes
             # the real HTTPS endpoint with the imported AndroidKeystore bearer.
             result = field.adb(
@@ -138,7 +145,9 @@ def run(*, pr, sha, run_id, directory):
                     or "INSTRUMENTATION_CODE: -1" not in result
                     or "FAILURES" in result):
                 raise ProvisionError("android_https_authentication_failed")
+            stage = "baseline_compose"
             compose = field.instrument(serial, wake=True)
+            stage = "power_restore"
             return {
                 "status": "passed", "label": LABEL, "credential_id": record["id"],
                 "scope": record["scope"], "expires_at": record["expires_at"],
@@ -151,7 +160,7 @@ def run(*, pr, sha, run_id, directory):
                 registry.revoke(record["id"])
             except Exception:
                 pass
-        raise ProvisionError("usb_mobile_provisioning_failed") from None
+        raise ProvisionError("usb_mobile_provisioning_failed:" + stage) from None
     finally:
         try:
             _private_command(serial, "rm", "-f", PROVISION_FILE)
@@ -174,8 +183,12 @@ def main():
     try:
         print(json.dumps(run(pr=args.pr, sha=args.sha, run_id=args.run_id,
                              directory=args.artifact_dir), sort_keys=True))
-    except (field.CanaryError, ProvisionError, ValueError, OSError):
-        print(json.dumps({"status": "blocked", "reason": "canary_provision_unverified"}))
+    except (field.CanaryError, ProvisionError, ValueError, OSError) as exc:
+        stages = ("usb_power_guard", "device_ready", "paired_install", "post_install_ready",
+                  "credential_issue", "private_handoff", "android_https", "baseline_compose", "power_restore")
+        allowed = {"usb_mobile_provisioning_failed:" + stage for stage in stages}
+        reason = str(exc) if isinstance(exc, ProvisionError) and str(exc) in allowed else "canary_provision_unverified"
+        print(json.dumps({"status": "blocked", "reason": reason}))
         raise SystemExit(1)
 
 
