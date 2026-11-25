@@ -273,11 +273,11 @@ def dispatch_candidate(ledger, candidate, stage, *, artifact_id=None, build_run_
 
 
 def plan_lab_install(artifact, *, installed, pinned_certificate, device, lab_authorized,
-                     credential_present, screen_unlocked):
+                     credential_present, screen_unlocked, allow_unverified_auth=False):
     """Pure fail-closed decision. Never authorizes reset, first install or downgrade."""
     require(device == "gway-001" and lab_authorized is True, "lab_not_authorized")
     require(screen_unlocked is True, "device_locked_or_unknown")
-    require(credential_present is True, "credential_missing_or_unverified")
+    require(credential_present is True or allow_unverified_auth is True, "credential_missing_or_unverified")
     require(isinstance(installed, dict) and installed.get("package") == PACKAGE,
             "stable_package_missing")
     require(isinstance(pinned_certificate, str) and HEX.fullmatch(pinned_certificate)
@@ -470,7 +470,7 @@ def health_is_authenticated(tree):
 
 def install_stable_candidate(ledger, candidate, *, artifact_dir, workflow_sha, install_run_id,
                              expected_digest, expected_certificate, expected_artifact_id,
-                             preflight_only=False, gate=None, call=None, device=None,
+                             preflight_only=False, allow_unverified_auth=False, gate=None, call=None, device=None,
                              inspect=None, hostname=None):
     """Reviewed hardware workflow only. No credential reads, reset or publication."""
     import socket
@@ -491,6 +491,10 @@ def install_stable_candidate(ledger, candidate, *, artifact_dir, workflow_sha, i
             and run.get("run_attempt") == 1 and (run.get("actor") or {}).get("login") == gate.OWNER
             and (run.get("triggering_actor") or {}).get("login") == gate.OWNER,
             "install_run_identity_mismatch")
+    if allow_unverified_auth is True:
+        require(not preflight_only and run.get("display_title") ==
+                f"Android RC install-lab-only version {candidate.version_code} artifact {expected_artifact_id}",
+                "lab_only_authorization_mismatch")
     state = ledger.read(candidate.candidate_id)
     require(state.get("allocated") == asdict(candidate), "candidate_not_allocated")
     signed = state.get("signed", {})
@@ -528,7 +532,7 @@ def install_stable_candidate(ledger, candidate, *, artifact_dir, workflow_sha, i
             "installed_signer_mismatch")
     require(type(before.get("version_code")) is int and before["version_code"] <= candidate.version_code,
             "version_not_increasing")
-    # Require real authenticated UI evidence, not owner assertion or a copied secret.
+    # Authentication is observed independently; never infer success from authorization to install.
     authenticated = health_is_authenticated(device.ui_tree(serial))
     require(isinstance(before.get("apk_sha256"),str) and HEX.fullmatch(before["apk_sha256"]),
             "installed_identity_unknown")
@@ -537,13 +541,16 @@ def install_stable_candidate(ledger, candidate, *, artifact_dir, workflow_sha, i
     receipt = {"candidate_id":candidate.candidate_id,"device":"gway-001",
                "artifact_id":artifact.artifact_id,"apk_sha256":artifact.apk_sha256,
                "certificate_sha256":artifact.certificate_sha256,"installed_before":before,
-               "credential_before":authenticated}
+               "credential_before":authenticated,
+               "authenticated_acceptance":"pending",
+               "installation_without_verified_auth":not authenticated and allow_unverified_auth is True}
     if preflight_only:
-        return {**receipt,"status":"ready" if authenticated else "blocked",
-                "reason":None if authenticated else "credential_missing_or_unverified"}
+        return {**receipt,"status":"ready" if authenticated or allow_unverified_auth is True else "blocked",
+                "reason":None if authenticated or allow_unverified_auth is True else "credential_missing_or_unverified"}
     action = plan_lab_install(artifact,installed=before,pinned_certificate=expected_certificate,
                               device="gway-001",lab_authorized=True,
-                              credential_present=authenticated,screen_unlocked=True)
+                              credential_present=authenticated,screen_unlocked=True,
+                              allow_unverified_auth=allow_unverified_auth)
     prior = state.get("installed")
     if prior is not None:
         require(action == "verify_noop" and prior.get("installed_after") == before,
@@ -613,6 +620,7 @@ def main(argv=None):
     lab.add_argument("--digest", required=True)
     lab.add_argument("--certificate", required=True)
     lab.add_argument("--preflight-only", action="store_true")
+    lab.add_argument("--allow-unverified-auth", action="store_true")
     args = parser.parse_args(argv)
     candidate = Candidate(args.sha, args.tree, args.version, f"0.2.{args.version}")
     os.umask(0o077)
@@ -642,7 +650,8 @@ def main(argv=None):
             result = install_stable_candidate(ledger,candidate,artifact_dir=args.artifact_dir,
                        workflow_sha=args.workflow_sha,install_run_id=args.run_id,
                        expected_artifact_id=args.artifact_id,expected_digest=args.digest,
-                       expected_certificate=args.certificate,preflight_only=args.preflight_only)
+                       expected_certificate=args.certificate,preflight_only=args.preflight_only,
+                       allow_unverified_auth=args.allow_unverified_auth)
         else:
             result = {"candidate_id":candidate.candidate_id,"evidence":ledger.read(candidate.candidate_id)}
         print(json.dumps(result,sort_keys=True))

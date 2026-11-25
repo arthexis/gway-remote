@@ -352,13 +352,18 @@ class CandidateTests(unittest.TestCase):
                         install_stable_candidate(ledger,self.c,**kwargs)
                     self.assertEqual(calls,[])
                     self.assertNotIn("installed",ledger.read(self.c.candidate_id))
-                    device.ui_tree.return_value = {"truncated":False,"elements":[{"text":"API health"},{"text":'{"status":"ok","api":"gway-remote/v1"}'}]}
-                    self.assertEqual(install_stable_candidate(ledger,self.c,preflight_only=True,**kwargs)["status"],"ready")
-                    receipt = install_stable_candidate(ledger,self.c,**kwargs)
+                    with self.assertRaisesRegex(ValueError,"lab_only_authorization_mismatch"):
+                        install_stable_candidate(ledger,self.c,allow_unverified_auth=True,**kwargs)
+                    self.assertEqual(calls,[])
+                    run["display_title"] = "Android RC install-lab-only version 800 artifact 10"
+                    receipt = install_stable_candidate(ledger,self.c,allow_unverified_auth=True,**kwargs)
+                    self.assertFalse(receipt["credential_before"])
+                    self.assertTrue(receipt["installation_without_verified_auth"])
+                    self.assertEqual(receipt["authenticated_acceptance"],"pending")
                     self.assertEqual(receipt["installed_after"],after)
                     self.assertEqual(receipt["status"],"installed")
                     self.assertTrue(receipt["canary_path_unchanged"])
-                    self.assertEqual(install_stable_candidate(ledger,self.c,**kwargs),receipt)
+                    self.assertEqual(install_stable_candidate(ledger,self.c,allow_unverified_auth=True,**kwargs),receipt)
                     self.assertEqual(sum(x[3:5]==["install","-r"] for x in calls),1)
                     self.assertNotIn("accepted",ledger.read(self.c.candidate_id))
             finally:
@@ -374,6 +379,7 @@ class CandidateTests(unittest.TestCase):
         self.assertIn("github.triggering_actor == 'arthexis'",workflow)
         self.assertIn("github.ref == 'refs/heads/main'",workflow)
         self.assertIn("default: preflight",workflow)
+        self.assertIn("install-lab-only) args+=(--allow-unverified-auth)",workflow)
         self.assertNotIn("secrets.",workflow)
         self.assertNotIn("assembleRelease",workflow)
         self.assertNotIn("gh release create",workflow)

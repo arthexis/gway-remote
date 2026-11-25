@@ -5,7 +5,7 @@ on:
     inputs:
       mode:
         type: choice
-        options: [preflight, install]
+        options: [preflight, install, install-lab-only]
         default: preflight
         required: true
       source_sha:
@@ -72,6 +72,7 @@ jobs:
           case "$MODE" in
             preflight) args+=(--preflight-only) ;;
             install) ;;
+            install-lab-only) args+=(--allow-unverified-auth) ;;
             *) exit 1 ;;
           esac
           python3 -B -m gway_remote.android_release_candidate \
