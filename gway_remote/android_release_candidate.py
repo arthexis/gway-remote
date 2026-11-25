@@ -236,3 +236,39 @@ def dispatch_candidate(ledger, candidate, stage, *, artifact_id=None, build_run_
     require(run_id is not None, "dispatch_uncertain_reconcile_before_retry")
     gate.await_dispatch_visibility(workflow, run_id, candidate.source_sha)
     return run_id
+
+
+def plan_lab_install(artifact, *, installed, pinned_certificate, device, lab_authorized,
+                     credential_present, screen_unlocked):
+    """Pure fail-closed decision. Never authorizes reset, first install or downgrade."""
+    require(device == "gway-001" and lab_authorized is True, "lab_not_authorized")
+    require(screen_unlocked is True, "device_locked_or_unknown")
+    require(credential_present is True, "credential_missing_or_unverified")
+    require(isinstance(installed, dict) and installed.get("package") == PACKAGE,
+            "stable_package_missing")
+    require(isinstance(pinned_certificate, str) and HEX.fullmatch(pinned_certificate)
+            and installed.get("certificate_sha256") == pinned_certificate == artifact.certificate_sha256,
+            "certificate_mismatch")
+    digest = installed.get("apk_sha256")
+    version = installed.get("version_code")
+    require(isinstance(digest, str) and HEX.fullmatch(digest) and type(version) is int and version > 0,
+            "installed_identity_unknown")
+    if digest == artifact.apk_sha256:
+        require(version == artifact.candidate.version_code, "installed_version_mismatch")
+        return "verify_noop"
+    require(version < artifact.candidate.version_code, "version_not_increasing")
+    return "incremental_update"
+
+
+def plan_promotion(artifact, *, existing_release, **acceptance):
+    """No network side effects. Existing exact release is a verification-only replay."""
+    artifact.validate_promotion(**acceptance)
+    if existing_release is None:
+        return "create_exact_release"
+    require(isinstance(existing_release, dict)
+            and existing_release.get("source_sha") == artifact.candidate.source_sha
+            and existing_release.get("tag") == f"android-v{artifact.candidate.version_name}"
+            and existing_release.get("apk_sha256") == artifact.apk_sha256
+            and existing_release.get("certificate_sha256") == artifact.certificate_sha256,
+            "existing_release_conflict")
+    return "verify_noop"
