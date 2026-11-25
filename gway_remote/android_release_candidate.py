@@ -416,19 +416,30 @@ def decrypt_candidate(ciphertext, manifest, transport_dir, temporary):
 
 def persist_private_apk(file, transport_dir, candidate_id, digest):
     import os
-    path = _private_transport_dir(transport_dir) / f"{candidate_id}.apk"
+    import tempfile
+    directory = _private_transport_dir(transport_dir)
     require(isinstance(candidate_id,str) and HEX.fullmatch(candidate_id), "invalid_candidate_id")
+    path = directory / f"{candidate_id}.apk"
+    require(hashlib.sha256(file.read_bytes()).hexdigest() == digest, "private_artifact_digest_mismatch")
+    fd, name = tempfile.mkstemp(prefix=".rc-", dir=directory)
     try:
-        fd = os.open(path,os.O_WRONLY|os.O_CREAT|os.O_EXCL|os.O_NOFOLLOW,0o600)
-    except FileExistsError:
-        require(path.is_file() and not path.is_symlink() and path.stat().st_uid == os.getuid()
-                and path.stat().st_mode & 0o077 == 0 and hashlib.sha256(path.read_bytes()).hexdigest() == digest,
-                "private_artifact_conflict")
-        return
-    with os.fdopen(fd,"wb") as output:
-        output.write(file.read_bytes())
-        output.flush()
-        os.fsync(output.fileno())
+        with os.fdopen(fd,"wb") as output:
+            output.write(file.read_bytes())
+            output.flush()
+            os.fsync(output.fileno())
+        try:
+            os.link(name,path,follow_symlinks=False)
+        except FileExistsError:
+            require(path.is_file() and not path.is_symlink() and path.stat().st_uid == os.getuid()
+                    and path.stat().st_mode & 0o077 == 0 and hashlib.sha256(path.read_bytes()).hexdigest() == digest,
+                    "private_artifact_conflict")
+        dirfd = os.open(directory,os.O_RDONLY|os.O_DIRECTORY)
+        try:
+            os.fsync(dirfd)
+        finally:
+            os.close(dirfd)
+    finally:
+        os.unlink(name)
 
 
 def main(argv=None):
