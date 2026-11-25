@@ -711,7 +711,17 @@ class Handler(BaseHTTPRequestHandler):
                     # Never impersonate a node through Watchtower-local env/config.
                     raise PermissionError("attested read bridge unavailable")
                 else:
-                    selected = local_node_result(payload["params"]["name"], arguments, execution=self.server.execution)
+                    # The installed Watchtower may use its existing authenticated
+                    # local execution service instead of the optional signed bridge.
+                    # Preserve only the same fixed deployment diagnostic codes.
+                    try:
+                        selected = local_node_result(payload["params"]["name"], arguments, execution=self.server.execution)
+                    except (PermissionError, ValueError) as exc:
+                        from .mcp_bridge_transport import BridgeReadUnavailable
+                        if (payload["params"]["name"] in {"node_deploy_preview", "node_deploy_discovery"}
+                                and str(exc) in BridgeReadUnavailable.CODES and str(exc).startswith("deployment_")):
+                            raise BridgeReadUnavailable(str(exc)) from None
+                        raise
                 result = {"content": [{"type": "text", "text": json.dumps(selected, separators=(",", ":"))}]}
             except (OSError, ValueError, PermissionError, KeyError, TypeError, json.JSONDecodeError) as exc:
                 # Do not return exception messages: they can contain paths or credentials.
