@@ -132,7 +132,9 @@ def dispatch(workflow, **inputs):
     print(f"Dispatched {workflow} run {run_id}; checking visibility", flush=True)
     # For canaries expected_sha identifies the PR artifact, not the main workflow.
     # Production release dispatch pins the workflow revision itself.
-    sha = inputs.get("expected_sha") if workflow == "android.yml" else None
+    sha = inputs.get("expected_sha") if workflow in (
+        "android.yml", "android-release-candidate.yml", "android-release-candidate-sign.yml"
+    ) else None
     await_dispatch_visibility(workflow, run_id, sha)
     return run_id
 
