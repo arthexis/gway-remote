@@ -262,3 +262,20 @@ class CandidateTests(unittest.TestCase):
             cipher.write_bytes(corrupted)
             with self.assertRaisesRegex(ValueError,"encrypted_artifact_verification_failed"):
                 decrypt_candidate(cipher,manifest,transport,root)
+
+
+    def test_signing_workflow_yaml_and_shell_syntax(self):
+        import subprocess
+        import yaml
+        from pathlib import Path
+        root = Path(__file__).resolve().parents[2]
+        workflow = yaml.safe_load((root/".github/workflows/android-release-candidate-sign.yml").read_text())
+        self.assertEqual(set(workflow["jobs"]), {"sign"})
+        steps = workflow["jobs"]["sign"]["steps"]
+        self.assertEqual(len(steps),3)
+        self.assertEqual(len([s for s in steps if "run" in s]),2)
+        for step in steps:
+            if "run" in step:
+                result = subprocess.run(["bash","-n"],input=step["run"],text=True,capture_output=True)
+                self.assertEqual(result.returncode,0,result.stderr)
+        self.assertEqual(steps[-1]["with"]["path"],"${{ runner.temp }}/signed-release-candidate/")
