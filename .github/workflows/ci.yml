@@ -104,6 +104,7 @@ jobs:
           python -m pip install 'ansible-core>=2.16,<2.19'
           ansible-playbook --syntax-check -i 'localhost,' ansible/playbook.yml
           ansible-playbook --syntax-check -i 'localhost,' ansible/playbooks/stage-release.yml
+          ansible-playbook --syntax-check -i 'localhost,' ansible/playbooks/watchtower-mcp-node-routing.yml
           ansible-playbook --syntax-check -i 'localhost,' ansible/playbooks/validate-mcp-source-provision.yml
           ansible-playbook --syntax-check -i 'localhost,' ansible/playbooks/watchtower-mcp.yml
           ansible-playbook --syntax-check -i 'localhost,' ansible/playbooks/mcp-external-monitor.yml
@@ -129,6 +130,7 @@ jobs:
           ansible-playbook --version
           ansible-playbook --syntax-check -i 'gway_remote,' ansible/playbook.yml
           ansible-playbook --syntax-check -i 'localhost,' ansible/playbooks/stage-release.yml
+          ansible-playbook --syntax-check -i 'localhost,' ansible/playbooks/watchtower-mcp-node-routing.yml
           ansible-playbook --syntax-check -i 'localhost,' ansible/playbooks/validate-mcp-source-provision.yml
           ansible-playbook --syntax-check -i 'localhost,' ansible/observe-deployment.yml
           ansible-playbook --syntax-check -i 'gway-004,' ansible/migrate-executor-004.yml
@@ -140,6 +142,7 @@ jobs:
         run: |
           python3 -m unittest discover -s tests/deployment -p test_exec_cutover_ansible_isolated.py -v
           python3 -m unittest discover -s tests/deployment -p test_exec_001_inventory.py -v
+          python3 -m unittest discover -s tests/deployment -p test_watchtower_routing_ansible_isolated.py -v
 
   ssh-config:
     name: SSH config (Debian 12 + 13)

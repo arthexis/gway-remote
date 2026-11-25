@@ -7,11 +7,13 @@ import subprocess
 
 
 class FederatedProviders:
-    def __init__(self, *, transport, nodes):
+    def __init__(self, *, transport, nodes, canonical=False, legacy_aliases=True):
         if not callable(nodes) or not callable(getattr(transport, "invoke", None)):
             raise TypeError("trusted transport and node inventory required")
         self.transport = transport
         self.nodes = nodes
+        self.canonical = canonical
+        self.legacy_aliases = legacy_aliases
 
     def discover(self, builtins=()):
         replies = {}
@@ -26,7 +28,11 @@ class FederatedProviders:
             if type(response) is not dict:
                 raise FederationError("invalid_node_reply")
             replies[node] = response
-        return catalog_from_nodes(builtins, replies)
+        tools, routes = catalog_from_nodes(builtins, replies)
+        if not self.canonical:
+            return tools, routes
+        from .mcp_node_routing import canonical_catalog
+        return canonical_catalog(builtins, tools, routes, legacy_aliases=self.legacy_aliases)
 
     def call(self, name, arguments, *, authorized_scope, routes=None):
         """Dispatch a route already authenticated and classified by the gateway.

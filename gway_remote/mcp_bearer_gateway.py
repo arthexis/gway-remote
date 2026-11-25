@@ -186,15 +186,20 @@ def federated_source_status(federation):
     _, routes = federation.discover()
     sources = {}
     for name in sorted(routes):
-        node, source, _, scope = routes[name][:4]
-        item = sources.setdefault((node, source), {
-            "source": source, "node": node, "enabled": True,
-            "status": "available", "tools": [],
-            "withheld_execute_count": 0})
-        if scope == "read":
-            item["tools"].append(name)
-        else:
-            item["withheld_execute_count"] += 1
+        route = routes[name]
+        if len(route) > 6 and route[6] == "alias":
+            continue
+        candidates = route[5].values() if len(route) > 5 else (route,)
+        for candidate in candidates:
+            node, source, _, scope = candidate[:4]
+            item = sources.setdefault((node, source), {
+                "source": source, "node": node, "enabled": True,
+                "status": "available", "tools": [],
+                "withheld_execute_count": 0})
+            if scope == "read":
+                item["tools"].append(name)
+            else:
+                item["withheld_execute_count"] += 1
     return {"sources": list(sources.values()),
             "registered_count": len(sources),
             "discovery": "node_federation"}
@@ -211,11 +216,16 @@ def _project_catalog(catalog, routes):
         # using the *authenticated* route, never a caller-provided scope.
         scope = route[3] if route else ("execute" if name in EXEC_TOOL_NAMES or name == "feed__publish" else
                 required_scope(tool) if trusted_source_tool(tool) else "read")
-        rows.append({"name": name, "origin": "federated" if route else "builtin",
+        row = {"name": name, "origin": "federated" if route else "builtin",
                      "node": route[0] if route else None,
                      "source": route[1] if route else None,
                      "classification": scope,
-                     "required_scope": "gway:execute" if scope == "execute" else "gway:read"})
+                     "required_scope": "gway:execute" if scope == "execute" else "gway:read"}
+        if route and len(route) > 5:
+            row["nodes"] = sorted(route[5])
+            row["node"] = row["nodes"][0] if len(row["nodes"]) == 1 else None
+            row["legacy_alias"] = len(route) > 6 and route[6] == "alias"
+        rows.append(row)
     return {"schema": 1, "discovery": "node_federation", "tools": rows,
             "count": len(rows)}
 
@@ -913,6 +923,9 @@ def main():
         from .watchtower_exec_service import load_service
         execution = load_service()
     federation = None
+    routing_mode = os.environ.get("GWAY_MCP_NODE_ROUTING", "legacy")
+    if routing_mode not in ("legacy", "canonical-with-aliases", "canonical"):
+        raise ValueError("invalid MCP node routing mode")
     if execution is not None:
         from .mcp_gateway_federation import FederatedProviders
         from .mcp_provider_transport import ProviderTransport
@@ -920,7 +933,9 @@ def main():
         federation = FederatedProviders(
             transport=ProviderTransport(transport),
             nodes=lambda: tuple(transport.transports) if hasattr(transport, "transports")
-            else (transport.node.node,))
+            else (transport.node.node,),
+            canonical=routing_mode != "legacy",
+            legacy_aliases=routing_mode != "canonical")
     policy_path = os.environ.get("GWAY_MCP_SOURCE_POLICY")
     policy_sha = os.environ.get("GWAY_MCP_SOURCE_POLICY_SHA256")
     if bool(policy_path) != bool(policy_sha):
