@@ -491,6 +491,10 @@ def install_stable_candidate(ledger, candidate, *, artifact_dir, workflow_sha, i
             and run.get("run_attempt") == 1 and (run.get("actor") or {}).get("login") == gate.OWNER
             and (run.get("triggering_actor") or {}).get("login") == gate.OWNER,
             "install_run_identity_mismatch")
+    if allow_unverified_auth is True:
+        require(not preflight_only and run.get("display_title") ==
+                f"Android RC install-lab-only version {candidate.version_code} artifact {expected_artifact_id}",
+                "lab_only_authorization_mismatch")
     state = ledger.read(candidate.candidate_id)
     require(state.get("allocated") == asdict(candidate), "candidate_not_allocated")
     signed = state.get("signed", {})
