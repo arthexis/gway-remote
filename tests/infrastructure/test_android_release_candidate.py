@@ -118,3 +118,37 @@ class CandidateTests(unittest.TestCase):
                 dispatch_candidate(ledger,self.c,"signed",artifact_id=235,build_run_id=123,gate=gate)
         finally:
             ledger.close()
+
+    def test_lab_upgrade_plan(self):
+        from gway_remote.android_release_candidate import plan_lab_install
+        installed = dict(package=self.c.package, apk_sha256="e"*64,
+                         certificate_sha256="d"*64, version_code=799)
+        args = dict(installed=installed,pinned_certificate="d"*64,device="gway-001",
+                    lab_authorized=True,credential_present=True,screen_unlocked=True)
+        self.assertEqual(plan_lab_install(self.a,**args),"incremental_update")
+        same = dict(installed,apk_sha256="c"*64,version_code=800)
+        self.assertEqual(plan_lab_install(self.a,**{**args,"installed":same}),"verify_noop")
+        for key,value in (("lab_authorized",False),("screen_unlocked",None),
+                          ("credential_present",False),("device","other"),
+                          ("installed",None),("pinned_certificate","e"*64)):
+            with self.subTest(key=key), self.assertRaises(ValueError):
+                plan_lab_install(self.a,**{**args,key:value})
+        for evidence in (dict(installed,version_code=800),
+                         dict(installed,version_code=801),
+                         dict(installed,certificate_sha256="e"*64),
+                         dict(same,version_code=799)):
+            with self.assertRaises(ValueError):
+                plan_lab_install(self.a,**{**args,"installed":evidence})
+
+    def test_promotion_plan(self):
+        from gway_remote.android_release_candidate import plan_promotion
+        self.assertEqual(plan_promotion(self.a,existing_release=None,**self.promote),
+                         "create_exact_release")
+        existing = dict(source_sha=self.c.source_sha,tag="android-v0.2.800",
+                        apk_sha256="c"*64,certificate_sha256="d"*64)
+        self.assertEqual(plan_promotion(self.a,existing_release=existing,**self.promote),
+                         "verify_noop")
+        for key,value in (("source_sha","e"*40),("tag","android-v0.2.801"),
+                          ("apk_sha256","e"*64),("certificate_sha256","e"*64)):
+            with self.assertRaises(ValueError):
+                plan_promotion(self.a,existing_release={**existing,key:value},**self.promote)
