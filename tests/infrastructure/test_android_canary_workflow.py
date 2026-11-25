@@ -50,8 +50,8 @@ class CanaryWorkflowTests(unittest.TestCase):
 
     def test_existing_android_workflow_is_path_filtered(self):
         content = ANDROID.read_text()
-        self.assertIn("paths: ['android/**', '.github/workflows/android.yml']", content)
-        self.assertIn("branches: [main]", content)
+        self.assertIn("paths: ['android/**', '.github/workflows/android.yml', '.github/workflows/android-compose-ui.yml']", content)
+        self.assertIn("push:\n    branches: [main]\n    paths: ['android/**']", content)
 
 
 if __name__ == "__main__":
