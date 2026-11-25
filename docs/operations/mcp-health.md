@@ -59,3 +59,29 @@ prove the screen was readable and sound was heard.
 The temporary exclusion of gway-004 from Watchtower's execution configuration
 was reverted after the per-node isolation deployment. A configured pin does
 not make the node eligible while its current inventory checks fail.
+
+## Daily audit integration and bounded recovery (#114)
+
+The existing external monitor additionally samples public MCP initialization,
+list, catalog/scope, representative provider reads and execution preview every
+15 minutes when healthy; failures are retried at the existing two-minute cadence.
+The root-owned sanitized projection is `/var/lib/gway-mcp-external-health/status.json`.
+No OAuth credential is shared with AgentOps. The observer remains read-only.
+Deploy the observer with `ansible-playbook -i localhost, -c local ansible/playbooks/mcp-external-monitor.yml --tags mcp_external_monitor` from the approved revision.
+
+The separately reviewed fixed recovery runner supports one recipe only: restore
+an enabled, stopped local MCP backend on 001, using the pinned existing runtime.
+It cannot change auth, provision nodes, restart active services, run arbitrary
+commands or deploy new code. It holds the host maintenance lock and verifies
+local anonymous rejection; on failed verification it may stop only its own
+still-current newly started invocation. Unknown outcomes remain unconfirmed.
+The independent AgentOps controller must establish repeated public path failures
+and a typed execution fault before admitting it. This does not prove that an
+actual ChatGPT client session is unavailable. Novel faults require separate
+reviewed recipes or an operator-controlled development handoff.
+
+`ansible/playbooks/mcp-health-recovery.yml` publishes the root-owned runner and
+SHA-bound policy with `recovery_enabled=false` by default. Do not enable it until
+a separately approved synthetic execution identity and controlled acceptance
+are available. Do not reuse the observer's read-only OAuth credential or widen
+its grant. A subsequent runtime revision requires policy re-publication.
