@@ -36,7 +36,7 @@ def backfill():
     for p in prs:
         run = dispatch("android-acceptance.yml", mode="classify", pr_number=str(p["number"]),
                        expected_sha=p["head"]["sha"], expected_base=p["base"]["sha"],
-                       auto_merge=False, canary_reset="no")
+                       auto_merge="false", canary_reset="no")
         wait_run("android-acceptance.yml", run, "workflow_dispatch", timeout=300)
 
 
@@ -46,12 +46,15 @@ def preflight():
     require(len(prs) < 100, "too many PRs for bounded activation")
     for p in prs:
         sha = p["head"]["sha"]
-        statuses = api(f"commits/{sha}/status")["statuses"]
-        matches = [s for s in statuses if s["context"] == CONTEXT]
+        latest = api(f"commits/{sha}/status")["statuses"]
+        combined = [s for s in latest if s["context"] == CONTEXT]
+        require(len(combined) == 1, f"missing current classification for PR {p['number']}")
+        statuses = api(f"commits/{sha}/statuses?per_page=100")
+        matches = [s for s in statuses if s["context"] == CONTEXT and s["id"] == combined[0]["id"]]
         require(len(matches) == 1, f"missing classification for PR {p['number']}")
         s = matches[0]
         m = re.fullmatch(r"https://github.com/arthexis/gway-remote/actions/runs/(\d+)", s.get("target_url") or "")
-        require(m and s["creator"]["login"] == "github-actions[bot]", "untrusted status")
+        require(m and (s.get("creator") or {}).get("login") == "github-actions[bot]", "untrusted status")
         r = api(f"actions/runs/{m.group(1)}")
         require(r["path"] == ".github/workflows/android-acceptance.yml"
                 and r["event"] in ("pull_request_target", "workflow_dispatch")
