@@ -62,7 +62,9 @@ class CanaryInstallWorkflowTests(unittest.TestCase):
         self.assertIn("--install --allow-canary-reset --wake", text)
         self.assertIn('r.get("source_sha") == os.environ["EXPECTED_SHA"]', text)
         self.assertIn('str(r.get("run_id")) == os.environ["ARTIFACT_RUN"]', text)
-        self.assertIn("n >= 6", text)
+        self.assertIn('"baseline": 6', text)
+        self.assertIn('"quotations": 5', text)
+        self.assertIn('"opportunities": 2', text)
         self.assertLess(text.index("Install ONLY isolated canary"), text.index("Run pinned hermetic Compose tests"))
 
     def test_named_quotation_suite_is_explicit_and_receipt_bound(self):
