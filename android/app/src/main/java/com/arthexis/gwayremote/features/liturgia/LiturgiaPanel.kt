@@ -160,7 +160,8 @@ internal fun LiturgiaPanel(source: LiturgiaSource) {
                     OutlinedButton(enabled = index >= 0 && index < chapters.lastIndex,
                         onClick = { openPassage(Passage(bookId, chapters[index + 1])) }) { Text("Siguiente") }
                 }
-                ResultPage(passageData, request?.offset ?: 0) { offset -> request = request?.copy(offset = offset) }
+                ResultPage(passageData, request?.offset ?: 0, pageSize = 100,
+                    onPage = { offset -> request = request?.copy(offset = offset) })
             }
             else -> {
                 OutlinedTextField(query, { query = it }, label = { Text("Palabra o frase") },
@@ -175,7 +176,8 @@ internal fun LiturgiaPanel(source: LiturgiaSource) {
                     testament = scope.takeIf { it in setOf("OT", "NT", "DEU") }, bookId = searchBook.takeIf { scope == "book" && it.isNotBlank() })
                 Button(enabled = search.valid() && (scope != "book" || searchBook.isNotBlank()),
                     onClick = { searchRequest = SearchPageRequest(search) }) { Text("Buscar") }
-                ResultPage(searchData, searchRequest?.offset ?: 0,
+                searchRequest?.let { Text("Resultados: " + it.query.query) }
+                ResultPage(searchData, searchRequest?.offset ?: 0, pageSize = 25,
                     onPage = { searchRequest = searchRequest?.copy(offset = it) },
                     onVerse = { openPassage(Passage(it.bookId, it.chapter, it.number, it.number)) })
             }
@@ -208,7 +210,7 @@ private fun Choice(label: String, selected: String, items: List<Pair<String, Str
 }
 
 @Composable
-private fun ResultPage(state: Load<VersePage>, offset: Int, onPage: (Int) -> Unit, onVerse: ((Verse) -> Unit)? = null) {
+private fun ResultPage(state: Load<VersePage>, offset: Int, pageSize: Int, onPage: (Int) -> Unit, onVerse: ((Verse) -> Unit)? = null) {
     ModuleLoading(state.loading)
     ModuleNotice(if (state.error) "Consulta no disponible." else null, state.error)
     state.value?.let { result ->
@@ -219,13 +221,13 @@ private fun ResultPage(state: Load<VersePage>, offset: Int, onPage: (Int) -> Uni
             ElevatedCard(Modifier.fillMaxWidth()) {
                 Column(Modifier.padding(12.dp)) {
                     Text(verse.reference, style = MaterialTheme.typography.labelMedium)
-                    verse.text?.let { Text(it, style = MaterialTheme.typography.bodyLarge) }
+                    if (result.textAvailable) verse.text?.let { Text(it, style = MaterialTheme.typography.bodyLarge) }
                     if (onVerse != null) TextButton(onClick = { onVerse(verse) }) { Text("Abrir") }
                 }
             }
         }
         ModuleActions {
-            OutlinedButton(enabled = offset > 0, onClick = { onPage((offset - 25).coerceAtLeast(0)) }) { Text("Anterior") }
+            OutlinedButton(enabled = offset > 0, onClick = { onPage((offset - pageSize).coerceAtLeast(0)) }) { Text("Anterior") }
             OutlinedButton(enabled = result.nextOffset != null, onClick = { result.nextOffset?.let(onPage) }) { Text("Más") }
         }
     }
