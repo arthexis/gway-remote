@@ -96,6 +96,12 @@ class CandidateLedger:
                 stage TEXT NOT NULL, payload TEXT NOT NULL,
                 PRIMARY KEY(candidate_id,stage)
             );
+            CREATE TABLE IF NOT EXISTS dispatch_intent (
+                candidate_id TEXT NOT NULL REFERENCES candidate(id),
+                stage TEXT NOT NULL, inputs TEXT NOT NULL,
+                run_id INTEGER UNIQUE,
+                PRIMARY KEY(candidate_id,stage)
+            );
         """)
 
     @staticmethod
@@ -154,3 +160,79 @@ class CandidateLedger:
     def read(self, candidate_id):
         return {stage: json.loads(payload) for stage, payload in self.db.execute(
             "SELECT stage,payload FROM evidence WHERE candidate_id=?", (candidate_id,))}
+
+
+    def claim_dispatch(self, candidate_id, stage, inputs):
+        """Reserve before network mutation; an uncertain intent is never replayed."""
+        require(stage in ("built", "signed"), "unsupported_dispatch_stage")
+        payload = self.encode(inputs)
+        self.db.execute("BEGIN IMMEDIATE")
+        try:
+            prior = self.db.execute("SELECT inputs,run_id FROM dispatch_intent WHERE candidate_id=? AND stage=?",
+                                    (candidate_id, stage)).fetchone()
+            if prior:
+                require(prior[0] == payload, "dispatch_input_conflict")
+                self.db.commit()
+                return False, prior[1]
+            predecessor = STAGES[STAGES.index(stage)-1]
+            require(self.db.execute("SELECT 1 FROM evidence WHERE candidate_id=? AND stage=?",
+                                    (candidate_id, predecessor)).fetchone() is not None,
+                    "previous_stage_missing")
+            self.db.execute("INSERT INTO dispatch_intent VALUES (?,?,?,NULL)",
+                            (candidate_id,stage,payload))
+            self.db.commit()
+            return True, None
+        except BaseException:
+            self.db.rollback()
+            raise
+
+    def bind_dispatch(self, candidate_id, stage, run_id):
+        require(type(run_id) is int and run_id > 0, "invalid_run_id")
+        self.db.execute("BEGIN IMMEDIATE")
+        try:
+            row = self.db.execute("SELECT run_id FROM dispatch_intent WHERE candidate_id=? AND stage=?",
+                                  (candidate_id,stage)).fetchone()
+            require(row is not None, "dispatch_intent_missing")
+            require(row[0] is None or row[0] == run_id, "dispatch_run_conflict")
+            self.db.execute("UPDATE dispatch_intent SET run_id=? WHERE candidate_id=? AND stage=?",
+                            (run_id,candidate_id,stage))
+            self.db.commit()
+        except BaseException:
+            self.db.rollback()
+            raise
+
+
+def dispatch_candidate(ledger, candidate, stage, *, artifact_id=None, build_run_id=None,
+                       gate=None):
+    """Owner-side coordinator adapter. Resume only the exact recorded run.
+
+    This is not a publication or device operation. Signing remains subject to
+    the independently configured protected environment and artifact approvals.
+    """
+    if gate is None:
+        from gway_remote import android_release_gate as gate
+    state = ledger.read(candidate.candidate_id)
+    require(state.get("allocated") == asdict(candidate), "candidate_not_allocated")
+    require(gate.api("branches/main")["commit"]["sha"] == candidate.source_sha,
+            "candidate_superseded")
+    if stage == "built":
+        workflow = "android-release-candidate.yml"
+        inputs = {"expected_sha": candidate.source_sha, "version_code": str(candidate.version_code)}
+    elif stage == "signed":
+        require(all(type(v) is int and v > 0 for v in (artifact_id, build_run_id)),
+                "invalid_build_artifact")
+        built = state.get("built", {})
+        require(built.get("artifact_id") == artifact_id and built.get("run_id") == build_run_id,
+                "build_evidence_mismatch")
+        workflow = "android-release-candidate-sign.yml"
+        inputs = {"expected_sha": candidate.source_sha, "build_run_id": str(build_run_id),
+                  "artifact_id": str(artifact_id)}
+    else:
+        raise ValueError("unsupported_dispatch_stage")
+    new, run_id = ledger.claim_dispatch(candidate.candidate_id, stage, inputs)
+    if new:
+        run_id = gate.create_run(workflow, **inputs)
+        ledger.bind_dispatch(candidate.candidate_id, stage, run_id)
+    require(run_id is not None, "dispatch_uncertain_reconcile_before_retry")
+    gate.await_dispatch_visibility(workflow, run_id, candidate.source_sha)
+    return run_id
