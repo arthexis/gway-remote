@@ -20,7 +20,7 @@ class CanaryWorkflowTests(unittest.TestCase):
         self.assertIn("github.ref == 'refs/heads/main'", content)
         for unsafe in ("secrets.", "gh release create", "assembleRelease",
                        "testDebugUnitTest", "android-emulator-runner", "deployment"):
-            self.assertNotIn(unsafe, content.split("\n  persistent-signing:", 1)[0])
+            self.assertNotIn(unsafe, content)
 
     def test_build_proves_exact_open_or_merged_pr_and_isolates_package(self):
         content = CANARY.read_text()
@@ -63,13 +63,13 @@ class CanaryWorkflowTests(unittest.TestCase):
 
     def test_persistent_signing_is_opt_in_and_separate(self):
         content = CANARY.read_text()
-        build, signing = content.split("\n  persistent-signing:", 1)
-        self.assertIn("prepare_persistent_signing:", build)
-        self.assertIn("default: false", build)
-        self.assertNotIn("secrets.", build)
-        self.assertIn("needs: canary", signing)
+        signing = (ROOT / ".github/workflows/android-canary-signing.yml").read_text()
+        self.assertNotIn("secrets.", content)
+        self.assertIn("workflow_dispatch:", signing)
+        self.assertIn("artifact_run_id:", signing)
         self.assertIn("environment: android-canary-signing", signing)
-        self.assertIn("inputs.prepare_persistent_signing", signing)
+        self.assertIn("github.actor == 'arthexis'", signing)
+        self.assertIn("gh run download", signing)
         self.assertNotIn("actions/checkout", signing)
         self.assertNotIn("setup-gradle", signing)
         self.assertIn("CANARY_CERT_SHA256", signing)
