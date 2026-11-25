@@ -70,14 +70,16 @@ def search(arguments):
     page, limit = arguments.get("page", 1), arguments.get("limit", 10)
     if type(page) is not int or not 1 <= page <= 1000 or type(limit) is not int or not 1 <= limit <= 30:
         raise ValueError("invalid_pagination")
-    leads = _query("crm.lead", [["type", "=", "opportunity"], ["active", "=", True], ["probability", "<", 100]],
-                   "id,name,partner_id,priority,description", limit + 1, (page - 1) * limit)
+    leads = _query("crm.lead", [["type", "=", "opportunity"], ["active", "=", True]],
+                   "id,name,partner_id,priority,description,probability", limit + 1, (page - 1) * limit)
     bindings = _consent_bindings()
     rows = []
     for lead in leads[:limit]:
         ident = lead.get("id")
         if type(ident) is not int or ident <= 0:
             raise RuntimeError("odoo_response_invalid")
+        if lead.get("probability", 0) == 100:
+            continue
         partner_id = _rel(lead, "partner_id")
         orders = _query("sale.order", [["opportunity_id", "=", ident], ["state", "!=", "cancel"]],
                         "id,name,state", 2)

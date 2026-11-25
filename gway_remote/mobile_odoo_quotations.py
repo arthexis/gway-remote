@@ -12,7 +12,7 @@ import tempfile
 import unicodedata
 from pathlib import Path
 
-ROOT = Path("/opt/odoo-gelectriic/bin")
+ROOT = Path("/opt/odoo-gelectriic/current/bin")
 MAX_PDF = 20 * 1024 * 1024
 MAX_RESULTS = 30
 MAX_PAGE = 1000
