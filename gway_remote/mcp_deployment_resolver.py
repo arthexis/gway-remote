@@ -13,6 +13,16 @@ _IDENTIFIER = re.compile(r"^[a-z][a-z0-9_-]{1,39}$")
 APPLICATION_ALIASES = {"gway-lcd-sound": "lcd_sound", "gway-agent-ops": "agentops"}
 
 
+def normalize_application(application):
+    """Normalize only fixed code-owned aliases before any request is bound."""
+    if type(application) is not str or not _IDENTIFIER.fullmatch(application):
+        raise ValueError("deployment_invalid_application")
+    canonical = APPLICATION_ALIASES.get(application, application)
+    if not _APP.fullmatch(canonical):
+        raise ValueError("deployment_unknown_application")
+    return canonical
+
+
 def deployment_catalog(*, discover=discover_installed_providers):
     """Return bounded, path-free declaration information from installed providers.
 
@@ -54,8 +64,18 @@ def deployment_catalog(*, discover=discover_installed_providers):
 def resolve_deployment(application, *, discover=discover_installed_providers):
     if type(application) is not str or not _APP.fullmatch(application):
         raise ValueError("invalid deployment application")
-    matches = [source for source in discover() if source.source_id == application]
-    if len(matches) != 1 or not matches[0].enabled or matches[0].deployment is None:
-        raise PermissionError("provider has no authorized deployment declaration")
+    sources = tuple(discover())
+    # Validate the whole registry, including alias collisions, before resolving.
+    deployment_catalog(discover=lambda: sources)
+    matches = [source for source in sources if source.source_id == application]
+    if not matches:
+        raise PermissionError("deployment_unknown_application")
+    if not matches[0].enabled:
+        raise PermissionError("deployment_not_enabled")
+    if matches[0].deployment is None:
+        raise PermissionError("deployment_no_declaration")
     from .mcp_deployment_contract import validate_deployment
-    return validate_deployment(matches[0].deployment)
+    try:
+        return validate_deployment(matches[0].deployment)
+    except (ValueError, TypeError, KeyError):
+        raise PermissionError("deployment_declaration_invalid") from None

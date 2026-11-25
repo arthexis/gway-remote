@@ -26,7 +26,7 @@ ALLOWED_METHODS = frozenset({"server/discover", "initialize", "notifications/ini
 ALLOWED_TOOLS = frozenset({"mcp_source_status",
     "node_list", "node_capabilities", "node_file_download", "node_exec_preview",
     "node_exec", "node_result", "node_cancel", "node_deploy", "node_deploy_status",
-    "node_deploy_preview", "workspace_inspect", "mcp_catalog_inspect", "node_exec_diagnostic"})
+    "node_deploy_preview", "node_deploy_discovery", "workspace_inspect", "mcp_catalog_inspect", "node_exec_diagnostic"})
 
 EXEC_TOOL_NAMES = frozenset({"node_exec", "node_result", "node_cancel", "node_deploy", "node_deploy_status", "node_exec_diagnostic"})
 from .watchtower_exec_failure_receipts import FailureReceipts, ExecutionStageError
@@ -73,6 +73,11 @@ EXEC_TOOLS = (
 )
 
 NODE_TOOLS = (
+    {"name": "node_deploy_discovery", "_meta": READ_SECURITY,
+     "description": "Inspect live node-owned deployment declarations; no execution or paths.",
+     "inputSchema": {"type": "object", "properties": {"node": {"type": "string"}},
+                     "required": ["node"], "additionalProperties": False},
+     "annotations": {"readOnlyHint": True}},
     {"name": "node_file_download", "_meta": READ_SECURITY,
      "description": "Read one 8 KiB Base64 chunk of a file up to 1 MiB from the operator-provisioned node export directory. Reassemble chunks using next_offset and verify sha256.",
      "inputSchema": {"type": "object", "properties": {
@@ -130,6 +135,10 @@ def scoped_tool(tool, scheme):
 def local_node_result(method, arguments, *, execution=None):
     """Only inventory operations, never a shell or user-supplied address."""
     from . import node_registry_inventory
+    if method == "node_deploy_discovery" and type(arguments) is dict and set(arguments) == {"node"}:
+        if execution is None:
+            raise PermissionError("deployment unavailable")
+        return execution.deployment_discovery(**arguments)
     if method == "node_deploy_preview" and type(arguments) is dict and \
             {"node", "application"} <= set(arguments) and \
             set(arguments) <= {"node", "application", "revision"}:
@@ -682,7 +691,7 @@ class Handler(BaseHTTPRequestHandler):
             self.end_headers()
             self.wfile.write(body)
             return
-        if payload["method"] == "tools/call" and payload.get("params", {}).get("name") in {"node_list", "node_capabilities", "node_file_download", "node_exec_preview", "node_deploy_preview", "workspace_inspect"}:
+        if payload["method"] == "tools/call" and payload.get("params", {}).get("name") in {"node_list", "node_capabilities", "node_file_download", "node_exec_preview", "node_deploy_preview", "node_deploy_discovery", "workspace_inspect"}:
             # The enrollment ledger lives on Watchtower. Never pass these tools
             # to gway-001, and never grant the gateway access to the root DB.
             arguments = payload["params"].get("arguments", {})

@@ -25,6 +25,7 @@ OPERATIONS = {
     "limits": frozenset({"operation", "node", "request_id"}),
     "file_read": frozenset({"operation", "node", "request_id", "filename", "offset"}),
     "workspace_inspect": frozenset({"operation", "node", "request_id", "repository"}),
+    "deployment_discovery": frozenset({"operation", "node", "request_id"}),
     "deployment_preview": frozenset({"operation", "node", "request_id", "application"}),
     "deployment_status": frozenset({"operation", "node", "request_id", "application"}),
     "deployment_run": frozenset({"operation", "node", "request_id", "application", "expected_revision"}),
@@ -99,10 +100,19 @@ def serve_one(raw, *, jobs=None, hostname=None):
         result = inspect_authorized({"node": host, "repository": req["repository"]},
                                     trusted_node=host)
         return {"node": host, "request_id": rid, "result": result}
+    if op == "deployment_discovery":
+        from .mcp_deployment_resolver import deployment_catalog
+        return {"node": host, "request_id": rid, "result": deployment_catalog()}
     if op in ("deployment_preview", "deployment_status", "deployment_run"):
         from .mcp_deployment_broker import preview, request_status, accept
         if op == "deployment_preview":
-            result = preview(req["application"])
+            try:
+                result = preview(req["application"])
+            except (ValueError, PermissionError) as exc:
+                allowed = {"deployment_unknown_application", "deployment_not_enabled",
+                           "deployment_no_declaration", "deployment_declaration_invalid"}
+                code = str(exc) if str(exc) in allowed else "deployment_invalid_application"
+                return {"node": host, "request_id": rid, "error": code}
         elif op == "deployment_status":
             result = request_status(req["application"], rid)
         else:

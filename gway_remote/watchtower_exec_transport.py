@@ -288,7 +288,7 @@ class SSHTransport:
         self._run = run
 
     def invoke(self, payload):
-        if type(payload) is not dict or payload.get("operation") not in {"submit","result","cancel","limits","lcd_sound_event","provider_list","provider_call","provider_read","file_read","deployment_preview","deployment_status","deployment_run","workspace_inspect","feed_provision_status","feed_provision_install"}:
+        if type(payload) is not dict or payload.get("operation") not in {"submit","result","cancel","limits","lcd_sound_event","provider_list","provider_call","provider_read","file_read","deployment_discovery","deployment_preview","deployment_status","deployment_run","workspace_inspect","feed_provision_status","feed_provision_install"}:
             raise ValueError("invalid node operation")
         fields = {"feed_provision_status":{"operation","node","request_id"},
                   "feed_provision_install":{"operation","node","request_id","principal","credential"},
@@ -302,6 +302,7 @@ class SSHTransport:
                   "provider_read":{"operation","node","request_id","provider","tool","arguments"},
                   "file_read":{"operation","node","request_id","filename","offset"},
                   "workspace_inspect":{"operation","node","request_id","repository"},
+                  "deployment_discovery":{"operation","node","request_id"},
                   "deployment_preview":{"operation","node","request_id","application"},
                   "deployment_status":{"operation","node","request_id","application"},
                   "deployment_run":{"operation","node","request_id","application","expected_revision"}}

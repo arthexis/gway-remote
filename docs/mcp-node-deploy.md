@@ -11,6 +11,11 @@ are both required. The provider's trusted manifest supplies the application,
 checkout, runner and pinned 40-character revision; the MCP caller supplies
 **none** of those filesystem paths or commands.
 
+- `node_deploy_discovery` (`gway:read`): reads the live provider declarations
+  on the attested node, returning only canonical source IDs, fixed aliases,
+  pinned target revisions and declaration status. `declared` does not prove
+  runner availability or an installed application revision. Enrollment
+  capability inventory is separate and is not live deployment discovery.
 - `node_deploy_preview` (`gway:read`): verifies current Watchtower eligibility,
   pinned SSH node identity and a correlated node declaration. The caller's
   optional `revision` is `main` only. The response returns the installed
@@ -25,6 +30,13 @@ checkout, runner and pinned 40-character revision; the MCP caller supplies
 - `node_deploy_status` (`gway:execute`): reads the existing request's
   correlated node receipt. A caller may not use another principal's ID, change
   the application/revision, or treat an unverified response as success.
+
+The code-owned aliases `gway-lcd-sound` and `gway-agent-ops` normalize to
+`lcd_sound` and `agentops` before preview, request binding and status checks.
+The provider installation revision and declared deployment target are distinct.
+`main` selects the already installed target pin; it does not fetch or refresh it.
+A provider-owned provisioning workflow must refresh and publish a verified pin
+before a new request. Existing requests stay bound to their original pin.
 
 The request carries `node`, `application`, optional `revision="main"`,
 and a server-reconciled `request_id` for start/status. It carries no shell

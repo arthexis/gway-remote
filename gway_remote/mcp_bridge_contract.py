@@ -17,7 +17,7 @@ OPERATIONS = frozenset({
     "inventory.list", "inventory.capabilities", "execution.preview",
     "file.read", "workspace.inspect",
     "execution.start", "execution.result", "execution.cancel",
-    "deployment.preview", "deployment.start", "deployment.status",
+    "deployment.discovery", "deployment.preview", "deployment.start", "deployment.status",
 })
 EXECUTE_OPERATIONS = frozenset({
     "execution.start", "execution.result", "execution.cancel",

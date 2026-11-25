@@ -92,10 +92,10 @@ class GatewayNodeInventoryTests(unittest.TestCase):
                 status, result = self.rpc("tools/list", version=version)
                 self.assertEqual(status, 200)
                 tools = result["result"]["tools"]
-                self.assertEqual(len(tools), 7)
+                self.assertEqual(len(tools), 8)
                 self.assertNotIn("github_workflow_runs", {x["name"] for x in tools})
                 self.assertTrue({"node_list", "node_capabilities", "node_file_download",
-                                 "node_exec_preview", "node_deploy_preview",
+                                 "node_exec_preview", "node_deploy_preview", "node_deploy_discovery",
                                  "workspace_inspect"} <= {x["name"] for x in tools})
                 self.assertTrue(all(x["annotations"]["readOnlyHint"] for x in tools))
                 self.assertNotIn("agent_submit", {x["name"] for x in tools})

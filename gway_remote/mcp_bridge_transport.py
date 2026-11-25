@@ -32,6 +32,8 @@ class BridgeReadUnavailable(PermissionError):
         "deployment_execution_disabled", "deployment_inventory_binding_denied",
         "deployment_pinned_transport_unavailable", "deployment_ssh_unverified",
         "deployment_node_protocol_unavailable", "deployment_declaration_unavailable",
+        "deployment_invalid_application", "deployment_unknown_application",
+        "deployment_not_enabled", "deployment_no_declaration", "deployment_declaration_invalid",
     })
 
     def __init__(self, code):
