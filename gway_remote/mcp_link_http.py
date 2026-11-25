@@ -20,7 +20,7 @@ AUTHORIZE_FIELDS = frozenset({"client_id", "redirect_uri", "resource", "response
                              "code_challenge", "code_challenge_method", "state", "scope"})
 TOKEN_FIELDS = frozenset({"client_id", "code", "redirect_uri", "code_verifier", "grant_type", "resource", "refresh_token"})
 REASONS = frozenset({"page", "code", "issued", "discovery", "malformed", "missing_parameter",
-                     "invalid_client", "invalid_request", "invalid_scope_or_pkce", "invalid_pkce",
+                     "invalid_client", "invalid_request", "invalid_scope", "invalid_pkce",
                      "invalid_state", "link_capacity_reached", "expired_session", "session_unavailable", "csrf_denied",
                      "invalid_bearer", "scope_selection_denied", "invalid_parent_credential", "invalid_grant", "unsupported_auth"})
 
@@ -206,7 +206,7 @@ class Handler(BaseHTTPRequestHandler):
             # Valid registered clients receive RFC 9207 issuer identification
             # on OAuth errors, not just on successful authorization codes.
             reason = failure_reason(exc)
-            error = ("invalid_scope" if reason == "invalid_scope_or_pkce"
+            error = ("invalid_scope" if reason == "invalid_scope"
                      else "invalid_request")
             destination = self.server.link.authorization_error_redirect(
                 client_id=values.get("client_id"),
