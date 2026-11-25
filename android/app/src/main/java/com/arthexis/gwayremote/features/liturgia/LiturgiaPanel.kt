@@ -1,5 +1,7 @@
 package com.arthexis.gwayremote.features.liturgia
 
+import android.content.Intent
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.foundation.layout.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -26,6 +28,11 @@ private data class SearchPageRequest(val query: SearchRequest, val offset: Int =
 /** A dedicated module view; the shell will register it after transport acceptance. */
 @Composable
 internal fun LiturgiaPanel(source: LiturgiaSource) {
+    val context = LocalContext.current
+    val library = remember(context) { LiturgiaLocalLibrary(context) }
+    var bookmarks by remember(library) { mutableStateOf(library.bookmarks()) }
+    var history by remember(library) { mutableStateOf(library.history()) }
+    var readingMode by remember(source) { mutableStateOf(false) }
     var tab by remember(source) { mutableIntStateOf(0) }
     var edition by remember(source) { mutableStateOf(DEFAULT_EDITION) }
     var editions by remember(source) { mutableStateOf(Load<List<Edition>>(loading = true)) }
@@ -45,6 +52,9 @@ internal fun LiturgiaPanel(source: LiturgiaSource) {
     var searchBook by remember(source, edition) { mutableStateOf("") }
     var searchRequest by remember(source, edition) { mutableStateOf<SearchPageRequest?>(null) }
     var searchData by remember(source, edition, searchRequest) { mutableStateOf(Load<VersePage>()) }
+    var compareEdition by remember(source, edition) { mutableStateOf("") }
+    var comparison by remember(source, edition, request, compareEdition) { mutableStateOf(Load<VersePage>()) }
+    var statistics by remember(source, edition) { mutableStateOf(Load<BibleStats>()) }
     var retry by remember(source) { mutableIntStateOf(0) }
 
     LaunchedEffect(source, retry) {
@@ -71,6 +81,23 @@ internal fun LiturgiaPanel(source: LiturgiaSource) {
         searchData = if (current == null) Load() else {
             searchData = Load(loading = true)
             load { source.search(current.query, edition, current.offset).also { require(it.translationId == edition) } }
+        }
+    }
+
+    LaunchedEffect(edition, request, passageData.value) {
+        val current = request
+        if (current != null && passageData.value?.items?.isNotEmpty() == true)
+            history = library.record(SavedPassage(edition, current.passage))
+    }
+    LaunchedEffect(source, edition, tab, retry) {
+        if (tab == 1) statistics = load { source.analytics(edition) }
+    }
+    LaunchedEffect(source, request, compareEdition, retry) {
+        val current = request
+        val other = compareEdition
+        if (current != null && other.isNotBlank()) {
+            comparison = Load(loading = true)
+            comparison = load { source.verse(current.passage, other, current.offset).also { require(it.translationId == other) } }
         }
     }
 
@@ -123,6 +150,9 @@ internal fun LiturgiaPanel(source: LiturgiaSource) {
                                 Text(reading.label, style = MaterialTheme.typography.titleMedium)
                                 Text(reading.citation ?: "Referencia no disponible")
                                 ModuleNotice(reading.note)
+                                reading.verses.forEach { verse ->
+                                    verse.text?.let { Text(verse.reference + " · " + it, style = MaterialTheme.typography.bodyLarge) }
+                                }
                                 reading.ranges.forEach { range ->
                                     TextButton(onClick = { openPassage(range) }) {
                                         Text("Consultar ${range.bookId} ${range.chapter}:${range.first ?: 1}")
@@ -160,8 +190,39 @@ internal fun LiturgiaPanel(source: LiturgiaSource) {
                     OutlinedButton(enabled = index >= 0 && index < chapters.lastIndex,
                         onClick = { openPassage(Passage(bookId, chapters[index + 1])) }) { Text("Siguiente") }
                 }
+                statistics.value?.let { Text("${it.books} libros · ${it.chapters} capítulos") }
+                request?.let { current ->
+                    val saved = SavedPassage(edition, current.passage)
+                    ModuleActions {
+                        OutlinedButton(onClick = { readingMode = !readingMode }) { Text(if (readingMode) "Tamaño normal" else "Lectura ampliada") }
+                        OutlinedButton(onClick = { bookmarks = library.toggle(saved) }) { Text(if (saved in bookmarks) "Quitar marcador" else "Guardar") }
+                        OutlinedButton(onClick = {
+                            val intent = Intent(Intent.ACTION_SEND).apply {
+                                type = "text/plain"
+                                putExtra(Intent.EXTRA_TEXT, saved.label)
+                            }
+                            context.startActivity(Intent.createChooser(intent, "Compartir referencia"))
+                        }) { Text("Compartir") }
+                    }
+                    Choice("Comparar traducción", available.firstOrNull { it.id == compareEdition }?.name ?: "Sin comparación",
+                        listOf("" to "Sin comparación") + available.filter { it.id != edition }.map { it.id to it.name }) { compareEdition = it }
+                }
                 ResultPage(passageData, request?.offset ?: 0, pageSize = 100,
-                    onPage = { offset -> request = request?.copy(offset = offset) })
+                    onPage = { offset -> request = request?.copy(offset = offset) }, enlarged = readingMode)
+                if (compareEdition.isNotBlank() && request != null) {
+                    Text("Comparación", style = MaterialTheme.typography.titleMedium)
+                    ResultPage(comparison, request?.offset ?: 0, pageSize = 100,
+                        onPage = { offset -> request = request?.copy(offset = offset) }, enlarged = readingMode)
+                }
+                Text("Marcadores", style = MaterialTheme.typography.titleMedium)
+                bookmarks.filter { it.edition == edition }.forEach { saved ->
+                    TextButton(onClick = { openPassage(saved.passage) }) { Text(saved.label) }
+                }
+                Text("Historial local", style = MaterialTheme.typography.titleMedium)
+                history.filter { it.edition == edition }.forEach { saved ->
+                    TextButton(onClick = { openPassage(saved.passage) }) { Text(saved.label) }
+                }
+                if (history.isNotEmpty()) TextButton(onClick = { history = library.clearHistory() }) { Text("Borrar historial") }
             }
             else -> {
                 OutlinedTextField(query, { query = it }, label = { Text("Palabra o frase") },
@@ -210,7 +271,7 @@ private fun Choice(label: String, selected: String, items: List<Pair<String, Str
 }
 
 @Composable
-private fun ResultPage(state: Load<VersePage>, offset: Int, pageSize: Int, onPage: (Int) -> Unit, onVerse: ((Verse) -> Unit)? = null) {
+private fun ResultPage(state: Load<VersePage>, offset: Int, pageSize: Int, onPage: (Int) -> Unit, onVerse: ((Verse) -> Unit)? = null, enlarged: Boolean = false) {
     ModuleLoading(state.loading)
     ModuleNotice(if (state.error) "Consulta no disponible." else null, state.error)
     state.value?.let { result ->
@@ -221,7 +282,7 @@ private fun ResultPage(state: Load<VersePage>, offset: Int, pageSize: Int, onPag
             ElevatedCard(Modifier.fillMaxWidth()) {
                 Column(Modifier.padding(12.dp)) {
                     Text(verse.reference, style = MaterialTheme.typography.labelMedium)
-                    if (result.textAvailable) verse.text?.let { Text(it, style = MaterialTheme.typography.bodyLarge) }
+                    if (result.textAvailable) verse.text?.let { Text(it, style = if (enlarged) MaterialTheme.typography.headlineSmall else MaterialTheme.typography.bodyLarge) }
                     if (onVerse != null) TextButton(onClick = { onVerse(verse) }) { Text("Abrir") }
                 }
             }

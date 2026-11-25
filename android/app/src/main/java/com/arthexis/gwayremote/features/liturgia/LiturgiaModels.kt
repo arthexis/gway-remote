@@ -12,7 +12,7 @@ internal data class Passage(
 )
 internal data class Reading(
     val role: String, val label: String, val citation: String?, val status: String,
-    val ranges: List<Passage>, val note: String? = null
+    val ranges: List<Passage>, val note: String? = null, val verses: List<Verse> = emptyList()
 )
 internal data class DayReadings(
     val date: LocalDate, val celebration: String?, val selectedForm: String?,
@@ -39,8 +39,11 @@ internal data class SearchRequest(
             query.count { it == '*' || it == '?' } <= 1))
 }
 
-/** Implemented by the authenticated transport in a later integration change. */
+internal data class BibleStats(val books: Int, val chapters: Int)
+
+/** Fixed read-only transport. */
 internal interface LiturgiaSource {
+    suspend fun analytics(edition: String): BibleStats
     suspend fun translations(): List<Edition>
     suspend fun books(edition: String): List<BibleBook>
     suspend fun readings(day: LocalDate, form: String, edition: String): DayReadings

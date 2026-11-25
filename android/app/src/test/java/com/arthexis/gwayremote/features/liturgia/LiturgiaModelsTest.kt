@@ -30,4 +30,11 @@ class LiturgiaModelsTest {
     @Test fun referencesPreserveBookIdentity() {
         assertEquals("DAG 13:1", Verse("DAG", 13, 1, null).reference)
     }
+    @Test fun savedPassagesContainOnlyValidatedReferences() {
+        val saved = SavedPassage("spanishdhh", Passage("JHN", 3, 16, 17))
+        assertEquals(saved, SavedPassage.decode(saved.encode()))
+        assertEquals("spanishdhh|JHN|3|16|17", saved.encode())
+        assertNull(SavedPassage.decode("spanishdhh|JHN|3|17|16"))
+        assertNull(SavedPassage.decode("spanishdhh|JHN|3|16|17|extra"))
+    }
 }

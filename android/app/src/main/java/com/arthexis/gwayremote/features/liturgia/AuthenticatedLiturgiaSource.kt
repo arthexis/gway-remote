@@ -16,6 +16,12 @@ internal class AuthenticatedLiturgiaSource(private val endpoint: String, private
             response.getJSONObject("result").also { require(it.getInt("schema_version") == 1) }
         }
 
+    override suspend fun analytics(edition: String): BibleStats {
+        val data = read("analytics", JSONObject().put("translation", edition))
+        require(data.getString("translation_id") == edition)
+        return BibleStats(data.getInt("books"), data.getInt("chapters"))
+    }
+
     override suspend fun translations(): List<Edition> =
         read("translations").getJSONArray("items").objects().map {
             Edition(it.getString("id"), it.getString("name"), it.getBoolean("text_available") && it.getString("id") != DEFAULT_EDITION)
@@ -39,7 +45,11 @@ internal class AuthenticatedLiturgiaSource(private val endpoint: String, private
                 Reading(it.getString("role"), it.getString("label"), it.optionalString("citation"), it.getString("status"),
                     it.getJSONArray("ranges").objects().map { r ->
                         Passage(r.getString("book_id"), r.getInt("chapter"), r.getInt("first"), r.getInt("last"))
-                    }, it.optionalString("note"))
+                    }, it.optionalString("note"),
+                    if (edition != DEFAULT_EDITION && it.getString("status") == "text_available")
+                        it.getJSONArray("verses").objects().map { v ->
+                            Verse(v.getString("book_id"), v.getInt("chapter"), v.getInt("verse"), v.optionalString("text"))
+                        } else emptyList())
             }, data.getJSONArray("sources").objects().map {
                 listOfNotNull(it.optionalString("name"), it.optionalString("url")).joinToString(" · ")
             }, data.optionalString("selection_source"))
