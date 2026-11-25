@@ -16,3 +16,18 @@ else
   sudo install -m 755 "$TMP/gway-remote" /usr/local/bin/gway-remote
 fi
 echo 'Installed /usr/local/bin/gway-remote'
+# Stage 2 alias is opt-in until controlled deployment review. Do not overwrite
+# an unrelated command. The wrapper follows later gway-remote updates.
+if [ "${GWAY_INSTALL_FEED_ALIAS:-0}" = 1 ]; then
+  printf '#!/bin/sh\nexec /usr/local/bin/gway-remote feed "$@"\n' > "$TMP/feed"
+  if test -e /usr/local/bin/feed || test -L /usr/local/bin/feed; then
+    if ! test -f /usr/local/bin/feed || test -L /usr/local/bin/feed || ! cmp -s "$TMP/feed" /usr/local/bin/feed; then
+      echo 'feed alias already exists; refusing to replace it' >&2
+      exit 1
+    fi
+  elif test -w /usr/local/bin; then
+    install -m 755 "$TMP/feed" /usr/local/bin/feed
+  else
+    sudo install -m 755 "$TMP/feed" /usr/local/bin/feed
+  fi
+fi

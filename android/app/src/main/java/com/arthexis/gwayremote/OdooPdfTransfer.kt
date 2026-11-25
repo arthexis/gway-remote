@@ -9,6 +9,17 @@ import java.net.URL
  * Unlike DownloadManager, this never places the bearer token in a URL.
  */
 object OdooPdfTransfer {
+    // Odoo's PDF CLI adds a Spanish prefix and sanitizes the native order name.
+    // Accept only this exact deterministic name, or the legacy exact name.
+    internal fun matchesOfficialFilename(actual: String, orderName: String): Boolean {
+        val safe = java.text.Normalizer.normalize(orderName, java.text.Normalizer.Form.NFC)
+            .map { if (it.isLetterOrDigit() || it in " _-.()") it else '_' }
+            .joinToString("").replace(Regex(" +"), " ").trim(' ', '.', '_')
+        val native = if (safe.startsWith("Cotización ", ignoreCase = true)) safe else "Cotización $safe"
+        return actual == orderName + ".pdf" ||
+            (safe.isNotBlank() && safe.length <= 128 && actual == native + ".pdf")
+    }
+
     private const val MAX_PDF = 20L * 1024L * 1024L
 
     fun download(endpoint: String, token: String, orderId: Int, expectedName: String,
@@ -37,7 +48,7 @@ object OdooPdfTransfer {
                 .substringBefore(';')
             require(encoded.isNotBlank()) { "Missing official quotation filename" }
             val actual = java.net.URLDecoder.decode(encoded.replace("+", "%2B"), "UTF-8")
-            require(actual == expectedName + ".pdf") {
+            require(matchesOfficialFilename(actual, expectedName)) {
                 "Quotation name changed in Odoo; refresh and download again"
             }
             val sizeHint = conn.contentLengthLong

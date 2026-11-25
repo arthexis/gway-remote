@@ -9,6 +9,7 @@ import json
 import re
 import subprocess
 import tempfile
+import unicodedata
 from pathlib import Path
 
 ROOT = Path("/opt/odoo-gelectriic/bin")
@@ -40,6 +41,36 @@ def _valid_id(order_id):
     return order_id
 
 
+# Only recognized vehicle makes in the actual quotation template qualify.
+# Generic EVSE/industrial templates have no vehicle brand.
+_VEHICLE_BRANDS = ("Mini Cooper", "Porsche", "Audi", "Tesla", "BMW", "BYD",
+                   "Zeeker", "Zeekr", "Mini", "Mitsubishi", "Changan",
+                   "JAC", "Geely", "Cupra")
+
+def suggested_pdf_filename(row):
+    template = row.get("sale_order_template_id")
+    partner = row.get("partner_id")
+    name = row.get("name")
+    if (not isinstance(template, list) or len(template) != 2 or
+            type(template[0]) is not int or template[0] <= 0 or
+            not isinstance(template[1], str) or not isinstance(partner, list) or
+            len(partner) != 2 or type(partner[0]) is not int or partner[0] <= 0 or
+            not isinstance(partner[1], str) or not isinstance(name, str)):
+        return None
+    folio = re.match(r"^([A-Za-z]+[0-9]+)(?:\s|$)", name)
+    label = re.sub(r"^(?:Instalación|Inst\.)\s+", "", template[1].strip(), flags=re.I)
+    brand = next((make for make in _VEHICLE_BRANDS
+                  if re.match(re.escape(make) + r"(?:\s|$)", label, re.I)), None)
+    # Strip diacritics; select one letter from each name word, never path characters.
+    normalized = unicodedata.normalize("NFKD", partner[1])
+    words = re.findall(r"[A-Za-z]+", "".join(ch for ch in normalized
+                                             if not unicodedata.combining(ch)))
+    initials = "".join(word[0].upper() for word in words)
+    if not folio or not brand or not 1 <= len(initials) <= 16:
+        return None
+    return f"Cotización {folio[1]} {initials} - {brand}.pdf"
+
+
 def search(arguments):
     if type(arguments) is not dict or set(arguments) - {"query", "limit", "page"}:
         raise ValueError("invalid_arguments")
@@ -59,7 +90,7 @@ def search(arguments):
               ["partner_id", "ilike", query]] if query else [quote_states]
     raw = _run("odoo-domain", [
         "--model", "sale.order", "--domain", json.dumps(domain),
-        "--fields", "id,name,state,partner_id,date_order,amount_total,currency_id",
+        "--fields", "id,name,state,partner_id,date_order,amount_total,currency_id,sale_order_template_id",
         "--order", "date_order desc,id desc", "--limit", str(limit + 1),
         "--offset", str((page - 1) * limit)])
     try:
@@ -79,6 +110,7 @@ def search(arguments):
                 "total": row.get("amount_total", 0),
                 "currency": row.get("currency_id", ["", ""])[1],
                 "state": row["state"],
+                "suggested_pdf_filename": suggested_pdf_filename(row),
             })
     except (ValueError, KeyError, TypeError, IndexError) as exc:
         raise RuntimeError("odoo_response_invalid") from exc

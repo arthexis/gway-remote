@@ -1,0 +1,12 @@
+[Unit]
+Description=Periodically drain local GWay Activity Feed outbox
+
+[Timer]
+OnCalendar=*-*-* *:*:00
+Persistent=true
+RandomizedDelaySec=10
+AccuracySec=5s
+Unit=gway-activity-feed.service
+
+[Install]
+WantedBy=timers.target

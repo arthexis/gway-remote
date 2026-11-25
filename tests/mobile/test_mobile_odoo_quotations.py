@@ -9,6 +9,43 @@ from gway_remote import mobile_odoo_quotations as odoo
 
 
 class OdooMobileBridgeTests(unittest.TestCase):
+    def test_suggested_name_uses_real_template_and_native_folio(self):
+        base = {"name": "S100", "partner_id": [12, "Andrés Duarte Luna"]}
+        for template, make in (
+            ("Instalación Porsche 9-10 kW 40A", "Porsche"),
+            ("Inst. Porsche 9-10 kW 40A +CFE", "Porsche"),
+            ("Instalación Audi 9-10 kW 40A", "Audi"),
+            ("Instalación Tesla 7-7.5 kW 32A", "Tesla"),
+            ("Instalación Mini Cooper 7-7.5 kW 32A", "Mini Cooper"),
+        ):
+            with self.subTest(template=template):
+                self.assertEqual(odoo.suggested_pdf_filename(
+                    dict(base, sale_order_template_id=[9, template])),
+                    f"Cotización S100 ADL - {make}.pdf")
+
+    def test_suggested_name_missing_unknown_or_bad_metadata(self):
+        base = {"name": "S100", "partner_id": [12, "Ángel / Díaz"],
+                "sale_order_template_id": [9, "Instalación Porsche 40A"]}
+        self.assertEqual(odoo.suggested_pdf_filename(base),
+                         "Cotización S100 AD - Porsche.pdf")
+        for changes in ({"sale_order_template_id": False},
+                        {"sale_order_template_id": [2, "Instalación Siemens"]},
+                        {"sale_order_template_id": [2, "Porsche/../../bad"]},
+                        {"partner_id": False}, {"partner_id": [1, "123"]},
+                        {"name": "../S100"}):
+            self.assertIsNone(odoo.suggested_pdf_filename(dict(base, **changes)))
+
+    def test_search_exposes_suggestion_without_changing_native_name(self):
+        row = {"id": 100, "name": "S100", "state": "draft",
+               "partner_id": [12, "Andrés Duarte Luna"],
+               "sale_order_template_id": [9, "Instalación Porsche 40A"]}
+        with patch.object(odoo, "_run", return_value=json.dumps([row])) as run:
+            result = odoo.search({})["quotations"][0]
+        self.assertEqual(result["name"], "S100")
+        self.assertEqual(result["suggested_pdf_filename"],
+                         "Cotización S100 ADL - Porsche.pdf")
+        self.assertIn("sale_order_template_id", run.call_args.args[1][5])
+
     def test_search_is_read_only_and_bounded(self):
         calls = []
         def runner(executable, args, timeout=30):
