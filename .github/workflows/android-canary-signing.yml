@@ -23,6 +23,8 @@ jobs:
     timeout-minutes: 10
     permissions:
       contents: read
+      actions: read
+      pull-requests: read
     steps:
       - name: Verify source run and download exact artifact
         env:
@@ -93,8 +95,8 @@ jobs:
           done
           rm -f "$DEST/"*.idsig
           (cd "$DEST" && sha256sum gway-remote-canary.apk gway-remote-canary-test.apk > SHA256SUMS)
-          printf 'Repository: %s\nPull-Request: %s\nSource-Commit: %s\nActions-Run: %s\nSigning: persistent-canary-v1\nCertificate-SHA256: %s\n' \
-            "$GITHUB_REPOSITORY" "$PR_NUMBER" "$EXPECTED_SHA" "$GITHUB_RUN_ID" "$EXPECTED_CERT" > "$DEST/PROVENANCE.txt"
+          printf 'Repository: %s\nPull-Request: %s\nSource-Commit: %s\nActions-Run: %s\nSource-Actions-Run: %s\nSigning: persistent-canary-v1\nCertificate-SHA256: %s\n' \
+            "$GITHUB_REPOSITORY" "$PR_NUMBER" "$EXPECTED_SHA" "$GITHUB_RUN_ID" "$SOURCE_RUN" "$EXPECTED_CERT" > "$DEST/PROVENANCE.txt"
       - uses: actions/upload-artifact@v4
         with:
           name: persistent-canary-candidate-${{ github.run_id }}
