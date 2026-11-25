@@ -218,7 +218,7 @@ class ProbeWorkerPurposeTests(unittest.TestCase):
         from tempfile import TemporaryDirectory
         from pathlib import Path
         from gway_remote import node_exec_worker as w
-        with TemporaryDirectory() as d, patch.object(w,'require_account'), patch.object(w,'user_manager_env',return_value={}):
+        with TemporaryDirectory() as d, patch.object(w,'require_account'), patch.object(w,'user_manager_env',return_value={}),patch.object(w,'selected_user',return_value=w.DEFAULT_USER),patch.object(w,'configured_max_active',return_value=2):
             jobs=w.Jobs(Path(d)/'jobs.sqlite3',max_active=2)
             jobs.submit('gway-001',c.nonce_command(RID),request_id=RID,execute=Mock())
             with self.assertRaises(PermissionError):jobs.probe_result(RID)
@@ -244,7 +244,7 @@ class ProbeFullChainCanary(unittest.TestCase):
         from gway_remote.mcp_bridge_server import serve_managed_sessions
         from gway_remote.watchtower_exec_transport import RequestLedger,SSHTransport
         from gway_remote import node_exec_worker as w
-        with TemporaryDirectory() as d, patch.object(w,'require_account'),patch.object(p,'require_account'),patch.object(w,'user_manager_env',return_value={}),patch.object(w,'command_environment',return_value={'PATH':'/usr/bin:/bin'}):
+        with TemporaryDirectory() as d, patch.object(w,'require_account'),patch.object(p,'require_account'),patch.object(w,'user_manager_env',return_value={}),patch.object(w,'selected_user',return_value=w.DEFAULT_USER),patch.object(w,'configured_max_active',return_value=2),patch.object(w,'command_environment',return_value={'PATH':'/usr/bin:/bin'}):
             root=Path(d);reg=BearerRegistry(root/'auth');ver=BearerVerifier(root/'auth');pair=reg.issue_health_probe_pair(operator_approved=True)
             other=reg.issue_health_probe_pair(operator_approved=True)
             jobs=w.Jobs(root/'jobs',max_active=2); launches=[]
