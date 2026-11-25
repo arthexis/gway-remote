@@ -1,6 +1,7 @@
 """Read-only opportunity projection; no partner-only quotation matching."""
 import json
 import re
+from html import unescape
 from .mobile_odoo_quotations import _run
 
 def _query(model, domain, fields, limit, offset=0):
@@ -21,6 +22,14 @@ def _rel(row, field):
 def _text(row, field):
     value = row.get(field)
     return value.strip() if isinstance(value, str) else ""
+
+def _request_type(description):
+    # Imported CRM descriptions start with a verified normalized priority and type.
+    text = unescape(re.sub(r"<[^>]*>", "", description)).strip()
+    match = re.match(r"^(?:Urgente|Alta|Normal|Baja)\s+-\s+(Nueva|Desmontado y Montado)\s+-\s+", text, re.I)
+    if not match:
+        return ""
+    return "new" if match[1].lower() == "nueva" else "remove_and_install"
 
 def search(arguments):
     if type(arguments) is not dict or set(arguments) - {"page", "limit"}:
@@ -69,7 +78,7 @@ def search(arguments):
                      "phone": _text(partner, "phone") or _text(partner, "mobile"),
                      "complete_address": ", ".join(filter(None, address)),
                      "priority": {"3": "Urgente", "2": "Alta", "1": "Normal"}.get(_text(lead, "priority"), ""),
-                     "request_type": "", "vehicle_model": _text(vehicle, "model"), "vin": _text(vehicle, "vin"),
+                     "request_type": _request_type(_text(lead, "description")), "vehicle_model": _text(vehicle, "model"), "vin": _text(vehicle, "vin"),
                      "consent_url": None, "quotation_name": _text(order, "name") or None,
                      "quotation_state": state or None})
     return {"opportunities": rows, "has_next": len(leads) > limit}
