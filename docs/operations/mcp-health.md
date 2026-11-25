@@ -114,3 +114,26 @@ service identity and protected root helper, typed failure/reconciliation across
 all shared transport stages, AgentOps consumption of sanitized probe receipts,
 independent alternate-repair-route evidence, isolated full-chain canary and
 production rollout acceptance. The recovery policy remains disabled.
+
+### Renewable probe rollout (#738)
+
+After reviewed pinned deployment, a Watchtower console operator may issue a
+purpose-exclusive renewable identity with `sudo gway-remote bearer issue-health-probe --days 30`.
+Type the node confirmation. The parent ID is revocable using the existing
+console revoke command; access tokens last at most one hour. Reserved-client
+one-use refresh replay revokes the family. No normal grants or browser issuance.
+Gateway opt-in `GWAY_MCP_HEALTH_PROBE_ENABLED=1` requires separate acceptance.
+On gway-001 use `sudo /usr/local/libexec/gway-mcp-external-health --install-probe`
+and paste JSON at the hidden prompt, never into chat, argv or logs. Existing
+identity/pending state cannot be silently overwritten. For replacement revoke
+old parent and reconcile or privately archive its pending receipt first.
+
+The existing observer timer starts a separate root-sandboxed execution helper
+without changing cadence. It checks the exclusive catalog, makes at most one
+attempt per 15 minutes, and persists a pending nonce before dispatch. Uncertain
+responses are reconciled by owned reads, never replayed. Lost claims with no
+authoritative receipt require console reconciliation. Durable node purpose
+markers prevent ordinary matching commands from being accepted as probe jobs.
+The public projection contains fixed categories, timestamp and typed stage.
+Independent cloud repair-route evidence is required separately; the node helper
+always reports that evidence as unverified. Recovery remains disabled.

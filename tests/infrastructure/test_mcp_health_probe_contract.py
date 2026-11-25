@@ -28,22 +28,20 @@ class ProbeContractTests(unittest.TestCase):
     def test_node_constructs_command_and_rejects_raw(self,_):
         jobs=Mock(); req={'operation':'health_probe_submit','node':'gway-001','request_id':RID}
         self.assertEqual(p.serve_one(json.dumps(req).encode(),jobs=jobs,hostname='gway-001')['status'],'accepted')
-        jobs.submit.assert_called_once_with('gway-001',c.nonce_command(RID),request_id=RID)
+        jobs.submit.assert_called_once_with('gway-001',c.nonce_command(RID),request_id=RID,health_probe=True)
         with self.assertRaises(ValueError):p.serve_one(json.dumps({**req,'command':'id'}).encode(),jobs=jobs,hostname='gway-001')
         with self.assertRaises(PermissionError):p.serve_one(json.dumps({**req,'node':'gway-004'}).encode(),jobs=jobs,hostname='gway-004')
 
     @patch.object(p,'require_account')
     def test_node_projects_receipt_without_leaking_output(self,_):
         jobs=Mock(); req={'operation':'health_probe_result','node':'gway-001','request_id':RID}
-        jobs.row.return_value={'node':'gway-001','command':'secret other job'}
+        jobs.probe_result.side_effect=PermissionError('wrong purpose')
         with self.assertRaises(PermissionError):p.serve_one(json.dumps(req).encode(),jobs=jobs,hostname='gway-001')
-        jobs.result.assert_not_called()
-        jobs.row.return_value['command']=c.nonce_command(RID)
-        jobs.result.return_value={'schema':1,'node':'gway-001','request_id':RID,'status':'succeeded','stdout':'private output','stderr':'','exit_code':0,'truncated':False,'cursor':None}
-        result=p.serve_one(json.dumps(req).encode(),jobs=jobs,hostname='gway-001')
-        self.assertFalse(result['nonce_match']);self.assertNotIn('stdout',result)
-        jobs.result.return_value['stdout']=RID
+        jobs.probe_result.side_effect=None
+        jobs.probe_result.return_value={'schema':1,'node':'gway-001','request_id':RID,'status':'succeeded','nonce_match':True}
         self.assertTrue(p.serve_one(json.dumps(req).encode(),jobs=jobs,hostname='gway-001')['nonce_match'])
+        self.assertNotIn('stdout',jobs.probe_result.return_value)
+
 
 
 class ProbeScopeTests(unittest.TestCase):
@@ -182,3 +180,100 @@ class ProbeDiagnosticTests(ProbeLedgerTests):
         self.start(RID)
         with self.assertRaises(PermissionError):
             self.ledger.reserve(request_id=RID,node='gway-001',command='true',principal=self.principal,host_key_sha256='b'*64,expires_at=(datetime.now(timezone.utc)+timedelta(minutes=1)).isoformat())
+
+
+class RenewableProbeTests(unittest.TestCase):
+    def test_rotation_stable_principal_and_replay(self):
+        from gway_remote.mcp_bearer import BearerRegistry,BearerVerifier,PROBE_SCOPE,PROBE_CLIENT
+        from tempfile import TemporaryDirectory
+        from pathlib import Path
+        with TemporaryDirectory() as d:
+            path=Path(d)/'registry';registry=BearerRegistry(path);verifier=BearerVerifier(path)
+            pair=registry.issue_health_probe_pair(operator_approved=True)
+            self.assertEqual(verifier.health_probe_principal(pair['access_token']),pair['parent_id'])
+            with self.assertRaises(ValueError):registry.rotate_oauth_refresh(token=pair['refresh_token'],client_id='ordinary')
+            next_pair=registry.rotate_oauth_refresh(token=pair['refresh_token'],client_id=PROBE_CLIENT)
+            self.assertEqual(next_pair['scope'],PROBE_SCOPE)
+            self.assertLessEqual(next_pair['expires_in'],3600)
+            self.assertEqual(verifier.health_probe_principal(next_pair['access_token']),pair['parent_id'])
+            with self.assertRaises(ValueError):registry.rotate_oauth_refresh(token=pair['refresh_token'],client_id=PROBE_CLIENT)
+            self.assertFalse(verifier.verify(next_pair['access_token'],required_scope=PROBE_SCOPE))
+
+    def test_parent_revocation_and_exclusive_client(self):
+        from gway_remote.mcp_bearer import BearerRegistry,BearerVerifier,PROBE_SCOPE,PROBE_CLIENT
+        from tempfile import TemporaryDirectory
+        from pathlib import Path
+        with TemporaryDirectory() as d:
+            path=Path(d)/'registry';registry=BearerRegistry(path);verifier=BearerVerifier(path)
+            pair=registry.issue_health_probe_pair(operator_approved=True)
+            registry.revoke(pair['parent_id'])
+            self.assertFalse(verifier.verify(pair['access_token'],required_scope=PROBE_SCOPE))
+            with self.assertRaises(ValueError):registry.rotate_oauth_refresh(token=pair['refresh_token'],client_id=PROBE_CLIENT)
+            ordinary=registry.issue()
+            with self.assertRaises(ValueError):registry.issue_oauth_pair(parent_id=ordinary.split('_')[1],scope='gway:read',client_id=PROBE_CLIENT)
+
+
+class ProbeWorkerPurposeTests(unittest.TestCase):
+    def test_ordinary_nonce_is_not_probe_and_cannot_be_rebound(self):
+        from tempfile import TemporaryDirectory
+        from pathlib import Path
+        from gway_remote import node_exec_worker as w
+        with TemporaryDirectory() as d, patch.object(w,'require_account'), patch.object(w,'user_manager_env',return_value={}):
+            jobs=w.Jobs(Path(d)/'jobs.sqlite3',max_active=2)
+            jobs.submit('gway-001',c.nonce_command(RID),request_id=RID,execute=Mock())
+            with self.assertRaises(PermissionError):jobs.probe_result(RID)
+            with self.assertRaises(ValueError):jobs.submit('gway-001',c.nonce_command(RID),request_id=RID,execute=Mock(),health_probe=True)
+            rid='b'*32
+            jobs.submit('gway-001',c.nonce_command(rid),request_id=rid,execute=Mock(),health_probe=True)
+            with self.assertRaises(ValueError):jobs.submit('gway-001',c.nonce_command(rid),request_id=rid,execute=Mock())
+            with jobs.connection() as db:db.execute("UPDATE jobs SET status='succeeded',exit_code=0,output=? WHERE id=?",(rid.encode(),rid))
+            self.assertTrue(jobs.probe_result(rid)['nonce_match'])
+
+
+class ProbeFullChainCanary(unittest.TestCase):
+    def test_authenticated_http_signed_bridge_and_real_worker(self):
+        from tempfile import TemporaryDirectory
+        from pathlib import Path
+        from types import SimpleNamespace
+        from threading import Thread
+        from urllib.request import Request,urlopen
+        from urllib.error import HTTPError
+        from gway_remote.mcp_bearer import BearerRegistry,BearerVerifier,PROBE_CLIENT
+        from gway_remote.mcp_bearer_gateway import make_server
+        from gway_remote.mcp_bridge_sessions import BridgeSessions
+        from gway_remote.mcp_bridge_server import serve_managed_sessions
+        from gway_remote.watchtower_exec_transport import RequestLedger,SSHTransport
+        from gway_remote import node_exec_worker as w
+        with TemporaryDirectory() as d, patch.object(w,'require_account'),patch.object(p,'require_account'),patch.object(w,'user_manager_env',return_value={}),patch.object(w,'command_environment',return_value={'PATH':'/usr/bin:/bin'}):
+            root=Path(d);reg=BearerRegistry(root/'auth');ver=BearerVerifier(root/'auth');pair=reg.issue_health_probe_pair(operator_approved=True)
+            other=reg.issue_health_probe_pair(operator_approved=True)
+            jobs=w.Jobs(root/'jobs',max_active=2); launches=[]
+            def launch(argv,**kw):
+                launches.append(argv[-1]);w.worker(jobs.path,argv[-1])
+            actual_submit=jobs.submit
+            jobs.submit=lambda *a,**kw:actual_submit(*a,execute=launch,**kw)
+            node=SimpleNamespace(node='gway-001',host_key_sha256='b'*64,known_hosts=root/'kh',identity_file=root/'key',remote_user='arthe',ssh_host_alias='gway-001',wireguard_address='10.0.0.1')
+            def isolated_ssh(argv,input,**kw):
+                return SimpleNamespace(stdout=json.dumps(p.serve_one(input,jobs=jobs,hostname='gway-001')).encode())
+            transport=SSHTransport(node,run=isolated_ssh);execution=Mock();execution.ledger=RequestLedger(root/'requests');execution.relay.transport=transport
+            sessions=BridgeSessions(verifier=ver,allowed_node=lambda token,node:node=='gway-001',read_principal=lambda _:None,execution=execution)
+            path=root/'bridge.sock';key=b'k'*32
+            with serve_managed_sessions(path,key=key,audience=None,sessions=sessions) as bridge:
+                bt=Thread(target=bridge.serve_forever,daemon=True);bt.start()
+                try:
+                    with make_server(('127.0.0.1',0),ver,'http://127.0.0.1:1/mcp','test',execution=execution,bridge_sessions=sessions,bridge_transport=(str(path),key),health_probe_enabled=True) as server:
+                        ht=Thread(target=server.serve_forever,daemon=True);ht.start()
+                        def call(token,name,args):
+                            data=json.dumps({'jsonrpc':'2.0','id':1,'method':'tools/call','params':{'name':name,'arguments':args}}).encode()
+                            req=Request('http://127.0.0.1:%s/mcp'%server.server_port,data,{'Authorization':'Bearer '+token,'Content-Type':'application/json'})
+                            with urlopen(req,timeout=5) as res:return json.loads(json.load(res)['result']['content'][0]['text'])
+                        try:
+                            args={'node':'gway-001','request_id':RID,'command':c.nonce_command(RID),'wait_seconds':0}
+                            call(pair['access_token'],'node_exec',args);call(pair['access_token'],'node_exec',args)
+                            self.assertEqual(launches,[RID]);next_pair=reg.rotate_oauth_refresh(token=pair['refresh_token'],client_id=PROBE_CLIENT)
+                            self.assertTrue(call(next_pair['access_token'],'node_result',{'request_id':RID})['nonce_match'])
+                            with self.assertRaises(HTTPError):call(other['access_token'],'node_result',{'request_id':RID})
+                            reg.revoke(pair['parent_id'])
+                            with self.assertRaises(HTTPError):call(next_pair['access_token'],'node_result',{'request_id':RID})
+                        finally:server.shutdown();ht.join(5)
+                finally:bridge.shutdown();bt.join(5)

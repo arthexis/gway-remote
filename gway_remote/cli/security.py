@@ -12,6 +12,8 @@ def register(subparsers, names):
         bearer_issue = bearer_ops.add_parser("issue", help="Generate a scoped MCP bearer at the local console")
         bearer_issue.add_argument("--days", type=int, default=30)
         bearer_issue.add_argument("--scope", choices=("gway:read", "gway:execute"), default="gway:read")
+        probe = bearer_ops.add_parser("issue-health-probe", help="Issue isolated renewable probe identity at Watchtower console")
+        probe.add_argument("--days", type=int, default=30)
         bearer_revoke = bearer_ops.add_parser("revoke", help="Revoke an issued bearer by public ID")
         bearer_revoke.add_argument("key_id")
     if "exec" in names:
@@ -129,8 +131,13 @@ def dispatch(args, parser):
         # CLI-exclusive operator action. Never registered in MCP, mobile API, or
         # Agent Ops adapters. Issue requires an interactive console to avoid
         # leaking the one-time plaintext token to CI, log capture, or agents.
-        if args.bearer_action == "issue" and not (sys.stdin.isatty() and sys.stdout.isatty()):
+        if args.bearer_action in ("issue", "issue-health-probe") and not (sys.stdin.isatty() and sys.stdout.isatty()):
             parser.exit(1, "gway-remote: issuing a bearer requires an interactive console\\n")
+        if args.bearer_action == "issue-health-probe":
+            if not 1 <= args.days <= 30:
+                parser.error("probe lifetime must be 1..30 days")
+            if input("Type gway-001 to authorize an isolated health probe: ") != "gway-001":
+                parser.exit(1, "probe issuance cancelled\n")
         from ..mcp_bearer_cli import assume_auth_identity, BearerAdminError
         try:
             assume_auth_identity()
@@ -145,6 +152,9 @@ def dispatch(args, parser):
                 print(registry.issue(scope=args.scope, lifetime=args.days * 86400,
                                      operator_approved=(args.scope == "gway:execute")))
                 print("Save the credential securely; this value will not be shown again.", file=sys.stderr)
+            elif args.bearer_action == "issue-health-probe":
+                print(json.dumps(registry.issue_health_probe_pair(lifetime=args.days*86400,operator_approved=True)))
+                print("Install privately on gway-001; revoke using parent_id. Never paste credentials into chat.",file=sys.stderr)
             elif not registry.revoke(args.key_id):
                 parser.exit(1, "gway-remote: bearer not found or already revoked\\n")
             else:

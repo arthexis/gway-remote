@@ -155,16 +155,13 @@ def serve_one(raw, *, jobs=None, hostname=None):
         command = nonce_command(rid)
         if op == 'health_probe_submit':
             try:
-                jobs.submit(host, command, request_id=rid)
+                jobs.submit(host, command, request_id=rid,health_probe=True)
             except RuntimeError as exc:
                 if str(exc) == 'executor user manager unavailable':
                     return {'node':host,'request_id':rid,'status':'rejected','failure_stage':'worker_readiness'}
                 raise
             return {'node':host,'request_id':rid,'status':'accepted'}
-        row = jobs.row(rid)
-        if row['node'] != host or row['command'] != command:
-            raise PermissionError('probe_receipt_denied')
-        return project_result(jobs.result(rid, 0), rid)
+        return jobs.probe_result(rid)
     if op == "submit":
         validate_command(host, req["command"])
         try:

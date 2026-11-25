@@ -84,6 +84,7 @@
         mode: '0644'
       loop:
         - gway-mcp-external-health.service
+        - gway-mcp-execution-health.service
         - gway-mcp-external-health.timer
       register: external_monitor_units
 

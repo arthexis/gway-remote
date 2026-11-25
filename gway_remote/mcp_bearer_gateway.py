@@ -1067,7 +1067,8 @@ def main():
         with make_server(("127.0.0.1", args.port), verifier, args.upstream,
                          token, execution=execution, approved_sources=approved_sources,
                          federation=federation,
-                         lcd_sound_ingress_enabled=ingress_enabled, activity_feed=activity_feed, **options) as service:
+                         lcd_sound_ingress_enabled=ingress_enabled, activity_feed=activity_feed,
+                         health_probe_enabled=os.environ.get("GWAY_MCP_HEALTH_PROBE_ENABLED")=="1", **options) as service:
             service.serve_forever()
     finally:
         if started is not None:
