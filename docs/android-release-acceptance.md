@@ -71,3 +71,15 @@ before any production publication. Gate-only physical acceptance remains
 available. After #718 physical acceptance, restore the publisher's normal
 condition (main, non-pull-request) and remove that marker together in a reviewed
 PR. Do not use the ordinary manual release to bypass the CRM acceptance.
+
+## Dispatch visibility contract
+
+Dispatch creates the workflow exactly once, then checks the returned repository
+run URL with the same credential. It returns the run ID only after a successful
+read confirms the expected ID, repository, workflow path, event, main branch
+and valid revision (the exact expected commit for release dispatch). Initial
+HTTP 404 reads are retried at most eight times, within a 135-second visibility
+budget, with individual reads limited to 15 seconds. Other errors fail closed.
+An uncertain creation or visibility timeout requires reconciliation, never
+another automatic dispatch. The completion waiter separately verifies identity
+and terminal success. No permission or credential changes are required.
