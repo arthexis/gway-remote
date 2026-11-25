@@ -52,6 +52,31 @@ application release is installed. The integration does not implement a general
 rollback of application releases; its Ansible executor identity cutover has a
 separate verified atomic SSH/sudoers/identity compensation path.
 
+## Provider ownership and applicability (#724)
+
+The gway-001 audit identifies three currently authorized broker applications:
+`repo` (existing), `lcd_sound` and `agentops`. The latter two register
+their runner via root-controlled provider publication from clean detached
+full-SHA checkouts owned by the existing installation user. No client-supplied
+paths or fresh credentials are involved. Their provider repositories document
+the staging and pin-refresh procedure. Existing declaration targets are retained
+on ordinary provider republication; an explicit approved pin refresh is
+required to change the desired target. Do not prune a referenced checkout.
+
+`android` is part of GWay Remote's deployment, not a separate independently
+authorized broker application. `ocpp` and `odoo` have separate service
+deployment ownership and live operational constraints; `webos` has its
+own device deployment flow. All four remain without broker declarations until
+a separately reviewed revision-pinned runner and node authorization exist.
+Runtime sidecars (for example AgentOps runtime metadata) are not applications.
+Inventory and provider presence alone never confer deployment eligibility.
+
+Sanitized failures include invalid/unknown application, disabled provider,
+missing/invalid declaration, declaration drift, permission denied, missing
+request and transport/protocol unavailability. A correlated run error is
+reported without releasing or retrying an uncertain dispatch claim. Preview
+and discovery do not change node state.
+
 ## Read-only workspace inspection (integration #538)
 
 `workspace_inspect` maps to `workspace.inspect` with the existing
