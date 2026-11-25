@@ -1,21 +1,28 @@
 name: Android APK
 on:
   pull_request:
-    paths: ['android/**', '.github/workflows/android.yml']
+    paths: ['android/**', '.github/workflows/android.yml', '.github/workflows/android-compose-ui.yml']
   push:
     branches: [main]
-    paths: ['android/**', '.github/workflows/android.yml']
+    paths: ['android/**']
   workflow_dispatch:
+    inputs:
+      expected_sha:
+        description: "Optional exact main SHA for guarded release"
+        required: false
+        type: string
+        default: ""
 
 concurrency:
-  group: android-publish-main
+  group: ${{ github.event_name == 'pull_request' && format('android-pr-{0}', github.event.pull_request.number) || 'android-publish-main' }}
   cancel-in-progress: false
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   build:
+    if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
     env:
       GWAY_ANDROID_VERSION_CODE: ${{ github.run_number }}
@@ -57,6 +64,53 @@ jobs:
           start=$SECONDS
           gradle :app:testDebugUnitTest :app:assembleDebugAndroidTest --no-daemon
           echo "Android PR unit tests: $((SECONDS - start))s" >> "$GITHUB_STEP_SUMMARY"
+  publish:
+    if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+    permissions:
+      contents: write
+      issues: write
+      pull-requests: read
+    runs-on: ubuntu-latest
+    env:
+      GWAY_ANDROID_VERSION_CODE: ${{ github.run_number }}
+      GWAY_ANDROID_VERSION_NAME: 0.2.${{ github.run_number }}
+    defaults:
+      run:
+        working-directory: android
+    steps:
+      - name: Reject moved guarded release before checkout
+        if: github.event_name == 'workflow_dispatch' && inputs.expected_sha != ''
+        env:
+          EXPECTED: ${{ inputs.expected_sha }}
+        run: |
+          [[ "$GITHUB_REF" == refs/heads/main && "$GITHUB_SHA" == "$EXPECTED" ]] || exit 1
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Use preinstalled Android SDK
+        shell: bash
+        run: |
+          set -euo pipefail
+          SDK_ROOT="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-/usr/local/lib/android/sdk}}"
+          test -d "$SDK_ROOT"
+          echo "ANDROID_HOME=$SDK_ROOT" >> "$GITHUB_ENV"
+          echo "ANDROID_SDK_ROOT=$SDK_ROOT" >> "$GITHUB_ENV"
+          SDKMANAGER="$SDK_ROOT/cmdline-tools/latest/bin/sdkmanager"
+          test -x "$SDKMANAGER" || { echo "::error::Preinstalled sdkmanager not found"; exit 1; }
+          echo "Using preinstalled sdkmanager: $SDKMANAGER"
+          "$SDKMANAGER" --version
+          for component in "platforms/android-35/android.jar" "build-tools/35.0.0/apksigner" "platform-tools/adb"; do
+            if [[ ! -e "$SDK_ROOT/$component" ]]; then
+              echo "::error::Required Android SDK component missing: $component"
+              exit 1
+            fi
+          done
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.10.2'
+          cache-read-only: ${{ github.event_name == 'pull_request' }}
       - name: Require release signing secrets
         if: github.ref == 'refs/heads/main'
         env:
@@ -113,7 +167,8 @@ jobs:
       - name: Write release metadata
         if: github.ref == 'refs/heads/main'
         run: |
-          printf 'Android-Version-Code: %s\nSource-Commit: %s\n' "$GWAY_ANDROID_VERSION_CODE" "$GITHUB_SHA" > "$RUNNER_TEMP/android-release-notes.txt"
+          DIGEST=$(sha256sum "$RUNNER_TEMP/gway-remote.apk" | cut -d' ' -f1)
+          printf 'Android-Version-Code: %s\nSource-Commit: %s\nAPK-SHA256: %s\n' "$GWAY_ANDROID_VERSION_CODE" "$GITHUB_SHA" "$DIGEST" > "$RUNNER_TEMP/android-release-notes.txt"
       - name: Resolve Android release tag
         if: github.ref == 'refs/heads/main'
         id: release
@@ -141,3 +196,18 @@ jobs:
             exit 1
           fi
           gh release create "${{ steps.release.outputs.tag }}" "$RUNNER_TEMP/gway-remote.apk" --target "$GITHUB_SHA" --title "GWay Remote ${{ steps.release.outputs.tag }}" --notes-file "$RUNNER_TEMP/android-release-notes.txt"
+
+      - name: Verify published APK and close explicit release issues
+        if: github.ref == 'refs/heads/main'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.release.outputs.tag }}
+        working-directory: .
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -m 700 "$RUNNER_TEMP/published-apk"
+          gh release download "$TAG" --pattern gway-remote.apk --dir "$RUNNER_TEMP/published-apk"
+          cmp "$RUNNER_TEMP/gway-remote.apk" "$RUNNER_TEMP/published-apk/gway-remote.apk"
+          "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --verbose "$RUNNER_TEMP/published-apk/gway-remote.apk"
+          python3 -m gway_remote.android_release_close "$TAG" "$GITHUB_SHA" "$RUNNER_TEMP/published-apk/gway-remote.apk"
