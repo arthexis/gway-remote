@@ -25,6 +25,7 @@ OPERATIONS = {
     "limits": frozenset({"operation", "node", "request_id"}),
     "file_read": frozenset({"operation", "node", "request_id", "filename", "offset"}),
     "workspace_inspect": frozenset({"operation", "node", "request_id", "repository"}),
+    "deployment_discovery": frozenset({"operation", "node", "request_id"}),
     "deployment_preview": frozenset({"operation", "node", "request_id", "application"}),
     "deployment_status": frozenset({"operation", "node", "request_id", "application"}),
     "deployment_run": frozenset({"operation", "node", "request_id", "application", "expected_revision"}),
@@ -99,14 +100,25 @@ def serve_one(raw, *, jobs=None, hostname=None):
         result = inspect_authorized({"node": host, "repository": req["repository"]},
                                     trusted_node=host)
         return {"node": host, "request_id": rid, "result": result}
+    if op == "deployment_discovery":
+        from .mcp_deployment_resolver import deployment_catalog
+        try:
+            result = deployment_catalog()
+        except (ValueError, PermissionError, OSError):
+            return {"node": host, "request_id": rid, "error": "deployment_declaration_invalid"}
+        return {"node": host, "request_id": rid, "result": result}
     if op in ("deployment_preview", "deployment_status", "deployment_run"):
         from .mcp_deployment_broker import preview, request_status, accept
-        if op == "deployment_preview":
-            result = preview(req["application"])
-        elif op == "deployment_status":
-            result = request_status(req["application"], rid)
-        else:
-            result = accept(req["application"], rid, expected_revision=req["expected_revision"])
+        from .mcp_deployment_resolver import deployment_error_code
+        try:
+            if op == "deployment_preview":
+                result = preview(req["application"])
+            elif op == "deployment_status":
+                result = request_status(req["application"], rid)
+            else:
+                result = accept(req["application"], rid, expected_revision=req["expected_revision"])
+        except (ValueError, PermissionError, OSError) as exc:
+            return {"node": host, "request_id": rid, "error": deployment_error_code(exc)}
         return {"node": host, "request_id": rid, "result": result}
     if op in ("provider_list", "provider_call", "provider_read"):
         from .mcp_node_providers import dispatch_node_provider_request

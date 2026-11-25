@@ -9,6 +9,14 @@ ChatGPT memory, neighboring issues, or access to local credentials.
 
 Developer agents are assigned implementation, refactoring, testing, and PR work.
 
+**Cloud-first execution:** perform portable implementation, simulated tests and
+PR preparation in a cloud development environment. Delegate development to
+AgentOps on a physical node only when the assignment identifies a concrete
+hardware or exclusive local-environment dependency that cannot reasonably be
+tested using remote execution. Split off only that dependency; ordinary node
+access, deployment, CI or field acceptance does not justify local development.
+Unavailable cloud tooling does not silently authorize AgentOps delegation.
+
 - Read the assigned issue/PR and relevant repository files before editing.
 - Implement only the requested scope; use a feature branch and PR, never
   silently modify production deployments.
