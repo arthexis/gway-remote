@@ -160,38 +160,96 @@ class AndroidReleaseGateTests(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, "publication suspended"):
             gate.assert_publication_ready()
 
-    def test_dispatched_run_retries_initial_404_only(self):
-        import subprocess
+
+    def dispatch_run(self, **changes):
+        return {"id": 123, "repository": {"full_name": gate.REPO},
+                "head_repository": {"full_name": gate.REPO}, "head_sha": SHA,
+                "path": ".github/workflows/android-canary.yml", "event": "workflow_dispatch",
+                "head_branch": "main", "status": "queued", **changes}
+
+    def mock_dispatch(self):
         from unittest.mock import Mock
-        missing = subprocess.CalledProcessError(1, ["gh"], stderr="gh: Not Found (HTTP 404)")
-        run = {"path": ".github/workflows/android-canary.yml", "event": "workflow_dispatch",
-               "head_branch": "main", "status": "completed", "conclusion": "success"}
-        api = Mock(side_effect=[missing, missing, run])
+        create = Mock(return_value=f"https://github.com/{gate.REPO}/actions/runs/123")
+        self.replace(gate.subprocess, "check_output", create)
+        return create
+
+    def test_dispatch_returns_only_after_visible(self):
+        from unittest.mock import Mock
+        missing = gate.subprocess.CalledProcessError(1, ["gh"], stderr="HTTP 404")
+        create = self.mock_dispatch()
+        api = Mock(side_effect=[missing, missing, self.dispatch_run()])
         self.replace(gate, "api", api)
         self.replace(gate.time, "sleep", lambda _: None)
-        self.assertEqual(gate.wait_run("android-canary.yml", 123, "workflow_dispatch"), run)
+        self.assertEqual(gate.dispatch("android-canary.yml", expected_sha=BASE), 123)
+        create.assert_called_once()
         self.assertEqual([c.args for c in api.call_args_list], [("actions/runs/123",)] * 3)
+        self.assertTrue(all(0 < c.kwargs["timeout"] <= 15 for c in api.call_args_list))
 
-    def test_run_does_not_retry_auth_denial_or_wrong_identity(self):
-        import subprocess
+    def test_dispatch_denial_and_mismatched_identity_fail_closed(self):
         from unittest.mock import Mock
-        denied = subprocess.CalledProcessError(1, ["gh"], stderr="gh: Forbidden (HTTP 403)")
-        api = Mock(side_effect=denied)
+        create = self.mock_dispatch()
+        api = Mock(side_effect=gate.subprocess.CalledProcessError(1, ["gh"], stderr="HTTP 403"))
         self.replace(gate, "api", api)
-        with self.assertRaises(subprocess.CalledProcessError):
-            gate.wait_run("android-canary.yml", 123, "workflow_dispatch")
+        with self.assertRaises(gate.subprocess.CalledProcessError):
+            gate.dispatch("android-canary.yml")
+        create.assert_called_once()
         api.assert_called_once()
-        api.side_effect = None
-        api.return_value = {"path": ".github/workflows/other.yml", "event": "workflow_dispatch"}
-        with self.assertRaisesRegex(RuntimeError, "unexpected workflow identity"):
-            gate.wait_run("android-canary.yml", 123, "workflow_dispatch")
+        for changes in ({"id": 999}, {"repository": {"full_name": "other/repo"}},
+                        {"head_repository": {"full_name": "other/repo"}}, {"head_branch": "dev"},
+                        {"path": ".github/workflows/other.yml"}, {"event": "push"}):
+            with self.subTest(changes=changes):
+                api.reset_mock()
+                create.reset_mock()
+                api.side_effect = None
+                api.return_value = self.dispatch_run(**changes)
+                with self.assertRaisesRegex(RuntimeError, "unexpected workflow identity"):
+                    gate.dispatch("android-canary.yml")
+                create.assert_called_once()
+                api.assert_called_once()
 
-    def test_dispatched_run_missing_retry_is_bounded(self):
-        import subprocess
+    def test_dispatch_visibility_is_bounded_without_redispatch(self):
         from unittest.mock import Mock
-        api = Mock(side_effect=subprocess.CalledProcessError(1, ["gh"], stderr="HTTP 404"))
+        create = self.mock_dispatch()
+        api = Mock(side_effect=gate.subprocess.CalledProcessError(1, ["gh"], stderr="HTTP 404"))
         self.replace(gate, "api", api)
         self.replace(gate.time, "sleep", lambda _: None)
-        with self.assertRaises(subprocess.CalledProcessError):
-            gate.wait_run("android-canary.yml", 123, "workflow_dispatch")
+        with self.assertRaisesRegex(RuntimeError, "run 123 not visible"):
+            gate.dispatch("android-canary.yml")
+        create.assert_called_once()
         self.assertEqual(api.call_count, 9)
+
+    def test_dispatch_rejects_wrong_url_and_release_sha(self):
+        from unittest.mock import Mock
+        create = self.mock_dispatch()
+        api = Mock(return_value=self.dispatch_run(path=".github/workflows/android.yml"))
+        self.replace(gate, "api", api)
+        with self.assertRaisesRegex(RuntimeError, "unexpected workflow identity"):
+            gate.dispatch("android.yml", expected_sha=BASE)
+        create.assert_called_once()
+        create.reset_mock()
+        api.reset_mock()
+        create.return_value = "https://github.com/other/repo/actions/runs/123"
+        with self.assertRaisesRegex(RuntimeError, "exact repository run URL"):
+            gate.dispatch("android.yml", expected_sha=BASE)
+        create.assert_called_once()
+        api.assert_not_called()
+
+    def test_wait_run_is_separate_from_dispatch_visibility(self):
+        from unittest.mock import Mock
+        api = Mock(return_value=self.dispatch_run(status="completed", conclusion="success"))
+        self.replace(gate, "api", api)
+        self.assertEqual(gate.wait_run("android-canary.yml", 123, "workflow_dispatch")["status"], "completed")
+        api.side_effect = gate.subprocess.CalledProcessError(1, ["gh"], stderr="HTTP 404")
+        with self.assertRaises(gate.subprocess.CalledProcessError):
+            gate.wait_run("android-canary.yml", 123, "workflow_dispatch")
+
+    def test_uncertain_creation_never_retried(self):
+        from unittest.mock import Mock
+        create = self.mock_dispatch()
+        create.side_effect = gate.subprocess.TimeoutExpired(["gh"], 90)
+        api = Mock()
+        self.replace(gate, "api", api)
+        with self.assertRaises(gate.subprocess.TimeoutExpired):
+            gate.dispatch("android-canary.yml")
+        create.assert_called_once()
+        api.assert_not_called()

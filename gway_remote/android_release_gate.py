@@ -22,12 +22,12 @@ def require(condition, reason):
         raise RuntimeError(reason)
 
 
-def gh(*args):
-    return subprocess.check_output(["gh", *args], text=True, timeout=90, stderr=subprocess.PIPE).strip()
+def gh(*args, timeout=90):
+    return subprocess.check_output(["gh", *args], text=True, timeout=timeout, stderr=subprocess.PIPE).strip()
 
 
-def api(path, *args):
-    return json.loads(gh("api", f"repos/{REPO}/{path}", *args))
+def api(path, *args, timeout=90):
+    return json.loads(gh("api", f"repos/{REPO}/{path}", *args, timeout=timeout))
 
 
 def pages(path):
@@ -71,26 +71,24 @@ def status(sha, state, description, url):
        "-f", f"context={CONTEXT}", "-f", f"description={description}", "-f", f"target_url={url}")
 
 
+def verify_run_identity(run, workflow, run_id, event, sha=None):
+    require(run.get("id") == run_id
+            and (run.get("repository") or {}).get("full_name") == REPO
+            and run.get("path") == f".github/workflows/{workflow}"
+            and run.get("event") == event
+            and (event != "workflow_dispatch" or
+                 (run.get("head_branch") == "main" and
+                  (run.get("head_repository") or {}).get("full_name") == REPO))
+            and bool(SHA.fullmatch(run.get("head_sha") or ""))
+            and (sha is None or run["head_sha"] == sha),
+            f"unexpected workflow identity for run {run_id}")
+
+
 def wait_run(workflow, run_id, event, sha=None, timeout=1800):
     until = time.monotonic() + timeout
-    # Newly dispatched runs can return 404 during GitHub's indexing window.
-    # Only retry that exact run ID, never dispatch a replacement.
-    missing = 0
-    seen = False
     while time.monotonic() < until:
-        try:
-            r = api(f"actions/runs/{run_id}")
-        except subprocess.CalledProcessError as exc:
-            if (not seen and event == "workflow_dispatch" and
-                    "HTTP 404" in (exc.stderr or "") and missing < 8):
-                missing += 1
-                time.sleep(15)
-                continue
-            raise
-        seen = True
-        require(r["path"] == f".github/workflows/{workflow}" and r["event"] == event
-                and (event != "workflow_dispatch" or r["head_branch"] == "main")
-                and (sha is None or r["head_sha"] == sha), "unexpected workflow identity")
+        r = api(f"actions/runs/{run_id}")
+        verify_run_identity(r, workflow, run_id, event, sha)
         if r["status"] == "completed":
             require(r["conclusion"] == "success", f"{workflow} failed")
             return r
@@ -98,13 +96,45 @@ def wait_run(workflow, run_id, event, sha=None, timeout=1800):
     raise RuntimeError(f"{workflow} timed out")
 
 
+def await_dispatch_visibility(workflow, run_id, sha=None):
+    """Read the exact created run with the dispatch credential; never create again."""
+    deadline = time.monotonic() + 135
+    for attempt in range(9):
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            break
+        try:
+            run = api(f"actions/runs/{run_id}", timeout=min(15, remaining))
+        except subprocess.CalledProcessError as exc:
+            if "HTTP 404" not in (exc.stderr or ""):
+                raise
+            if attempt == 8:
+                break
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                break
+            time.sleep(min(15, remaining))
+            continue
+        verify_run_identity(run, workflow, run_id, "workflow_dispatch", sha)
+        return run
+    raise RuntimeError(f"Dispatched {workflow} run {run_id} not visible within bound; "
+                       "reconcile this ID before another dispatch")
+
+
 def dispatch(workflow, **inputs):
+    # Dispatch is a mutation: no retries, including uncertain CLI failures.
     out = subprocess.check_output(
                  ["gh", "workflow", "run", workflow, "-R", REPO, "--ref", "main", "--json"],
                  input=json.dumps(inputs), text=True, timeout=90).strip()
-    m = re.search(r"/actions/runs/([0-9]+)\s*$", out)
-    require(m, "dispatch did not return exact run ID")
-    return int(m.group(1))
+    m = re.fullmatch(rf"https://github[.]com/{re.escape(REPO)}/actions/runs/([1-9][0-9]*)", out)
+    require(m, "dispatch did not return exact repository run URL; reconcile before retry")
+    run_id = int(m.group(1))
+    print(f"Dispatched {workflow} run {run_id}; checking visibility", flush=True)
+    # For canaries expected_sha identifies the PR artifact, not the main workflow.
+    # Production release dispatch pins the workflow revision itself.
+    sha = inputs.get("expected_sha") if workflow == "android.yml" else None
+    await_dispatch_visibility(workflow, run_id, sha)
+    return run_id
 
 
 def pr_ci(pr, sha, base):
