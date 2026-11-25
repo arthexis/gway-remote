@@ -61,3 +61,13 @@ If an exact asset was published but verification/closure failed, independently
 verify the published APK signature against the production signing identity and
 its SHA256 and commit, then run the close helper from trusted main. Never
 close an issue solely because of a successful merge.
+
+## Temporary staged CRM publication hold (#718)
+
+The merge preserves the existing publication suspension: the publisher accepts
+only ordinary manual dispatch, with no expected_sha, until CRM acceptance.
+The marker ANDROID_PUBLICATION_HOLD_718 blocks the coordinator's auto-merge
+before any production publication. Gate-only physical acceptance remains
+available. After #718 physical acceptance, restore the publisher's normal
+condition (main, non-pull-request) and remove that marker together in a reviewed
+PR. Do not use the ordinary manual release to bypass the CRM acceptance.

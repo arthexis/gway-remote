@@ -65,7 +65,9 @@ jobs:
           gradle :app:testDebugUnitTest :app:assembleDebugAndroidTest --no-daemon
           echo "Android PR unit tests: $((SECONDS - start))s" >> "$GITHUB_STEP_SUMMARY"
   publish:
-    if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+    # ANDROID_PUBLICATION_HOLD_718: preserve the staged CRM rollout.
+    # Only the existing explicit manual publication remains available.
+    if: github.ref == 'refs/heads/main' && github.event_name == 'workflow_dispatch' && inputs.expected_sha == ''
     permissions:
       contents: write
       issues: write

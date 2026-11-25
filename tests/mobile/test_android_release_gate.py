@@ -87,6 +87,7 @@ class AndroidReleaseGateTests(unittest.TestCase):
         self.replace(gate, "api", lambda _: {"merge_base_commit": {"sha": BASE}})
         self.replace(gate, "issue_links", lambda *a: [])
         self.replace(gate, "assert_gate_required", lambda: None)
+        self.replace(gate, "assert_publication_ready", lambda: None)
         statuses = []
         self.replace(gate, "status", lambda *args: statuses.append(args))
         self.replace(gate, "pr_ci", lambda *a: gate.require(False, "failed CI"))
@@ -151,3 +152,10 @@ class AndroidReleaseGateTests(unittest.TestCase):
         values["issues/746"]["state"] = "closed"
         release.close(tag, SHA, apk)
         assert len(calls) == 1
+
+    def test_staged_publication_hold_blocks_auto_merge(self):
+        import base64
+        self.replace(gate, "api", lambda _: {"encoding": "base64",
+                     "content": base64.b64encode(b"# ANDROID_PUBLICATION_HOLD_718").decode()})
+        with self.assertRaisesRegex(RuntimeError, "publication suspended"):
+            gate.assert_publication_ready()

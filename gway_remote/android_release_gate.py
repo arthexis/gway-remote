@@ -1,4 +1,5 @@
 """Trusted-main Android release orchestration; no PR code is executed here."""
+import base64
 import json
 import re
 import subprocess
@@ -138,6 +139,14 @@ def physical(pr, sha, reset, authorization):
     return receipt
 
 
+def assert_publication_ready():
+    workflow = api("contents/.github/workflows/android.yml?ref=main")
+    require(workflow.get("encoding") == "base64", "cannot verify publication policy")
+    source = base64.b64decode(workflow["content"]).decode("utf-8")
+    require("ANDROID_PUBLICATION_HOLD_718" not in source,
+            "Android publication suspended by staged CRM rollout #718")
+
+
 def assert_gate_required():
     rules = api("rules/branches/main")
     required = [c for r in rules if r["type"] == "required_status_checks"
@@ -185,6 +194,7 @@ def accept(pr, sha, base, reset, authorization, merge, minimum, url):
         require(all(android_changed([path]) for path in paths),
                 "mixed backend PR requires normal merge to preserve deployment triggers")
         assert_gate_required()
+        assert_publication_ready()
     status(sha, "pending", "Validating pinned Android revision", url)
     try:
         pr_ci(pr, sha, base)
@@ -199,6 +209,7 @@ def accept(pr, sha, base, reset, authorization, merge, minimum, url):
     if not merge:
         return
     assert_gate_required()
+    assert_publication_ready()
     current(pr, sha, base)
     for _ in range(12):
         current(pr, sha, base)
