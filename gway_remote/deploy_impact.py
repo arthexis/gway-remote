@@ -24,6 +24,7 @@ ANDROID_DELIVERY_PATHS = frozenset({
     ".github/workflows/android-canary-install.yml",
     ".github/workflows/android-canary.yml",
     ".github/workflows/android-release-candidate-sign.yml",
+    ".github/workflows/android-release-candidate-install.yml",
     ".github/workflows/android-release-candidate.yml",
     "docs/android-single-release-candidate.md",
     "gway_remote/android_canary_certificate.py",
