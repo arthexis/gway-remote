@@ -427,24 +427,61 @@ def main(extended=False):
     return 0 if result == 'ok' else 1
 
 
+def probe_install_status(path=PROBE_TOKEN):
+    _private_parent(path)
+    try:
+        state=_read_state(path,probe=True)
+    except FileNotFoundError:
+        if (path.parent/'probe-pending.json').exists():raise PermissionError('pending probe needs reconciliation')
+        return {'configured':False}
+    return {'configured':True,'parent_id':state['parent_id'],'parent_expires_at':state['parent_expires_at'],'refresh_state':state['refresh_state']}
+
+
+def install_probe_state(state, path=PROBE_TOKEN):
+    _private_parent(path)
+    state=validate_state(state,probe=True)
+    now=int(time.time())
+    if state['refresh_state']!='ready' or not now<state['expires_at']<=min(now+3600,state['parent_expires_at']) or state['parent_expires_at']>now+30*86400:
+        raise ValueError('invalid probe expiry')
+    fd=os.open(path.parent/'.probe-oauth.lock',os.O_CREAT|os.O_RDWR|os.O_NOFOLLOW|os.O_NONBLOCK,0o600)
+    try:
+        info=os.fstat(fd)
+        if not stat.S_ISREG(info.st_mode) or info.st_uid!=os.geteuid() or info.st_mode&0o077 or info.st_nlink!=1:raise PermissionError('unsafe lock')
+        fcntl.flock(fd,fcntl.LOCK_EX|fcntl.LOCK_NB)
+        if path.exists() or path.is_symlink() or (path.parent/'probe-pending.json').exists() or (path.parent/'probe-pending.json').is_symlink():
+            raise PermissionError('existing identity or pending receipt requires explicit console reconciliation')
+        _write_state(path,state)
+        return probe_install_status(path)
+    finally:os.close(fd)
+
+
+def private_provision(action):
+    import socket
+    if os.geteuid()!=0 or socket.gethostname()!='gway-001':raise PermissionError('root observer required')
+    if action=='--probe-provision-status':return probe_install_status()
+    if action=='--probe-provision-install':
+        raw=sys.stdin.buffer.read(4097)
+        if len(raw)>4096:raise ValueError('oversized credential state')
+        return install_probe_state(json.loads(raw))
+    raise ValueError('invalid private operation')
+
+
 def install_probe_console(path=PROBE_TOKEN):
     import getpass
     import socket
     if os.geteuid()!=0 or socket.gethostname()!='gway-001' or not (sys.stdin.isatty() and sys.stdout.isatty()):
         raise PermissionError('trusted node console required')
-    _private_parent(path)
-    if path.exists() or path.is_symlink() or (path.parent/'probe-pending.json').exists():
-        raise PermissionError('existing identity or pending receipt requires explicit console reconciliation')
     state=validate_state(json.loads(getpass.getpass('Paste dedicated probe credential JSON (hidden): ')),probe=True)
-    now=int(time.time())
-    if state['refresh_state']!='ready' or not now<state['expires_at']<=min(now+3600,state['parent_expires_at']) or state['parent_expires_at']>now+30*86400:
-        raise ValueError('invalid probe expiry')
     if input('Type gway-001 to install this isolated probe identity: ')!='gway-001':raise PermissionError('installation cancelled')
-    _write_state(path,state)
+    install_probe_state(state,path)
     print('Dedicated probe credential installed; no existing grant modified.')
 
 
 if __name__ == '__main__':
+    if len(sys.argv)==2 and sys.argv[1] in ('--probe-provision-status','--probe-provision-install'):
+        try:print(json.dumps(private_provision(sys.argv[1]),sort_keys=True))
+        except (OSError,ValueError,TypeError,PermissionError,KeyError):sys.exit(1)
+        sys.exit(0)
     if sys.argv[1:]==["--install-probe"]:
         try:install_probe_console()
         except (OSError,ValueError,TypeError,PermissionError):
