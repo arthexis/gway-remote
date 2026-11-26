@@ -268,6 +268,48 @@ class Device:
         if not (0 <= x < size[0] and 0 <= y < size[1]):
             raise AndroidError("coordinate_out_of_bounds")
 
+    def semantic_transition(self, source, destination):
+        """Internal execute-only scenario step, with no implicit wake or retry."""
+        serial = self.serial()
+        state = self.screen_state(serial)
+        rejected = {"status": "unconfirmed", "dispatched": False}
+        if (state.get("screen_on") is not True or state.get("locked") is not False
+                or type(state.get("rotation")) is not int):
+            return rejected
+        width, height = self.size(serial)
+        first = self.ui_tree(serial, navigation_details=True)
+        target = navigation.transition_target(first, source, destination)
+        if target is None:
+            return rejected
+        second = self.ui_tree(serial, navigation_details=True)
+        if navigation.transition_target(second, source, destination) != target:
+            return rejected
+        name, args = target
+        if name == "tap_target":
+            rid = selector(args["resource_id"])
+            if point(first, rid, width=width, height=height) != point(
+                    second, rid, width=width, height=height):
+                return rejected
+            x, y = point(second, rid, width=width, height=height)
+            command = ("tap", x, y)
+        elif name == "text" and args == {"value": "Permanecer activo"}:
+            command = ("text", "Permanecer%sactivo")
+        else:
+            return rejected
+        if (self.screen_state(serial) != state or self.size(serial) != (width, height)
+                or self.serial() != serial):
+            return rejected
+        self.adb(serial, "shell", "input", *command)
+        # A failed or uncertain dispatch is never retried. Observe twice after
+        # the action, allowing the UI dump to wait for Android to become idle.
+        first = navigation.observe(self.ui_tree(serial, navigation_details=True))
+        second = navigation.observe(self.ui_tree(serial, navigation_details=True))
+        confirmed = (first == second and first.get("status") == "recognized"
+                     and first.get("screen") == destination
+                     and self.screen_state(serial) == state)
+        return {"status": "confirmed" if confirmed else "unconfirmed",
+                "dispatched": True}
+
     def invoke(self, name, arguments):
         _required_args(name, arguments)
         if name == "text" and not re.fullmatch(
