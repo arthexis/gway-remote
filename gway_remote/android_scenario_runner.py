@@ -66,6 +66,13 @@ SCENARIOS = {
 _ALLOWED_OPS = frozenset({"status", "wait_ui", "tap_target", "key", "wake_if_needed", "navigation_model", "semantic_transition"})
 
 
+_TRANSITION_REASONS = frozenset({
+    "unsafe_device", "source_not_actionable", "target_changed", "device_changed",
+    "preflight_error", "dispatch_uncertain", "verification_error",
+    "destination_unconfirmed",
+})
+
+
 class ScenarioError(ValueError):
     pass
 
@@ -208,6 +215,11 @@ def run(scenario_id, *, device, receipt_root=None, clock=time.monotonic):
             break
         name = step["op"]
         verdict = "failed"
+        transition = None
+        if name == "semantic_transition":
+            # Reserve an invocation before entering the provider; unexpected
+            # exceptions cannot be treated as proof that nothing was sent.
+            transition = {"dispatch": "uncertain", "reason": "provider_error"}
         try:
             if name == "status":
                 observed = device.invoke("status", {})
@@ -220,9 +232,19 @@ def run(scenario_id, *, device, receipt_root=None, clock=time.monotonic):
                 # then verifies the destination. Count uncertain dispatch conservatively.
                 invocations += 1
                 observed = device.semantic_transition(step["from"], step["to"])
-                if observed.get("dispatched") is False:
+                dispatched = observed.get("dispatched")
+                reason = observed.get("reason")
+                if dispatched is False:
                     invocations -= 1
-                verdict = "passed" if observed.get("status") == "confirmed" else "failed"
+                    transition = {"dispatch": "not_attempted"}
+                elif dispatched is True:
+                    transition = {"dispatch": "attempted"}
+                if isinstance(reason, str) and reason in _TRANSITION_REASONS:
+                    transition["reason"] = reason
+                if reason == "dispatch_uncertain" and dispatched is True:
+                    transition["dispatch"] = "uncertain"
+                verdict = ("passed" if dispatched is True
+                           and observed.get("status") == "confirmed" else "failed")
             elif name == "navigation_model":
                 observed = device.invoke("navigation_model", {})
                 verdict = ("passed" if observed.get("status") == "recognized"
@@ -248,7 +270,10 @@ def run(scenario_id, *, device, receipt_root=None, clock=time.monotonic):
         except (OSError, ValueError, RuntimeError, TimeoutError):
             verdict = "unknown"
         # Never include UI text, device serial, target id, screenshot or raw error.
-        traces.append({"operation": name, "outcome": verdict})
+        trace = {"operation": name, "outcome": verdict}
+        if transition is not None:
+            trace.update(transition)
+        traces.append(trace)
         if verdict != "passed":
             outcome = "failed"
             break
