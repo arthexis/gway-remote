@@ -54,3 +54,17 @@ Existing scenario IDs and recipes are unchanged. New scenarios may use
 `navigation_model` assertions and the internal `semantic_transition` operation
 for reviewed executable edges only. Do not accept caller-supplied recipes,
 selectors, destinations or arbitrary search text for scenario execution.
+
+### Physical transition attribution
+
+Real provider calls that interact with the device acquire a nonblocking private
+cross-process lock for the entire operation, including the full scenario. Busy
+calls fail without input; preview and receipt retrieval remain available. This
+coordinates provider calls, not physical touches or external ADB clients.
+Semantic transition receipts record a sanitized dispatch classification and
+allowlisted failure reason. Zero invocations means a pre-dispatch refusal,
+not proof that the UI did not change independently. An ADB error after the
+invocation boundary counts conservatively as one uncertain attempt, never a
+retry. Destination verification permits at most three observations and requires
+two consecutive matching destination observations and unchanged device state.
+Old receipts and immutable scenario specifications remain readable and unchanged.

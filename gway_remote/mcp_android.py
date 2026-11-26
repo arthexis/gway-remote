@@ -4,6 +4,10 @@ Uses the existing installation user and provider federation; never shells out
 through Watchtower. No root, network ADB, device unlocking, or generic shell.
 """
 import base64
+import fcntl
+import os
+import stat
+from contextlib import contextmanager, nullcontext
 import json
 import re
 import subprocess
@@ -272,51 +276,73 @@ class Device:
             raise AndroidError("coordinate_out_of_bounds")
 
     def semantic_transition(self, source, destination):
-        """Internal execute-only scenario step, with no implicit wake or retry."""
-        serial = self.serial()
-        state = self.screen_state(serial)
-        rejected = {"status": "unconfirmed", "dispatched": False}
-        if (state.get("screen_on") is not True or state.get("locked") is not False
-                or type(state.get("rotation")) is not int):
-            return rejected
-        width, height = self.size(serial)
-        first = self.ui_tree(serial, navigation_details=True)
-        target = navigation.transition_target(first, source, destination)
-        if target is None:
-            return rejected
-        second = self.ui_tree(serial, navigation_details=True)
-        if navigation.transition_target(second, source, destination) != target:
-            return rejected
-        name, args = target
-        if name == "tap_target":
-            rid = selector(args["resource_id"])
-            if point(first, rid, width=width, height=height) != point(
-                    second, rid, width=width, height=height):
-                return rejected
-            x, y = point(second, rid, width=width, height=height)
-            command = ("tap", x, y)
-        elif name == "tap_result":
-            coordinate = navigation.result_point(args, width, height)
-            if coordinate is None:
-                return rejected
-            command = ("tap", *coordinate)
-        elif name == "text" and args == {"value": "Permanecer activo"}:
-            command = ("text", "Permanecer%sactivo")
-        else:
-            return rejected
-        if (self.screen_state(serial) != state or self.size(serial) != (width, height)
-                or self.serial() != serial):
-            return rejected
-        self.adb(serial, "shell", "input", *command)
-        # A failed or uncertain dispatch is never retried. Observe twice after
-        # the action, allowing the UI dump to wait for Android to become idle.
-        first = navigation.observe(self.ui_tree(serial, navigation_details=True))
-        second = navigation.observe(self.ui_tree(serial, navigation_details=True))
-        confirmed = (first == second and first.get("status") == "recognized"
-                     and first.get("screen") == destination
-                     and self.screen_state(serial) == state)
-        return {"status": "confirmed" if confirmed else "unconfirmed",
-                "dispatched": True}
+        """Execute once, with explicit pre-dispatch and post-dispatch accounting."""
+        def reject(reason):
+            return {"status": "unconfirmed", "dispatched": False, "reason": reason}
+
+        try:
+            serial = self.serial()
+            state = self.screen_state(serial)
+            if (state.get("screen_on") is not True or state.get("locked") is not False
+                    or type(state.get("rotation")) is not int):
+                return reject("unsafe_device")
+            width, height = self.size(serial)
+            first = self.ui_tree(serial, navigation_details=True)
+            target = navigation.transition_target(first, source, destination)
+            if target is None:
+                return reject("source_not_actionable")
+            second = self.ui_tree(serial, navigation_details=True)
+            if navigation.transition_target(second, source, destination) != target:
+                return reject("target_changed")
+            name, args = target
+            if name == "tap_target":
+                rid = selector(args["resource_id"])
+                if point(first, rid, width=width, height=height) != point(
+                        second, rid, width=width, height=height):
+                    return reject("target_changed")
+                x, y = point(second, rid, width=width, height=height)
+                command = ("tap", x, y)
+            elif name == "tap_result":
+                coordinate = navigation.result_point(args, width, height)
+                if coordinate is None:
+                    return reject("source_not_actionable")
+                command = ("tap", *coordinate)
+            elif name == "text" and args == {"value": "Permanecer activo"}:
+                command = ("text", "Permanecer%sactivo")
+            else:
+                return reject("source_not_actionable")
+            if (self.screen_state(serial) != state or self.size(serial) != (width, height)
+                    or self.serial() != serial):
+                return reject("device_changed")
+        except (OSError, ValueError, RuntimeError, TimeoutError):
+            return reject("preflight_error")
+
+        # Crossing this boundary reserves one invocation even if ADB times
+        # out after sending input. Never retry or misreport it as undispatched.
+        try:
+            self.adb(serial, "shell", "input", *command)
+        except (OSError, ValueError, RuntimeError, TimeoutError):
+            return {"status": "unconfirmed", "dispatched": True, "reason": "dispatch_uncertain"}
+        try:
+            previous = None
+            # Search may settle asynchronously; require two consecutive
+            # matching destination observations, at most three reads.
+            for _ in range(3):
+                if (self.screen_state(serial) != state or self.size(serial) != (width, height)
+                        or self.serial() != serial):
+                    return {"status": "unconfirmed", "dispatched": True, "reason": "device_changed"}
+                current = navigation.observe(self.ui_tree(serial, navigation_details=True))
+                if (current == previous and current.get("status") == "recognized"
+                        and current.get("screen") == destination):
+                    if (self.screen_state(serial) == state and self.size(serial) == (width, height)
+                            and self.serial() == serial):
+                        return {"status": "confirmed", "dispatched": True}
+                    return {"status": "unconfirmed", "dispatched": True, "reason": "device_changed"}
+                previous = current
+        except (OSError, ValueError, RuntimeError, TimeoutError):
+            return {"status": "unconfirmed", "dispatched": True, "reason": "verification_error"}
+        return {"status": "unconfirmed", "dispatched": True, "reason": "destination_unconfirmed"}
+
 
     def invoke(self, name, arguments):
         _required_args(name, arguments)
@@ -450,10 +476,35 @@ class Device:
         return {"ok": True, "action": name}
 
 
-def call_tool(name, arguments, *, device=None):
-    device = device or Device()
+@contextmanager
+def _device_session():
+    """Serialize real provider calls across processes; never wait or steal a lock."""
+    directory = scenarios._private_dir(scenarios._receipt_root(), create=True)
+    fd = os.open(directory / ".device.lock",
+                 os.O_CREAT | os.O_RDWR | os.O_NOFOLLOW | os.O_NONBLOCK, 0o600)
     try:
-        result = device.invoke(name, arguments)
+        meta = os.fstat(fd)
+        if (not stat.S_ISREG(meta.st_mode) or meta.st_uid != os.geteuid()
+                or meta.st_mode & 0o077 or meta.st_nlink != 1):
+            raise AndroidError("unsafe_device_lock")
+        try:
+            fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError as exc:
+            raise AndroidError("device_busy") from exc
+        yield
+    finally:
+        os.close(fd)
+
+
+def call_tool(name, arguments, *, device=None):
+    try:
+        _required_args(name, arguments)
+        # Preview and receipt reads do not interact with USB. Injected devices
+        # are the hermetic unit-test seam, not reachable via MCP arguments.
+        session = (_device_session() if device is None and
+                   name not in ("scenario_preview", "scenario_result") else nullcontext())
+        with session:
+            result = (device or Device()).invoke(name, arguments)
         if name == "capture":
             return result
         return {"content": [{"type": "text", "text": json.dumps(result, separators=(",", ":"))}]}
