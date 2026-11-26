@@ -132,6 +132,7 @@ def preview(scenario_id):
         "step_types": [step["op"] for step in steps],
         "actions": actions,
         "run_scope": "gway:execute", "contains_actions": bool(actions),
+        "operation_id_required": bool(actions),
         "screenshots": "not_collected",
         "execution": "not_started",
     }
