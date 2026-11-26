@@ -88,7 +88,7 @@ TOOLS.extend([
         {"scenario_id": _SCENARIO_ID}, ("scenario_id",), read=True,
     ),
     _tool(
-        "scenario_run", "Run one approved scenario with a private sanitized receipt.",
+        "scenario_run", "Run one approved scenario. Action scenarios require a fresh stable lowercase 32-hex operation_id; reconcile that same ID on uncertainty, never replay input.",
         {"scenario_id": _SCENARIO_ID, "operation_id": _RECEIPT_ID}, ("scenario_id",),
     ),
     _tool(
