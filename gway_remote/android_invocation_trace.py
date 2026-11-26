@@ -5,13 +5,12 @@ import json
 import os
 import re
 import stat
-import tempfile
 import time
 import uuid
 
 _ID = re.compile(r"[0-9a-f]{32}\Z")
 _ACTIVE = ContextVar("android_invocation_trace", default=None)
-_MAX_EVENTS = 48
+_MAX_EVENTS = 32
 _MAX_INPUTS = 8
 _MAX_BYTES = 8192
 _INPUTS = frozenset({"tap", "swipe", "text", "keyevent", "other"})
@@ -83,7 +82,18 @@ def _read_inputs(root):
 
 def _write_inputs(root, entries):
     # Called only while the existing private provider device lock is held.
-    fd, temporary = tempfile.mkstemp(prefix=".input-trace-", dir=root)
+    # A fixed temporary name bounds crash leftovers; never follow a symlink.
+    temporary = root / ".recent-inputs-v1.tmp"
+    try:
+        info = temporary.lstat()
+    except FileNotFoundError:
+        pass
+    else:
+        if (not stat.S_ISREG(info.st_mode) or info.st_uid != os.geteuid()
+                or info.st_mode & 0o077 or info.st_nlink != 1):
+            raise ValueError("unsafe temporary trace")
+        temporary.unlink()
+    fd = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
     try:
         with os.fdopen(fd, "w", encoding="utf-8") as stream:
             json.dump(entries[-_MAX_INPUTS:], stream, separators=(",", ":"))
@@ -91,7 +101,7 @@ def _write_inputs(root, entries):
         os.replace(temporary, root / ".recent-inputs-v1")
     finally:
         try:
-            os.unlink(temporary)
+            temporary.unlink()
         except FileNotFoundError:
             pass
 
@@ -167,8 +177,13 @@ def invocation(invocation_id, tool, root):
 def observation(stage, snapshot, observed, *, source=None, destination=None, target_resolved=None):
     if current() is None:
         return
-    fields = [element for element in snapshot.get("elements", [])
-              if element.get("resource_id") == "com.android.settings.intelligence:id/search_src_text"]
+    if type(snapshot) is not dict or type(snapshot.get("elements")) is not list:
+        mark(stage, source=source, destination=destination, status="incomplete",
+             target_resolved=target_resolved)
+        return
+    fields = [element for element in snapshot["elements"]
+              if type(element) is dict and element.get("resource_id") ==
+              "com.android.settings.intelligence:id/search_src_text"]
     field = fields[0] if len(fields) == 1 else {}
     mark(stage, source=source, destination=destination,
          status=observed.get("status"), screen=observed.get("screen"),
