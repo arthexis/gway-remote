@@ -442,3 +442,25 @@ class CandidateTests(unittest.TestCase):
                 self.assertEqual(ledger.read(self.c.candidate_id), previous)
             finally:
                 ledger.close()
+
+    def test_read_only_ledger_never_creates_or_writes(self):
+        import sqlite3
+        import tempfile
+        from pathlib import Path
+        from gway_remote.android_release_candidate import CandidateLedger
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "ledger.sqlite"
+            with self.assertRaises(sqlite3.OperationalError):
+                CandidateLedger(path, read_only=True)
+            self.assertFalse(path.exists())
+            ledger = CandidateLedger(path)
+            ledger.allocate(self.c, published_version=798, installed_version=799)
+            ledger.close()
+            ledger = CandidateLedger(path, read_only=True)
+            try:
+                self.assertIn("allocated", ledger.read(self.c.candidate_id))
+                with self.assertRaises(sqlite3.OperationalError):
+                    ledger.record(self.c.candidate_id, "built", {"run_id": 10})
+                self.assertNotIn("built", ledger.read(self.c.candidate_id))
+            finally:
+                ledger.close()

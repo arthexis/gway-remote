@@ -83,8 +83,14 @@ class CandidateLedger:
     Each stage has immutable evidence. A replay with identical evidence is a no-op.
     No stage record alone confers signing, installation or publication authority.
     """
-    def __init__(self, path):
+    def __init__(self, path, *, read_only=False):
         import sqlite3
+        if read_only:
+            from pathlib import Path
+            self.db = sqlite3.connect(Path(path).resolve().as_uri() + "?mode=ro",
+                                      uri=True, timeout=10, isolation_level=None)
+            self.db.execute("PRAGMA query_only=ON")
+            return
         self.db = sqlite3.connect(path, timeout=10, isolation_level=None)
         self.db.execute("PRAGMA foreign_keys=ON")
         self.db.executescript("""
@@ -682,7 +688,7 @@ def main(argv=None):
                                   and path.stat().st_uid == os.getuid()), "insecure_ledger_path")
     if args.action == "reconciliation-status":
         require(path.is_file(), "candidate_ledger_missing")
-    ledger = CandidateLedger(path)
+    ledger = CandidateLedger(path, read_only=args.action == "reconciliation-status")
     try:
         if args.action == "allocate":
             require(gate.api("branches/main")["commit"]["sha"] == candidate.source_sha,
