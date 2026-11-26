@@ -540,10 +540,16 @@ def _device_session():
 
 
 def call_tool(name, arguments, *, device=None, invocation_id=None):
+    claim = None
     try:
         _required_args(name, arguments)
         if "operation_id" in arguments and not execution.valid_id(arguments["operation_id"]):
             raise AndroidError("invalid_operation_id")
+        if name == "scenario_run" and device is None:
+            _, digest, actions = scenarios._spec(arguments["scenario_id"])
+            operation_id = arguments.get("operation_id")
+            if actions and operation_id is None:
+                raise AndroidError("operation_id_required")
         # Preview and receipt reads do not interact with USB. Injected devices
         # are the hermetic unit-test seam, not reachable via MCP arguments.
         session = (_device_session() if device is None and
@@ -561,21 +567,18 @@ def call_tool(name, arguments, *, device=None, invocation_id=None):
                 result = operations.reconcile(scenarios._receipt_root(), arguments["operation_id"],
                                               arguments["expected_screen"], active_device)
             elif name == "scenario_run" and device is None:
-                _, digest, actions = scenarios._spec(arguments["scenario_id"])
-                operation_id = arguments.get("operation_id")
-                if actions and operation_id is None:
-                    raise AndroidError("operation_id_required")
                 claim, cached = (None, None)
                 if operation_id is not None:
                     claim, cached = operations.begin(scenarios._receipt_root(), operation_id,
-                                                     arguments["scenario_id"], digest, actions)
+                                                     arguments["scenario_id"], digest, actions,
+                                                     invocation_id=trace.invocation_id if trace else None)
                 if cached is not None:
                     result = cached
                 else:
-                    with execution.budget(claim=claim):
+                    with execution.budget(seconds=execution.RUN_SECONDS if actions else 7, claim=claim):
                         result = active_device.invoke(name, arguments)
                     if claim is not None:
-                        claim.finish()
+                        claim.finish(result)
                         result = operations.status(scenarios._receipt_root(), operation_id)
             else:
                 result = active_device.invoke(name, arguments)
@@ -584,9 +587,12 @@ def call_tool(name, arguments, *, device=None, invocation_id=None):
         return {"content": [{"type": "text", "text": json.dumps(result, separators=(",", ":"))}]}
     except (AndroidError, ValueError) as exc:
         code = str(exc) if isinstance(exc, (AndroidError, operations.OperationError)) else "invalid_arguments"
+        if name == "scenario_run" and isinstance(arguments, dict) and execution.valid_id(arguments.get("operation_id")):
+            if claim is not None or code == "device_busy":
+                return execution.uncertain_result(arguments, invocation_id, "scenario_execution_uncertain" if claim else "device_busy")
         return {"content": [{"type": "text", "text": json.dumps({"error": code})}], "isError": True}
     except (OSError, RuntimeError):
-        if name == "scenario_run" and execution.valid_id(arguments.get("operation_id")):
+        if name == "scenario_run" and isinstance(arguments, dict) and execution.valid_id(arguments.get("operation_id")):
             return execution.uncertain_result(arguments, invocation_id, "scenario_execution_uncertain")
         return {"content": [{"type": "text", "text": '{"error":"scenario_unavailable"}'}],
                 "isError": True}
