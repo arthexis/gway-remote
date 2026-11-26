@@ -4,6 +4,7 @@ No additional key, listener, or shell execution. OAuth scope is checked by
 Watchtower before the request enters this operator-pinned channel.
 """
 import secrets
+import subprocess
 import time
 
 from .watchtower_exec_transport import pinned_transport
@@ -34,10 +35,25 @@ class ProviderTransport:
             payload.update({key: request[key] for key in ("provider", "tool", "arguments")})
         transport = pinned_transport(self.execution_transport, node)
         started = time.monotonic()
-        response = transport.invoke(payload)
-        if type(response) is not dict or "result" not in response:
-            raise ValueError("invalid provider response")
-        result = response["result"]
+        scenario = (operation == "provider_call" and request.get("provider") == "android"
+                    and request.get("tool") == "scenario_run")
+        try:
+            response = transport.invoke(payload)
+            if type(response) is not dict or "result" not in response:
+                raise ValueError("invalid provider response")
+            if scenario and (response.get("request_id") != payload["request_id"]
+                             or response.get("node") != node):
+                raise ValueError("invalid scenario response identity")
+            result = response["result"]
+        except PermissionError:
+            raise
+        except (OSError, ValueError, RuntimeError, subprocess.SubprocessError) as exc:
+            if not scenario:
+                raise
+            from .android_execution_contract import uncertain_result
+            code = ("transport_timeout" if isinstance(exc, (TimeoutError, subprocess.TimeoutExpired))
+                    else "transport_execution_uncertain")
+            return uncertain_result(request["arguments"], payload["request_id"], code)
         if request.get("provider") == "android" and request.get("tool") == "scenario_run":
             from .android_invocation_trace import annotate_transport
             # The pinned transport already authenticates node and request ID.

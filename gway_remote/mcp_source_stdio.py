@@ -125,7 +125,9 @@ class _Session:
     def __init__(self, registration, timeout):
         if not isinstance(registration, SourceRegistration) or not registration.enabled:
             raise SourceProtocolError("source not enabled")
-        if not isinstance(timeout, (int, float)) or isinstance(timeout, bool) or not 0 < timeout <= 30:
+        from .android_execution_contract import STDIO_SECONDS
+        maximum = STDIO_SECONDS if registration.source_id == "android" else 30
+        if not isinstance(timeout, (int, float)) or isinstance(timeout, bool) or not 0 < timeout <= maximum:
             raise ValueError("invalid timeout")
         self.registration = registration
         self.deadline = time.monotonic() + timeout
@@ -262,6 +264,10 @@ def call_source_tool(registration, name, arguments, declared_tool, *, authorized
         if registration.source_id != "android" or not valid_id(invocation_id):
             raise SourceProtocolError("invalid invocation id")
         rpc_id = invocation_id
+    if timeout > 30:
+        from .android_execution_contract import STDIO_SECONDS
+        if registration.source_id != "android" or name != "scenario_run" or timeout != STDIO_SECONDS:
+            raise SourceProtocolError("invalid tool timeout")
     with _Session(registration, timeout) as session:
         session.initialize()
         current = _check_tool_list(session.request(2, "tools/list", {}))

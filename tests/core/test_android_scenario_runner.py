@@ -211,8 +211,10 @@ class ScenarioContracts(unittest.TestCase):
         self.assertEqual(scopes["scenario_preview"], "read")
         self.assertEqual(scopes["scenario_run"], "execute")
         self.assertEqual(scopes["scenario_result"], "read")
+        self.assertEqual(scopes["scenario_status"], "read")
+        self.assertEqual(scopes["scenario_reconcile"], "execute")
         self.assertEqual(scopes["navigation_model"], "read")
-        self.assertEqual(len(TOOLS), 13)
+        self.assertEqual(len(TOOLS), 15)
         for name in ("scenario_preview", "scenario_run"):
             with self.subTest(name=name):
                 err = call_tool(name, {"scenario_id": "../../etc/passwd"},

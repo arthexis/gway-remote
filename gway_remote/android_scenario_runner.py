@@ -17,6 +17,7 @@ import uuid
 
 from . import android_navigation_model as navigation
 from . import android_invocation_trace as diagnostics
+from . import android_execution_contract as execution
 from pathlib import Path
 
 SCHEMA = "gway-android-scenario/v1"
@@ -131,6 +132,7 @@ def preview(scenario_id):
         "step_types": [step["op"] for step in steps],
         "actions": actions,
         "run_scope": "gway:execute", "contains_actions": bool(actions),
+        "operation_id_required": bool(actions),
         "screenshots": "not_collected",
         "execution": "not_started",
     }
@@ -153,14 +155,16 @@ def _private_dir(root, *, create):
     return root
 
 
-def _write(root, manifest):
+def _write(root, manifest, *, receipt_id=None):
     _private_dir(root, create=True)
     if sum(1 for p in root.iterdir() if p.name.endswith(".json")) >= _MAX_RECEIPTS:
         raise ScenarioError("receipt_storage_full")
     encoded = _stable(manifest).encode("utf-8")
     if not 0 < len(encoded) <= _MAX_RECEIPT_BYTES:
         raise ScenarioError("receipt_too_large")
-    receipt_id = uuid.uuid4().hex
+    receipt_id = uuid.uuid4().hex if receipt_id is None else receipt_id
+    if not execution.valid_id(receipt_id):
+        raise ScenarioError("invalid_receipt_id")
     target = root / (receipt_id + ".json")
     fd = os.open(target, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
     try:
@@ -168,6 +172,11 @@ def _write(root, manifest):
             stream.write(encoded)
             stream.flush()
             os.fsync(stream.fileno())
+        directory_fd = os.open(root, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+        try:
+            os.fsync(directory_fd)
+        finally:
+            os.close(directory_fd)
     except Exception:
         target.unlink(missing_ok=True)
         raise
@@ -211,7 +220,9 @@ def run(scenario_id, *, device, receipt_root=None, clock=time.monotonic):
     invocations = 0
     for index, step in enumerate(steps):
         # Five steps only; no CLI, remote input payload, arbitrary shell or loop.
-        if clock() - started > (45 if any(s["op"] == "semantic_transition" for s in steps) else 7):
+        left = execution.remaining()
+        if ((left is not None and left <= 0) or
+                (left is None and clock() - started > (execution.RUN_SECONDS if actions else 7))):
             traces.append({"operation": "deadline", "outcome": "unknown"})
             outcome = "failed"
             break
@@ -294,10 +305,15 @@ def run(scenario_id, *, device, receipt_root=None, clock=time.monotonic):
     invocation = diagnostics.current()
     if invocation is not None:
         manifest["invocation_trace"] = invocation.evidence()
-    receipt_id, digest = _write(root, manifest)
+    claim = execution.operation()
+    if claim is not None:
+        manifest["operation_id"] = claim.operation_id
+    receipt_id, digest = _write(root, manifest, receipt_id=claim.operation_id if claim else None)
     result = {"status": outcome, "receipt_id": receipt_id,
               "receipt_sha256": digest, "steps_completed": len(traces),
               "action_invocations": invocations, "screenshots": "not_collected"}
     if invocation is not None:
         result["invocation_id"] = invocation.invocation_id
+    if claim is not None:
+        result["operation_id"] = claim.operation_id
     return result
