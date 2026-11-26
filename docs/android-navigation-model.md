@@ -28,3 +28,22 @@ To extend the graph, review screen markers and directed transitions in
 `gway_remote/android_navigation_model.py`, add deterministic tests for
 ambiguity and incomplete trees, and verify the observed screen on an authorized
 physical Android within the requested scope. Do not add private screen content.
+
+
+## Scenario integration
+
+Use `scenario_preview` before `scenario_run`. The reviewed
+`developer-options-from-search-v1` scenario starts on the recognized,
+focused, empty Spanish Settings search screen. It enters the fixed query,
+verifies search results, selects a unique enabled clickable result by resource
+ID, and verifies Developer options. It performs at most two actions, never
+wakes the device or toggles a setting, and stops on uncertainty without
+retrying an action. Opening Settings search is still an advisory/manual edge.
+`developer-options-observation-v1` only asserts the recognized screen.
+Both scenarios run under the existing execute scope; previews and receipts
+remain read-only. Receipts contain operation names and outcomes, not UI data.
+
+Existing scenario IDs and recipes are unchanged. New scenarios may use
+`navigation_model` assertions and the internal `semantic_transition` operation
+for reviewed executable edges only. Do not accept caller-supplied recipes,
+selectors, destinations or arbitrary search text for scenario execution.
