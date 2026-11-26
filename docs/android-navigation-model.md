@@ -36,7 +36,14 @@ Use `scenario_preview` before `scenario_run`. The reviewed
 `developer-options-from-search-v1` scenario starts on the recognized,
 focused, empty Spanish Settings search screen. It enters the fixed query,
 verifies search results, selects a unique enabled clickable result by resource
-ID, and verifies Developer options. It performs at most two actions, never
+ID or a structurally verified clickable ancestor row, and verifies Developer options.
+The empty search screen may contain recent searches; the saved-query header
+is distinguished from the Developer options result breadcrumb. Anonymous rows
+are retained only in the internal navigation snapshot, never the public UI tree.
+The internal row resolver requires a shared nearby ancestor, no competing
+interactive descendants, valid containment, and identical structural targets
+and bounds in two fresh observations. It does not expose arbitrary coordinate
+or ancestor selectors to callers. It performs at most two actions, never
 wakes the device or toggles a setting, and stops on uncertainty without
 retrying an action. Opening Settings search is still an advisory/manual edge.
 `developer-options-observation-v1` only asserts the recognized screen.
