@@ -151,6 +151,27 @@ class ScenarioContracts(unittest.TestCase):
                 self.assertFalse(any(name == "key" for name, _ in dev.calls))
                 self.assertLessEqual(sum(name == "wake_if_needed" for name, _ in dev.calls), 1)
 
+    def test_semantic_scenario_is_bounded_and_stops_on_uncertainty(self):
+        class Semantic(FakeDevice):
+            def semantic_transition(self, source, destination):
+                self.calls.append((source, destination))
+                return next(self.outcomes)
+        preview = runner.preview("developer-options-from-search-v1")
+        self.assertEqual(preview["actions"], 2)
+        self.assertEqual(preview["run_scope"], "gway:execute")
+        for outcomes, expected, count in [
+            ([{"status": "confirmed", "dispatched": True}] * 2, "passed", 2),
+            ([{"status": "unconfirmed", "dispatched": True}], "failed", 1),
+            ([{"status": "unconfirmed", "dispatched": False}], "failed", 0),
+        ]:
+            dev = Semantic()
+            dev.outcomes = iter(outcomes)
+            receipt = runner.run("developer-options-from-search-v1", device=dev,
+                                 receipt_root=self.root)
+            self.assertEqual(receipt["status"], expected)
+            self.assertEqual(receipt["action_invocations"], count)
+            self.assertEqual(len(dev.calls), 2 if expected == "passed" else 1)
+
     def test_explicit_read_execute_scope_and_strict_scenario_ids(self):
         scopes = {t["name"]: required_scope(t) for t in TOOLS}
         self.assertEqual(scopes["scenario_preview"], "read")
