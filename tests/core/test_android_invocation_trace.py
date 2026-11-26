@@ -114,6 +114,35 @@ class InvocationTests(unittest.TestCase):
         self.assertNotIn("Permanecer activo", json.dumps(receipt))
         device.run.assert_not_called()
 
+    def test_successful_reviewed_recipe_preserves_two_action_budget(self):
+        initial = snapshot("Buscar")
+        results = snapshot("Permanecer activo")
+        results["elements"][1].update({"resource_id": PKG + ":id/result", "enabled": True,
+                                        "clickable": True, "bounds": "[100,300][500,450]"})
+        done = {"truncated": False, "elements": [
+            {"package": "com.android.settings", "text": "Opciones de desarrollador"},
+            {"package": "com.android.settings", "text": "Permanecer activo"}]}
+        class Sequence(Device):
+            def ui_tree(self, serial, *, navigation_details=False):
+                return next(self.trees)
+        dev = Sequence(run=Mock(return_value=subprocess.CompletedProcess([], 0, stdout=b"", stderr=b"")))
+        dev.trees = iter([initial, initial, results, results,
+                          results, results, done, done])
+        before = runner.preview(SCENARIO)
+        with trace.invocation(RID, "scenario_run", self.root) as invocation:
+            invocation.acquired()
+            result = runner.run(SCENARIO, device=dev, receipt_root=self.root)
+        receipt = runner.result(result["receipt_id"], root=self.root)
+        self.assertEqual(receipt["manifest"]["spec_sha256"], before["spec_sha256"])
+        self.assertEqual(result["status"], "passed")
+        self.assertEqual(result["action_invocations"], 2)
+        self.assertEqual(dev.run.call_count, 2)
+        evidence = receipt["manifest"]["invocation_trace"]
+        self.assertTrue(evidence["complete"])
+        self.assertEqual([e["kind"] for e in evidence["events"] if e["stage"] == "input_attempt"],
+                         ["text", "tap"])
+        self.assertLessEqual((self.root / (result["receipt_id"] + ".json")).stat().st_size, 8192)
+
     def test_actual_input_attempt_is_independent_and_recent_history_bounded(self):
         run = Mock(return_value=subprocess.CompletedProcess([], 0, stdout=b"", stderr=b""))
         device = android.Device(run=run)
