@@ -46,3 +46,11 @@ The manual main-only android-release-candidate-install.yml workflow uses the sam
 
 ## Owner-approved independent physical installation
 The owner explicitly authorized the laboratory-only incremental installation despite an unverified pre-existing Mobile API credential. Select the explicit owner-dispatched `install-lab-only` mode; normal preflight/install remains strict. The run title, exact immutable artifact, signer, version, USB, device and shared hardware concurrency gates still apply. Record the actual pre-install authentication result; never turn false into true. Installation evidence leaves authenticated acceptance pending, and cannot authorize publication. No reset, credential changes, rebuild, re-sign, or #718 hold removal. Verify UI separately.
+
+## Reconciliation after the semantic scenario reliability rollout (2026-11-26)
+
+Main 4ef64d81857fc7e4a5411138e3c8d63db25ea7ed includes #759/#763/#764. Candidate 794 is recorded as installed only; the signed bytes remain unchanged. A fresh stable API health observation still reported Token is required. This is not proof of credential loss. Do not reinstall 794, reset the canary, or promote the superseded source. Release 793, #718 hold and strict CI remain in place. Android acceptance is not yet a required check.
+
+Use the existing candidate identity and ledger with the new reconciliation-status --artifact-dir <private directory> subcommand to report recorded stages, local APK digest/certificate agreement, current main, publication hold and blockers. It is a read-only checkpoint, not a live device audit or permission to execute. An installed receipt with an unverified pre-upgrade credential cannot establish credential preservation retrospectively. A fresh candidate built at protected main may use the exact same source/workflow revision for installation; the tree must match and any moved main fails closed.
+
+Next: privately restore or verify existing Mobile API access; integrate reviewed #731/#747/#674 changes under their own CI and gates; allocate a fresh monotonic candidate after final integration. Obtain two successive authenticated upgrades and module-level acceptance including rights. #749 must migrate the legacy canary/auto-release coordinator to exact candidate promotion, preserving strict CI and #718. No promotion implementation or acceptance is implied by this checkpoint.

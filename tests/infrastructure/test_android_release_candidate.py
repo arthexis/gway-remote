@@ -384,3 +384,61 @@ class CandidateTests(unittest.TestCase):
         self.assertNotIn("assembleRelease",workflow)
         self.assertNotIn("gh release create",workflow)
         self.assertNotIn("uninstall",workflow)
+
+    def test_install_revision_exact_main(self):
+        from unittest.mock import Mock
+        from gway_remote.android_release_candidate import validate_install_revision
+        gate = Mock()
+        gate.api.side_effect = lambda path: {
+            "branches/main": {"commit": {"sha": self.c.source_sha}},
+            f"git/commits/{self.c.source_sha}": {"tree": {"sha": self.c.source_tree}},
+        }[path]
+        validate_install_revision(self.c, self.c.source_sha, gate)
+        with self.assertRaisesRegex(ValueError, "source_tree_mismatch"):
+            validate_install_revision(replace(self.c, source_tree="f"*40), self.c.source_sha, gate)
+        with self.assertRaisesRegex(ValueError, "candidate_superseded"):
+            validate_install_revision(self.c, "f"*40, gate)
+
+    def test_reconciliation_checkpoint_is_not_admission(self):
+        import base64
+        import hashlib
+        import tempfile
+        from pathlib import Path
+        from unittest.mock import Mock, patch
+        from gway_remote.android_release_candidate import CandidateLedger, reconciliation_status
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            root.chmod(0o700)
+            apk = root / f"{self.c.candidate_id}.apk"
+            apk.write_bytes(b"x"*12000)
+            apk.chmod(0o600)
+            ledger = CandidateLedger(":memory:")
+            try:
+                ledger.allocate(self.c, published_version=798, installed_version=799)
+                ledger.record(self.c.candidate_id, "built", {"run_id": 10})
+                ledger.record(self.c.candidate_id, "signed", {
+                    "apk_sha256": hashlib.sha256(apk.read_bytes()).hexdigest(),
+                    "certificate_sha256": "d"*64, "artifact_id": 11, "run_id": 20})
+                ledger.record(self.c.candidate_id, "installed", {"credential_before": False})
+                previous = ledger.read(self.c.candidate_id)
+                gate = Mock()
+                gate.api.side_effect = lambda path: {
+                    "branches/main": {"commit": {"sha": "f"*40}},
+                    f"contents/.github/workflows/android.yml?ref={'f'*40}": {
+                        "encoding": "base64",
+                        "content": base64.b64encode(b"ANDROID_PUBLICATION_HOLD_718").decode()},
+                }[path]
+                with patch("gway_remote.android_canary_certificate.certificate_sha256", return_value="d"*64):
+                    result = reconciliation_status(ledger, self.c, artifact_dir=root, gate=gate)
+                    self.assertTrue(result["local_signed_artifact_verified"])
+                    self.assertFalse(result["admission"])
+                    self.assertEqual(result["blockers"], [
+                        "candidate_superseded", "authenticated_upgrade_baseline_missing",
+                        "authenticated_acceptance_missing", "publication_approval_missing", "publication_held"])
+                    apk.write_bytes(b"y"*12000)
+                    tampered = reconciliation_status(ledger, self.c, artifact_dir=root, gate=gate)
+                    self.assertFalse(tampered["local_signed_artifact_verified"])
+                    self.assertIn("signed_artifact_unverified", tampered["blockers"])
+                self.assertEqual(ledger.read(self.c.candidate_id), previous)
+            finally:
+                ledger.close()
