@@ -83,8 +83,14 @@ class CandidateLedger:
     Each stage has immutable evidence. A replay with identical evidence is a no-op.
     No stage record alone confers signing, installation or publication authority.
     """
-    def __init__(self, path):
+    def __init__(self, path, *, read_only=False):
         import sqlite3
+        if read_only:
+            from pathlib import Path
+            self.db = sqlite3.connect(Path(path).resolve().as_uri() + "?mode=ro",
+                                      uri=True, timeout=10, isolation_level=None)
+            self.db.execute("PRAGMA query_only=ON")
+            return
         self.db = sqlite3.connect(path, timeout=10, isolation_level=None)
         self.db.execute("PRAGMA foreign_keys=ON")
         self.db.executescript("""
@@ -429,6 +435,10 @@ def validate_install_revision(candidate, revision, gate):
     """Verify the reviewed delivery-only revision, not arbitrary new app code."""
     require(isinstance(revision,str) and SHA.fullmatch(revision), "invalid_workflow_revision")
     require(gate.api("branches/main")["commit"]["sha"] == revision, "candidate_superseded")
+    if revision == candidate.source_sha:
+        require(gate.api(f"git/commits/{revision}")["tree"]["sha"] == candidate.source_tree,
+                "source_tree_mismatch")
+        return
     comparison = gate.api(f"compare/{candidate.source_sha}...{revision}")
     files = comparison.get("files", [])
     require(comparison.get("status") == "ahead"
@@ -458,6 +468,13 @@ def health_is_authenticated(tree):
     if any(t in ("Token is required","Unauthorized: check your token","Access denied","Connection failed")
            for t in texts):
         return False
+    # The stable Compose GenericResultRenderer displays separate key/value
+    # rows, not the JSON string used by older fixtures. Reject conflicting
+    # result rows; do not mistake the API Health tab label for a response.
+    statuses = [t for t in texts if t.startswith("status:")]
+    apis = [t for t in texts if t.startswith("api:")]
+    if statuses or apis:
+        return statuses == ["status: ok"] and apis == ["api: gway-remote/v1"]
     for text in texts:
         try:
             value = json.loads(text)
@@ -588,6 +605,51 @@ def install_stable_candidate(ledger, candidate, *, artifact_dir, workflow_sha, i
     return receipt
 
 
+def reconciliation_status(ledger, candidate, *, artifact_dir, gate):
+    """Read-only checkpoint, not admission for installation or publication."""
+    import base64
+    import os
+    state = ledger.read(candidate.candidate_id)
+    require(state.get("allocated") == asdict(candidate), "candidate_not_allocated")
+    main_sha = gate.api("branches/main")["commit"]["sha"]
+    require(isinstance(main_sha, str) and SHA.fullmatch(main_sha), "invalid_main_revision")
+    workflow = gate.api(f"contents/.github/workflows/android.yml?ref={main_sha}")
+    require(workflow.get("encoding") == "base64", "publication_policy_unknown")
+    source = base64.b64decode(workflow["content"], validate=False).decode("utf-8")
+    held = "ANDROID_PUBLICATION_HOLD_718" in source
+    signed = state.get("signed")
+    verified = False
+    blockers = []
+    if signed:
+        artifact = SignedArtifact(candidate, signed["apk_sha256"], signed["certificate_sha256"],
+                                  signed["artifact_id"], signed["run_id"])
+        apk = _private_artifact_dir(artifact_dir) / f"{candidate.candidate_id}.apk"
+        if (apk.is_file() and not apk.is_symlink() and apk.stat().st_uid == os.getuid()
+                and apk.stat().st_mode & 0o077 == 0 and 10000 < apk.stat().st_size < 104857600):
+            from gway_remote.android_canary_certificate import certificate_sha256
+            verified = (hashlib.sha256(apk.read_bytes()).hexdigest() == artifact.apk_sha256
+                        and certificate_sha256(apk) == artifact.certificate_sha256)
+    if not verified:
+        blockers.append("signed_artifact_unverified")
+    if main_sha != candidate.source_sha:
+        blockers.append("candidate_superseded")
+    if "installed" not in state:
+        blockers.append("installation_missing")
+    elif state["installed"].get("credential_before") is not True:
+        blockers.append("authenticated_upgrade_baseline_missing")
+    if "accepted" not in state:
+        blockers.append("authenticated_acceptance_missing")
+    if "approved" not in state:
+        blockers.append("publication_approval_missing")
+    if held:
+        blockers.append("publication_held")
+    return {"candidate_id": candidate.candidate_id, "version_code": candidate.version_code,
+            "source_sha": candidate.source_sha, "current_main": main_sha,
+            "recorded_stages": [stage for stage in STAGES if stage in state],
+            "local_signed_artifact_verified": verified, "publication_hold": held,
+            "blockers": blockers, "admission": False}
+
+
 def main(argv=None):
     """Owner-side entrypoint for the pre-install candidate stages only."""
     import argparse
@@ -612,6 +674,8 @@ def main(argv=None):
         else:
             command.add_argument("--workflow-sha")
     sub.add_parser("status")
+    checkpoint = sub.add_parser("reconciliation-status")
+    checkpoint.add_argument("--artifact-dir", type=Path, required=True)
     lab = sub.add_parser("lab-install")
     lab.add_argument("--artifact-dir", type=Path, required=True)
     lab.add_argument("--workflow-sha", required=True)
@@ -629,7 +693,9 @@ def main(argv=None):
             "invalid_ledger_path")
     require(not path.exists() or (path.is_file() and path.stat().st_mode & 0o077 == 0
                                   and path.stat().st_uid == os.getuid()), "insecure_ledger_path")
-    ledger = CandidateLedger(path)
+    if args.action == "reconciliation-status":
+        require(path.is_file(), "candidate_ledger_missing")
+    ledger = CandidateLedger(path, read_only=args.action == "reconciliation-status")
     try:
         if args.action == "allocate":
             require(gate.api("branches/main")["commit"]["sha"] == candidate.source_sha,
@@ -652,6 +718,8 @@ def main(argv=None):
                        expected_artifact_id=args.artifact_id,expected_digest=args.digest,
                        expected_certificate=args.certificate,preflight_only=args.preflight_only,
                        allow_unverified_auth=args.allow_unverified_auth)
+        elif args.action == "reconciliation-status":
+            result = reconciliation_status(ledger, candidate, artifact_dir=args.artifact_dir, gate=gate)
         else:
             result = {"candidate_id":candidate.candidate_id,"evidence":ledger.read(candidate.candidate_id)}
         print(json.dumps(result,sort_keys=True))
