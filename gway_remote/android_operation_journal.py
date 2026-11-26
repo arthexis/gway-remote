@@ -21,9 +21,16 @@ class OperationError(ValueError):
 
 
 def _directory(root, create=False):
-    path = Path(root) / ".operations-v1"
+    from .android_scenario_runner import _private_dir
+    root = _private_dir(Path(root), create=create)
+    path = root / ".operations-v1"
     if create:
         path.mkdir(mode=0o700, exist_ok=True)
+        fd = os.open(root, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+        try:
+            os.fsync(fd)
+        finally:
+            os.close(fd)
     info = path.lstat()
     if (not stat.S_ISDIR(info.st_mode) or info.st_uid != os.geteuid()
             or info.st_mode & 0o077):
@@ -46,7 +53,10 @@ def _read(path):
             or row.get("state") not in _STATES or type(row.get("input_attempts")) is not int
             or not 0 <= row["input_attempts"] <= 2
             or type(row.get("scenario_id")) is not str
-            or type(row.get("spec_sha256")) is not str or len(row["spec_sha256"]) != 64):
+            or type(row.get("spec_sha256")) is not str or len(row["spec_sha256"]) != 64
+            or (row.get("invocation_id") is not None and not valid_id(row["invocation_id"]))
+            or (row.get("receipt_sha256") is not None and
+                (type(row["receipt_sha256"]) is not str or len(row["receipt_sha256"]) != 64))):
         raise OperationError("invalid_operation_record")
     return row
 
@@ -108,7 +118,13 @@ def _receipt(root, row):
             or manifest.get("spec_sha256") != row["spec_sha256"]
             or manifest.get("status") not in ("passed", "failed")
             or type(manifest.get("action_invocations")) is not int
-            or not 0 <= manifest["action_invocations"] <= 2):
+            or not row["input_attempts"] <= manifest["action_invocations"] <= 2
+            or type(manifest.get("operations")) is not list
+            or (row.get("invocation_id") is not None and
+                (type(manifest.get("invocation_trace")) is not dict or
+                 manifest["invocation_trace"].get("invocation_id") != row["invocation_id"]))
+            or (row.get("receipt_sha256") is not None and
+                row["receipt_sha256"] != receipt["sha256"])):
         return None
     return receipt
 
@@ -122,6 +138,8 @@ def status(root, operation_id):
     base = {"operation_id": operation_id, "scenario_id": row["scenario_id"],
             "spec_sha256": row["spec_sha256"], "input_attempts": row["input_attempts"],
             "retryable": False}
+    if row.get("invocation_id") is not None:
+        base["invocation_id"] = row["invocation_id"]
     if row["state"] == "reconciled":
         base.update({"reconciled": True, "observed_screen": row["observed_screen"],
                      "reconciliation_required": False})
@@ -155,12 +173,17 @@ class Claim:
         # Must succeed BEFORE the subprocess invocation. No best-effort bypass.
         _write(self.directory, self.row)
 
-    def finish(self):
+    def finish(self, result):
+        if (result.get("receipt_id") != self.operation_id
+                or type(result.get("receipt_sha256")) is not str
+                or len(result["receipt_sha256"]) != 64):
+            raise OperationError("invalid_terminal_receipt")
+        self.row["receipt_sha256"] = result["receipt_sha256"]
         self.row["state"] = "terminal"
         _write(self.directory, self.row)
 
 
-def begin(root, operation_id, scenario_id, digest, action_budget):
+def begin(root, operation_id, scenario_id, digest, action_budget, *, invocation_id=None):
     """Return (claim, cached response); never execute an existing identity."""
     if not valid_id(operation_id):
         raise OperationError("invalid_operation_id")
@@ -182,9 +205,14 @@ def begin(root, operation_id, scenario_id, digest, action_budget):
                           "retryable": False, "reconciliation_required": True}
     if (Path(root) / (operation_id + ".json")).exists() or (Path(root) / (operation_id + ".json")).is_symlink():
         raise OperationError("operation_receipt_collision")
+    from .android_scenario_runner import _MAX_RECEIPTS
+    if sum(1 for p in Path(root).iterdir() if p.name.endswith(".json")) >= _MAX_RECEIPTS:
+        raise OperationError("receipt_storage_full")
     row = {"schema": "gway-android-operation/v1", "operation_id": operation_id,
            "scenario_id": scenario_id, "spec_sha256": digest,
            "state": "claimed", "input_attempts": 0}
+    if valid_id(invocation_id):
+        row["invocation_id"] = invocation_id
     _write(directory, row)
     return Claim(directory, row, action_budget), None
 
