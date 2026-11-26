@@ -68,5 +68,59 @@ class NavigationModelTests(unittest.TestCase):
         self.assertEqual(device.invoke("navigation_model", {})["status"], "screen_changed")
 
 
+    def test_semantic_transition_dispatches_only_after_two_matching_observations(self):
+        search_id = "com.android.settings.intelligence:id/search_src_text"
+        def search(query, *extra):
+            return {"truncated": False, "elements": [
+                node(query, search_id, package="com.android.settings.intelligence",
+                     enabled=True, focused=True), *extra]}
+        initial = search("")
+        results = search("Permanecer activo", node("Permanecer activo",
+                         "com.android.settings.intelligence:id/result",
+                         package="com.android.settings.intelligence",
+                         enabled=True, clickable=True))
+        class FakeDevice(Device):
+            def serial(self):
+                return "fake"
+            def size(self, serial):
+                return (1080, 2220)
+            def screen_state(self, serial):
+                return {"screen_on": True, "locked": False, "rotation": 0}
+            def ui_tree(self, serial, *, navigation_details=False):
+                return next(self.trees)
+            def adb(self, serial, *args, **kwargs):
+                self.calls.append(args)
+        device = FakeDevice()
+        device.calls = []
+        device.trees = iter([initial, initial, results, results])
+        self.assertEqual(device.semantic_transition("settings_search", "settings_search_results"),
+                         {"status": "confirmed", "dispatched": True})
+        self.assertEqual(device.calls, [("shell", "input", "text", "Permanecer%sactivo")])
+        device.calls.clear()
+        device.trees = iter([initial, results])
+        self.assertEqual(device.semantic_transition("settings_search", "settings_search_results"),
+                         {"status": "unconfirmed", "dispatched": False})
+        self.assertEqual(device.calls, [])
+        device.trees = iter([initial, initial, initial, initial])
+        self.assertEqual(device.semantic_transition("settings_search", "settings_search_results"),
+                         {"status": "unconfirmed", "dispatched": True})
+        self.assertEqual(len(device.calls), 1)
+
+    def test_search_result_rejects_nonunique_target(self):
+        search_id = "com.android.settings.intelligence:id/search_src_text"
+        field = node("Permanecer activo", search_id,
+                     package="com.android.settings.intelligence")
+        result = node("Permanecer activo", "com.android.settings.intelligence:id/result",
+                      package="com.android.settings.intelligence", enabled=True, clickable=True)
+        tree = {"truncated": False, "elements": [field, result]}
+        self.assertEqual(model.transition_target(tree, "settings_search_results",
+                                                 "developer_options"),
+                         ("tap_target", {"resource_id": result["resource_id"]}))
+        tree["elements"].append(dict(result))
+        self.assertIsNone(model.transition_target(tree, "settings_search_results",
+                                                  "developer_options"))
+        self.assertIsNone(model.transition_target(tree, "settings", "settings_search"))
+
+
 if __name__ == "__main__":
     unittest.main()
