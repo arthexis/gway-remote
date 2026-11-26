@@ -4,14 +4,14 @@ The Android provider exposes the read-only `navigation_model` tool. It inspects
 the current unlocked, awake device through the existing USB provider and returns
 a recognized screen, known controls and, optionally, a suggested route to a
 reviewed destination. For example, request `{"destination":"developer_options"}`.
-The currently reviewed graph covers Spanish Samsung Settings, Settings search,
+The currently reviewed graph covers Spanish Samsung Settings, Settings search, search results,
 and Developer options, including the state of **Permanecer activo**. It was
 observed on an SM-G950F; other versions and languages may not match.
 
-Each route step gives a source, destination and human-readable instruction. The
+Each route step gives a source, destination and one human-readable action. Search entry and result selection are separate transitions. The
 route is directional and may be unavailable, even for a known destination.
 An unknown, ambiguous or truncated tree never identifies a screen; an unclear
-switch association omits its state. The model does not write screen contents,
+switch association omits its state. Recognition is package-scoped; the switch must share a nearby structural ancestor with its title, not merely coordinates. Two successive semantic observations and device-state checks must agree. This detects observed changes, not every transient transition between captures. The model does not write screen contents,
 discover controls automatically, perform taps, wake or unlock the device.
 
 Before each action, inspect the current screen using `ui_tree` or `capture`.
