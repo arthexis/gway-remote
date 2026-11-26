@@ -86,7 +86,8 @@ def provider_list(registrations, *, node_id):
     return {"node": node_id, "providers": providers}
 
 
-def provider_call(registrations, *, provider, tool, arguments, authorized_scope):
+def provider_call(registrations, *, provider, tool, arguments, authorized_scope,
+                  invocation_id=None):
     """Revalidate a declaration and enforce permissions on the owning node."""
     if authorized_scope not in ("read", "execute"):
         raise NodeProviderError("permission_denied", provider=provider)
@@ -107,6 +108,8 @@ def provider_call(registrations, *, provider, tool, arguments, authorized_scope)
         # stdio budget, leaving 5s for the existing 30s gateway deadline.
         # Authorization and declaration revalidation still run unchanged.
         options = {"authorized_scope": authorized_scope}
+        if registration.source_id == "android" and invocation_id is not None:
+            options["invocation_id"] = invocation_id
         if registration.source_id == "odoo" and tool == "customer_vehicle_batch_apply":
             options["timeout"] = 25
         return call_source_tool(_node_registration(registration), tool, arguments, declaration,
@@ -118,7 +121,8 @@ def provider_call(registrations, *, provider, tool, arguments, authorized_scope)
         raise NodeProviderError("provider_unavailable", provider=provider,
                                 stage="execution", retryable=True) from exc
 
-def dispatch_node_provider_request(registrations, request, *, node_id, trusted_scope):
+def dispatch_node_provider_request(registrations, request, *, node_id, trusted_scope,
+                                   invocation_id=None):
     """RPC entrypoint for an authenticated node transport.
 
     The transport MUST derive trusted_scope from its authenticated peer and
@@ -134,7 +138,9 @@ def dispatch_node_provider_request(registrations, request, *, node_id, trusted_s
     if operation == "provider_call":
         if set(request) != {"operation", "provider", "tool", "arguments"}:
             raise NodeProviderError("invalid_request")
+        options = {"authorized_scope": trusted_scope}
+        if invocation_id is not None and request["provider"] == "android":
+            options["invocation_id"] = invocation_id
         return provider_call(registrations, provider=request["provider"],
-                             tool=request["tool"], arguments=request["arguments"],
-                             authorized_scope=trusted_scope)
+                             tool=request["tool"], arguments=request["arguments"], **options)
     raise NodeProviderError("unknown_operation")
