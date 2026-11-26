@@ -13,6 +13,7 @@ import xml.etree.ElementTree as ET
 
 from .android_ui_harness import UiTargetError, condition, point, poll, selector, wait_ms
 from . import android_scenario_runner as scenarios
+from . import android_navigation_model as navigation
 
 ADB = "/usr/bin/adb"
 FFMPEG = "/usr/bin/ffmpeg"
@@ -40,6 +41,8 @@ _COORD = {"type": "integer", "minimum": 0, "maximum": 4095}
 TOOLS = [
     _tool("status", "Read USB device, screen state, lock state and rotation; no serial returned.", read=True),
     _tool("ui_tree", "Read bounded, password-redacted visible elements and state flags.", read=True),
+    _tool("navigation_model", "Recognize a reviewed screen and suggest a route; never performs actions.",
+          {"destination": {"type": "string", "enum": sorted(navigation.SCREENS)}}, read=True),
     _tool("capture", "Capture one JPEG preview with structured coordinate metadata; may contain private data.", read=True),
     _tool("tap", "Tap one validated on-screen coordinate.", {"x": _COORD, "y": _COORD}, ("x", "y")),
     _tool("swipe", "Swipe between on-screen coordinates in 100-1000 ms.",
@@ -94,7 +97,7 @@ def _required_args(name, arguments):
         raise AndroidError("invalid_tool")
     schema = _BY_NAME[name]["inputSchema"]
     supplied = set(arguments)
-    if name in ("tap_target", "wait_ui"):
+    if name in ("tap_target", "wait_ui", "navigation_model"):
         if not set(schema["required"]) <= supplied or supplied - set(schema["properties"]):
             raise AndroidError("invalid_arguments")
         if name == "tap_target" and (("expect_id" in supplied) != ("expect_state" in supplied)):
@@ -269,6 +272,18 @@ class Device:
                     "model": model, **self.screen_state(serial)}
         if name == "ui_tree":
             return self.ui_tree(serial)
+        if name == "navigation_model":
+            state = self.screen_state(serial)
+            if state.get("screen_on") is not True or state.get("locked") is not False:
+                return {"schema": navigation.SCHEMA, "screen": None, "status": "screen_not_safe"}
+            snapshot = self.ui_tree(serial)
+            if self.screen_state(serial) != state:
+                return {"schema": navigation.SCHEMA, "screen": None, "status": "screen_changed"}
+            observed = navigation.observe(snapshot)
+            if "destination" in arguments:
+                observed["destination"] = arguments["destination"]
+                observed["route"] = navigation.route(observed.get("screen"), arguments["destination"])
+            return observed
         if name in ("tap_target", "wait_ui"):
             # Semantic execute taps may wake once; read-only waits never wake.
             resource_id = selector(arguments["resource_id"])
