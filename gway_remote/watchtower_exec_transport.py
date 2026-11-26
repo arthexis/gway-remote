@@ -339,8 +339,13 @@ class SSHTransport:
                 "-i",str(self.node.identity_file),
                 "-l",self.node.remote_user,
                 self.node.wireguard_address, "gway-exec-protocol-v1"]
+        timeout = 15
+        if (payload["operation"] == "provider_call" and payload.get("provider") == "android"
+                and payload.get("tool") == "scenario_run"):
+            from .android_execution_contract import SSH_SECONDS
+            timeout = SSH_SECONDS
         try:
-            completed = self._run(argv,input=raw,capture_output=True,timeout=15,check=True)
+            completed = self._run(argv,input=raw,capture_output=True,timeout=timeout,check=True)
         except OSError:
             # Local SSH invocation failed; never classify a remote exit code.
             raise SSHTransportFailure("ssh transport unavailable") from None
