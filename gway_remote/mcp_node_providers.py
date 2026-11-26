@@ -112,12 +112,24 @@ def provider_call(registrations, *, provider, tool, arguments, authorized_scope,
             options["invocation_id"] = invocation_id
         if registration.source_id == "odoo" and tool == "customer_vehicle_batch_apply":
             options["timeout"] = 25
+        if registration.source_id == "android" and tool == "scenario_run":
+            from .android_execution_contract import STDIO_SECONDS
+            options["timeout"] = STDIO_SECONDS
         return call_source_tool(_node_registration(registration), tool, arguments, declaration,
                                 **options)
     except SourceProtocolError as exc:
+        if (provider == "android" and tool == "scenario_run" and authorized_scope == "execute"
+                and exc.code not in ("permission_denied", "tool_declaration_changed",
+                                     "invalid invocation id", "invalid tool timeout")):
+            from .android_execution_contract import uncertain_result
+            code = "provider_timeout" if exc.code == "provider_timeout" else "provider_execution_uncertain"
+            return uncertain_result(arguments, invocation_id, code)
         raise NodeProviderError(exc.code, provider=provider, stage=exc.stage,
                                 retryable=exc.retryable) from exc
     except (OSError, ValueError, RuntimeError, TimeoutError) as exc:
+        if provider == "android" and tool == "scenario_run" and authorized_scope == "execute":
+            from .android_execution_contract import uncertain_result
+            return uncertain_result(arguments, invocation_id, "provider_execution_uncertain")
         raise NodeProviderError("provider_unavailable", provider=provider,
                                 stage="execution", retryable=True) from exc
 
