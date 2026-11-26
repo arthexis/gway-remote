@@ -1,4 +1,7 @@
 import unittest
+import tempfile
+from pathlib import Path
+from unittest.mock import patch
 
 from gway_remote import android_navigation_model as model
 from gway_remote.mcp_android import Device, TOOLS, call_tool
@@ -102,11 +105,11 @@ class NavigationModelTests(unittest.TestCase):
         device.calls.clear()
         device.trees = iter([initial, results])
         self.assertEqual(device.semantic_transition("settings_search", "settings_search_results"),
-                         {"status": "unconfirmed", "dispatched": False})
+                         {"status": "unconfirmed", "dispatched": False, "reason": "target_changed"})
         self.assertEqual(device.calls, [])
-        device.trees = iter([initial, initial, initial, initial])
+        device.trees = iter([initial, initial, initial, initial, initial])
         self.assertEqual(device.semantic_transition("settings_search", "settings_search_results"),
-                         {"status": "unconfirmed", "dispatched": True})
+                         {"status": "unconfirmed", "dispatched": True, "reason": "destination_unconfirmed"})
         self.assertEqual(len(device.calls), 1)
 
     def test_search_result_rejects_nonunique_target(self):
@@ -217,11 +220,11 @@ class NavigationModelTests(unittest.TestCase):
         moved["elements"][3]["bounds"] = "[72,390][521,463]"
         device.trees = iter([initial, moved])
         self.assertEqual(device.semantic_transition("settings_search_results", "developer_options"),
-                         {"status": "unconfirmed", "dispatched": False})
+                         {"status": "unconfirmed", "dispatched": False, "reason": "target_changed"})
         self.assertEqual(device.calls, [])
-        device.trees = iter([initial, initial, initial, initial])
+        device.trees = iter([initial, initial, initial, initial, initial])
         self.assertEqual(device.semantic_transition("settings_search_results", "developer_options"),
-                         {"status": "unconfirmed", "dispatched": True})
+                         {"status": "unconfirmed", "dispatched": True, "reason": "destination_unconfirmed"})
         self.assertEqual(len(device.calls), 1)
 
     def test_private_navigation_tree_retains_anonymous_row_but_public_tree_does_not(self):
@@ -241,6 +244,76 @@ class NavigationModelTests(unittest.TestCase):
         self.assertEqual(len(private["elements"]), 2)
         self.assertEqual(private["elements"][0]["resource_id"], "")
         self.assertIn(private["elements"][0]["node_index"], private["elements"][1]["ancestors"])
+
+
+    def test_transition_reports_predispatch_rejection_and_uncertain_adb(self):
+        package = "com.android.settings.intelligence"
+        initial = {"truncated": False, "elements": [
+            node("Buscar", package + ":id/search_src_text", package=package,
+                 enabled=True, focused=True)]}
+        results = self._physical_result()
+        class FakeDevice(Device):
+            def serial(self):
+                return "fake"
+            def size(self, serial):
+                return (1080, 2220)
+            def screen_state(self, serial):
+                return {"screen_on": True, "locked": False, "rotation": 0}
+            def ui_tree(self, serial, *, navigation_details=False):
+                value = next(self.trees)
+                if isinstance(value, Exception):
+                    raise value
+                return value
+            def adb(self, serial, *args, **kwargs):
+                self.calls.append(args)
+                if self.fail_dispatch:
+                    raise TimeoutError("private detail")
+        dev = FakeDevice()
+        dev.calls = []
+        dev.fail_dispatch = False
+        edge = ("settings_search", "settings_search_results")
+        dev.trees = iter([results])
+        self.assertEqual(dev.semantic_transition(*edge),
+            {"status": "unconfirmed", "dispatched": False, "reason": "source_not_actionable"})
+        dev.trees = iter([initial, results])
+        self.assertEqual(dev.semantic_transition(*edge),
+            {"status": "unconfirmed", "dispatched": False, "reason": "target_changed"})
+        dev.trees = iter([TimeoutError("private detail")])
+        self.assertEqual(dev.semantic_transition(*edge),
+            {"status": "unconfirmed", "dispatched": False, "reason": "preflight_error"})
+        self.assertEqual(dev.calls, [])
+        dev.fail_dispatch = True
+        dev.trees = iter([initial, initial])
+        self.assertEqual(dev.semantic_transition(*edge),
+            {"status": "unconfirmed", "dispatched": True, "reason": "dispatch_uncertain"})
+        self.assertEqual(len(dev.calls), 1)
+        dev.fail_dispatch = False
+        dev.trees = iter([initial, initial, TimeoutError("private detail")])
+        self.assertEqual(dev.semantic_transition(*edge),
+            {"status": "unconfirmed", "dispatched": True, "reason": "verification_error"})
+        self.assertEqual(len(dev.calls), 2)
+        dev.trees = iter([initial, initial, initial, results, results])
+        self.assertEqual(dev.semantic_transition(*edge),
+            {"status": "confirmed", "dispatched": True})
+        self.assertEqual(len(dev.calls), 3)
+
+    def test_provider_device_session_rejects_concurrent_physical_calls(self):
+        from gway_remote import mcp_android as android
+        from gway_remote import android_scenario_runner as scenarios
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / "receipts"
+            with patch.object(scenarios, "_receipt_root", return_value=root):
+                with android._device_session():
+                    with patch.object(android, "Device") as device:
+                        response = android.call_tool("key", {"key": "HOME"})
+                        self.assertTrue(response["isError"])
+                        self.assertIn("device_busy", response["content"][0]["text"])
+                        device.assert_not_called()
+                    preview = android.call_tool("scenario_preview", {
+                        "scenario_id": "developer-options-from-search-v1"})
+                    self.assertFalse(preview.get("isError", False))
+                with android._device_session():
+                    pass
 
 
 if __name__ == "__main__":
