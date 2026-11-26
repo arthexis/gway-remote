@@ -231,7 +231,9 @@ class Device:
                 attrs = node.attrib
                 if any(ancestor.attrib.get("password") == "true" for ancestor in _ancestors(node, parents)):
                     continue
-                if any(attrs.get(k) for k in ("text", "content-desc", "resource-id")):
+                if (any(attrs.get(k) for k in ("text", "content-desc", "resource-id"))
+                        or (navigation_details and attrs.get("package") == "com.android.settings.intelligence"
+                            and attrs.get("clickable") == "true")):
                     nodes.append({
                         "text": attrs.get("text", "")[:120],
                         "description": attrs.get("content-desc", "")[:120],
@@ -246,6 +248,7 @@ class Device:
                     })
                     if navigation_details:
                         nodes[-1].update({
+                            "node_index": indices[node],
                             "package": attrs.get("package", ""),
                             "class": attrs.get("class", ""),
                             "checkable": attrs.get("checkable") == "true",
@@ -292,6 +295,11 @@ class Device:
                 return rejected
             x, y = point(second, rid, width=width, height=height)
             command = ("tap", x, y)
+        elif name == "tap_result":
+            coordinate = navigation.result_point(args, width, height)
+            if coordinate is None:
+                return rejected
+            command = ("tap", *coordinate)
         elif name == "text" and args == {"value": "Permanecer activo"}:
             command = ("text", "Permanecer%sactivo")
         else:
