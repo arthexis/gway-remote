@@ -92,3 +92,41 @@ def route(start, destination):
                 seen.add(target)
                 queue.append((target, steps + [{"from": source, "to": target, "instruction": action}]))
     return None
+
+
+# Only these reviewed edges can dispatch actions inside immutable scenarios.
+# Opening Settings search remains advisory until its control is validated.
+EXECUTABLE_EDGES = frozenset({
+    ("settings_search", "settings_search_results"),
+    ("settings_search_results", "developer_options"),
+})
+
+
+def transition_target(snapshot, source, destination):
+    """Resolve one fresh, uniquely actionable target; never dispatch here."""
+    if (source, destination) not in EXECUTABLE_EDGES:
+        return None
+    observed = observe(snapshot)
+    if observed.get("status") != "recognized" or observed.get("screen") != source:
+        return None
+    elements = [e for e in snapshot["elements"]
+                if e.get("package") == "com.android.settings.intelligence"]
+    if source == "settings_search":
+        fields = [e for e in elements
+                  if e.get("resource_id") == "com.android.settings.intelligence:id/search_src_text"
+                  and e.get("focused") is True and e.get("enabled") is True
+                  and e.get("text") in ("", "Buscar", None)]
+        return ("text", {"value": "Permanecer activo"}) if len(fields) == 1 else None
+    results = [e for e in elements if e.get("text") == "Permanecer activo"
+               and e.get("resource_id") != "com.android.settings.intelligence:id/search_src_text"]
+    if len(results) != 1:
+        return None
+    target = results[0]
+    if target.get("clickable") is not True or target.get("enabled") is not True:
+        return None
+    # Exact unique resource id; no guessed coordinates or arbitrary selectors.
+    rid = target.get("resource_id")
+    if not isinstance(rid, str) or not rid or sum(
+            e.get("resource_id") == rid for e in snapshot["elements"]) != 1:
+        return None
+    return ("tap_target", {"resource_id": rid})
