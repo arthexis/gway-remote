@@ -97,3 +97,57 @@ identify physical touches, external ADB clients or other non-provider input.
 Do not treat such a discrepancy as a successful transition, relax authorization,
 or retry uncertain input. The recent marker history is bounded and cannot prove
 the absence of uninstrumented input. No Android publication is required.
+
+### Reliable execution and reconciliation
+
+Action-bearing reviewed scenarios now require a caller-generated, fresh
+lowercase 32-hex `operation_id`. Preserve this same identity for the entire
+logical operation, including status lookups or a duplicate delivery. It is
+not an authorization token: the existing authenticated execute scope, pinned
+node route and device lock still apply. Observation-only recipes retain their
+legacy invocation form. A legacy action request without an operation ID is
+rejected before touching the device. Preview reports whether the ID is required;
+the recipe digest and action budget are unchanged.
+
+For example, use a fresh operation ID after preview and physical preflight:
+`scenario_run {"scenario_id":"developer-options-from-search-v1","operation_id":"<32 lowercase hex characters>"}`.
+If a response is lost, use `scenario_status {"operation_id":"<same ID>"}`
+(read scope). A completed operation returns the original receipt and hash;
+the keyed receipt ID is the operation ID. A duplicate run with the same ID
+never dispatches input again; a different recipe with the same ID is rejected.
+A new transport invocation ID on a duplicate is not the original execution
+ID. Historical unkeyed receipts remain readable.
+
+Before running, the provider durably reserves the logical ID in a private,
+bounded journal. Each potential input attempt is recorded and synced before
+the subprocess is invoked. A killed process without a verified receipt is
+reported as uncertain (even when the reserved attempt count is zero). A
+receipt committed before an interruption in the terminal journal update can
+be recovered by the same ID. A failed receipt with possible physical input,
+or a missing/corrupt receipt, blocks new keyed operations until reconciled.
+No claim is automatically expired, retried, or evicted. Storage exhaustion
+fails closed; do not erase the journal as a recovery procedure.
+
+For an unresolved operation, inspect the physical device independently and
+then, with explicit execute authorization, invoke
+`scenario_reconcile {"operation_id":"<same ID>","expected_screen":"<reviewed screen>"}`.
+The provider verifies that screen under the device lock and records the
+acknowledgement; this never changes settings, wakes the device, replays the
+operation, or falsely labels it passed. A reconciled uncertain operation stays
+uncertain historically, but no longer fences new explicit operations. A
+missing claim is not proof of non-delivery; do not invent a new ID or blindly
+retry. Only use a fresh ID for a separately reviewed new logical operation.
+Manual device actions retain their existing explicit authorization and are
+not idempotent scenario operations.
+
+The reviewed scenario subprocess budget is 40 seconds, including a monotonic
+deadline checked at each ADB invocation; the enclosing stdio session has 50
+seconds and pinned SSH transport has 65 seconds for this tool only. Other
+providers and ordinary calls keep their existing limits. A client or reverse
+proxy can still disconnect earlier; stable identity and durable status, not
+an assumption of uninterrupted HTTP delivery, are the recovery contract.
+An ambiguous provider/transport outcome returns structured status
+`uncertain`, a typed error, the operation ID where valid, and
+`retryable:false`. Scope denial is still denied, and no automatic retry is
+introduced. The journal is node-scoped under the existing shared authenticated
+operator trust model; it does not introduce additional principals or authority.
