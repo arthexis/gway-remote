@@ -13,6 +13,7 @@ import xml.etree.ElementTree as ET
 
 from .android_ui_harness import UiTargetError, condition, point, poll, selector, wait_ms
 from . import android_scenario_runner as scenarios
+from . import android_navigation_model as navigation
 
 ADB = "/usr/bin/adb"
 FFMPEG = "/usr/bin/ffmpeg"
@@ -40,6 +41,8 @@ _COORD = {"type": "integer", "minimum": 0, "maximum": 4095}
 TOOLS = [
     _tool("status", "Read USB device, screen state, lock state and rotation; no serial returned.", read=True),
     _tool("ui_tree", "Read bounded, password-redacted visible elements and state flags.", read=True),
+    _tool("navigation_model", "Recognize a reviewed screen and suggest a route; never performs actions.",
+          {"destination": {"type": "string", "enum": sorted(navigation.SCREENS)}}, read=True),
     _tool("capture", "Capture one JPEG preview with structured coordinate metadata; may contain private data.", read=True),
     _tool("tap", "Tap one validated on-screen coordinate.", {"x": _COORD, "y": _COORD}, ("x", "y")),
     _tool("swipe", "Swipe between on-screen coordinates in 100-1000 ms.",
@@ -94,7 +97,7 @@ def _required_args(name, arguments):
         raise AndroidError("invalid_tool")
     schema = _BY_NAME[name]["inputSchema"]
     supplied = set(arguments)
-    if name in ("tap_target", "wait_ui"):
+    if name in ("tap_target", "wait_ui", "navigation_model"):
         if not set(schema["required"]) <= supplied or supplied - set(schema["properties"]):
             raise AndroidError("invalid_arguments")
         if name == "tap_target" and (("expect_id" in supplied) != ("expect_state" in supplied)):
@@ -110,6 +113,12 @@ def _required_args(name, arguments):
             if type(value) is not str or (("enum" in spec and value not in spec["enum"])
                      or ("minLength" in spec and not spec["minLength"] <= len(value) <= spec["maxLength"])):
                 raise AndroidError("invalid_arguments")
+
+
+def _ancestors(node, parents):
+    while node is not None:
+        yield node
+        node = parents.get(node)
 
 
 class Device:
@@ -207,7 +216,7 @@ class Device:
             raise AndroidError("screen_not_safe")
         return {"ok": True, "woke": woke}
 
-    def ui_tree(self, serial):
+    def ui_tree(self, serial, *, navigation_details=False):
         path = "/sdcard/.gway-remote-ui.xml"
         try:
             self.adb(serial, "shell", "uiautomator", "dump", path, timeout=9)
@@ -216,9 +225,11 @@ class Device:
                 raise AndroidError("ui_tree_too_large")
             root = ET.fromstring(xml)
             nodes = []
+            parents = {child: parent for parent in root.iter() for child in parent}
+            indices = {node: i for i, node in enumerate(root.iter("node"))}
             for node in root.iter("node"):
                 attrs = node.attrib
-                if attrs.get("password") == "true":
+                if any(ancestor.attrib.get("password") == "true" for ancestor in _ancestors(node, parents)):
                     continue
                 if any(attrs.get(k) for k in ("text", "content-desc", "resource-id")):
                     nodes.append({
@@ -233,6 +244,14 @@ class Device:
                         "focused": attrs.get("focused") == "true",
                         "scrollable": attrs.get("scrollable") == "true",
                     })
+                    if navigation_details:
+                        nodes[-1].update({
+                            "package": attrs.get("package", ""),
+                            "class": attrs.get("class", ""),
+                            "checkable": attrs.get("checkable") == "true",
+                            "ancestors": [indices[a] for a in _ancestors(node, parents)
+                                          if a is not node and a in indices],
+                        })
                 if len(nodes) >= 100:
                     break
             return {"elements": nodes, "truncated": len(nodes) >= 100}
@@ -248,6 +267,48 @@ class Device:
         x, y = point
         if not (0 <= x < size[0] and 0 <= y < size[1]):
             raise AndroidError("coordinate_out_of_bounds")
+
+    def semantic_transition(self, source, destination):
+        """Internal execute-only scenario step, with no implicit wake or retry."""
+        serial = self.serial()
+        state = self.screen_state(serial)
+        rejected = {"status": "unconfirmed", "dispatched": False}
+        if (state.get("screen_on") is not True or state.get("locked") is not False
+                or type(state.get("rotation")) is not int):
+            return rejected
+        width, height = self.size(serial)
+        first = self.ui_tree(serial, navigation_details=True)
+        target = navigation.transition_target(first, source, destination)
+        if target is None:
+            return rejected
+        second = self.ui_tree(serial, navigation_details=True)
+        if navigation.transition_target(second, source, destination) != target:
+            return rejected
+        name, args = target
+        if name == "tap_target":
+            rid = selector(args["resource_id"])
+            if point(first, rid, width=width, height=height) != point(
+                    second, rid, width=width, height=height):
+                return rejected
+            x, y = point(second, rid, width=width, height=height)
+            command = ("tap", x, y)
+        elif name == "text" and args == {"value": "Permanecer activo"}:
+            command = ("text", "Permanecer%sactivo")
+        else:
+            return rejected
+        if (self.screen_state(serial) != state or self.size(serial) != (width, height)
+                or self.serial() != serial):
+            return rejected
+        self.adb(serial, "shell", "input", *command)
+        # A failed or uncertain dispatch is never retried. Observe twice after
+        # the action, allowing the UI dump to wait for Android to become idle.
+        first = navigation.observe(self.ui_tree(serial, navigation_details=True))
+        second = navigation.observe(self.ui_tree(serial, navigation_details=True))
+        confirmed = (first == second and first.get("status") == "recognized"
+                     and first.get("screen") == destination
+                     and self.screen_state(serial) == state)
+        return {"status": "confirmed" if confirmed else "unconfirmed",
+                "dispatched": True}
 
     def invoke(self, name, arguments):
         _required_args(name, arguments)
@@ -269,6 +330,19 @@ class Device:
                     "model": model, **self.screen_state(serial)}
         if name == "ui_tree":
             return self.ui_tree(serial)
+        if name == "navigation_model":
+            state = self.screen_state(serial)
+            if state.get("screen_on") is not True or state.get("locked") is not False:
+                return {"schema": navigation.SCHEMA, "screen": None, "status": "screen_not_safe"}
+            snapshot = self.ui_tree(serial, navigation_details=True)
+            observed = navigation.observe(snapshot)
+            second = self.ui_tree(serial, navigation_details=True)
+            if self.screen_state(serial) != state or navigation.observe(second) != observed:
+                return {"schema": navigation.SCHEMA, "screen": None, "status": "screen_changed"}
+            if "destination" in arguments:
+                observed["destination"] = arguments["destination"]
+                observed["route"] = navigation.route(observed.get("screen"), arguments["destination"])
+            return observed
         if name in ("tap_target", "wait_ui"):
             # Semantic execute taps may wake once; read-only waits never wake.
             resource_id = selector(arguments["resource_id"])

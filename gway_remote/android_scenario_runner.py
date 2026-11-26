@@ -14,6 +14,8 @@ import re
 import stat
 import time
 import uuid
+
+from . import android_navigation_model as navigation
 from pathlib import Path
 
 SCHEMA = "gway-android-scenario/v1"
@@ -26,6 +28,13 @@ _RUN_ID = re.compile(r"[0-9a-f]{32}\Z")
 # Every scenario is reviewed as source in GWay Remote. Never take a scenario
 # specification from a tool request or from a mutable user workspace.
 SCENARIOS = {
+    "developer-options-from-search-v1": (
+        {"op": "semantic_transition", "from": "settings_search", "to": "settings_search_results"},
+        {"op": "semantic_transition", "from": "settings_search_results", "to": "developer_options"},
+    ),
+    "developer-options-observation-v1": (
+        {"op": "navigation_model", "expect": {"screen": "developer_options"}},
+    ),
     "usb-readiness-v1": (
         {"op": "status", "expect": {"usb": "authorized"}},
     ),
@@ -54,7 +63,7 @@ SCENARIOS = {
         }},
     ),
 }
-_ALLOWED_OPS = frozenset({"status", "wait_ui", "tap_target", "key", "wake_if_needed"})
+_ALLOWED_OPS = frozenset({"status", "wait_ui", "tap_target", "key", "wake_if_needed", "navigation_model", "semantic_transition"})
 
 
 class ScenarioError(ValueError):
@@ -88,6 +97,16 @@ def _spec(scenario_id):
             raise ScenarioError("invalid_scenario")
         elif step["op"] == "status" and type(step.get("expect")) is not dict:
             raise ScenarioError("invalid_scenario")
+        elif step["op"] == "semantic_transition":
+            if (set(step) != {"op", "from", "to"}
+                    or (step["from"], step["to"]) not in navigation.EXECUTABLE_EDGES):
+                raise ScenarioError("invalid_scenario")
+            actions += 1
+        elif step["op"] == "navigation_model":
+            if (set(step) != {"op", "expect"} or type(step["expect"]) is not dict
+                    or set(step["expect"]) != {"screen"}
+                    or step["expect"]["screen"] not in navigation.SCREENS):
+                raise ScenarioError("invalid_scenario")
     if actions > 2:
         raise ScenarioError("invalid_scenario")
     spec = {"schema": SCHEMA, "id": scenario_id, "steps": steps}
@@ -183,7 +202,7 @@ def run(scenario_id, *, device, receipt_root=None, clock=time.monotonic):
     invocations = 0
     for step in steps:
         # Five steps only; no CLI, remote input payload, arbitrary shell or loop.
-        if clock() - started > 7:
+        if clock() - started > (45 if any(s["op"] == "semantic_transition" for s in steps) else 7):
             traces.append({"operation": "deadline", "outcome": "unknown"})
             outcome = "failed"
             break
@@ -196,6 +215,18 @@ def run(scenario_id, *, device, receipt_root=None, clock=time.monotonic):
                     observed.get(key) == value
                     for key, value in step["expect"].items()
                 ) else "failed")
+            elif name == "semantic_transition":
+                # The device resolves a fresh unique target, dispatches at most once,
+                # then verifies the destination. Count uncertain dispatch conservatively.
+                invocations += 1
+                observed = device.semantic_transition(step["from"], step["to"])
+                if observed.get("dispatched") is False:
+                    invocations -= 1
+                verdict = "passed" if observed.get("status") == "confirmed" else "failed"
+            elif name == "navigation_model":
+                observed = device.invoke("navigation_model", {})
+                verdict = ("passed" if observed.get("status") == "recognized"
+                           and observed.get("screen") == step["expect"]["screen"] else "failed")
             elif name == "wake_if_needed":
                 # Reserve one possible dispatch before calling the device;
                 # on uncertainty, conservatively count it as attempted.
