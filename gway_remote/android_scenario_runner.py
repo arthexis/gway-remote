@@ -16,6 +16,7 @@ import time
 import uuid
 
 from . import android_navigation_model as navigation
+from . import android_invocation_trace as diagnostics
 from pathlib import Path
 
 SCHEMA = "gway-android-scenario/v1"
@@ -204,16 +205,18 @@ def run(scenario_id, *, device, receipt_root=None, clock=time.monotonic):
     if sum(p.name.endswith(".json") for p in root.iterdir()) >= _MAX_RECEIPTS:
         raise ScenarioError("receipt_storage_full")
     started = clock()
+    diagnostics.mark("runner_start")
     traces = []
     outcome = "passed"
     invocations = 0
-    for step in steps:
+    for index, step in enumerate(steps):
         # Five steps only; no CLI, remote input payload, arbitrary shell or loop.
         if clock() - started > (45 if any(s["op"] == "semantic_transition" for s in steps) else 7):
             traces.append({"operation": "deadline", "outcome": "unknown"})
             outcome = "failed"
             break
         name = step["op"]
+        diagnostics.mark("runner_step_begin", step=index, operation=name)
         verdict = "failed"
         transition = None
         if name == "semantic_transition":
@@ -274,6 +277,9 @@ def run(scenario_id, *, device, receipt_root=None, clock=time.monotonic):
         if transition is not None:
             trace.update(transition)
         traces.append(trace)
+        diagnostics.mark("runner_step_end", step=index, operation=name,
+                         outcome=verdict, action_invocations=invocations,
+                         **(transition or {}))
         if verdict != "passed":
             outcome = "failed"
             break
@@ -284,7 +290,14 @@ def run(scenario_id, *, device, receipt_root=None, clock=time.monotonic):
         "operations": traces, "action_invocations": invocations,
         "duration_ms": elapsed, "screenshots": "not_collected",
     }
+    diagnostics.mark("runner_finish", outcome=outcome, action_invocations=invocations)
+    invocation = diagnostics.current()
+    if invocation is not None:
+        manifest["invocation_trace"] = invocation.evidence()
     receipt_id, digest = _write(root, manifest)
-    return {"status": outcome, "receipt_id": receipt_id,
-            "receipt_sha256": digest, "steps_completed": len(traces),
-            "action_invocations": invocations, "screenshots": "not_collected"}
+    result = {"status": outcome, "receipt_id": receipt_id,
+              "receipt_sha256": digest, "steps_completed": len(traces),
+              "action_invocations": invocations, "screenshots": "not_collected"}
+    if invocation is not None:
+        result["invocation_id"] = invocation.invocation_id
+    return result

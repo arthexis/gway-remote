@@ -18,6 +18,7 @@ import xml.etree.ElementTree as ET
 from .android_ui_harness import UiTargetError, condition, point, poll, selector, wait_ms
 from . import android_scenario_runner as scenarios
 from . import android_navigation_model as navigation
+from . import android_invocation_trace as diagnostics
 
 ADB = "/usr/bin/adb"
 FFMPEG = "/usr/bin/ffmpeg"
@@ -130,13 +131,24 @@ class Device:
         self.run = run
 
     def _call(self, argv, *, timeout=6, data=None):
+        trace = diagnostics.current()
+        input_kind = None
+        if trace is not None and len(argv) >= 6 and argv[0] == ADB and argv[3:5] == ["shell", "input"]:
+            input_kind = argv[5] if argv[5] in ("tap", "swipe", "text", "keyevent") else "other"
+            trace.input_attempt(input_kind)
         try:
             result = self.run(argv, input=data, stdout=subprocess.PIPE,
                               stderr=subprocess.PIPE, timeout=timeout, check=False)
         except (OSError, subprocess.TimeoutExpired) as exc:
+            if input_kind is not None:
+                diagnostics.mark("input_error", kind=input_kind)
             raise AndroidError("adb_unavailable") from exc
         if result.returncode != 0:
+            if input_kind is not None:
+                diagnostics.mark("input_error", kind=input_kind)
             raise AndroidError("device_command_failed")
+        if input_kind is not None:
+            diagnostics.mark("input_returned", kind=input_kind)
         return result.stdout
 
     def serial(self):
@@ -278,6 +290,7 @@ class Device:
     def semantic_transition(self, source, destination):
         """Execute once, with explicit pre-dispatch and post-dispatch accounting."""
         def reject(reason):
+            diagnostics.mark("transition_rejected", reason=reason)
             return {"status": "unconfirmed", "dispatched": False, "reason": reason}
 
         try:
@@ -289,10 +302,19 @@ class Device:
             width, height = self.size(serial)
             first = self.ui_tree(serial, navigation_details=True)
             target = navigation.transition_target(first, source, destination)
+            if diagnostics.current() is not None:
+                diagnostics.observation("first_preflight", first, navigation.observe(first),
+                                        source=source, destination=destination,
+                                        target_resolved=target is not None)
             if target is None:
                 return reject("source_not_actionable")
             second = self.ui_tree(serial, navigation_details=True)
-            if navigation.transition_target(second, source, destination) != target:
+            second_target = navigation.transition_target(second, source, destination)
+            if diagnostics.current() is not None:
+                diagnostics.observation("second_preflight", second, navigation.observe(second),
+                                        source=source, destination=destination,
+                                        target_resolved=second_target is not None)
+            if second_target != target:
                 return reject("target_changed")
             name, args = target
             if name == "tap_target":
@@ -319,6 +341,7 @@ class Device:
 
         # Crossing this boundary reserves one invocation even if ADB times
         # out after sending input. Never retry or misreport it as undispatched.
+        diagnostics.mark("dispatch_ready", kind=command[0])
         try:
             self.adb(serial, "shell", "input", *command)
         except (OSError, ValueError, RuntimeError, TimeoutError):
@@ -331,7 +354,10 @@ class Device:
                 if (self.screen_state(serial) != state or self.size(serial) != (width, height)
                         or self.serial() != serial):
                     return {"status": "unconfirmed", "dispatched": True, "reason": "device_changed"}
-                current = navigation.observe(self.ui_tree(serial, navigation_details=True))
+                snapshot = self.ui_tree(serial, navigation_details=True)
+                current = navigation.observe(snapshot)
+                diagnostics.observation("post_observation", snapshot, current,
+                                        source=source, destination=destination)
                 if (current == previous and current.get("status") == "recognized"
                         and current.get("screen") == destination):
                     if (self.screen_state(serial) == state and self.size(serial) == (width, height)
@@ -496,14 +522,19 @@ def _device_session():
         os.close(fd)
 
 
-def call_tool(name, arguments, *, device=None):
+def call_tool(name, arguments, *, device=None, invocation_id=None):
     try:
         _required_args(name, arguments)
         # Preview and receipt reads do not interact with USB. Injected devices
         # are the hermetic unit-test seam, not reachable via MCP arguments.
         session = (_device_session() if device is None and
                    name not in ("scenario_preview", "scenario_result") else nullcontext())
-        with session:
+        trace_scope = (diagnostics.invocation(invocation_id, name, scenarios._receipt_root())
+                       if device is None and name not in ("scenario_preview", "scenario_result")
+                       else nullcontext())
+        with trace_scope as trace, session:
+            if trace is not None:
+                trace.acquired()
             result = (device or Device()).invoke(name, arguments)
         if name == "capture":
             return result
@@ -528,7 +559,8 @@ def handle_rpc(request, *, device=None):
     if method == "tools/list" and params == {}:
         return {"tools": TOOLS}
     if method == "tools/call" and type(params) is dict:
-        return call_tool(params.get("name"), params.get("arguments", {}), device=device)
+        return call_tool(params.get("name"), params.get("arguments", {}), device=device,
+                         invocation_id=request["id"])
     raise AndroidError("unknown_method")
 
 

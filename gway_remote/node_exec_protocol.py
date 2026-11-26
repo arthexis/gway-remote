@@ -10,6 +10,7 @@ import re
 import socket
 import subprocess
 import sys
+import time
 
 from .node_exec_worker import Jobs, configured_max_active, require_account, validate_request_id
 from .node_exec_contract import validate_command
@@ -149,8 +150,17 @@ def serve_one(raw, *, jobs=None, hostname=None):
             scope = "execute"
             request = {key: req[key] for key in ("provider", "tool", "arguments")}
             request["operation"] = "provider_call"
-        return {"node": host, "request_id": rid, "result": dispatch_node_provider_request(
-            registrations, request, node_id=host, trusted_scope=scope)}
+        options = {"node_id": host, "trusted_scope": scope}
+        android_call = request.get("provider") == "android"
+        started = time.monotonic()
+        if android_call:
+            options["invocation_id"] = rid
+        result = dispatch_node_provider_request(registrations, request, **options)
+        if android_call and request.get("tool") == "scenario_run":
+            from .android_invocation_trace import annotate_transport
+            result = annotate_transport(result, rid, "node_transport",
+                                        (time.monotonic() - started) * 1000)
+        return {"node": host, "request_id": rid, "result": result}
     if op == "limits":
         return {"node": host, "request_id": rid,
                 "concurrent_jobs_per_node": configured_max_active()}

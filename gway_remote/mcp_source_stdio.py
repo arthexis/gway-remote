@@ -241,7 +241,8 @@ def list_source_tools(registration, timeout=10):
         return _check_tool_list(session.request(2, "tools/list", {}))
 
 
-def call_source_tool(registration, name, arguments, declared_tool, *, authorized_scope="read", timeout=10):
+def call_source_tool(registration, name, arguments, declared_tool, *, authorized_scope="read",
+                     timeout=10, invocation_id=None):
     """Execute only the currently declared tool under the caller's scope.
 
     Re-discovery in the same stdio session prevents a provider from changing
@@ -255,6 +256,12 @@ def call_source_tool(registration, name, arguments, declared_tool, *, authorized
         raise SourceProtocolError("tool declaration mismatch")
     if required_scope(declared_tool) == "execute" and authorized_scope != "execute":
         raise SourceProtocolError("permission_denied")
+    rpc_id = 3
+    if invocation_id is not None:
+        from .android_invocation_trace import valid_id
+        if registration.source_id != "android" or not valid_id(invocation_id):
+            raise SourceProtocolError("invalid invocation id")
+        rpc_id = invocation_id
     with _Session(registration, timeout) as session:
         session.initialize()
         current = _check_tool_list(session.request(2, "tools/list", {}))
@@ -263,7 +270,7 @@ def call_source_tool(registration, name, arguments, declared_tool, *, authorized
             raise SourceProtocolError("tool_declaration_changed")
         if required_scope(matching[0]) == "execute" and authorized_scope != "execute":
             raise SourceProtocolError("permission_denied")
-        result = session.request(3, "tools/call", {"name": name, "arguments": arguments})
+        result = session.request(rpc_id, "tools/call", {"name": name, "arguments": arguments})
         if type(result.get("content")) is not list:
             raise SourceProtocolError("invalid tool result")
         return result

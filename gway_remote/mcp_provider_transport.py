@@ -4,6 +4,7 @@ No additional key, listener, or shell execution. OAuth scope is checked by
 Watchtower before the request enters this operator-pinned channel.
 """
 import secrets
+import time
 
 from .watchtower_exec_transport import pinned_transport
 
@@ -32,7 +33,16 @@ class ProviderTransport:
         if operation in ("provider_call", "provider_read"):
             payload.update({key: request[key] for key in ("provider", "tool", "arguments")})
         transport = pinned_transport(self.execution_transport, node)
+        started = time.monotonic()
         response = transport.invoke(payload)
         if type(response) is not dict or "result" not in response:
             raise ValueError("invalid provider response")
-        return response["result"]
+        result = response["result"]
+        if request.get("provider") == "android" and request.get("tool") == "scenario_run":
+            from .android_invocation_trace import annotate_transport
+            # The pinned transport already authenticates node and request ID.
+            # Report correlation only on an actual matching envelope.
+            if response.get("request_id") == payload["request_id"] and response.get("node") == node:
+                result = annotate_transport(result, payload["request_id"], "watchtower_transport",
+                                            (time.monotonic() - started) * 1000)
+        return result
