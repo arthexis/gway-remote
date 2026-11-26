@@ -83,9 +83,11 @@ class InvocationTests(unittest.TestCase):
               patch.object(runner, "_receipt_root", return_value=self.root)):
             response = transport.ProviderTransport(Mock()).invoke("gway-001", {
                 "operation": "provider_call", "provider": "android", "tool": "scenario_run",
-                "arguments": {"scenario_id": SCENARIO}}, trusted_scope="execute")
+                "arguments": {"scenario_id": SCENARIO, "operation_id": OTHER}}, trusted_scope="execute")
         body = json.loads(response["content"][0]["text"])
         self.assertEqual(body["invocation_id"], RID)
+        self.assertEqual(body["operation_id"], OTHER)
+        self.assertEqual(body["receipt_id"], OTHER)
         self.assertEqual(body["status"], "failed")
         self.assertEqual(body["action_invocations"], 0)
         self.assertTrue(body["node_transport"]["matched"])
@@ -95,7 +97,7 @@ class InvocationTests(unittest.TestCase):
         self.assertEqual(ssh.invoke.call_count, 1)
         self.assertEqual(ssh.invoke.call_args.args[0]["request_id"], RID)
         session.request.assert_any_call(RID, "tools/call", {
-            "name": "scenario_run", "arguments": {"scenario_id": SCENARIO}})
+            "name": "scenario_run", "arguments": {"scenario_id": SCENARIO, "operation_id": OTHER}})
         receipt = runner.result(body["receipt_id"], root=self.root)
         self.assertEqual(receipt["sha256"], body["receipt_sha256"])
         evidence = receipt["manifest"]["invocation_trace"]
