@@ -468,6 +468,13 @@ def health_is_authenticated(tree):
     if any(t in ("Token is required","Unauthorized: check your token","Access denied","Connection failed")
            for t in texts):
         return False
+    # The stable Compose GenericResultRenderer displays separate key/value
+    # rows, not the JSON string used by older fixtures. Reject conflicting
+    # result rows; do not mistake the API Health tab label for a response.
+    statuses = [t for t in texts if t.startswith("status:")]
+    apis = [t for t in texts if t.startswith("api:")]
+    if statuses or apis:
+        return statuses == ["status: ok"] and apis == ["api: gway-remote/v1"]
     for text in texts:
         try:
             value = json.loads(text)

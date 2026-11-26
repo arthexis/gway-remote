@@ -279,6 +279,13 @@ class CandidateTests(unittest.TestCase):
         from gway_remote.android_release_candidate import health_is_authenticated
         tree = {"truncated":False,"elements":[{"text":"API health"},{"text":'{"status":"ok","api":"gway-remote/v1"}'}]}
         self.assertTrue(health_is_authenticated(tree))
+        actual = {"truncated":False,"elements":[{"text":"System"},{"text":"API Health"},
+                  {"text":"API health"},{"text":"status: ok"},{"text":"api: gway-remote/v1"}]}
+        self.assertTrue(health_is_authenticated(actual))
+        for bad in ("status: failed", "api: other", "status: ok", "Token is required"):
+            self.assertFalse(health_is_authenticated(dict(actual, elements=actual["elements"]+[{"text":bad}])))
+        self.assertFalse(health_is_authenticated(dict(actual,elements=actual["elements"][:-1])))
+        self.assertFalse(health_is_authenticated(dict(actual,truncated=True)))
         for invalid in (
             dict(tree,truncated=True),
             {"truncated":False,"elements":[{"text":"API health"},{"text":"Token is required"}]},
