@@ -14,6 +14,8 @@ import re
 import stat
 import time
 import uuid
+
+from . import android_navigation_model as navigation
 from pathlib import Path
 
 SCHEMA = "gway-android-scenario/v1"
@@ -26,6 +28,9 @@ _RUN_ID = re.compile(r"[0-9a-f]{32}\Z")
 # Every scenario is reviewed as source in GWay Remote. Never take a scenario
 # specification from a tool request or from a mutable user workspace.
 SCENARIOS = {
+    "developer-options-observation-v1": (
+        {"op": "navigation_model", "expect": {"screen": "developer_options"}},
+    ),
     "usb-readiness-v1": (
         {"op": "status", "expect": {"usb": "authorized"}},
     ),
@@ -54,7 +59,7 @@ SCENARIOS = {
         }},
     ),
 }
-_ALLOWED_OPS = frozenset({"status", "wait_ui", "tap_target", "key", "wake_if_needed"})
+_ALLOWED_OPS = frozenset({"status", "wait_ui", "tap_target", "key", "wake_if_needed", "navigation_model"})
 
 
 class ScenarioError(ValueError):
@@ -88,6 +93,11 @@ def _spec(scenario_id):
             raise ScenarioError("invalid_scenario")
         elif step["op"] == "status" and type(step.get("expect")) is not dict:
             raise ScenarioError("invalid_scenario")
+        elif step["op"] == "navigation_model":
+            if (set(step) != {"op", "expect"} or type(step["expect"]) is not dict
+                    or set(step["expect"]) != {"screen"}
+                    or step["expect"]["screen"] not in navigation.SCREENS):
+                raise ScenarioError("invalid_scenario")
     if actions > 2:
         raise ScenarioError("invalid_scenario")
     spec = {"schema": SCHEMA, "id": scenario_id, "steps": steps}
@@ -196,6 +206,10 @@ def run(scenario_id, *, device, receipt_root=None, clock=time.monotonic):
                     observed.get(key) == value
                     for key, value in step["expect"].items()
                 ) else "failed")
+            elif name == "navigation_model":
+                observed = device.invoke("navigation_model", {})
+                verdict = ("passed" if observed.get("status") == "recognized"
+                           and observed.get("screen") == step["expect"]["screen"] else "failed")
             elif name == "wake_if_needed":
                 # Reserve one possible dispatch before calling the device;
                 # on uncertainty, conservatively count it as attempted.
