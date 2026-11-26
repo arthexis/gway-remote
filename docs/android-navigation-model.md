@@ -68,3 +68,32 @@ invocation boundary counts conservatively as one uncertain attempt, never a
 retry. Destination verification permits at most three observations and requires
 two consecutive matching destination observations and unchanged device state.
 Old receipts and immutable scenario specifications remain readable and unchanged.
+
+### Bounded invocation tracing (diagnostic-only)
+
+For Android calls the existing Watchtower-generated, authenticated node request
+ID becomes the stdio tools/call JSON-RPC ID. No extra request field, new tool,
+caller-supplied trace ID, scope, credential or transport is introduced. The
+node and Watchtower annotate only scenario-run responses with their matched ID
+and bounded elapsed time. The receipt's hash covers the provider/runner evidence;
+the transport annotations are separate response evidence, not part of the hash.
+
+Each new real scenario receipt includes at most 32 allowlisted monotonic stage
+events: provider entry and lock, runner entry/steps/finish, preflight screen
+classification and empty/focused/enabled field flags, target resolution, dispatch
+readiness, actual ADB input subprocess attempt/return/error and post-observations.
+A private node-owned file holds at most eight recent provider input attempts
+within the preceding ten minutes, using only invocation ID, reviewed tool and
+input kind. It is updated under the existing device lock, and no raw text,
+selector, bounds, serial, screenshot, raw subprocess arguments or credentials
+are stored. Storage errors or truncation mark evidence incomplete. Existing
+receipts remain readable, and the reviewed recipe and action budget are unchanged.
+
+Compare the invocation ID in the run response, node/Watchtower annotations and
+independently retrieved receipt before attribution. Zero invocations with a
+first preflight already recognizing the destination and no input-attempt marker
+shows that this provider call did not reach its ADB input boundary; it does not
+identify physical touches, external ADB clients or other non-provider input.
+Do not treat such a discrepancy as a successful transition, relax authorization,
+or retry uncertain input. The recent marker history is bounded and cannot prove
+the absence of uninstrumented input. No Android publication is required.
