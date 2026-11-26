@@ -115,6 +115,12 @@ def _required_args(name, arguments):
                 raise AndroidError("invalid_arguments")
 
 
+def _ancestors(node, parents):
+    while node is not None:
+        yield node
+        node = parents.get(node)
+
+
 class Device:
     def __init__(self, run=subprocess.run):
         self.run = run
@@ -210,7 +216,7 @@ class Device:
             raise AndroidError("screen_not_safe")
         return {"ok": True, "woke": woke}
 
-    def ui_tree(self, serial):
+    def ui_tree(self, serial, *, navigation_details=False):
         path = "/sdcard/.gway-remote-ui.xml"
         try:
             self.adb(serial, "shell", "uiautomator", "dump", path, timeout=9)
@@ -219,9 +225,11 @@ class Device:
                 raise AndroidError("ui_tree_too_large")
             root = ET.fromstring(xml)
             nodes = []
+            parents = {child: parent for parent in root.iter() for child in parent}
+            indices = {node: i for i, node in enumerate(root.iter("node"))}
             for node in root.iter("node"):
                 attrs = node.attrib
-                if attrs.get("password") == "true":
+                if any(ancestor.attrib.get("password") == "true" for ancestor in _ancestors(node, parents)):
                     continue
                 if any(attrs.get(k) for k in ("text", "content-desc", "resource-id")):
                     nodes.append({
@@ -236,6 +244,14 @@ class Device:
                         "focused": attrs.get("focused") == "true",
                         "scrollable": attrs.get("scrollable") == "true",
                     })
+                    if navigation_details:
+                        nodes[-1].update({
+                            "package": attrs.get("package", ""),
+                            "class": attrs.get("class", ""),
+                            "checkable": attrs.get("checkable") == "true",
+                            "ancestors": [indices[a] for a in _ancestors(node, parents)
+                                          if a is not node and a in indices],
+                        })
                 if len(nodes) >= 100:
                     break
             return {"elements": nodes, "truncated": len(nodes) >= 100}
@@ -276,10 +292,11 @@ class Device:
             state = self.screen_state(serial)
             if state.get("screen_on") is not True or state.get("locked") is not False:
                 return {"schema": navigation.SCHEMA, "screen": None, "status": "screen_not_safe"}
-            snapshot = self.ui_tree(serial)
-            if self.screen_state(serial) != state:
-                return {"schema": navigation.SCHEMA, "screen": None, "status": "screen_changed"}
+            snapshot = self.ui_tree(serial, navigation_details=True)
             observed = navigation.observe(snapshot)
+            second = self.ui_tree(serial, navigation_details=True)
+            if self.screen_state(serial) != state or navigation.observe(second) != observed:
+                return {"schema": navigation.SCHEMA, "screen": None, "status": "screen_changed"}
             if "destination" in arguments:
                 observed["destination"] = arguments["destination"]
                 observed["route"] = navigation.route(observed.get("screen"), arguments["destination"])
