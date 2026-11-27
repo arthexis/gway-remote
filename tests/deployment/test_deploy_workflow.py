@@ -49,7 +49,8 @@ class DeploymentWorkflowTests(unittest.TestCase):
         self.assertIn('subprocess.run(["sh", "deploy.sh"], check=True, env=env)', self.workflow)
         self.assertIn('return not (marker.is_file() and marker.read_text().strip() == "skipped")',
                       self.workflow)
-        self.assertIn('deploy(token=local_api_token(), install=install, revision=os.environ.get("GITHUB_SHA"))', self.workflow)
+        self.assertIn('deploy(token=local_api_token(), install=install, revision=os.environ.get("GITHUB_SHA"),', self.workflow)
+        self.assertIn("record_verified=lambda revision, digest: record_verified_deployment(", self.workflow)
         self.assertNotIn("systemctl enable", self.workflow)
 
     def test_one_automatic_deployer(self):
