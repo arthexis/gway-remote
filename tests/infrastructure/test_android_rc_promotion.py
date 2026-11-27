@@ -103,6 +103,8 @@ class PromotionTests(unittest.TestCase):
                 return [{"ref":"refs/tags/"+self.tag}] if rows and not rows[0]["draft"] else []
             if path.startswith("commits/"):
                 return {"sha":self.c.source_sha}
+            if path == "releases/latest":
+                return rows[0]
             raise AssertionError(path)
         gate.api.side_effect = api
         gate.pages.side_effect = lambda _: list(rows)
@@ -119,6 +121,7 @@ class PromotionTests(unittest.TestCase):
                 writes.append("verify")
             elif action == "edit":
                 self.assertEqual(writes[-1],"verify")
+                self.assertIn("--latest",args)
                 writes.append("publish")
                 rows[0]["draft"] = False
             else:
