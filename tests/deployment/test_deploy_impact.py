@@ -105,3 +105,11 @@ class PushImpactTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class AndroidRcHealthImpactTests(unittest.TestCase):
+    def test_exact_workflow_only_paths_do_not_deploy(self):
+        paths = ["gway_remote/android_rc_health.py", "tests/infrastructure/test_android_rc_health.py",
+                 "gway_remote/android_release_candidate.py"]
+        self.assertEqual(classify_paths(paths), "skip")
+        self.assertEqual(classify_paths(paths+["gway_remote/mcp_android.py"]), "deploy")

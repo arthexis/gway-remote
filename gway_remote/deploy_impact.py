@@ -29,11 +29,13 @@ ANDROID_DELIVERY_PATHS = frozenset({
     "docs/android-single-release-candidate.md",
     "gway_remote/android_canary_certificate.py",
     "gway_remote/android_release_candidate.py",
+    "gway_remote/android_rc_health.py",
     "gway_remote/android_release_gate.py",
     "tests/infrastructure/test_android_canary_certificate.py",
     "tests/infrastructure/test_android_canary_install_workflow.py",
     "tests/infrastructure/test_android_canary_workflow.py",
     "tests/infrastructure/test_android_release_candidate.py",
+    "tests/infrastructure/test_android_rc_health.py",
     "tests/mobile/test_android_release_gate.py",
 })
 SAFE_PATHS = EVIDENCE_PATHS | ANDROID_DELIVERY_PATHS
