@@ -29,13 +29,13 @@ class OpportunityTests(unittest.TestCase):
                 self.assertEqual((limit, offset), (2, 1))
                 return [{"id": 7, "name": "Porsche #42: Example", "stage_id": [99, "Pre-Check"], "priority": "3", "description": "Urgente - Nueva - Model", "partner_id": [5, "Example"]}, {"id": 8}]
             if model == "sale.order":
-                self.assertIn(["opportunity_id", "=", 7], domain)
-                return [{"id": 10, "name": "S00001", "state": "draft"}]
+                self.assertIn(["opportunity_id", "in", [7]], domain)
+                return [{"id": 10, "name": "S00001", "state": "draft", "opportunity_id": [7, "Lead"]}]
             if model == "res.partner":
                 return [{"id": 5, "name": "Example", "phone": "555", "street": "Example street"}]
             if model == "gelectriic.customer.vehicle":
                 self.assertIn(["porsche_ticket", "=", "42"], domain)
-                return [{"id": 1, "model": "Example", "vin": "TEST"}]
+                return [{"id": 1, "partner_id": [5, "Example"], "porsche_ticket": "42", "model": "Example", "vin": "TEST"}]
             raise AssertionError(model)
         with patch.object(m, "_query", side_effect=query):
             result = m.search({"limit": 1, "page": 2})
@@ -60,10 +60,69 @@ class OpportunityTests(unittest.TestCase):
                 m.search(args)
 
     def test_sent_and_ambiguous(self):
-        for orders in ([{"state": "sent"}], [{"state": "draft"}, {"state": "sent"}]):
+        for orders in ([{"state": "sent", "opportunity_id": [1, "Lead"]}], [{"state": "draft", "opportunity_id": [1, "Lead"]}, {"state": "sent", "opportunity_id": [1, "Lead"]}]):
             with patch.object(m, "_query", side_effect=[[{"id": 1}], orders]):
                 if len(orders) == 1:
                     self.assertEqual(m.search({})["opportunities"], [])
                 else:
                     with self.assertRaises(RuntimeError):
                         m.search({})
+
+    def test_full_page_four_queries_and_exact_bindings(self):
+        leads = [{"id": i, "name": f"Porsche #{100+i}: Example",
+                  "partner_id": [5, "Example"]} for i in range(1, 31)]
+        # One sent quote hides only its own opportunity, despite shared partner.
+        orders = [{"id": 1, "opportunity_id": [1, "Lead"], "state": "sent"},
+                  {"id": 2, "opportunity_id": [2, "Lead"], "state": "draft", "name": "S00002"}]
+        vehicles = [{"id": i, "partner_id": [5, "Example"], "porsche_ticket": str(100+i),
+                     "model": f"Model {i}", "vin": f"TEST{i}"} for i in range(2, 31)]
+        vehicles.append({"id": 99, "partner_id": [5, "Example"], "porsche_ticket": "103",
+                         "model": "Ambiguous", "vin": "OTHER"})
+        evidence = {"2": {"partner_id": 5, "ticket": "102", "file_id": "example_file_12345"},
+                    "3": {"partner_id": 5, "ticket": "102", "file_id": "example_file_12345"}}
+        with patch.object(m, "_consent_bindings", return_value=evidence), patch.object(
+                m, "_query", side_effect=[leads, orders, [{"id": 5, "name": "Example"}], vehicles]) as query:
+            result = m.search({"limit": 30})
+        self.assertEqual(query.call_count, 4)
+        calls = [c.args for c in query.call_args_list]
+        self.assertEqual([c[0] for c in calls],
+                         ["crm.lead", "sale.order", "res.partner", "gelectriic.customer.vehicle"])
+        self.assertEqual(calls[1][3], 31)
+        self.assertEqual(calls[2][1], [["id", "in", [5]]])
+        self.assertEqual(calls[3][3], 59)
+        domain = calls[3][1]
+        self.assertEqual(domain[:28], ["|"] * 28)
+        self.assertEqual(domain[28:31], ["&", ["partner_id", "=", 5], ["porsche_ticket", "=", "102"]])
+        self.assertNotIn(["porsche_ticket", "=", "101"], domain)
+        self.assertEqual([r["id"] for r in result["opportunities"]], list(range(2, 31)))
+        rows = result["opportunities"]
+        self.assertEqual(rows[0]["quotation_name"], "S00002")
+        self.assertEqual(rows[0]["vin"], "TEST2")
+        self.assertIsNotNone(rows[0]["consent_url"])
+        self.assertEqual(rows[1]["vin"], "")
+        self.assertIsNone(rows[1]["consent_url"])
+        self.assertFalse(result["has_next"])
+
+    def test_cross_pair_response_and_truncation_fail_closed(self):
+        leads = [{"id": 1, "name": "Porsche #42: Example", "partner_id": [5, "Example"]}]
+        partner = [{"id": 5, "name": "Example"}]
+        wrong = {"id": 1, "partner_id": [6, "Other"], "porsche_ticket": "42"}
+        matching = {"id": 1, "partner_id": [5, "Example"], "porsche_ticket": "42"}
+        for vehicles, code in (([wrong], "odoo_response_invalid"),
+                               ([matching]*3, "odoo_vehicle_batch_incomplete")):
+            with self.subTest(code=code), patch.object(m, "_query",
+                    side_effect=[leads, [], partner, vehicles]):
+                with self.assertRaisesRegex(RuntimeError, code):
+                    m.search({})
+
+    def test_wrong_quote_relation_fails_closed(self):
+        with patch.object(m, "_query", side_effect=[[{"id": 7}],
+                [{"state": "draft", "opportunity_id": [8, "Other"]}]]):
+            with self.assertRaisesRegex(RuntimeError, "odoo_response_invalid"):
+                m.search({})
+
+    def test_empty_or_won_page_skips_related_queries(self):
+        for leads in ([], [{"id": 1, "probability": 100}]):
+            with patch.object(m, "_query", return_value=leads) as query:
+                self.assertEqual(m.search({})["opportunities"], [])
+                self.assertEqual(query.call_count, 1)
