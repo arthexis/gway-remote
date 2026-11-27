@@ -8,6 +8,8 @@ import com.arthexis.gwayremote.features.deployments.DeploymentsPanel
 import com.arthexis.gwayremote.features.githubhealth.GitHubHealthPanel
 import com.arthexis.gwayremote.features.odoo.OdooQuotationsPanel
 import com.arthexis.gwayremote.features.odoo.OdooOpportunitiesPanel
+import com.arthexis.gwayremote.features.liturgia.LiturgiaPanel
+import com.arthexis.gwayremote.features.liturgia.AuthenticatedLiturgiaSource
 import com.arthexis.gwayremote.features.mcp.McpAccessPanel
 import com.arthexis.gwayremote.features.updates.rememberAppUpdateController
 import com.arthexis.gwayremote.features.feed.ActivityFeedPanel
@@ -179,6 +181,7 @@ fun CompanionScreen(
                         BenchmarkModule(settings.endpoint, settings.token)
                     }
                     "odoo-opportunities" -> OdooOpportunitiesPanel(settings.endpoint, settings.token)
+                    "liturgia" -> LiturgiaPanel(remember(settings.endpoint, settings.token) { AuthenticatedLiturgiaSource(settings.endpoint, settings.token) })
                     "odoo-quotations" -> OdooQuotationsPanel(settings.endpoint, settings.token)
                     "deployments" -> ModulePage {
                         DeploymentsPanel(settings.endpoint, settings.token)
