@@ -304,7 +304,22 @@ class Handler(BaseHTTPRequestHandler):
     def log_message(self, fmt, *args):
         pass
 
-    def reject(self, status, *, scope=None, failure_code=None):
+    def _audit_rejection(self, status, reason):
+        # Never trust inbound correlation IDs or record raw request values.
+        allowed = frozenset(("origin_header","lcd_event_rejected","rpc_policy","feed_unavailable","execution_unavailable_or_invalid","legacy_tool_unregistered","federation_disabled","federated_route_missing","federated_call_rejected","insufficient_scope","authentication_required","federated_permission_denied","federated_transport_failure","federated_invalid_request","unspecified"))
+        if reason not in allowed:
+            reason = "unspecified"
+        route = "mcp" if self.path == "/mcp" else (
+            "lcd_event" if self.path == "/v1/lcd-sound/event" else "other")
+        request_id = secrets.token_hex(16)
+        print("gway_mcp_rejection " + json.dumps({
+            "request_id": request_id, "http_status": status,
+            "route": route, "origin": "watchtower_gateway",
+            "reason_code": reason,
+        }, separators=(",", ":")), file=sys.stderr, flush=True)
+        return request_id
+
+    def reject(self, status, *, scope=None, failure_code=None, reason=None):
         # Do not reflect exception text, RPC arguments, bearer tokens or host
         # paths. A server-generated incident ID correlates the HTTP failure
         # with a private systemd journal entry.
@@ -318,7 +333,15 @@ class Handler(BaseHTTPRequestHandler):
                   file=sys.stderr, flush=True)
         else:
             body = b""
+        rejection_id = None
+        if status in (401, 403):
+            rejection_id = self._audit_rejection(
+                status, reason or ("insufficient_scope" if scope == "gway:execute"
+                                   else "authentication_required" if status == 401
+                                   else "unspecified"))
         self.send_response(status)
+        if rejection_id:
+            self.send_header("X-Gway-Request-ID", rejection_id)
         if status == 401:
             # Default ChatGPT connection is an operator connection: request
             # execute from the first OAuth handshake. Execute credentials
@@ -352,7 +375,7 @@ class Handler(BaseHTTPRequestHandler):
     def _lcd_sound_post(self):
         """Opt-in narrow event endpoint; disabled on all existing services."""
         if self.headers.get("Origin") is not None:
-            return self.reject(403)
+            return self.reject(403, reason="origin_header")
         if (self.headers.get("Transfer-Encoding") is not None
                 or len(self.headers.get_all("Authorization", [])) != 1
                 or len(self.headers.get_all("Content-Length", [])) != 1
@@ -387,7 +410,7 @@ class Handler(BaseHTTPRequestHandler):
                 return self.reject(502)
         except (PermissionError, ValueError, TypeError, KeyError, OSError,
                 RuntimeError, UnicodeError):
-            return self.reject(403)
+            return self.reject(403, reason="lcd_event_rejected")
         self.send_response(code)
         self.send_header("Content-Type", "application/json")
         self.send_header("Cache-Control", "no-store")
@@ -406,7 +429,7 @@ class Handler(BaseHTTPRequestHandler):
         if self.path != "/mcp":
             return self.reject(404)
         if self.headers.get("Origin") is not None:
-            return self.reject(403)
+            return self.reject(403, reason="origin_header")
         if len(self.headers.get_all("Authorization", [])) != 1:
             return self.reject(401)
         supplied = self.headers.get("Authorization", "")
@@ -529,7 +552,7 @@ class Handler(BaseHTTPRequestHandler):
             if body:self.wfile.write(body)
             return
         if not inspect_rpc(raw, self.server.approved_sources):
-            return self.reject(403)
+            return self.reject(403, reason="rpc_policy")
         # Only a valid read credential reaches here. Missing execute scope
         # triggers the MCP tool-level OAuth UI without dispatching anything.
         # Keep all transport and RPC validation before returning a challenge.
@@ -547,7 +570,7 @@ class Handler(BaseHTTPRequestHandler):
         if payload["method"] == "tools/call" and payload.get("params", {}).get("name") in FEED_NAMES:
             api = getattr(self.server, "activity_feed", None)
             if api is None:
-                return self.reject(403)
+                return self.reject(403, reason="feed_unavailable")
             name = payload["params"]["name"]
             if name == "feed__publish" and not has_exec:
                 return self.reject(401, scope="gway:execute")
@@ -652,7 +675,9 @@ class Handler(BaseHTTPRequestHandler):
                     denied = {"resultType": "complete", **denied}
                 body = json.dumps({"jsonrpc": "2.0", "id": payload.get("id"),
                                    "result": denied}, separators=(",", ":")).encode()
+                rejection_id = self._audit_rejection(200, "insufficient_scope")
                 self.send_response(200)
+                self.send_header("X-Gway-Request-ID", rejection_id)
                 self.send_header("Content-Type", "application/json")
                 self.send_header("MCP-Protocol-Version", version)
                 self.send_header("Cache-Control", "no-store")
@@ -661,7 +686,7 @@ class Handler(BaseHTTPRequestHandler):
                 self.wfile.write(body)
                 return
             if self.server.execution is None or type(args) is not dict:
-                return self.reject(403)
+                return self.reject(403, reason="execution_unavailable_or_invalid")
             name = params["name"]
             try:
                 principal = self.server.registry.execution_principal(token)
@@ -815,7 +840,7 @@ class Handler(BaseHTTPRequestHandler):
                 matching = [tool for tool in listed if trusted_source_tool(tool)
                             and tool["name"] == payload["params"]["name"]]
                 if len(matching) != 1:
-                    return self.reject(403)
+                    return self.reject(403, reason="legacy_tool_unregistered")
                 annotations = matching[0].get("annotations", {})
                 is_read = (type(annotations) is dict and annotations.get("readOnlyHint") is True
                            and annotations.get("destructiveHint") is not True)
@@ -828,7 +853,7 @@ class Handler(BaseHTTPRequestHandler):
         if payload["method"] == "tools/call" and SOURCE_TOOL_NAME.fullmatch(
                 payload.get("params", {}).get("name", "")):
             if self.server.federation is None:
-                return self.reject(403)
+                return self.reject(403, reason="federation_disabled")
             try:
                 name = payload["params"]["name"]
                 arguments = payload["params"].get("arguments", {})
@@ -836,7 +861,7 @@ class Handler(BaseHTTPRequestHandler):
                     return self.reject(400)
                 _, routes = self.server.federation.discover()
                 if name not in routes:
-                    return self.reject(403)
+                    return self.reject(403, reason="federated_route_missing")
                 if routes[name][3] == "execute" and not has_exec:
                     return self.reject(401, scope="gway:execute")
                 # Reuse the same authenticated route snapshot used for
@@ -868,8 +893,12 @@ class Handler(BaseHTTPRequestHandler):
                 self.end_headers()
                 self.wfile.write(body)
                 return
-            except (ValueError, PermissionError, RuntimeError, OSError, TypeError, KeyError):
-                return self.reject(403)
+            except PermissionError:
+                return self.reject(403, reason="federated_permission_denied")
+            except (RuntimeError, OSError):
+                return self.reject(403, reason="federated_transport_failure")
+            except (ValueError, TypeError, KeyError):
+                return self.reject(403, reason="federated_invalid_request")
         # Forward only to a fixed private endpoint; never forward client headers.
         headers = {"Authorization": "Bearer " + self.server.backend_token,
                    "X-Gway-Caller-Scope": "execute" if has_exec else "read",
