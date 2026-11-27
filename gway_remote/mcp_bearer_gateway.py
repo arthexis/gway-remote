@@ -848,9 +848,12 @@ class Handler(BaseHTTPRequestHandler):
                 if owner_bound(routes[name][1]):
                     options["verified_principal"] = verify_admission(
                         self.server.registry, token, scope)
-                selected = self.server.federation.call(
-                    name, arguments, authorized_scope=scope,
-                    routes=routes, **options)
+                from .agentops_invocation_trace import ingress
+                with ingress(routes[name][1], registry=self.server.registry,
+                             credential=token, scope=scope, rpc_id=payload.get("id")):
+                    selected = self.server.federation.call(
+                        name, arguments, authorized_scope=scope,
+                        routes=routes, **options)
                 from .mcp_gateway_federation import federated_tool_result
                 result = federated_tool_result(selected)
                 body = json.dumps({"jsonrpc": "2.0", "id": payload.get("id"),
