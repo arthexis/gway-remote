@@ -5,6 +5,7 @@
   globalThis.gwayReportsAdapterInstalled = true;
   let refs = new Map();
   let snapshotAt = 0;
+  let consentLease = null;
   const pageKind = path => path === "/" ? "dashboard" : path === "/rfid" ? "rfid" :
     /^\/chargers\/[^/]+\/[^/]+$/.test(path) ? "charger" : "other";
   const denied = (state = "denied") => ({ok: false, state});
@@ -107,7 +108,10 @@
     return {ok: true, state: "action_started"};
   }
   browser.runtime.onMessage.addListener(message => {
-    if (window !== top || message.origin !== location.origin || document.querySelector('input[type="password"]')) return Promise.resolve(denied());
+    if (window !== top || message.origin !== location.origin ||
+        typeof message.lease !== "string" || !/^[a-f0-9]{32}$/.test(message.lease) ||
+        document.querySelector('input[type="password"]')) return Promise.resolve(denied());
+    if (message.lease !== consentLease) { refs = new Map(); consentLease = message.lease; }
     const r = message.request;
     let result;
     if (r.operation === "snapshot") result = snapshot();
