@@ -93,3 +93,20 @@ def fresh_health(device, serial, *, pause=time.sleep):
             return False
         pause(1)
     return False
+
+
+def restore_sleep(device, serial, *, pause=time.sleep):
+    """One sleep input, bounded observation; never repeat input on uncertainty."""
+    require(device.serial() == serial, "usb_identity_changed")
+    state = device.screen_state(serial)
+    if state.get("screen_on") is False:
+        return True
+    require(state.get("screen_on") is True and state.get("locked") is False,
+            "sleep_restore_unsafe")
+    device.adb(serial, "shell", "input", "keyevent", "KEYCODE_SLEEP")
+    for _ in range(6):
+        require(device.serial() == serial, "usb_identity_changed")
+        if device.screen_state(serial).get("screen_on") is False:
+            return True
+        pause(0.5)
+    return False
