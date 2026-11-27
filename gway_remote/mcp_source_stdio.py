@@ -122,7 +122,7 @@ def _provider_environment(registration):
 
 
 class _Session:
-    def __init__(self, registration, timeout):
+    def __init__(self, registration, timeout, *, verified_principal=None, authorized_scope=None):
         if not isinstance(registration, SourceRegistration) or not registration.enabled:
             raise SourceProtocolError("source not enabled")
         from .android_execution_contract import STDIO_SECONDS
@@ -133,15 +133,25 @@ class _Session:
         self.deadline = time.monotonic() + timeout
         self.buffer = bytearray()
         self.process = None
+        self.principal = verified_principal
+        self.scope = authorized_scope
+        if self.principal is not None:
+            from .mcp_principal_admission import owner_bound, validate_principal
+            if not owner_bound(registration.source_id) or self.scope not in ("read","execute"):
+                raise SourceProtocolError("invalid_provider_identity")
+            validate_principal(self.principal)
 
     def __enter__(self):
         # Caller must provision the trusted executable and restricted OS identity.
         # No shell, inherited credentials, network endpoint, or caller-supplied argv.
         if os.geteuid() == 0 or self.registration.run_as != _current_user():
             raise SourceProtocolError("source requires its dedicated non-root service identity")
+        env = _provider_environment(self.registration)
+        if self.principal is not None:
+            env.update(GWAY_PROVIDER_PRINCIPAL=self.principal, GWAY_PROVIDER_SCOPE=self.scope)
         self.process = subprocess.Popen(
             self.registration.argv, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
-            stderr=subprocess.DEVNULL, env=_provider_environment(self.registration),
+            stderr=subprocess.DEVNULL, env=env,
             close_fds=True, start_new_session=True)
         return self
 
@@ -244,7 +254,7 @@ def list_source_tools(registration, timeout=10):
 
 
 def call_source_tool(registration, name, arguments, declared_tool, *, authorized_scope="read",
-                     timeout=10, invocation_id=None):
+                     timeout=10, invocation_id=None, verified_principal=None):
     """Execute only the currently declared tool under the caller's scope.
 
     Re-discovery in the same stdio session prevents a provider from changing
@@ -258,6 +268,12 @@ def call_source_tool(registration, name, arguments, declared_tool, *, authorized
         raise SourceProtocolError("tool declaration mismatch")
     if required_scope(declared_tool) == "execute" and authorized_scope != "execute":
         raise SourceProtocolError("permission_denied")
+    from .mcp_principal_admission import owner_bound, validate_principal, validate_owner_arguments
+    if owner_bound(registration.source_id):
+        validate_principal(verified_principal)
+        validate_owner_arguments(arguments)
+    elif verified_principal is not None:
+        raise SourceProtocolError("unexpected_provider_identity")
     rpc_id = 3
     if invocation_id is not None:
         from .android_invocation_trace import valid_id
@@ -268,7 +284,10 @@ def call_source_tool(registration, name, arguments, declared_tool, *, authorized
         from .android_execution_contract import STDIO_SECONDS
         if registration.source_id != "android" or name != "scenario_run" or timeout != STDIO_SECONDS:
             raise SourceProtocolError("invalid tool timeout")
-    with _Session(registration, timeout) as session:
+    options = {}
+    if verified_principal is not None:
+        options = {"verified_principal": verified_principal, "authorized_scope": authorized_scope}
+    with _Session(registration, timeout, **options) as session:
         session.initialize()
         current = _check_tool_list(session.request(2, "tools/list", {}))
         matching = [tool for tool in current if tool.get("name") == name]
