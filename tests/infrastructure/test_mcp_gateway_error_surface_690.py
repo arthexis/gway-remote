@@ -13,6 +13,9 @@ from gway_remote.mcp_bearer_gateway import Handler
 
 
 class ResponseSink:
+    _audit_rejection = Handler._audit_rejection
+    path = '/mcp'
+
     def __init__(self):
         self.status = None
         self.headers = {}
@@ -63,7 +66,14 @@ class GatewayFailureDiagnosticsTests(unittest.TestCase):
 
     def test_auth_challenge_and_nonserver_rejections_remain_unchanged(self):
         denied = ResponseSink()
-        Handler.reject(denied, 401, scope="gway:execute")
+        journal = io.StringIO()
+        with contextlib.redirect_stderr(journal):
+            Handler.reject(denied, 401, scope="gway:execute")
+        entry = json.loads(journal.getvalue().removeprefix("gway_mcp_rejection "))
+        self.assertEqual(entry["reason_code"], "insufficient_scope")
+        self.assertEqual(entry["http_status"], 401)
+        self.assertEqual(entry["route"], "mcp")
+        self.assertEqual(entry["request_id"], denied.headers["X-Gway-Request-ID"])
         self.assertEqual(denied.status, 401)
         self.assertIn("insufficient_scope", denied.headers["WWW-Authenticate"])
         self.assertEqual(denied.wfile.getvalue(), b"")
