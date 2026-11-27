@@ -1,0 +1,11 @@
+[Unit]
+Description=Poll durable AgentOps intents over the existing pinned node transport
+
+[Timer]
+OnBootSec=15s
+OnUnitInactiveSec=5s
+AccuracySec=1s
+Unit=gway-agentops-coordination.service
+
+[Install]
+WantedBy=timers.target
