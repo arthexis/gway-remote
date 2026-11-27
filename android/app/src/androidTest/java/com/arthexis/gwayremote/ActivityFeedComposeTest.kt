@@ -30,6 +30,8 @@ class ActivityFeedComposeTest {
             }
         }
         rule.onNodeWithText("Historial offline").assertExists()
+        rule.onNodeWithTag("rc-feed-refresh").assertIsEnabled()
+        rule.awaitExportedControl("rc-feed-refresh") { it.isEnabled }
         rule.onNodeWithText("deployment", substring = false).performClick()
         rule.onNodeWithText("Deploy completed").assertExists()
         rule.onNodeWithText("Node connected").assertDoesNotExist()

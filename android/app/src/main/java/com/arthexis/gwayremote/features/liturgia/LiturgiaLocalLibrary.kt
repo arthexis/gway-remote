@@ -1,6 +1,7 @@
 package com.arthexis.gwayremote.features.liturgia
 
 import android.content.Context
+import android.content.SharedPreferences
 import org.json.JSONArray
 
 internal data class SavedPassage(val edition: String, val passage: Passage) {
@@ -20,8 +21,8 @@ internal data class SavedPassage(val edition: String, val passage: Passage) {
 }
 
 /** Only reference metadata, never text or credentials. Private app storage. */
-internal class LiturgiaLocalLibrary(context: Context) {
-    private val prefs = context.getSharedPreferences("liturgia_local", Context.MODE_PRIVATE)
+internal class LiturgiaLocalLibrary(private val prefs: SharedPreferences) {
+    constructor(context: Context) : this(context.getSharedPreferences("liturgia_local", Context.MODE_PRIVATE))
     private fun read(key: String): List<SavedPassage> = runCatching {
         val array = JSONArray(prefs.getString(key, "[]") ?: "[]")
         (0 until array.length()).mapNotNull { SavedPassage.decode(array.getString(it)) }.take(30)

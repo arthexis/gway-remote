@@ -75,7 +75,8 @@ class ModulePageComposeTest {
                 ) { dispatched++ }
             }
         }
-        rule.onNodeWithText("Deploy all").assertIsNotEnabled()
+        rule.onNodeWithTag("rc-deploy-submit").assertIsNotEnabled()
+        rule.awaitExportedControl("rc-deploy-submit") { !it.isEnabled }
         rule.runOnIdle { assertEquals(0, dispatched); token = "test-only-token" }
         rule.onNodeWithText("Deploy all").assertIsEnabled()
         rule.onNodeWithText("Deploy all").performClick()

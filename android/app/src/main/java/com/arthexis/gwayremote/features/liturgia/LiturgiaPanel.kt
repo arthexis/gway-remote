@@ -27,9 +27,9 @@ private data class SearchPageRequest(val query: SearchRequest, val offset: Int =
 
 /** A dedicated module view; the shell will register it after transport acceptance. */
 @Composable
-internal fun LiturgiaPanel(source: LiturgiaSource) {
+internal fun LiturgiaPanel(source: LiturgiaSource, libraryOverride: LiturgiaLocalLibrary? = null) {
     val context = LocalContext.current
-    val library = remember(context) { LiturgiaLocalLibrary(context) }
+    val library = remember(context, libraryOverride) { libraryOverride ?: LiturgiaLocalLibrary(context) }
     var bookmarks by remember(library) { mutableStateOf(library.bookmarks()) }
     var history by remember(library) { mutableStateOf(library.history()) }
     var readingMode by remember(source) { mutableStateOf(false) }
