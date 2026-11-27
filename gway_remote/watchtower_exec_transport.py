@@ -20,7 +20,7 @@ import sqlite3
 import stat
 import subprocess
 
-from .node_exec_contract import validate_command
+from .node_exec_contract import validate_command, RELAY_ONLY_NODE, RELAY_ONLY_OPERATIONS
 from .node_exec_worker import validate_request_id
 
 DEFAULT_LEDGER = Path("/var/lib/gway-mcp-exec/requests.sqlite3")
@@ -323,6 +323,8 @@ class SSHTransport:
             raise ValueError("invalid expected deployment revision")
         if payload.get("node") != self.node.node:
             raise ValueError("wrong pinned node")
+        if self.node.node == RELAY_ONLY_NODE and payload["operation"] not in RELAY_ONLY_OPERATIONS:
+            raise PermissionError("relay-only node operation denied")
         validate_request_id(payload.get("request_id"))
         if payload['operation'] in ('health_probe_submit','health_probe_result','probe_provision_status','probe_provision_install') and self.node.node != 'gway-001':
             raise PermissionError('probe_node_denied')

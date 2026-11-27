@@ -13,7 +13,7 @@ import sys
 import time
 
 from .node_exec_worker import Jobs, configured_max_active, require_account, validate_request_id
-from .node_exec_contract import validate_command
+from .node_exec_contract import validate_command, RELAY_ONLY_NODE, RELAY_ONLY_OPERATIONS
 
 MAX_REQUEST_BYTES = 65536
 OPERATIONS = {
@@ -58,8 +58,10 @@ def serve_one(raw, *, jobs=None, hostname=None):
     if fields != OPERATIONS[op]:
         raise ValueError("invalid request fields")
     host = hostname if hostname is not None else socket.gethostname()
-    if not re.fullmatch(r"gway-[0-9]+", host) or req["node"] != host:
+    if (not re.fullmatch(r"gway-[0-9]+", host) and host != RELAY_ONLY_NODE) or req["node"] != host:
         raise PermissionError("unapproved node")
+    if host == RELAY_ONLY_NODE and op not in RELAY_ONLY_OPERATIONS:
+        raise PermissionError("relay-only node operation denied")
     rid = validate_request_id(req["request_id"])
     if op in ('probe_provision_status','probe_provision_install'):
         from .node_exec_identity import selected_user
