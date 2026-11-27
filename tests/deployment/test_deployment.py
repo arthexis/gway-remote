@@ -58,6 +58,40 @@ class DeploymentTests(unittest.TestCase):
         self.assertEqual(self.calls, ["install", "health"])
         self.assertEqual(sum(c[-1] == SERVICE and "restart" in c for c in self.commands), 1)
 
+    def test_receipt_only_after_authenticated_health(self):
+        import hashlib
+        verified = Mock(side_effect=lambda sha, digest: self.calls.append("receipt"))
+        deploy(token="secret", install=self.install, execute=self.execute,
+               probe=self.probe, executable=self.executable, runtime=self.root,
+               backup_dir=self.root, notify=self.events.append, revision="a" * 40,
+               record_verified=verified)
+        self.assertEqual(self.calls, ["install", "health", "receipt"])
+        verified.assert_called_once_with("a" * 40, hashlib.sha256(b"new").hexdigest())
+
+    def test_receipt_not_written_on_skip_or_failed_health(self):
+        verified = Mock()
+        args = dict(token="secret", execute=self.execute, probe=self.probe,
+                    executable=self.executable, runtime=self.root,
+                    backup_dir=self.root, notify=self.events.append,
+                    revision="a" * 40, record_verified=verified)
+        deploy(install=lambda: False, **args)
+        self.fail_probe = True
+        with self.assertRaisesRegex(RuntimeError, "health failed"):
+            deploy(install=self.install, **args)
+        verified.assert_not_called()
+        self.assertEqual(self.executable.read_text(), "old")
+
+    def test_receipt_failure_uses_existing_rollback(self):
+        verified = Mock(side_effect=ValueError("receipt failure"))
+        with self.assertRaisesRegex(ValueError, "receipt failure"):
+            deploy(token="secret", install=self.install, execute=self.execute,
+                   probe=self.probe, executable=self.executable, runtime=self.root,
+                   backup_dir=self.root, notify=self.events.append,
+                   revision="a" * 40, record_verified=verified)
+        self.assertEqual(self.executable.read_text(), "old")
+        self.assertIn("rollback-verified", self.events)
+        self.assertNotIn("deploy-verified", self.events)
+
     def test_default_notifier_receives_requested_revision(self):
         revision = "a" * 34 + "123abc"
         with patch("gway_remote.deployment.DeploymentSound") as factory:
