@@ -24,6 +24,8 @@ class DeploymentConfirmationTest {
             }
         }
         rule.runOnIdle { assertFalse(confirmed) }
+        rule.onNodeWithTag("rc-deploy-confirm").assertIsOff()
+        rule.awaitExportedControl("rc-deploy-confirm") { it.isCheckable && !it.isChecked }
         rule.onNodeWithText("Confirm deployment of ocpp-csms").performClick()
         rule.runOnIdle { assertTrue(confirmed) }
         rule.onNodeWithText("Confirm deployment of ocpp-csms").performClick()

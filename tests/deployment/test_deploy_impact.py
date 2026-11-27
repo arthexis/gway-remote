@@ -113,3 +113,13 @@ class AndroidRcHealthImpactTests(unittest.TestCase):
                  "gway_remote/android_release_candidate.py"]
         self.assertEqual(classify_paths(paths), "skip")
         self.assertEqual(classify_paths(paths+["gway_remote/mcp_android.py"]), "deploy")
+
+    def test_exact_acceptance_and_promotion_helpers_are_delivery_only(self):
+        paths = [".github/workflows/android-release-candidate-accept.yml",
+                 ".github/workflows/android-release-candidate-promote.yml",
+                 "gway_remote/android_rc_acceptance.py","gway_remote/android_rc_promotion.py",
+                 "tests/infrastructure/test_android_rc_acceptance.py",
+                 "tests/infrastructure/test_android_rc_promotion.py"]
+        self.assertEqual(classify_paths(paths),"skip")
+        self.assertEqual(classify_paths(paths+["gway_remote/mcp_android.py"]),"deploy")
+        self.assertEqual(classify_paths(paths+[".github/workflows/android.yml"]),"deploy")
