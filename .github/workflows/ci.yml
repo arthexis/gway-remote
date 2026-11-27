@@ -1,7 +1,8 @@
 name: CI
-# Validation runs on PRs only. Merges to main are deployment events.
+# PR validation, plus explicit exact-source release evidence. Push deploy is separate.
 on:
   pull_request:
+  workflow_dispatch:
 
 permissions:
   contents: read
