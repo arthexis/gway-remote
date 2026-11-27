@@ -1,0 +1,95 @@
+---
+- name: Allow only Watchtower WireGuard source to reach ABB forced relay
+  hosts: localhost
+  connection: local
+  become: true
+  gather_facts: true
+  vars:
+    abb_allow_path: /etc/ssh/sshd_config.d/01-gway-abb-relay-allow.conf
+  tasks:
+    - name: Require exact ABB host and explicit opt-in
+      ansible.builtin.assert:
+        that:
+          - ansible_hostname == 'ocpp-abb-1'
+          - gway_abb_relay_authorize | default(false) | bool
+          - abb_allow_path == '/etc/ssh/sshd_config.d/01-gway-abb-relay-allow.conf'
+    - name: Verify installed forced relay identity
+      ansible.builtin.command:
+        argv: [/usr/bin/python3, '{{ playbook_dir }}/../scripts/verify-exec-relay-policy.py', --user, ubuntu]
+      changed_when: false
+    - name: Read administrator allowlist without changing it
+      ansible.builtin.slurp:
+        src: /etc/ssh/sshd_config.d/00-ubuntu-only.conf
+      register: admin
+    - name: Require reviewed existing administrator policy
+      ansible.builtin.assert:
+        that: (admin.content | b64decode).splitlines() == ['PermitRootLogin no', 'AllowUsers ubuntu']
+    - name: Verify existing WireGuard peer route
+      ansible.builtin.command: ip -4 route show dev gway
+      register: routes
+      changed_when: false
+    - name: Require existing Watchtower route
+      ansible.builtin.assert:
+        that: routes.stdout_lines | select('match', '^10\\.90\\.0\\.1 scope link\\s*$') | list | length == 1
+    - name: Inspect exception before changes
+      ansible.builtin.stat:
+        path: '{{ abb_allow_path }}'
+        follow: false
+      register: prior
+    - name: Refuse unmanaged exception
+      ansible.builtin.assert:
+        that: not prior.stat.exists or (prior.stat.isreg and prior.stat.uid == 0 and prior.stat.mode == '0644')
+    - name: Read any previous exception
+      ansible.builtin.slurp:
+        src: '{{ abb_allow_path }}'
+      register: previous
+      when: prior.stat.exists
+    - name: Refuse differing existing exception
+      ansible.builtin.assert:
+        that: not prior.stat.exists or (previous.content | b64decode | trim) == 'AllowUsers gway-relay@10.90.0.1'
+    - name: Apply additive source-only SSH access and validate
+      block:
+        - name: Install fixed source exception without editing admin rules
+          ansible.builtin.copy:
+            dest: '{{ abb_allow_path }}'
+            content: "AllowUsers gway-relay@10.90.0.1\n"
+            owner: root
+            group: root
+            mode: '0644'
+          register: added
+        - name: Check whole SSH configuration
+          ansible.builtin.command: /usr/sbin/sshd -t
+          changed_when: false
+        - name: Inspect effective forced relay and admin policy
+          ansible.builtin.command:
+            argv: [/usr/sbin/sshd, -T, -C, 'user=gway-relay,host=ocpp-abb-1,addr=10.90.0.1']
+          register: effective
+          changed_when: false
+        - name: Require both exact allowed users and forced restrictions
+          ansible.builtin.assert:
+            that:
+              - effective.stdout_lines | select('match', '^allowusers ') | list | sort == ['allowusers gway-relay@10.90.0.1','allowusers ubuntu']
+              - "'disableforwarding yes' in effective.stdout_lines"
+              - "'permittty no' in effective.stdout_lines"
+        - name: Reload SSH only after validation
+          ansible.builtin.systemd:
+            name: ssh
+            state: reloaded
+          when: added.changed
+      rescue:
+        - name: Remove only new exception
+          ansible.builtin.file:
+            path: '{{ abb_allow_path }}'
+            state: absent
+          when: not prior.stat.exists
+        - name: Validate restored SSH policy
+          ansible.builtin.command: /usr/sbin/sshd -t
+          changed_when: false
+        - name: Reload restored SSH policy
+          ansible.builtin.systemd:
+            name: ssh
+            state: reloaded
+          when: not prior.stat.exists
+        - name: Stop on exception failure
+          ansible.builtin.fail:
+            msg: ABB relay access not accepted; retain central grant disabled.
