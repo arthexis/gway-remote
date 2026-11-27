@@ -5,6 +5,7 @@ ruleset context. Strict CI continues to be the required integration guard.
 """
 import argparse
 import os
+import subprocess
 from gway_remote import android_release_gate as gate
 
 CONTEXT = "Android candidate readiness"
@@ -84,7 +85,9 @@ def exact_hosted(p, workflow_id, *, api=gate.api):
     if run.get("conclusion") != "success":
         return "failure"
     current = api(f"actions/runs/{run['id']}")
-    gate.require(belongs(current) and current.get("status") == "completed"
+    gate.require(belongs(current) and current.get("id") == run["id"]
+                 and current.get("run_number") == run["run_number"]
+                 and current.get("status") == "completed"
                  and current.get("conclusion") == "success"
                  and current.get("run_attempt") == run.get("run_attempt")
                  and type(current.get("run_attempt")) is int,
@@ -170,6 +173,9 @@ def main():
     args = parser.parse_args()
     gate.require(os.environ.get("GITHUB_REPOSITORY") == gate.REPO
                  and args.run_id > 0, "unexpected workflow repository")
+    trusted = subprocess.check_output(["git", "rev-parse", "HEAD"], text=True).strip()
+    gate.require(gate.SHA.fullmatch(trusted) and gate.api("branches/main")["commit"]["sha"] == trusted,
+                 "trusted workflow base moved; reconcile from current main")
     reconcile_all(f"https://github.com/{gate.REPO}/actions/runs/{args.run_id}")
 
 
