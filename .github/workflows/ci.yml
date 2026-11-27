@@ -104,6 +104,8 @@ jobs:
           python -m pip install 'ansible-core>=2.16,<2.19'
           ansible-playbook --syntax-check -i 'localhost,' ansible/playbook.yml
           ansible-playbook --syntax-check -i 'localhost,' ansible/playbooks/stage-release.yml
+          ansible-playbook --syntax-check -i 'localhost,' ansible/playbooks/periodic-health-receiver.yml
+          ansible-playbook --syntax-check -i 'localhost,' ansible/playbooks/watchtower-periodic-execution-health.yml
           ansible-playbook --syntax-check -i 'localhost,' ansible/playbooks/watchtower-mcp-node-routing.yml
           ansible-playbook --syntax-check -i 'localhost,' ansible/playbooks/validate-mcp-source-provision.yml
           ansible-playbook --syntax-check -i 'localhost,' ansible/playbooks/watchtower-mcp.yml
@@ -130,6 +132,8 @@ jobs:
           ansible-playbook --version
           ansible-playbook --syntax-check -i 'gway_remote,' ansible/playbook.yml
           ansible-playbook --syntax-check -i 'localhost,' ansible/playbooks/stage-release.yml
+          ansible-playbook --syntax-check -i 'localhost,' ansible/playbooks/periodic-health-receiver.yml
+          ansible-playbook --syntax-check -i 'localhost,' ansible/playbooks/watchtower-periodic-execution-health.yml
           ansible-playbook --syntax-check -i 'localhost,' ansible/playbooks/watchtower-mcp-node-routing.yml
           ansible-playbook --syntax-check -i 'localhost,' ansible/playbooks/validate-mcp-source-provision.yml
           ansible-playbook --syntax-check -i 'localhost,' ansible/observe-deployment.yml
