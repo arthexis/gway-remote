@@ -20,7 +20,7 @@ def workflow_source(gate, revision):
     return base64.b64decode(row["content"]).decode("utf-8")
 
 
-def validate_revision(candidate, revision, gate):
+def validate_revision(candidate, revision, gate, *, accepted_revision=None):
     """Permit exact reviewed source or one literal hold-marker removal."""
     require(gate.api("branches/main")["commit"]["sha"] == revision, "publication_revision_moved")
     require(gate.api(f"git/commits/{candidate.source_sha}")["tree"]["sha"] == candidate.source_tree,
@@ -29,23 +29,26 @@ def validate_revision(candidate, revision, gate):
     require("ANDROID_PUBLICATION_HOLD_718" not in current, "publication_held")
     require("LEGACY_ANDROID_PUBLISHER_RETIRED" in current and "\n  publish:" not in current,
             "legacy_publication_not_retired")
-    if revision == candidate.source_sha:
+    accepted_revision = accepted_revision or candidate.source_sha
+    if revision == accepted_revision:
         return
-    comparison = gate.api(f"compare/{candidate.source_sha}...{revision}")
+    comparison = gate.api(f"compare/{accepted_revision}...{revision}")
     rows = comparison.get("files", [])
     require(comparison.get("status") == "ahead" and comparison.get("total_commits") == 1
-            and comparison.get("merge_base_commit",{}).get("sha") == candidate.source_sha
+            and comparison.get("merge_base_commit",{}).get("sha") == accepted_revision
             and len(rows) == 1 and rows[0].get("filename") == ".github/workflows/android.yml"
             and rows[0].get("status") == "modified", "candidate_superseded")
-    original = workflow_source(gate, candidate.source_sha)
+    original = workflow_source(gate, accepted_revision)
     require(original.splitlines().count(HOLD_LINE) == 1
             and original.replace(HOLD_LINE+"\n","",1) == current,
             "publication_policy_transition_unverified")
 
 
-def validate_full_receipt(receipt, artifact, run_id, hosted):
+def validate_full_receipt(receipt, artifact, run_id, hosted, *, compatibility=None):
     expected = full_receipt(artifact, run_id,
         smoke_receipt(artifact, run_id, dict.fromkeys(SMOKE_CHECKS,"pass")), hosted)
+    if compatibility is not None:
+        expected["compatibility"] = compatibility
     require(receipt == expected, "full_acceptance_missing_or_mismatched")
     return expected
 
@@ -54,9 +57,10 @@ def read_full_receipt(artifact, run_id, gate, *, build_run):
     from gway_remote.android_rc_contracts import reconcile, successful_run
     c = artifact.candidate
     require(type(run_id) is int and run_id > 0, "invalid_acceptance_run_id")
-    successful_run(gate, WORKFLOW, run_id, c.source_sha, "physical")
     run = gate.api(f"actions/runs/{run_id}")
-    gate.verify_run_identity(run, WORKFLOW, run_id, "workflow_dispatch", c.source_sha)
+    revision = run.get("head_sha")
+    successful_run(gate, WORKFLOW, run_id, revision, "physical")
+    gate.verify_run_identity(run, WORKFLOW, run_id, "workflow_dispatch", revision)
     require(run.get("status") == "completed" and run.get("conclusion") == "success"
             and run.get("run_attempt") == 1 and (run.get("actor") or {}).get("login") == gate.OWNER
             and (run.get("triggering_actor") or {}).get("login") == gate.OWNER, "acceptance_run_unverified")
@@ -69,7 +73,7 @@ def read_full_receipt(artifact, run_id, gate, *, build_run):
     meta = gate.api(f"actions/artifacts/{matches[0]['id']}")
     require(meta.get("name") == name and meta.get("expired") is False
             and (meta.get("workflow_run") or {}).get("id") == run_id
-            and (meta.get("workflow_run") or {}).get("head_sha") == c.source_sha,
+            and (meta.get("workflow_run") or {}).get("head_sha") == revision,
             "receipt_artifact_identity_mismatch")
     with tempfile.TemporaryDirectory() as tmp:
         gate.download(run_id, name, tmp)
@@ -82,12 +86,20 @@ def read_full_receipt(artifact, run_id, gate, *, build_run):
     evidence = payload["hosted_evidence"]
     hosted = reconcile(gate, c, ci_run=evidence.get("ci_run"),
                        compose_run=evidence.get("compose_run"), build_run=build_run)
-    return validate_full_receipt(payload, artifact, run_id, hosted)
+    compatibility = None
+    if revision != c.source_sha or "compatibility" in payload:
+        from gway_remote.android_release_candidate import compatible_revision
+        info = payload.get("compatibility")
+        require(isinstance(info, dict), "compatible_evidence_missing")
+        compatibility = compatible_revision(c, revision, gate, revision_ci_run=info.get("revision_ci_run"),
+                                            backend_run=info.get("backend_run"), current=False)
+    return validate_full_receipt(payload, artifact, run_id, hosted, compatibility=compatibility)
 
 
 def preflight(ledger, candidate, *, revision, acceptance_run, artifact_dir, gate):
     """All read-only. A smoke receipt or an expired full receipt cannot authorize release."""
-    validate_revision(candidate, revision, gate)
+    # Keep hold check before fetching receipts; validate exact transition after receipt read.
+    require("ANDROID_PUBLICATION_HOLD_718" not in workflow_source(gate, revision), "publication_held")
     artifact = identity(ledger, candidate)
     receipt = read_full_receipt(artifact, acceptance_run, gate,
                                 build_run=ledger.read(candidate.candidate_id)["built"]["run_id"])
@@ -98,7 +110,7 @@ def preflight(ledger, candidate, *, revision, acceptance_run, artifact_dir, gate
             "local_candidate_unverified")
     require(hashlib.sha256(apk.read_bytes()).hexdigest() == artifact.apk_sha256
             and certificate_sha256(apk) == artifact.certificate_sha256, "local_candidate_mismatch")
-    validate_revision(candidate, revision, gate)
+    validate_revision(candidate, revision, gate, accepted_revision=receipt.get("compatibility", {}).get("revision"))
     return artifact, receipt, apk
 
 
@@ -202,7 +214,7 @@ def publish_exact(ledger, candidate, *, revision, acceptance_run, artifact_dir, 
         require(len(exact) <= 1 and (exact or not required), "release_tag_missing")
         if exact:
             require(gate.api(f"commits/{tag}")["sha"] == candidate.source_sha,"release_tag_conflict")
-    validate_revision(candidate, revision, gate)
+    validate_revision(candidate, revision, gate, accepted_revision=receipt.get("compatibility", {}).get("revision"))
     check_tag()
     if not matches:
         with tempfile.TemporaryDirectory() as tmp:
@@ -215,7 +227,7 @@ def publish_exact(ledger, candidate, *, revision, acceptance_run, artifact_dir, 
     release = exact_release()
     if release.get("draft") is True:
         verify_download(release, True)
-        validate_revision(candidate, revision, gate)
+        validate_revision(candidate, revision, gate, accepted_revision=receipt.get("compatibility", {}).get("revision"))
         check_tag()
         gate.gh("release","edit",tag,"-R",gate.REPO,"--draft=false","--latest")
     release = exact_release()

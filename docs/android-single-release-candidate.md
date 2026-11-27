@@ -122,3 +122,8 @@ concurrent ABB development. Finish CI and the acceptance/promotion pipeline
 before allocating one successor. The new tests and workflow have not yet been
 physically validated. Do not reinstall 796 or close release-tracked issues
 before authorized publication and verification.
+
+
+### Compatible backend revisions
+
+A signed candidate retains its original full source SHA/tree and artifact identity. A later reviewed main with an unchanged Android subtree and unchanged build workflow may use the existing strict install and full acceptance workflows with the original CI/Compose/build evidence plus `revision_ci_run` (successful owner-dispatched CI at current main) and `backend_run` (successful main backend deployment including actual gway-001 and Watchtower convergence and authenticated checks). Only reviewed non-runtime delivery/evidence changes may follow the deployed revision. The full receipt records the compatibility revision and evidence, and promotion remains separately authorized and bound to that accepted revision (or its exact hold-marker removal). Neither backend compatibility nor the receipt authorizes publication. Uncertain ancestry, changed Android/build inputs, failed/skipped deployment, missing CI or main movement fails closed.
