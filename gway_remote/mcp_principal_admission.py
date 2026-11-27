@@ -6,7 +6,7 @@ OWNER_BOUND_PROVIDERS = frozenset({"aeon_score"})
 _RESERVED = frozenset({"principal", "principal_id", "verified_principal", "auth_context"})
 
 def owner_bound(provider):
-    return provider in OWNER_BOUND_PROVIDERS
+    return type(provider) is str and provider in OWNER_BOUND_PROVIDERS
 
 def verify_admission(verifier, credential, scope):
     """Use the authenticated HTTP credential, never the MCP payload."""

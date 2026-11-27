@@ -70,3 +70,37 @@ class OwnerWireTests(unittest.TestCase):
             reserve_spy.assert_called_once_with(req)
             call.assert_called_once_with([],provider="aeon_score",tool="status",
                 arguments=REQ["arguments"],authorized_scope="read",verified_principal=P)
+
+    def test_clock_regression_does_not_reopen_expired_request(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            first=make_payload(NODE,REQ,"read",P,RID,now=1000)
+            reserve(first,directory=tmp,now=1000)
+            later=make_payload(NODE,REQ,"read",P,"d"*32,now=1092)
+            reserve(later,directory=tmp,now=1092)
+            with self.assertRaisesRegex(PermissionError,"clock_regressed"):
+                reserve(first,directory=tmp,now=1001)
+
+    def test_live_scope_check_and_stdio_context(self):
+        from gway_remote.mcp_node_providers import provider_call,NodeProviderError
+        from gway_remote.mcp_source_registry import SourceRegistration
+        from gway_remote.mcp_source_stdio import _Session
+        reg=SourceRegistration("aeon_score","a"*40,"/tmp/provider",("/tmp/provider",),"arthe",True)
+        write={"name":"render","inputSchema":{"type":"object"},"annotations":{"readOnlyHint":False}}
+        with patch("gway_remote.mcp_node_providers._node_registration",return_value=reg), \
+             patch("gway_remote.mcp_node_providers.list_source_tools",return_value=[write]), \
+             patch("gway_remote.mcp_node_providers.call_source_tool",return_value={"content":[]}) as call:
+            with self.assertRaisesRegex(NodeProviderError,"permission_denied"):
+                provider_call([reg],provider="aeon_score",tool="render",arguments={},
+                    authorized_scope="read",verified_principal=P)
+            call.assert_not_called()
+            provider_call([reg],provider="aeon_score",tool="render",arguments={},
+                    authorized_scope="execute",verified_principal=P)
+            self.assertEqual(call.call_args.kwargs,{"authorized_scope":"execute","verified_principal":P})
+        with patch("gway_remote.mcp_source_stdio.os.geteuid",return_value=1000), \
+             patch("gway_remote.mcp_source_stdio._current_user",return_value="arthe"), \
+             patch("gway_remote.mcp_source_stdio._provider_environment",return_value={"HOME":"/home/arthe"}), \
+             patch("gway_remote.mcp_source_stdio.subprocess.Popen") as popen:
+            session=_Session(reg,10,verified_principal=P,authorized_scope="read")
+            session.__enter__()
+            self.assertEqual(popen.call_args.kwargs["env"],{"HOME":"/home/arthe",
+                "GWAY_PROVIDER_PRINCIPAL":P,"GWAY_PROVIDER_SCOPE":"read"})

@@ -26,7 +26,7 @@ def make_payload(node,request,scope,principal,rid,now=None):
     return out
 
 def validate(req,node,*,now=None):
-    if type(req) is not dict or set(req)!=FIELDS or req["operation"] not in OPS:
+    if type(req) is not dict or set(req)!=FIELDS or type(req["operation"]) is not str or req["operation"] not in OPS:
         raise PermissionError("invalid_owner_envelope")
     if req["node"]!=node or not owner_bound(req["provider"]):
         raise PermissionError("owner_route_denied")
@@ -60,7 +60,12 @@ def reserve(req,*,directory=None,now=None):
     with sqlite3.connect(dbpath,timeout=2) as db:
         db.execute("PRAGMA synchronous=FULL")
         db.execute("CREATE TABLE IF NOT EXISTS seen (rid TEXT PRIMARY KEY, expires INTEGER NOT NULL)")
+        db.execute("CREATE TABLE IF NOT EXISTS clock (id INTEGER PRIMARY KEY CHECK(id=1), highwater INTEGER NOT NULL)")
         db.execute("BEGIN IMMEDIATE")
+        highwater=db.execute("SELECT highwater FROM clock WHERE id=1").fetchone()
+        if highwater and current<highwater[0]:
+            raise PermissionError("owner_replay_clock_regressed")
+        db.execute("INSERT OR REPLACE INTO clock VALUES (1,?)",(current,))
         db.execute("DELETE FROM seen WHERE expires < ?",(current,))
         if db.execute("SELECT COUNT(*) FROM seen").fetchone()[0]>=CAP:
             raise PermissionError("owner_replay_capacity")
