@@ -54,6 +54,7 @@ object FeatureRegistry {
             group = FeatureGroup.HOME),
         FeatureSpec("github-health", "GitHub Health", "github",
             setOf("github", "ci", "alerts", "watch"), FeatureKind.LOCAL_PANEL, group = FeatureGroup.HOME),
+        FeatureSpec("liturgia", "Liturgia", "file-text", setOf("biblia", "lecturas", "misal"), FeatureKind.LOCAL_PANEL),
         FeatureSpec("app-update", "App update", "update",
             setOf("apk", "release", "install", "upgrade"), FeatureKind.LOCAL_PANEL, group = FeatureGroup.SETTINGS)
     )
