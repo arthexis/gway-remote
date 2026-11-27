@@ -1,0 +1,11 @@
+[Unit]
+Description=Probe pinned idle execution-enabled nodes every five minutes
+
+[Timer]
+OnCalendar=*:0/5
+AccuracySec=5s
+Persistent=false
+Unit=gway-mcp-periodic-execution-health.service
+
+[Install]
+WantedBy=timers.target

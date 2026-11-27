@@ -17,6 +17,8 @@ from .node_exec_contract import validate_command, RELAY_ONLY_NODE, RELAY_ONLY_OP
 
 MAX_REQUEST_BYTES = 65536
 OPERATIONS = {
+    "periodic_health_submit": frozenset({"operation", "node", "request_id"}),
+    "periodic_health_result": frozenset({"operation", "node", "request_id"}),
     "probe_provision_status": frozenset({"operation","node","request_id"}),
     "probe_provision_install": frozenset({"operation","node","request_id","credential"}),
     "feed_provision_status": frozenset({"operation","node","request_id"}),
@@ -63,6 +65,10 @@ def serve_one(raw, *, jobs=None, hostname=None):
     if host == RELAY_ONLY_NODE and op not in RELAY_ONLY_OPERATIONS:
         raise PermissionError("relay-only node operation denied")
     rid = validate_request_id(req["request_id"])
+    if op in ("submit", "result", "cancel"):
+        from .periodic_health_contract import slot_for
+        if slot_for(host, rid) is not None:
+            raise PermissionError("periodic probe identity reserved")
     if op in ('probe_provision_status','probe_provision_install'):
         from .node_exec_identity import selected_user
         if host!='gway-001' or selected_user()!='arthe':raise PermissionError('probe provision target or owner denied')
@@ -168,6 +174,20 @@ def serve_one(raw, *, jobs=None, hostname=None):
                 "concurrent_jobs_per_node": configured_max_active()}
     if jobs is None:
         jobs = Jobs()
+    if op in ('periodic_health_submit', 'periodic_health_result'):
+        from .periodic_health_contract import COMMAND, validate_probe
+        slot = validate_probe(host, rid, submit=op == 'periodic_health_submit')
+        if op == 'periodic_health_submit':
+            try:
+                jobs.submit(host, COMMAND, request_id=rid, periodic_slot=slot)
+            except RuntimeError as exc:
+                if str(exc) == 'executor busy':
+                    return {'node':host,'request_id':rid,'status':'busy'}
+                if str(exc) == 'executor user manager unavailable':
+                    return {'node':host,'request_id':rid,'status':'failed'}
+                raise
+            return {'node':host,'request_id':rid,'status':'accepted'}
+        return jobs.periodic_result(host, rid)
     if op in ('health_probe_submit', 'health_probe_result'):
         from .mcp_health_probe_contract import NODE, nonce_command, project_result
         if host != NODE:

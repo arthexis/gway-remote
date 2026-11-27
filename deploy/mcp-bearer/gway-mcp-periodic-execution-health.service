@@ -1,0 +1,23 @@
+[Unit]
+Description=Private pinned idle-only node execution health
+After=network-online.target gway-mcp-gateway.service
+ConditionPathExists=/etc/gway-mcp/execute.json
+
+[Service]
+Type=oneshot
+User=gway-mcp-gateway
+Group=gway-mcp-read
+UMask=0077
+ExecStart=/usr/bin/python3 -I /opt/gway-mcp/current/run.py periodic_execution_health
+TimeoutStartSec=240
+NoNewPrivileges=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+CapabilityBoundingSet=
+ReadWritePaths=/var/lib/gway-mcp-exec

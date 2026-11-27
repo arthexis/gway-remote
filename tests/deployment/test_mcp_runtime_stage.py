@@ -26,7 +26,7 @@ class MCPRuntimeStageTests(unittest.TestCase):
         package = self.source / "gway_remote"
         package.mkdir()
         (package / "__init__.py").write_text("")
-        for module in ("mcp_http", "mcp_bearer_gateway", "mcp_link_http"):
+        for module in ("mcp_http", "mcp_bearer_gateway", "mcp_link_http", "periodic_execution_health"):
             (package / (module + ".py")).write_text("print('pinned-runtime')\n")
         units = self.source / "deploy/mcp-bearer"
         units.mkdir(parents=True)
