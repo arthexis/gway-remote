@@ -56,6 +56,15 @@
       ansible.builtin.assert:
         that: not item.stat.exists or (item.stat.uid == 0 and not item.stat.islnk and ((item.item == watch_override and item.stat.isreg and item.stat.mode == '0644') or (item.item != watch_override and item.stat.isdir and item.stat.mode == '0755')))
       loop: "{{ watch_paths.results[4:] }}"
+    - name: Read any previously installed freeze override
+      ansible.builtin.slurp:
+        src: "{{ watch_override }}"
+      register: existing_watch_override
+      when: watch_paths.results[5].stat.exists
+    - name: Refuse to replace unrelated watch override
+      ansible.builtin.assert:
+        that: (existing_watch_override.content | b64decode) == '[Service]\nExecStart=\nExecStart=/usr/local/bin/gway-remote watch\n'
+      when: watch_paths.results[5].stat.exists
     - name: Verify installed receiver resolves to protected archive and already has corrected kiosk probe
       ansible.builtin.command:
         argv:
@@ -138,6 +147,16 @@
         owner: root
         group: root
         mode: '0755'
+    - name: Preserve original CLI archive for recovery
+      ansible.builtin.copy:
+        src: /usr/local/bin/gway-remote
+        dest: /opt/gway-remote/scripts/gway-remote.pre-freeze-cli-repair
+        remote_src: true
+        owner: root
+        group: root
+        mode: '0755'
+        force: false
+      when: cli_package.stdout == 'stale'
     - name: Refresh only stale CLI from installed receiver package
       ansible.builtin.command:
         argv: [/bin/sh, /opt/gway-remote/scripts/install-cli.sh]
