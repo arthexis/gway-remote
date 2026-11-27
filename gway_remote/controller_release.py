@@ -85,7 +85,8 @@ def controller_evidence(*, receipt=RECEIPT, executable=EXECUTABLE,
         return result
 
 
-def verify_source_package(source, revision, executable_digest):
+def verify_source_package(source, revision, executable_digest, *, root=ROOT,
+                          executable=EXECUTABLE, uid=0):
     """Bind the reviewed commit to both installed package archive and CLI bytes."""
     if not isinstance(revision, str) or not SHA.fullmatch(revision):
         raise ValueError("invalid controller source revision")
@@ -95,10 +96,14 @@ def verify_source_package(source, revision, executable_digest):
         raise ValueError("controller source revision mismatch")
     archive = git("archive", "--format=tar", revision, "--", "gway_remote")
     expected = hashlib.sha256(archive).hexdigest()
-    link = ROOT / "gway_remote"
+    root = Path(root)
+    info = root.lstat()
+    if not stat.S_ISDIR(info.st_mode) or info.st_uid != uid or info.st_mode & 0o022:
+        raise ValueError("unsafe controller installation root")
+    link = root / "gway_remote"
     if not link.is_symlink() or os.readlink(link) != f".package-releases/{expected}/gway_remote":
         raise ValueError("controller package revision mismatch")
-    installed = _read_protected(EXECUTABLE, MAX_ARCHIVE)
+    installed = _read_protected(executable, MAX_ARCHIVE, uid=uid)
     if hashlib.sha256(installed).hexdigest() != executable_digest:
         raise ValueError("controller executable digest mismatch")
     with tarfile.open(fileobj=io.BytesIO(archive), mode="r:") as committed:
@@ -130,16 +135,34 @@ def verify_source_package(source, revision, executable_digest):
                 raise ValueError("unexpected controller entrypoint")
 
 
-def record_verified_deployment(source, revision, executable_digest, *, execute):
+def verified_noop(source, revision, *, root=ROOT, executable=EXECUTABLE, uid=0):
+    """Require protected prior success and exact installed bytes, not the hint."""
+    try:
+        digest = hashlib.sha256(_read_protected(executable, MAX_ARCHIVE, uid=uid)).hexdigest()
+        row = controller_evidence(receipt=root / RECEIPT.name, executable=executable,
+                                  running_digest=digest, uid=uid)
+        if row["installed_sha"] != revision:
+            return False
+        verify_source_package(source, revision, digest, root=root, executable=executable, uid=uid)
+        return True
+    except (OSError, ValueError, KeyError, RuntimeError, subprocess.SubprocessError, zipfile.BadZipFile, tarfile.TarError):
+        return False
+
+
+def record_verified_deployment(source, revision, executable_digest, *, execute,
+                               root=ROOT, executable=EXECUTABLE, uid=0):
     """Called only after the existing transactional install and authenticated health."""
-    verify_source_package(source, revision, executable_digest)
+    verify_source_package(source, revision, executable_digest, root=root,
+                          executable=executable, uid=uid)
     record = {"schema": 1, "source_sha": revision,
               "executable_sha256": executable_digest,
               "verified_at": datetime.now(timezone.utc).isoformat()}
-    root = ROOT.lstat()
-    if not stat.S_ISDIR(root.st_mode) or root.st_uid != 0 or root.st_mode & 0o022:
+    root = Path(root)
+    info = root.lstat()
+    if not stat.S_ISDIR(info.st_mode) or info.st_uid != uid or info.st_mode & 0o022:
         raise ValueError("unsafe controller receipt directory")
-    pending = ROOT / (".controller-deployment-" + uuid.uuid4().hex)
+    receipt = root / RECEIPT.name
+    pending = root / (".controller-deployment-" + uuid.uuid4().hex)
     with tempfile.TemporaryDirectory() as temp:
         payload = Path(temp) / "receipt.json"
         payload.write_text(json.dumps(record, sort_keys=True) + "\n", encoding="utf-8")
@@ -147,9 +170,17 @@ def record_verified_deployment(source, revision, executable_digest, *, execute):
             execute("sudo", "-n", "install", "-o", "root", "-g", "root", "-m", "0644",
                     str(payload), str(pending))
             # Recheck the exact executable before publishing the receipt.
-            if _archive_digest() != executable_digest:
+            if _read_protected(pending, 4096, uid=uid) != payload.read_bytes():
+                raise ValueError("staged controller receipt mismatch")
+            if hashlib.sha256(_read_protected(executable, MAX_ARCHIVE, uid=uid)).hexdigest() != executable_digest:
                 raise ValueError("controller executable changed before receipt")
-            execute("sudo", "-n", "mv", "-T", "--", str(pending), str(RECEIPT))
+            # Same-directory rename is the publication boundary. A failed
+            # command can be ambiguous: accept only exact protected readback.
+            try:
+                execute("sudo", "-n", "mv", "-T", "--", str(pending), str(receipt))
+            except (OSError, subprocess.SubprocessError):
+                if pending.exists() or _read_protected(receipt, 4096, uid=uid) != payload.read_bytes():
+                    raise
         finally:
             if pending.exists():
                 execute("sudo", "-n", "rm", "-f", "--", str(pending))
