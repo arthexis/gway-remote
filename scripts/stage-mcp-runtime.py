@@ -17,7 +17,7 @@ import runpy
 import sys
 sys.dont_write_bytecode = True
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-modules = ("mcp_http", "mcp_bearer_gateway", "mcp_link_http")
+modules = ("mcp_http", "mcp_bearer_gateway", "mcp_link_http", "periodic_execution_health")
 command = sys.argv.pop(1) if len(sys.argv) > 1 else ""
 if command == "--check":
     for name in modules:

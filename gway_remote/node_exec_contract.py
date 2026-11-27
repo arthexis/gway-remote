@@ -32,7 +32,7 @@ TRANSITIONS = {
     "running": frozenset({"succeeded", "failed", "cancelled", "timed_out", "unknown"}),
 }
 RELAY_ONLY_NODE = "ocpp-abb-1"
-RELAY_ONLY_OPERATIONS = frozenset({"submit", "result", "cancel", "limits"})
+RELAY_ONLY_OPERATIONS = frozenset({"submit", "result", "cancel", "limits", "periodic_health_submit", "periodic_health_result"})
 _NODE = re.compile(r"(?:gway-[0-9]{3,}|ocpp-abb-1)\Z")
 _REQUEST = re.compile(r"[a-f0-9]{32}$")
 

@@ -1,0 +1,47 @@
+---
+- name: Enable reviewed native Watchtower health timer after receiver convergence
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  become: true
+  tasks:
+    - name: Require explicit acceptance and existing Watchtower gateway
+      ansible.builtin.assert:
+        that:
+          - gway_periodic_health_authorize | default(false) | bool
+    - name: Verify existing gateway and executable revision
+      ansible.builtin.command: systemctl is-active gway-mcp-gateway.service
+      changed_when: false
+    - name: Verify active runtime matches reviewed checkout
+      ansible.builtin.command: readlink /opt/gway-mcp/current
+      register: installed
+      changed_when: false
+    - name: Resolve reviewed revision
+      ansible.builtin.command:
+        argv: [git, -C, '{{ playbook_dir }}/../..', rev-parse, HEAD]
+      register: revision
+      changed_when: false
+    - name: Require matching immutable runtime
+      ansible.builtin.assert:
+        that: installed.stdout == 'releases/' ~ revision.stdout
+    - name: Install only fixed-purpose health service and timer
+      ansible.builtin.copy:
+        src: '{{ playbook_dir }}/../../deploy/mcp-bearer/{{ item }}'
+        dest: '/etc/systemd/system/{{ item }}'
+        owner: root
+        group: root
+        mode: '0644'
+      loop:
+        - gway-mcp-periodic-execution-health.service
+        - gway-mcp-periodic-execution-health.timer
+      register: units
+    - name: Reload service definitions only
+      ansible.builtin.systemd:
+        daemon_reload: true
+      when: units.changed
+    - name: Enable periodic health timer only after independently verified receiver acceptance
+      ansible.builtin.systemd:
+        name: gway-mcp-periodic-execution-health.timer
+        enabled: true
+        state: started
+      when: gway_periodic_health_enable | default(false) | bool

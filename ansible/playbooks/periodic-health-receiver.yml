@@ -1,0 +1,50 @@
+---
+- name: Upgrade only an existing approved receiver for periodic health
+  hosts: localhost
+  connection: local
+  gather_facts: true
+  become: true
+  tasks:
+    - name: Require explicit exact enrolled node authorization
+      ansible.builtin.assert:
+        that:
+          - gway_periodic_health_authorize | default(false) | bool
+          - gway_periodic_health_node is defined
+          - gway_periodic_health_node is match('^(gway-[0-9]{3,}|ocpp-abb-1)$')
+          - ansible_hostname == gway_periodic_health_node
+    - name: Verify clean committed source
+      ansible.builtin.command:
+        argv: [git, -C, '{{ playbook_dir }}/../..', status, --porcelain, --untracked-files=all]
+      register: dirty
+      changed_when: false
+    - name: Refuse non-reviewed source
+      ansible.builtin.assert:
+        that: dirty.stdout | trim == ''
+    - name: Verify idle existing receiver without changing identity or jobs
+      ansible.builtin.command:
+        argv: [/usr/bin/python3, '{{ playbook_dir }}/../../scripts/verify-periodic-receiver-ready.py', '{{ gway_periodic_health_node }}']
+      register: executor
+      changed_when: false
+    - name: Verify existing fixed SSH and sudo relay
+      ansible.builtin.command:
+        argv: [/usr/bin/python3, '{{ playbook_dir }}/../../scripts/verify-exec-relay-policy.py', --user, '{{ executor.stdout }}']
+      changed_when: false
+    - name: Record original content-addressed pointer
+      ansible.builtin.command: readlink /opt/gway-remote/gway_remote
+      register: previous
+      changed_when: false
+    - name: Switch only the existing receiver package via audited installer
+      ansible.builtin.command:
+        argv: [/usr/bin/python3, '{{ playbook_dir }}/../../scripts/install-package-archive.py', --source, '{{ playbook_dir }}/../..', --root, /opt/gway-remote]
+      register: installed
+      changed_when: (installed.stdout | from_json).changed | bool
+    - name: Verify protocol and report rollback pointer without service restart
+      ansible.builtin.command:
+        argv: [/usr/bin/python3, -I, -c, 'import sys; sys.path.insert(0,"/opt/gway-remote"); from gway_remote.node_exec_protocol import OPERATIONS; assert "periodic_health_submit" in OPERATIONS and "periodic_health_result" in OPERATIONS']
+      changed_when: false
+    - name: Report package change and retained original release
+      ansible.builtin.debug:
+        msg:
+          node: '{{ gway_periodic_health_node }}'
+          previous: '{{ previous.stdout }}'
+          package: '{{ installed.stdout | from_json }}'

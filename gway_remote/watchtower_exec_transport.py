@@ -104,6 +104,9 @@ class RequestLedger:
                 host_key_sha256, expires_at):
         validate_request_id(request_id)
         validate_command(node, command)
+        from .periodic_health_contract import slot_for
+        if slot_for(node, request_id) is not None:
+            raise PermissionError("request ID reserved for periodic probe")
         if type(principal) is not str or not principal or len(principal) > 256:
             raise ValueError("invalid principal")
         if type(host_key_sha256) is not str or not HEX_SHA256.fullmatch(host_key_sha256):
@@ -292,9 +295,10 @@ class SSHTransport:
         self._run = run
 
     def invoke(self, payload):
-        if type(payload) is not dict or payload.get("operation") not in {"submit","result","health_probe_submit","health_probe_result","cancel","limits","lcd_sound_event","provider_list","provider_call","provider_read","file_read","deployment_discovery","deployment_preview","deployment_status","deployment_run","workspace_inspect","feed_provision_status","feed_provision_install","probe_provision_status","probe_provision_install"}:
+        if type(payload) is not dict or payload.get("operation") not in {"periodic_health_submit","periodic_health_result","submit","result","health_probe_submit","health_probe_result","cancel","limits","lcd_sound_event","provider_list","provider_call","provider_read","file_read","deployment_discovery","deployment_preview","deployment_status","deployment_run","workspace_inspect","feed_provision_status","feed_provision_install","probe_provision_status","probe_provision_install"}:
             raise ValueError("invalid node operation")
-        fields = {"probe_provision_status":{"operation","node","request_id"},
+        fields = {"periodic_health_submit":{"operation","node","request_id"},
+                  "periodic_health_result":{"operation","node","request_id"},"probe_provision_status":{"operation","node","request_id"},
                   "probe_provision_install":{"operation","node","request_id","credential"},
                   "feed_provision_status":{"operation","node","request_id"},
                   "feed_provision_install":{"operation","node","request_id","principal","credential"},
@@ -328,6 +332,9 @@ class SSHTransport:
         validate_request_id(payload.get("request_id"))
         if payload['operation'] in ('health_probe_submit','health_probe_result','probe_provision_status','probe_provision_install') and self.node.node != 'gway-001':
             raise PermissionError('probe_node_denied')
+        if payload["operation"] in ("periodic_health_submit", "periodic_health_result"):
+            from .periodic_health_contract import validate_probe
+            validate_probe(self.node.node, payload["request_id"], submit=payload["operation"] == "periodic_health_submit")
         raw = json.dumps(payload, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
         if len(raw) > (65536 if payload["operation"] in ("provider_call", "provider_read") else 8192):
             raise ValueError("transport request too large")

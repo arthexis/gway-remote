@@ -51,11 +51,14 @@ def _rows(path):
     with sqlite3.connect(path.resolve().as_uri() + "?mode=ro",
                          uri=True, timeout=2) as db:
         db.execute("PRAGMA query_only=ON")
-        return db.execute(
+        rows = db.execute(
             "SELECT node,host_key_sha256,state,updated_at FROM requests "
             "WHERE command IN ('hostname','id -un') "
             "ORDER BY updated_at DESC LIMIT ?", (MAX_ROWS,)
         ).fetchall()
+        if db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='periodic_health_receipts'").fetchone():
+            rows.extend(db.execute("SELECT node,host_key_sha256,state,updated_at FROM periodic_health_receipts WHERE state != 'busy' ORDER BY updated_at DESC LIMIT ?", (MAX_ROWS,)).fetchall())
+        return rows
 
 
 def recent_probes(execution, *, now=None):
