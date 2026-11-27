@@ -1,0 +1,27 @@
+name: Deploy Aeon Score to gway-001
+run-name: Aeon Score deploy ${{ inputs.revision }}
+on:
+  workflow_dispatch:
+    inputs:
+      revision:
+        description: Exact reviewed Aeon Score main commit
+        required: true
+        type: string
+permissions:
+  contents: read
+concurrency:
+  group: aeon-score-gway-001-deployment
+  cancel-in-progress: false
+jobs:
+  deploy:
+    if: github.repository == 'arthexis/gway-remote' && github.actor == 'arthexis' && github.ref == 'refs/heads/main'
+    runs-on: [self-hosted, Linux, ARM64, gway-001]
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Stage and activate exact Aeon Score main release
+        env:
+          AEON_TARGET_SHA: ${{ inputs.revision }}
+        run: python3 -B scripts/deploy-aeon-score.py
