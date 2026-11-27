@@ -353,6 +353,14 @@ class BearerVerifier:
                 current=parent[0]
         raise PermissionError('probe_lineage_denied')
 
+    def federated_principal(self, credential, *, scope):
+        """Stable identity only after verifying the corresponding OAuth scope."""
+        if scope == "execute":
+            return self.execution_principal(credential)
+        if scope != "read" or not self.verify(credential, required_scope="gway:read"):
+            raise PermissionError("read credential required")
+        return self._feed_root(credential)
+
     def execution_principal(self, credential):
         """Stable parent identity across OAuth reconnects; requires valid execute scope."""
         if not self.verify(credential, required_scope="gway:execute"):
