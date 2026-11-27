@@ -129,3 +129,12 @@ class AeonDeliveryImpactTests(unittest.TestCase):
         self.assertEqual(classify_paths(sorted(AEON_DELIVERY_PATHS)), "skip")
         self.assertEqual(classify_paths(sorted(AEON_DELIVERY_PATHS | POLICY_PATHS)), "skip")
         self.assertEqual(classify_paths([*AEON_DELIVERY_PATHS, "gway_remote/mcp_http.py"]), "deploy")
+
+class CandidateReadinessImpactTests(unittest.TestCase):
+    def test_readiness_control_plane_does_not_restart_runtime(self):
+        paths = [".github/workflows/android-candidate-readiness.yml",
+                 "gway_remote/android_candidate_readiness.py",
+                 "tests/mobile/test_android_candidate_readiness.py",
+                 "docs/android-protected-delivery-transition.md"]
+        self.assertEqual(classify_paths(paths + sorted(POLICY_PATHS)), "skip")
+        self.assertEqual(classify_paths(paths + sorted(POLICY_PATHS) + ["gway_remote/mobile_http.py"]), "deploy")
