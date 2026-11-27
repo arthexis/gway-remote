@@ -79,7 +79,8 @@ class PhysicalSmoke:
             unavailable = {"Acceso al feed no autorizado", "Activity Feed aún no habilitado",
                            "Historial offline", "Feed no disponible",
                            "Configura la API Key y el endpoint HTTPS desde el menú lateral."}
-            require(not any(row.get("text") in unavailable for row in rows), "feed_not_live")
+            if any(row.get("text") in unavailable for row in rows):
+                return False  # transient offline cache is not a successful live observation
             return (self.has(tree, "Activity Feed")
                     and any(row.get("text") == "Actualizar actividad" and row.get("enabled") is True
                             for row in rows))
