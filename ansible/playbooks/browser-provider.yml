@@ -1,0 +1,147 @@
+---
+# Explicit opt-in, never part of normal appliance deployment.
+- name: Install native browser provider on canary only
+  hosts: localhost
+  connection: local
+  become: true
+  gather_facts: true
+  vars:
+    browser_root: /opt/gway-browser
+    browser_registry: /etc/gway-mcp-providers
+    browser_native_dir: /usr/lib/mozilla/native-messaging-hosts
+    browser_files:
+      - gway_remote/browser_contract.py
+      - gway_remote/browser_native.py
+      - gway_remote/browser_mcp.py
+      - browser/firefox/manifest.json
+      - browser/firefox/background.js
+      - browser/firefox/reports.js
+  tasks:
+    - name: Require exact canary and explicit operator approval
+      ansible.builtin.assert:
+        that:
+          - ansible_hostname == 'gway-001'
+          - gway_browser_authorize | default(false) | bool
+          - gway_browser_revision | default('') is match('^[0-9a-f]{40}$')
+          - gway_browser_origin | default('') is match('^https://[a-z0-9][a-z0-9.-]+[a-z0-9]$')
+          - browser_root == '/opt/gway-browser'
+          - browser_registry == '/etc/gway-mcp-providers'
+          - browser_native_dir == '/usr/lib/mozilla/native-messaging-hosts'
+    - name: Verify exact committed source revision
+      ansible.builtin.command:
+        argv: [git, -C, "{{ playbook_dir }}/..", rev-parse, HEAD]
+      register: source_revision
+      changed_when: false
+      failed_when: source_revision.rc != 0 or source_revision.stdout != gway_browser_revision
+    - name: Verify reviewed files match source commit
+      ansible.builtin.command:
+        argv: "{{ ['git', '-C', playbook_dir + '/..', 'status', '--porcelain', '--untracked-files=all', '--'] + browser_files }}"
+      register: source_status
+      changed_when: false
+      failed_when: source_status.rc != 0 or source_status.stdout != ''
+    - name: Inspect protected destination directories
+      ansible.builtin.stat:
+        path: "{{ item }}"
+        follow: false
+      loop:
+        - /opt
+        - "{{ browser_root }}"
+        - "{{ browser_root }}/{{ gway_browser_revision }}"
+        - "{{ browser_root }}/{{ gway_browser_revision }}/gway_remote"
+        - "{{ browser_root }}/{{ gway_browser_revision }}/firefox"
+        - /etc/gway-browser
+        - "{{ browser_registry }}"
+        - /usr/lib/mozilla
+        - "{{ browser_native_dir }}"
+      register: directories
+    - name: Reject unsafe existing destinations
+      ansible.builtin.assert:
+        that:
+          - not item.stat.exists or (item.stat.isdir and not item.stat.islnk and item.stat.uid == 0 and not item.stat.wgrp and not item.stat.woth)
+      loop: "{{ directories.results }}"
+    - name: Create protected installation directories
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: directory
+        owner: root
+        group: root
+        mode: '0755'
+      loop:
+        - "{{ browser_root }}"
+        - "{{ browser_root }}/{{ gway_browser_revision }}"
+        - "{{ browser_root }}/{{ gway_browser_revision }}/gway_remote"
+        - "{{ browser_root }}/{{ gway_browser_revision }}/firefox"
+        - /etc/gway-browser
+        - "{{ browser_registry }}"
+        - "{{ browser_native_dir }}"
+    - name: Inspect existing manifest and policy files
+      ansible.builtin.stat:
+        path: "{{ item }}"
+        follow: false
+      loop: "{{ [browser_root + '/' + gway_browser_revision + '/gway_remote/__init__.py', browser_root + '/' + gway_browser_revision + '/browser-mcp', browser_root + '/' + gway_browser_revision + '/native-host', '/etc/gway-browser/policy.json', browser_registry + '/browser.json', browser_native_dir + '/com.arthexis.gway_browser.json'] + (browser_files[:3] | map('basename') | map('regex_replace', '^', browser_root + '/' + gway_browser_revision + '/gway_remote/') | list) + (browser_files[3:] | map('basename') | map('regex_replace', '^', browser_root + '/' + gway_browser_revision + '/firefox/') | list) }}"
+      register: destinations
+    - name: Refuse symlinks or foreign destination files
+      ansible.builtin.assert:
+        that:
+          - not item.stat.exists or (item.stat.isreg and not item.stat.islnk and item.stat.uid == 0 and not item.stat.wgrp and not item.stat.woth)
+      loop: "{{ destinations.results }}"
+    - name: Install minimal revision-pinned Python package
+      ansible.builtin.copy:
+        content: '"""GWay browser provider."""'
+        dest: "{{ browser_root }}/{{ gway_browser_revision }}/gway_remote/__init__.py"
+        owner: root
+        group: root
+        mode: '0644'
+    - name: Copy reviewed provider and extension files
+      ansible.builtin.copy:
+        src: "{{ playbook_dir }}/../{{ item }}"
+        dest: "{{ browser_root }}/{{ gway_browser_revision }}/{{ 'gway_remote' if item.startswith('gway_remote/') else 'firefox' }}/{{ item | basename }}"
+        owner: root
+        group: root
+        mode: '0644'
+      loop: "{{ browser_files }}"
+    - name: Install pinned entrypoints without relying on inherited PYTHONPATH
+      ansible.builtin.copy:
+        content: |
+          #!/bin/sh
+          cd {{ browser_root }}/{{ gway_browser_revision }} || exit 1
+          exec /usr/bin/python3 -E -s -m gway_remote.{{ item.module }}
+        dest: "{{ browser_root }}/{{ gway_browser_revision }}/{{ item.name }}"
+        owner: root
+        group: root
+        mode: '0755'
+      loop:
+        - {name: browser-mcp, module: browser_mcp}
+        - {name: native-host, module: browser_native}
+    - name: Verify staged provider syntax and declarations without browser access
+      ansible.builtin.command:
+        argv:
+          - /usr/bin/python3
+          - -E
+          - -s
+          - -c
+          - "from gway_remote.browser_contract import declarations; assert len(declarations()) == 4"
+      args:
+        chdir: "{{ browser_root }}/{{ gway_browser_revision }}"
+      changed_when: false
+    - name: Publish explicit HTTPS origin policy
+      ansible.builtin.copy:
+        dest: /etc/gway-browser/policy.json
+        content: "{{ {'origin': gway_browser_origin} | to_json }}\n"
+        owner: root
+        group: root
+        mode: '0644'
+    - name: Register Firefox native messaging host (no browser profile changes)
+      ansible.builtin.copy:
+        dest: "{{ browser_native_dir }}/com.arthexis.gway_browser.json"
+        content: "{{ {'name': 'com.arthexis.gway_browser', 'description': 'GWay opt-in Reports bridge', 'path': browser_root + '/' + gway_browser_revision + '/native-host', 'type': 'stdio', 'allowed_extensions': ['gway-browser@arthexis.com']} | to_json }}\n"
+        owner: root
+        group: root
+        mode: '0644'
+    - name: Register node-owned provider using existing federation contract
+      ansible.builtin.copy:
+        dest: "{{ browser_registry }}/browser.json"
+        content: "{{ {'source_id': 'browser', 'revision': gway_browser_revision, 'executable': browser_root + '/' + gway_browser_revision + '/browser-mcp', 'argv': [browser_root + '/' + gway_browser_revision + '/browser-mcp']} | to_json }}\n"
+        owner: root
+        group: root
+        mode: '0644'
