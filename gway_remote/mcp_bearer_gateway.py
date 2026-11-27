@@ -842,9 +842,15 @@ class Handler(BaseHTTPRequestHandler):
                 # Reuse the same authenticated route snapshot used for
                 # OAuth admission. A second discovery would introduce a
                 # transient availability/classification race inside one call.
+                from .mcp_principal_admission import owner_bound, verify_admission
+                scope = "execute" if has_exec else "read"
+                options = {}
+                if owner_bound(routes[name][1]):
+                    options["verified_principal"] = verify_admission(
+                        self.server.registry, token, scope)
                 selected = self.server.federation.call(
-                    name, arguments, authorized_scope="execute" if has_exec else "read",
-                    routes=routes)
+                    name, arguments, authorized_scope=scope,
+                    routes=routes, **options)
                 from .mcp_gateway_federation import federated_tool_result
                 result = federated_tool_result(selected)
                 body = json.dumps({"jsonrpc": "2.0", "id": payload.get("id"),

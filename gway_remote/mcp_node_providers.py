@@ -93,6 +93,9 @@ def provider_call(registrations, *, provider, tool, arguments, authorized_scope,
         raise NodeProviderError("permission_denied", provider=provider)
     if type(tool) is not str or not tool or type(arguments) is not dict:
         raise NodeProviderError("invalid_arguments", provider=provider)
+    from .mcp_principal_admission import owner_bound
+    if owner_bound(provider):
+        raise NodeProviderError("principal_bound_transport_required", provider=provider)
     registration = _registration(registrations, provider)
     catalog = _catalog(registration)
     matching = [t for t in catalog["read"] + catalog["execute_required"]
