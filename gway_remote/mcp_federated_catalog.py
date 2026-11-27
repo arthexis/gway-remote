@@ -72,7 +72,8 @@ def catalog_from_nodes(builtins, node_catalogs):
     return compose_catalog(builtins, declarations), routes
 
 
-def route_provider_call(routes, name, arguments, *, authorized_scope, invoke):
+def route_provider_call(routes, name, arguments, *, authorized_scope, invoke,
+                        verified_principal=None, invoke_principal=None):
     """Invoke a trusted transport callback with node-owned provider identity.
 
     invoke(node, request, trusted_scope=...) must authenticate its node peer;
@@ -90,6 +91,18 @@ def route_provider_call(routes, name, arguments, *, authorized_scope, invoke):
     # Reject unsupported reads instead of downgrading to an execute-shaped RPC.
     if authorized_scope == "read" and not (len(route) > 4 and route[4] is True):
         raise FederationError("provider_read_receiver_unsupported")
+    from .mcp_principal_admission import owner_bound, validate_principal, validate_owner_arguments
+    if owner_bound(provider):
+        principal = validate_principal(verified_principal)
+        validate_owner_arguments(arguments)
+        if not callable(invoke_principal):
+            raise FederationError("principal_bound_transport_unavailable")
+        return invoke_principal(node, {"provider": provider, "tool": tool,
+                                       "arguments": arguments},
+                                trusted_scope=authorized_scope,
+                                verified_principal=principal)
+    if verified_principal is not None:
+        raise FederationError("unexpected_provider_principal")
     operation = "provider_read" if authorized_scope == "read" else "provider_call"
     return invoke(node, {"operation": operation, "provider": provider,
                          "tool": tool, "arguments": arguments},
