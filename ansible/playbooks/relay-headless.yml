@@ -1,0 +1,19 @@
+---
+- name: Isolate desktop audio from the existing restricted relay
+  hosts: localhost
+  connection: local
+  become: true
+  gather_facts: true
+  tasks:
+    - name: Require explicit named satellite and existing restricted SSH policy
+      ansible.builtin.assert:
+        that:
+          - ansible_hostname is match('^gway-[0-9]+$')
+          - relay_headless_authorize | default(false) | bool
+          - relay_headless_node | default('') == ansible_hostname
+    - name: Verify existing relay account and fixed command policy
+      ansible.builtin.command:
+        argv: [/usr/bin/python3, "{{ playbook_dir }}/../../scripts/verify-exec-relay-policy.py"]
+      changed_when: false
+    - name: Converge restricted relay audio masks only
+      ansible.builtin.include_tasks: ../roles/gway_remote/tasks/node-exec-relay-headless.yml

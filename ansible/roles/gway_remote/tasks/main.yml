@@ -212,7 +212,9 @@
 - name: Install system-wide executable
   ansible.builtin.command:
     cmd: "sh {{ gway_remote_install_root }}/scripts/install-cli.sh"
-  when: gway_remote_source.changed or gway_remote_installer.changed or not gway_remote_cli.stat.exists
+  when: >-
+    gway_remote_source.changed or gway_remote_installer.changed or
+    not gway_remote_cli.stat.exists or (gway_remote_force_cli_repair | default(false) | bool)
 
 - name: Verify read-only status JSON as runner user
   ansible.builtin.command:

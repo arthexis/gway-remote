@@ -10,8 +10,8 @@ import zipfile
 class CliPackageSymlinkTests(unittest.TestCase):
     def test_zipapp_source_copy_dereferences_relative_package_symlink(self):
         source = Path("scripts/install-cli.sh").read_text()
-        self.assertIn('cp -R "$ROOT/gway_remote/." "$TMP/gway_remote/"', source)
-        self.assertNotIn('cp -R "$ROOT/gway_remote" "$TMP/gway_remote"', source)
+        self.assertIn('cp -R "$ROOT/gway_remote/." "$TMP/source/gway_remote/"', source)
+        self.assertNotIn('cp -R "$ROOT/gway_remote" "$TMP/source/gway_remote"', source)
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp) / "opt"
             pkg = root / ".package-releases" / "abc123" / "gway_remote"
@@ -22,13 +22,14 @@ class CliPackageSymlinkTests(unittest.TestCase):
             staging = Path(temp) / "stage"
             staging.mkdir()
             subprocess.run(["sh", "-ec", """
-                mkdir -m 755 "$TMP/gway_remote"
-                cp -R "$ROOT/gway_remote/." "$TMP/gway_remote/"
-                printf 'from gway_remote.__main__ import main\\nmain()\\n' > "$TMP/__main__.py"
-                python3 -m zipapp "$TMP" -p '/usr/bin/env python3' -o "$ROOT/out.pyz"
+                mkdir -m 755 "$TMP/source" "$TMP/source/gway_remote"
+                cp -R "$ROOT/gway_remote/." "$TMP/source/gway_remote/"
+                printf 'from gway_remote.__main__ import main\\nmain()\\n' > "$TMP/source/__main__.py"
+                python3 -m zipapp "$TMP/source" -p '/usr/bin/env python3' -o "$TMP/out.pyz"
             """], env={**os.environ, "ROOT": str(root), "TMP": str(staging)},
                            check=True, capture_output=True, text=True)
-            with zipfile.ZipFile(root / "out.pyz") as z:
+            with zipfile.ZipFile(staging / "out.pyz") as z:
+                self.assertNotIn("out.pyz", z.namelist())
                 self.assertIn("gway_remote/__main__.py", z.namelist())
                 self.assertIn("gway_remote/__init__.py", z.namelist())
                 self.assertFalse(z.getinfo("gway_remote/").external_attr >> 16 & 0o170000 == 0o120000)
