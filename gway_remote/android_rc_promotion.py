@@ -105,7 +105,8 @@ def verify_release_asset(artifact, release, *, draft, acceptance_run):
             and assets[0].get("digest") == "sha256:"+artifact.apk_sha256,
             "release_asset_mismatch")
     notes = release.get("body") or ""
-    require(notes.splitlines().count("Source-Commit: "+c.source_sha) == 1
+    require(notes.splitlines().count("Android-Version-Code: "+str(c.version_code)) == 1
+            and notes.splitlines().count("Source-Commit: "+c.source_sha) == 1
             and notes.splitlines().count("APK-SHA256: "+artifact.apk_sha256) == 1
             and notes.splitlines().count("Acceptance-Run: "+str(acceptance_run)) == 1,
             "release_metadata_mismatch")
@@ -173,7 +174,7 @@ def publish_exact(ledger, candidate, *, revision, acceptance_run, artifact_dir, 
     require(matches or prior is None, "publication_intent_uncertain")
     ledger.record(candidate.candidate_id,"accepted",receipt)
     ledger.record(candidate.candidate_id,"approved",approval)
-    notes = f"Source-Commit: {candidate.source_sha}\nAPK-SHA256: {artifact.apk_sha256}\nAcceptance-Run: {acceptance_run}\n"
+    notes = f"Android-Version-Code: {candidate.version_code}\nSource-Commit: {candidate.source_sha}\nAPK-SHA256: {artifact.apk_sha256}\nAcceptance-Run: {acceptance_run}\n"
     def exact_release():
         rows = [r for r in gate.pages("releases?per_page=100") if r.get("tag_name") == tag]
         require(len(rows) == 1, "release_identity_unverified")
