@@ -1,6 +1,12 @@
 """Hermetic native framing, declaration, and Firefox permission checks."""
 import io
 import json
+import os
+import selectors
+import socket
+import sys
+import tempfile
+import time
 from pathlib import Path
 import shutil
 import struct
@@ -83,3 +89,54 @@ class BrowserContractTests(unittest.TestCase):
         for name in ("background.js", "reports.js"):
             subprocess.run(["node", "--check", str(ROOT / "browser/firefox" / name)], check=True, timeout=10)
         subprocess.run(["node", str(ROOT / "browser/tests/consent.test.js")], check=True, timeout=10)
+
+    @unittest.skipIf(os.geteuid() == 0, "Native host must run as non-root")
+    def test_native_stdio_roundtrip_and_cleanup(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "private" / "bridge.sock"
+            # Test-only overrides: use a synthetic HTTPS origin, fixture socket
+            # and canary hostname; real native host never accepts overrides.
+            script = (
+                "from pathlib import Path; from unittest.mock import patch; "
+                "from gway_remote import browser_native as n; import sys; "
+                "p=Path(sys.argv[1]); "
+                "a=patch.object(n,'policy',return_value='https://reports.example.test'); "
+                "b=patch.object(n,'socket_path',return_value=p); "
+                "c=patch.object(n.socket,'gethostname',return_value='gway-001'); "
+                "a.start(); b.start(); c.start(); sys.exit(n.main())"
+            )
+            proc = subprocess.Popen([sys.executable, "-c", script, str(path)],
+                                    cwd=ROOT, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+                                    stderr=subprocess.PIPE)
+            def read(size):
+                with selectors.DefaultSelector() as sel:
+                    sel.register(proc.stdout, selectors.EVENT_READ)
+                    self.assertTrue(sel.select(3), "native message deadline")
+                return os.read(proc.stdout.fileno(), size)
+            try:
+                self.assertEqual(contract.receive(read)["origin"], "https://reports.example.test")
+                self.assertFalse(path.exists())
+                proc.stdin.write(contract.encode({"consent": True}))
+                proc.stdin.flush()
+                end = time.monotonic() + 3
+                while not path.exists() and time.monotonic() < end:
+                    time.sleep(.02)
+                with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as client:
+                    client.settimeout(3)
+                    client.connect(str(path))
+                    client.sendall(contract.encode({"operation": "snapshot"}))
+                    self.assertEqual(contract.receive(read), {"operation": "snapshot"})
+                    evidence = {"ok": True, "state": "ready", "page": "dashboard",
+                                "evidence": {"rfid_summary_rows": 4}}
+                    proc.stdin.write(contract.encode(evidence))
+                    proc.stdin.flush()
+                    self.assertEqual(contract.receive(client.recv), evidence)
+                proc.stdin.close()
+                self.assertEqual(proc.wait(timeout=3), 0)
+                self.assertFalse(path.exists())
+            finally:
+                if proc.poll() is None:
+                    proc.kill()
+                    proc.wait(timeout=3)
+                for stream in (proc.stdin, proc.stdout, proc.stderr):
+                    stream.close()
