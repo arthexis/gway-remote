@@ -46,5 +46,53 @@ async function main() {
   vm.runInNewContext(fs.readFileSync(path.join(root, "reports.js"), "utf8"), isolated);
   assert.equal((await listener.fire({origin: "https://different.example.test", request: {operation: "snapshot"}})).state, "denied");
   assert.equal((await listener.fire({origin: isolated.location.origin, request: {operation: "snapshot"}})).state, "denied");
+  // Synthetic dashboard adapter: no real customer data or browser.
+  const listener2 = event();
+  class Anchor {
+    constructor(href) { this.href = href; this.isConnected = true; }
+    hasAttribute() { return false; }
+    getClientRects() { return [1]; }
+    closest() { return null; }
+  }
+  const valid = new Anchor("https://reports.example.test/rfid?rfid=fixture&tz=UTC");
+  const foreign = new Anchor("https://other.example.test/rfid?rfid=fixture");
+  const wrongPath = new Anchor("https://reports.example.test/accounts");
+  const invalidQuery = new Anchor("https://reports.example.test/rfid?rfid=fixture&unexpected=1");
+  const panel = {querySelectorAll(sel) { return sel === "tbody tr" ? [1,2] : [valid,foreign,wrongPath,invalidQuery]; }};
+  let navigated = null, now = 1000;
+  const loc = {origin: "https://reports.example.test", pathname: "/", href: "https://reports.example.test/",
+    assign(url) { navigated = url; }};
+  const dom = {
+    querySelector(sel) {
+      if (sel === "#rfid-cards") return panel;
+      if (sel === ".transactions-panel") return {};
+      return null;
+    },
+    querySelectorAll(sel) { return sel === ".transactions-panel tbody tr" ? [1,2,3] : []; }
+  };
+  const ctx = {browser: {runtime: {onMessage: listener2}}, document: dom, location: loc,
+    HTMLAnchorElement: Anchor, URL, window: {}, top: null,
+    Date: {now: () => now}, crypto: require("node:crypto").webcrypto,
+    getComputedStyle: () => ({visibility: "visible"}), setTimeout: fn => fn()};
+  ctx.top = ctx.window;
+  vm.runInNewContext(fs.readFileSync(path.join(root, "reports.js"), "utf8"), ctx);
+  const invoke = request => listener2.fire({origin: loc.origin, request});
+  let snap = await invoke({operation: "snapshot"});
+  assert.equal(snap.controls.length, 1);
+  assert.equal(snap.evidence.rfid_summary_rows, 2);
+  assert.equal(snap.evidence.session_rows, 3);
+  assert.equal(snap.controls[0].kind, "rfid_history");
+  assert.ok(!JSON.stringify(snap).includes("fixture"));
+  const ref = snap.controls[0].ref;
+  assert.equal((await invoke({operation: "click", ref})).state, "navigation_started");
+  assert.equal(navigated, valid.href);
+  assert.equal((await invoke({operation: "click", ref})).state, "stale");
+  snap = await invoke({operation: "snapshot"});
+  now += 30001;
+  assert.equal((await invoke({operation: "click", ref: snap.controls[0].ref})).state, "stale");
+  snap = await invoke({operation: "snapshot"});
+  valid.href = "https://other.example.test/rfid?rfid=fixture";
+  assert.equal((await invoke({operation: "click", ref: snap.controls[0].ref})).state, "stale");
+  assert.equal((await invoke({operation: "evaluate"})).state, "denied");
 }
 main().catch(err => { console.error(err); process.exitCode = 1; });
