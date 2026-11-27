@@ -7,7 +7,7 @@ from gway_remote.mcp_node_providers import NodeProviderError, provider_call
 from gway_remote.mcp_federated_catalog import catalog_from_nodes, route_provider_call
 from gway_remote.mcp_source_registry import SourceRegistration
 
-READ = ["crm_stage_list", "crm_team_list", "crm_opportunity_get", "crm_opportunity_search"]
+READ = ["crm_stage_list", "crm_team_list", "crm_opportunity_get", "crm_opportunity_search", "crm_receipt_status"]
 WRITE = ["crm_opportunity_create", "crm_opportunity_update", "crm_opportunity_stage_move"]
 TOOLS = [{"name": n, "inputSchema": {"type": "object"},
           "annotations": {"readOnlyHint": n in READ}} for n in READ + WRITE]
@@ -54,3 +54,28 @@ class TestOdooCRMDeadline(unittest.TestCase):
                 route_provider_call(routes, "odoo__" + name, {}, authorized_scope="read", invoke=invoke)
                 self.assertEqual(calls[-1][1]["operation"], "provider_read")
                 self.assertEqual(calls[-1][2]["trusted_scope"], "read")
+
+    def test_receipt_status_arguments_and_typed_error_are_forwarded(self):
+        node = "gway-001"
+        _, routes = catalog_from_nodes([], {node: {"node": node, "providers": [
+            {"provider": "odoo", "node": node, "revision": "a" * 40, "status": "available",
+             "supports_provider_read": True, "tools": TOOLS}]}})
+        args = {"request_id": "a" * 32}
+        response = {"content": [{"type": "text", "text": '{"error":"crm_receipt_unavailable"}'}],
+                    "isError": True}
+        with patch("gway_remote.mcp_node_providers._node_registration", side_effect=lambda r: r), patch(
+            "gway_remote.mcp_node_providers.list_source_tools", return_value=TOOLS
+        ), patch("gway_remote.mcp_node_providers.call_source_tool", return_value=response) as invoke:
+            result = provider_call([REG], provider="odoo", tool="crm_receipt_status",
+                                   arguments=args, authorized_scope="read")
+            self.assertEqual(result, response)
+            self.assertEqual(invoke.call_args.args[2], args)
+            self.assertEqual(invoke.call_args.kwargs, {"authorized_scope": "read"})
+        def transport(target, request, **kwargs):
+            self.assertEqual(target, node)
+            self.assertEqual(request, {"operation": "provider_read", "provider": "odoo",
+                                       "tool": "crm_receipt_status", "arguments": args})
+            self.assertEqual(kwargs, {"trusted_scope": "read"})
+            return response
+        self.assertEqual(route_provider_call(routes, "odoo__crm_receipt_status", args,
+                                             authorized_scope="read", invoke=transport), response)
