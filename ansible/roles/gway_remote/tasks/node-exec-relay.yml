@@ -106,3 +106,6 @@
   ansible.builtin.assert:
     that:
       - gway_relay_groups.stdout.split() == ['gway-relay']
+
+- name: Keep dedicated relay PAM sessions free of desktop audio
+  ansible.builtin.include_tasks: node-exec-relay-headless.yml
