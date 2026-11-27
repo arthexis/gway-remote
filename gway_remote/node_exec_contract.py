@@ -33,6 +33,54 @@ TRANSITIONS = {
 }
 RELAY_ONLY_NODE = "ocpp-abb-1"
 RELAY_ONLY_OPERATIONS = frozenset({"submit", "result", "cancel", "limits", "periodic_health_submit", "periodic_health_result"})
+# The original relay-only grant remains unchanged. This narrow extension
+# allows discovery and read RPCs for one installed, read-only CSMS provider.
+ABB_PROVIDER_READ_OPERATIONS = frozenset({"provider_list", "provider_read"})
+ABB_OCPP_READ_TOOLS = frozenset({"charger_list", "charger_status", "connector_list",
+                                 "transaction_list", "event_list"})
+
+
+def validate_abb_relay_request(request):
+    op = request["operation"]
+    if op in RELAY_ONLY_OPERATIONS or op == "provider_list":
+        return
+    if (op == "provider_read" and request.get("provider") == "ocpp"
+            and type(request.get("tool")) is str
+            and request["tool"] in ABB_OCPP_READ_TOOLS
+            and type(request.get("arguments")) is dict):
+        return
+    raise PermissionError("relay-only node operation denied")
+
+
+def abb_ocpp_registration(registration):
+    """Only the root-owned, immutable CSMS v1 read manifest opts ABB in."""
+    if registration.source_id != "ocpp" or not registration.enabled:
+        return False
+    executable = ("/home/ubuntu/.local/share/ocpp-csms/releases/"
+                  + registration.revision[:12] + "/venv/bin/ocpp-csms-mcp")
+    return (registration.executable == executable
+            and registration.argv == (executable, "--data-dir",
+                                     "/home/ubuntu/ocpp-csms-data/schemas/8")
+            and registration.deployment is None)
+
+
+def abb_ocpp_catalog_allowed(provider):
+    """Fail closed if the node advertises any additional or execute tools."""
+    from .mcp_tool_scope import required_scope
+    if type(provider) is not dict or provider.get("provider") != "ocpp":
+        return False
+    tools = provider.get("tools")
+    if type(tools) is not list:
+        return False
+    if provider.get("status") == "unavailable":
+        return not tools
+    return (provider.get("status") == "available"
+            and provider.get("supports_provider_read") is True
+            and len(tools) == len(ABB_OCPP_READ_TOOLS)
+            and all(type(tool) is dict and type(tool.get("name")) is str
+                    and required_scope(tool) == "read" for tool in tools)
+            and {tool["name"] for tool in tools} == ABB_OCPP_READ_TOOLS)
+
 _NODE = re.compile(r"(?:gway-[0-9]{3,}|ocpp-abb-1)\Z")
 _REQUEST = re.compile(r"[a-f0-9]{32}$")
 
