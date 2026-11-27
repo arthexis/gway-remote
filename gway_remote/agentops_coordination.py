@@ -27,6 +27,8 @@ OPS = {"agentops_coordination_snapshot": frozenset({"operation","node","request_
 CONFIG = Path("/etc/gway-mcp/agentops-coordination.json")
 DATABASE = Path("/var/lib/gway-mcp-exec/agentops-coordination.sqlite3")
 SEED = Path("/etc/gway-mcp/agentops-coordination-seed.json")
+CANARY_CONFIG = CONFIG.with_name("agentops-coordination-canary.json")
+CANARY_DATABASE = DATABASE.with_name("agentops-coordination-canary.sqlite3")
 
 
 def require(ok):
@@ -228,10 +230,21 @@ def main():
     # Private operator/systemd one-shot entrypoint. No server/listener.
     import argparse
     parser=argparse.ArgumentParser(description="Private Watchtower coordination tick")
-    parser.add_argument("--initialize",action="store_true")
+    action=parser.add_mutually_exclusive_group()
+    action.add_argument("--initialize",action="store_true")
+    action.add_argument("--counts",action="store_true")
+    parser.add_argument("--canary",action="store_true")
     args=parser.parse_args()
-    cfg=load_config()
-    ledger=Ledger(DATABASE,epoch=cfg["epoch"],members=cfg["members"])
+    cfg=load_config(CANARY_CONFIG if args.canary else CONFIG)
+    ledger=Ledger(CANARY_DATABASE if args.canary else DATABASE,
+                  epoch=cfg["epoch"],members=cfg["members"])
+    if args.counts:
+        print(json.dumps(ledger.counts(),sort_keys=True))
+        return 0
+    if args.initialize and args.canary:
+        ledger.initialize([])
+        print(json.dumps({"initialized":True,"history_count":0,"canary":True}))
+        return 0
     if args.initialize:
         info=SEED.lstat()
         require(stat.S_ISREG(info.st_mode) and info.st_uid==0 and not info.st_mode&0o022
