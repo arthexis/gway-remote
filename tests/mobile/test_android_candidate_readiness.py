@@ -167,5 +167,71 @@ class ReadinessTests(unittest.TestCase):
 
 
 
+    def test_trusted_workflow_base_must_still_match(self):
+        api = lambda path: PR if path == "pulls/42" else {"commit": {"sha": BASE}}
+        write = Mock()
+        with self.assertRaises(RuntimeError):
+            r.reconcile(42, "url", trusted_base=HEAD, api=api, pages=lambda _: [], write=write)
+        write.assert_not_called()
+
+    def test_published_issue_plan_only_after_verified_release(self):
+        import base64
+        import json
+        from gway_remote.android_release_candidate import Candidate, SignedArtifact
+        from gway_remote.android_rc_acceptance import full_receipt, smoke_receipt, SMOKE_CHECKS
+        from gway_remote.android_rc_contracts import GROUPS
+        candidate = Candidate(HEAD, BASE, 801, "0.2.801")
+        digest, cert = "c" * 64, "d" * 64
+        artifact = SignedArtifact(candidate, digest, cert, 2, 3)
+        hosted = {"ci_run": 10, "compose_run": 11, "build_run": 12,
+                  "contract_artifact_id": 13, "hosted_groups": dict.fromkeys(GROUPS, "pass")}
+        accepted = full_receipt(artifact, 14, smoke_receipt(artifact, 14, dict.fromkeys(SMOKE_CHECKS, "pass")), hosted)
+        tag = "android-v0.2.801"
+        approval = {"candidate_id": candidate.candidate_id, "apk_sha256": digest,
+                    "acceptance_run": 14, "publication_revision": HEAD, "approval_run": 15}
+        published = {"tag": tag, "source_sha": HEAD, "apk_sha256": digest,
+                     "certificate_sha256": cert, "acceptance_run": 14, "approval_run": 15,
+                     "release_id": 16}
+        ledger = Mock()
+        ledger.read.return_value = {"signed": {"apk_sha256": digest, "certificate_sha256": cert,
+                                              "artifact_id": 2, "run_id": 3},
+                                    "accepted": accepted, "approved": approval, "published": published}
+        ledger.consecutive_upgrade_health.return_value = {"ok": True}
+        release = {"tag_name": tag, "target_commitish": HEAD, "draft": False, "prerelease": False, "id": 16,
+                   "assets": [{"name": "gway-remote.apk", "state": "uploaded", "digest": "sha256:" + digest}],
+                   "body": f"Android-Version-Code: 801\nSource-Commit: {HEAD}\nAPK-SHA256: {digest}\nAcceptance-Run: 14\n"}
+        rows = {"actions/runs/15": {"status": "completed", "conclusion": "success", "run_attempt": 1,
+                                   "actor": {"login": g.OWNER}, "triggering_actor": {"login": g.OWNER},
+                                   "display_title": f"Promote RC 801 {digest} acceptance 14"},
+                f"releases/tags/{tag}": release, f"commits/{tag}": {"sha": HEAD},
+                f"git/commits/{HEAD}": {"tree": {"sha": BASE}},
+                f"contents/docs/android-release-issues.json?ref={HEAD}": {
+                    "encoding": "base64", "content": base64.b64encode(json.dumps({"schema": 1, "issues": [711, 746]}).encode()).decode()},
+                "issues/711": {"number": 711, "state": "open"},
+                "issues/746": {"number": 746, "state": "closed"}}
+        release_gate = Mock()
+        verify = Mock()
+        def plan(requested):
+            return r.published_issue_plan(candidate, ledger, requested=requested, api=rows.__getitem__,
+                                          release_gate=release_gate, verify_bytes=verify)
+        result = plan([711, 746])
+        self.assertEqual(result["to_close"], [711])
+        self.assertEqual(result["already_closed"], [746])
+        self.assertFalse(result["mutation_authorized"])
+        release_gate.gh.assert_not_called()
+        for ids in ([718], [711, 711], [999]):
+            with self.assertRaises(RuntimeError):
+                plan(ids)
+        release["draft"] = True
+        with self.assertRaises(ValueError):
+            plan([711])
+        release["draft"] = False
+        ledger.read.return_value["published"] = None
+        with self.assertRaises(RuntimeError):
+            plan([711])
+        release_gate.gh.assert_not_called()
+
+
+
 if __name__ == "__main__":
     unittest.main()
