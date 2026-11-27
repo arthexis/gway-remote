@@ -29,13 +29,13 @@
           - browser_native_dir == '/usr/lib/mozilla/native-messaging-hosts'
     - name: Verify exact committed source revision
       ansible.builtin.command:
-        argv: [git, -C, "{{ playbook_dir }}/..", rev-parse, HEAD]
+        argv: [git, -C, "{{ playbook_dir }}/../..", rev-parse, HEAD]
       register: source_revision
       changed_when: false
       failed_when: source_revision.rc != 0 or source_revision.stdout != gway_browser_revision
     - name: Verify reviewed files match source commit
       ansible.builtin.command:
-        argv: "{{ ['git', '-C', playbook_dir + '/..', 'status', '--porcelain', '--untracked-files=all', '--'] + browser_files }}"
+        argv: "{{ ['git', '-C', playbook_dir + '/../..', 'status', '--porcelain', '--untracked-files=all', '--'] + browser_files }}"
       register: source_status
       changed_when: false
       failed_when: source_status.rc != 0 or source_status.stdout != ''
@@ -94,7 +94,7 @@
         mode: '0644'
     - name: Copy reviewed provider and extension files
       ansible.builtin.copy:
-        src: "{{ playbook_dir }}/../{{ item }}"
+        src: "{{ playbook_dir }}/../../{{ item }}"
         dest: "{{ browser_root }}/{{ gway_browser_revision }}/{{ 'gway_remote' if item.startswith('gway_remote/') else 'firefox' }}/{{ item | basename }}"
         owner: root
         group: root
@@ -102,7 +102,7 @@
       loop: "{{ browser_files | reject('equalto', 'browser/firefox/manifest.json') | list }}"
     - name: Render exact origin optional permission (never a wildcard host)
       ansible.builtin.copy:
-        content: "{{ (lookup('file', playbook_dir + '/../browser/firefox/manifest.json') | from_json | combine({'optional_permissions': [gway_browser_origin + '/*']})) | to_nice_json }}\n"
+        content: "{{ (lookup('file', playbook_dir + '/../../browser/firefox/manifest.json') | from_json | combine({'optional_permissions': [gway_browser_origin + '/*']})) | to_nice_json }}\n"
         dest: "{{ browser_root }}/{{ gway_browser_revision }}/firefox/manifest.json"
         owner: root
         group: root
