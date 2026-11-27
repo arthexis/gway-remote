@@ -24,7 +24,7 @@
           - gway_exec_relay_public_key is match('^ssh-ed25519 [A-Za-z0-9+/=]+( [A-Za-z0-9_.@-]+)?$')
     - name: Resolve installer identity with existing selector
       ansible.builtin.command:
-        argv: [/usr/bin/python3, '{{ playbook_dir }}/../scripts/resolve-executor-user.py', --installer, ubuntu, --override, ubuntu]
+        argv: "{{ ['/usr/bin/python3', playbook_dir + '/../scripts/resolve-executor-user.py', '--installer', 'ubuntu', '--override', 'ubuntu'] + (['--abb-empty-legacy-cutover'] if (gway_abb_empty_legacy_cutover | default(false) | bool) else []) }}"
       register: selected
       changed_when: false
     - name: Bind verified executor
