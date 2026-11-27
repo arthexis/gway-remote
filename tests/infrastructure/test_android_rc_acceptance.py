@@ -3,7 +3,8 @@ from unittest.mock import Mock
 from pathlib import Path
 from gway_remote.android_release_candidate import Candidate, SignedArtifact
 from gway_remote.android_rc_acceptance import (SMOKE_CHECKS, FULL_CHECKS, PhysicalSmoke,
-    smoke_receipt, validate_smoke_receipt, verify_installed, validate_run)
+    smoke_receipt, validate_smoke_receipt, verify_installed, validate_run,
+    verify_deployment_guard, tagged_control_ready)
 
 
 class AcceptanceTests(unittest.TestCase):
@@ -55,6 +56,26 @@ class AcceptanceTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError,"physical_target_moved"):
             probe.tap("text","Cerrar")
         d.adb.assert_not_called()
+
+    def test_disabled_deployment_requires_actual_tagged_parent_semantics(self):
+        text = {"text":"Deploy all", "enabled":True}
+        label = {"text":"Confirm deployment of all repositories", "checked":False}
+        confirm = {"resource_id":"rc-deploy-confirm","checkable":True,"checked":False}
+        submit = {"resource_id":"rc-deploy-submit","enabled":False}
+        verify_deployment_guard({"elements":[text,label,confirm,submit]})
+        for rows in ([text,label], [confirm,dict(submit,enabled=True)],
+                     [dict(confirm,checked=True),submit],
+                     [dict(confirm,checkable=False),submit],[confirm,submit,submit]):
+            with self.subTest(rows=rows), self.assertRaisesRegex(ValueError,"deployment_guard_unverified"):
+                verify_deployment_guard({"elements":rows})
+
+    def test_feed_ready_requires_unique_actual_enabled_control(self):
+        label = {"text":"Actualizar actividad","enabled":True}
+        tag = {"resource_id":"rc-feed-refresh","enabled":True}
+        self.assertFalse(tagged_control_ready([label],"rc-feed-refresh"))
+        self.assertTrue(tagged_control_ready([label,tag],"rc-feed-refresh"))
+        self.assertFalse(tagged_control_ready([label,dict(tag,enabled=False)],"rc-feed-refresh"))
+        self.assertFalse(tagged_control_ready([tag,tag],"rc-feed-refresh"))
 
     def test_workflow_restricted_to_reviewed_main(self):
         root = Path(__file__).resolve().parents[2]

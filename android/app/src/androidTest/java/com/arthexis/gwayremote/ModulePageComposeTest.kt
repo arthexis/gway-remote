@@ -75,7 +75,12 @@ class ModulePageComposeTest {
                 ) { dispatched++ }
             }
         }
-        rule.onNodeWithText("Deploy all").assertIsNotEnabled()
+        rule.onNodeWithTag("rc-deploy-submit").assertIsNotEnabled()
+        rule.waitUntil(5000) {
+            val root = androidx.test.platform.app.InstrumentationRegistry.getInstrumentation().uiAutomation.rootInActiveWindow
+            val nodes = root?.findAccessibilityNodeInfosByViewId("rc-deploy-submit").orEmpty()
+            nodes.size == 1 && !nodes.single().isEnabled
+        }
         rule.runOnIdle { assertEquals(0, dispatched); token = "test-only-token" }
         rule.onNodeWithText("Deploy all").assertIsEnabled()
         rule.onNodeWithText("Deploy all").performClick()

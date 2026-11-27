@@ -7,6 +7,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.test.platform.app.InstrumentationRegistry
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Rule
@@ -24,6 +25,12 @@ class DeploymentConfirmationTest {
             }
         }
         rule.runOnIdle { assertFalse(confirmed) }
+        rule.onNodeWithTag("rc-deploy-confirm").assertIsOff()
+        rule.waitUntil(5000) {
+            val root = InstrumentationRegistry.getInstrumentation().uiAutomation.rootInActiveWindow
+            val nodes = root?.findAccessibilityNodeInfosByViewId("rc-deploy-confirm").orEmpty()
+            nodes.size == 1 && nodes.single().isCheckable && !nodes.single().isChecked
+        }
         rule.onNodeWithText("Confirm deployment of ocpp-csms").performClick()
         rule.runOnIdle { assertTrue(confirmed) }
         rule.onNodeWithText("Confirm deployment of ocpp-csms").performClick()

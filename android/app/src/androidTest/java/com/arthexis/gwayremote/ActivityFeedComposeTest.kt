@@ -30,6 +30,12 @@ class ActivityFeedComposeTest {
             }
         }
         rule.onNodeWithText("Historial offline").assertExists()
+        rule.onNodeWithTag("rc-feed-refresh").assertIsEnabled()
+        rule.waitUntil(5000) {
+            val root = androidx.test.platform.app.InstrumentationRegistry.getInstrumentation().uiAutomation.rootInActiveWindow
+            val nodes = root?.findAccessibilityNodeInfosByViewId("rc-feed-refresh").orEmpty()
+            nodes.size == 1 && nodes.single().isEnabled
+        }
         rule.onNodeWithText("deployment", substring = false).performClick()
         rule.onNodeWithText("Deploy completed").assertExists()
         rule.onNodeWithText("Node connected").assertDoesNotExist()

@@ -13,6 +13,10 @@ import androidx.compose.ui.semantics.Role
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.ExperimentalComposeUiApi
+import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.testTagsAsResourceId
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -96,11 +100,13 @@ fun DeploymentsPanel(endpoint: String, token: String) {
 }
 
 /** Whole 48dp+ row is an accessible checkbox target; entering the screen never confirms. */
+@OptIn(ExperimentalComposeUiApi::class)
 @Composable
 internal fun DeploymentConfirmation(selected: String, checked: Boolean, onCheckedChange: (Boolean) -> Unit) {
     Row(
         modifier = Modifier.fillMaxWidth()
             .toggleable(value = checked, role = Role.Checkbox, onValueChange = onCheckedChange)
+            .testTag("rc-deploy-confirm").semantics { testTagsAsResourceId = true }
             .heightIn(min = 48.dp),
         verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(8.dp)
@@ -118,6 +124,7 @@ internal fun canRequestDeployment(
     !busy && requestId.isBlank()
 
 /** Callback is never invoked on entry or when credentials are absent. */
+@OptIn(ExperimentalComposeUiApi::class)
 @Composable
 internal fun DeploymentSubmitButton(
     selected: String,
@@ -132,7 +139,7 @@ internal fun DeploymentSubmitButton(
     Button(
         onClick = { if (allowed) onDispatch() },
         enabled = allowed,
-        modifier = Modifier.fillMaxWidth()
+        modifier = Modifier.fillMaxWidth().testTag("rc-deploy-submit").semantics { testTagsAsResourceId = true }
     ) {
         Text(if (busy) "Requesting…" else "Deploy " + selected)
     }

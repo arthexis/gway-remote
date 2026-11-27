@@ -6,6 +6,9 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.ExperimentalComposeUiApi
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.testTagsAsResourceId
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
@@ -99,7 +102,7 @@ internal fun ActivityFeedPanel(endpoint: String, token: String, onNavigate: (Str
     }
 }
 
-@OptIn(ExperimentalLayoutApi::class)
+@OptIn(ExperimentalLayoutApi::class, ExperimentalComposeUiApi::class)
 @Composable
 internal fun FeedContent(state: FeedState, category: String?, busy: Boolean, offline: Boolean,
                          notice: String?, onCategory: (String?) -> Unit, onRefresh: () -> Unit,
@@ -110,7 +113,8 @@ internal fun FeedContent(state: FeedState, category: String?, busy: Boolean, off
     Text("Activity Feed", style = MaterialTheme.typography.titleLarge)
     Text("Actividad reciente · sin alertas", style = MaterialTheme.typography.bodySmall)
     ModuleActions {
-        OutlinedButton(onClick = onRefresh, enabled = !busy) { Text("Actualizar actividad") }
+        OutlinedButton(onClick = onRefresh, enabled = !busy,
+            modifier = Modifier.testTag("rc-feed-refresh").semantics { testTagsAsResourceId = true }) { Text("Actualizar actividad") }
     }
     if (busy) LinearProgressIndicator(Modifier.fillMaxWidth())
     if (offline) Text("Historial offline", color = MaterialTheme.colorScheme.onSurfaceVariant)

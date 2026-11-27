@@ -14,6 +14,27 @@ FULL_CHECKS = frozenset(SMOKE_CHECKS + (
 ))
 
 
+def tagged_rows(rows, tag):
+    return [row for row in rows if row.get("resource_id") == tag]
+
+
+def tagged_control_ready(rows, tag):
+    matches = tagged_rows(rows, tag)
+    return len(matches) == 1 and matches[0].get("enabled") is True
+
+
+def verify_deployment_guard(tree):
+    # UiAutomator's child text labels remain enabled even on a disabled
+    # Compose button. Only the explicit parent semantics prove the guard.
+    submits = tagged_rows(tree["elements"], "rc-deploy-submit")
+    confirms = tagged_rows(tree["elements"], "rc-deploy-confirm")
+    require(len(submits) == len(confirms) == 1
+            and submits[0].get("enabled") is False
+            and confirms[0].get("checkable") is True
+            and confirms[0].get("checked") is False,
+            "deployment_guard_unverified")
+
+
 class PhysicalSmoke:
     """Fixed read-only actions inside the reviewed hardware workflow/device lease."""
     def __init__(self, device, serial, *, pause=time.sleep):
@@ -82,8 +103,7 @@ class PhysicalSmoke:
             if any(row.get("text") in unavailable for row in rows):
                 return False  # transient offline cache is not a successful live observation
             return (self.has(tree, "Activity Feed")
-                    and any(row.get("text") == "Actualizar actividad" and row.get("enabled") is True
-                            for row in rows))
+                    and tagged_control_ready(rows, "rc-feed-refresh"))
         # This probe only views the Home feed; never mark a real item read.
         tree = self.observe()
         if not self.has(tree, "Activity Feed"):
@@ -134,10 +154,7 @@ class PhysicalSmoke:
         checks["quotation_list"] = "pass"
         self.navigate("Deployments", "Deployments")
         controls = self.wait(lambda t: self.has(t, "Confirm deployment of all repositories") and self.has(t, "Deploy all"))
-        submits = [r for r in controls["elements"] if r.get("text") == "Deploy all"]
-        confirms = [r for r in controls["elements"] if r.get("text") == "Confirm deployment of all repositories"]
-        require(len(submits) == len(confirms) == 1 and submits[0].get("enabled") is False
-                and confirms[0].get("checked") is False, "deployment_guard_unverified")
+        verify_deployment_guard(controls)
         checks["deployment_controls_visible"] = "pass"
         self.navigate("Liturgia", "Lecturas, Biblia y búsqueda")
         self.wait(lambda t: self.has(t, "Esta edición solo tiene referencias disponibles para consulta remota.")
