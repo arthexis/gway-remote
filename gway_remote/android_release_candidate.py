@@ -102,6 +102,9 @@ class CandidateLedger:
                 stage TEXT NOT NULL, payload TEXT NOT NULL,
                 PRIMARY KEY(candidate_id,stage)
             );
+            CREATE TABLE IF NOT EXISTS upgrade_health (
+                candidate_id TEXT PRIMARY KEY REFERENCES candidate(id), payload TEXT NOT NULL
+            );
             CREATE TABLE IF NOT EXISTS dispatch_intent (
                 candidate_id TEXT NOT NULL REFERENCES candidate(id),
                 stage TEXT NOT NULL, inputs TEXT NOT NULL,
@@ -167,6 +170,60 @@ class CandidateLedger:
         return {stage: json.loads(payload) for stage, payload in self.db.execute(
             "SELECT stage,payload FROM evidence WHERE candidate_id=?", (candidate_id,))}
 
+
+    def read_upgrade_health(self, candidate_id):
+        if not self.db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='upgrade_health'").fetchone():
+            return None
+        row = self.db.execute("SELECT payload FROM upgrade_health WHERE candidate_id=?", (candidate_id,)).fetchone()
+        return json.loads(row[0]) if row else None
+
+    def record_upgrade_health(self, candidate, *, run_id, post_authenticated):
+        """Record credential preservation, NOT full module acceptance."""
+        require(type(run_id) is int and run_id > 0 and post_authenticated is True,
+                "post_install_authentication_failed")
+        state = self.read(candidate.candidate_id)
+        installed, signed = state.get("installed", {}), state.get("signed", {})
+        require(state.get("allocated") == asdict(candidate)
+                and installed.get("candidate_id") == candidate.candidate_id
+                and installed.get("artifact_id") == signed.get("artifact_id")
+                and installed.get("apk_sha256") == signed.get("apk_sha256")
+                and installed.get("certificate_sha256") == signed.get("certificate_sha256")
+                and installed.get("operation") == "incremental_update"
+                and installed.get("credential_before") is True
+                and installed.get("canary_path_unchanged") is True
+                and installed.get("device") == "gway-001"
+                and installed.get("install_run_id") == run_id, "upgrade_baseline_unverified")
+        before, after = installed.get("installed_before", {}), installed.get("installed_after", {})
+        artifact = SignedArtifact(candidate, signed["apk_sha256"], signed["certificate_sha256"],
+                                  signed["artifact_id"], signed["run_id"])
+        artifact.validate_install(installed_digest=after.get("apk_sha256"),
+                                  installed_certificate=after.get("certificate_sha256"),
+                                  installed_version=after.get("version_code"), device="gway-001",
+                                  credential_before=True, credential_after=True,
+                                  expected_certificate=before.get("certificate_sha256"))
+        require(before.get("package") == after.get("package") == PACKAGE
+                and type(before.get("version_code")) is int
+                and before["version_code"] < candidate.version_code
+                and isinstance(before.get("apk_sha256"), str)
+                and HEX.fullmatch(before["apk_sha256"]), "upgrade_baseline_unverified")
+        evidence = {"candidate_id": candidate.candidate_id, "run_id": run_id,
+                    "from_version": before["version_code"], "to_version": candidate.version_code,
+                    "from_sha256": before["apk_sha256"], "to_sha256": artifact.apk_sha256,
+                    "certificate_sha256": artifact.certificate_sha256,
+                    "device": "gway-001", "authenticated_before": True, "authenticated_after": True}
+        payload = self.encode(evidence)
+        self.db.execute("BEGIN IMMEDIATE")
+        try:
+            previous = self.read_upgrade_health(candidate.candidate_id)
+            if previous is not None:
+                require(previous == evidence, "immutable_upgrade_health_conflict")
+            else:
+                self.db.execute("INSERT INTO upgrade_health VALUES (?,?)", (candidate.candidate_id, payload))
+            self.db.commit()
+            return evidence
+        except BaseException:
+            self.db.rollback()
+            raise
 
     def claim_dispatch(self, candidate_id, stage, inputs):
         """Reserve before network mutation; an uncertain intent is never replayed."""
@@ -488,7 +545,7 @@ def health_is_authenticated(tree):
 def install_stable_candidate(ledger, candidate, *, artifact_dir, workflow_sha, install_run_id,
                              expected_digest, expected_certificate, expected_artifact_id,
                              preflight_only=False, allow_unverified_auth=False, gate=None, call=None, device=None,
-                             inspect=None, hostname=None):
+                             inspect=None, hostname=None, fresh_check=None):
     """Reviewed hardware workflow only. No credential reads, reset or publication."""
     import socket
     from gway_remote import android_canary_install as usb
@@ -542,6 +599,8 @@ def install_stable_candidate(ledger, candidate, *, artifact_dir, workflow_sha, i
     require(hashlib.sha256(apk.read_bytes()).hexdigest() == artifact.apk_sha256
             and certificate_sha256(apk) == artifact.certificate_sha256, "local_candidate_mismatch")
     serial = usb.authorized_usb(call)
+    if fresh_check is not None:
+        device.wake_if_needed(serial=serial)
     screen = device.screen_state(serial)
     require(screen.get("screen_on") is True and screen.get("locked") is False, "device_locked_or_unknown")
     before = inspect(usb.PRODUCTION,call=call)
@@ -550,7 +609,7 @@ def install_stable_candidate(ledger, candidate, *, artifact_dir, workflow_sha, i
     require(type(before.get("version_code")) is int and before["version_code"] <= candidate.version_code,
             "version_not_increasing")
     # Authentication is observed independently; never infer success from authorization to install.
-    authenticated = health_is_authenticated(device.ui_tree(serial))
+    authenticated = fresh_check(device, serial) if fresh_check else health_is_authenticated(device.ui_tree(serial))
     require(isinstance(before.get("apk_sha256"),str) and HEX.fullmatch(before["apk_sha256"]),
             "installed_identity_unknown")
     require(before["version_code"] < candidate.version_code or before["apk_sha256"] == artifact.apk_sha256,
@@ -572,7 +631,12 @@ def install_stable_candidate(ledger, candidate, *, artifact_dir, workflow_sha, i
     if prior is not None:
         require(action == "verify_noop" and prior.get("installed_after") == before,
                 "installed_evidence_conflict")
+        if fresh_check is not None and not allow_unverified_auth:
+            health = ledger.read_upgrade_health(candidate.candidate_id)
+            require(health is not None and authenticated, "upgrade_health_unverified_reconcile")
+            return {**prior, "upgrade_health": health}
         return prior
+    require(action == "incremental_update", "install_uncertain_reconcile_before_retry")
     canary_before = usb.require_success(call(["/usr/bin/adb","-s",serial,"shell","pm","path",usb.CANARY],30),
                                          "canary_path_unverified")
     require(canary_before.startswith("package:"), "canary_path_unverified")
@@ -580,16 +644,12 @@ def install_stable_candidate(ledger, candidate, *, artifact_dir, workflow_sha, i
     inputs = {"workflow_sha":workflow_sha,"artifact_id":artifact.artifact_id,
               "apk_sha256":artifact.apk_sha256}
     new, recorded_run = ledger.claim_dispatch(candidate.candidate_id,"installed",inputs)
-    if not new:
-        require(action == "verify_noop" and recorded_run is not None,
-                "install_uncertain_reconcile_before_retry")
-    else:
-        ledger.bind_dispatch(candidate.candidate_id,"installed",install_run_id)
-        require(gate.api("branches/main")["commit"]["sha"] == workflow_sha, "candidate_superseded")
-        require(usb.authorized_usb(call) == serial, "usb_identity_changed")
-        if action == "incremental_update":
-            result = call(["/usr/bin/adb","-s",serial,"install","-r",str(apk)],100)
-            require(usb.adb_install_succeeded(result), "stable_install_unconfirmed_no_reset")
+    require(new and recorded_run is None, "install_uncertain_reconcile_before_retry")
+    ledger.bind_dispatch(candidate.candidate_id,"installed",install_run_id)
+    require(gate.api("branches/main")["commit"]["sha"] == workflow_sha, "candidate_superseded")
+    require(usb.authorized_usb(call) == serial, "usb_identity_changed")
+    result = call(["/usr/bin/adb","-s",serial,"install","-r",str(apk)],100)
+    require(usb.adb_install_succeeded(result), "stable_install_unconfirmed_no_reset")
     require(usb.authorized_usb(call) == serial, "usb_identity_changed")
     after = inspect(usb.PRODUCTION,call=call)
     require(after.get("package") == PACKAGE and after.get("apk_sha256") == artifact.apk_sha256
@@ -602,6 +662,15 @@ def install_stable_candidate(ledger, candidate, *, artifact_dir, workflow_sha, i
     receipt = {**receipt,"status":"installed","installed_after":after,
                "install_run_id":recorded_run or install_run_id,"operation":action,"canary_path_unchanged":True}
     ledger.record(candidate.candidate_id,"installed",receipt)
+    if fresh_check is not None and authenticated:
+        try:
+            require(usb.authorized_usb(call) == serial, "usb_identity_changed")
+            post = fresh_check(device, serial)
+            require(usb.authorized_usb(call) == serial, "usb_identity_changed")
+            health = ledger.record_upgrade_health(candidate, run_id=install_run_id, post_authenticated=post)
+        except (ValueError, RuntimeError, OSError):
+            return {**receipt, "status": "blocked", "reason": "post_install_authentication_unverified"}
+        return {**receipt, "upgrade_health": health}
     return receipt
 
 
@@ -646,6 +715,7 @@ def reconciliation_status(ledger, candidate, *, artifact_dir, gate):
     return {"candidate_id": candidate.candidate_id, "version_code": candidate.version_code,
             "source_sha": candidate.source_sha, "current_main": main_sha,
             "recorded_stages": [stage for stage in STAGES if stage in state],
+            "upgrade_health": ledger.read_upgrade_health(candidate.candidate_id),
             "local_signed_artifact_verified": verified, "publication_hold": held,
             "blockers": blockers, "admission": False}
 
@@ -713,11 +783,30 @@ def main(argv=None):
         elif args.action == "reconcile":
             result = reconcile_artifact(ledger,candidate,args.stage,pinned_certificate=args.certificate,artifact_dir=args.artifact_dir)
         elif args.action == "lab-install":
-            result = install_stable_candidate(ledger,candidate,artifact_dir=args.artifact_dir,
-                       workflow_sha=args.workflow_sha,install_run_id=args.run_id,
-                       expected_artifact_id=args.artifact_id,expected_digest=args.digest,
-                       expected_certificate=args.certificate,preflight_only=args.preflight_only,
-                       allow_unverified_auth=args.allow_unverified_auth)
+            from gway_remote.mcp_android import Device, _device_session
+            from gway_remote.android_rc_health import fresh_health
+            from gway_remote.android_execution_contract import budget
+            with _device_session():
+                device = Device()
+                serial = device.serial()
+                initial = device.screen_state(serial)
+                automatic = not args.preflight_only and not args.allow_unverified_auth
+                try:
+                    with budget(seconds=390):
+                        result = install_stable_candidate(ledger,candidate,artifact_dir=args.artifact_dir,
+                                   workflow_sha=args.workflow_sha,install_run_id=args.run_id,
+                                   expected_artifact_id=args.artifact_id,expected_digest=args.digest,
+                                   expected_certificate=args.certificate,preflight_only=args.preflight_only,
+                                   allow_unverified_auth=args.allow_unverified_auth,device=device,
+                                   fresh_check=fresh_health if automatic else None)
+                finally:
+                    if automatic and initial.get("screen_on") is False:
+                        require(device.serial() == serial, "usb_identity_changed")
+                        final = device.screen_state(serial)
+                        if final.get("screen_on") is True and final.get("locked") is False:
+                            device.invoke("key", {"key":"SLEEP"})
+                        require(device.screen_state(serial).get("screen_on") is False,
+                                "sleep_restore_unverified")
         elif args.action == "reconciliation-status":
             result = reconciliation_status(ledger, candidate, artifact_dir=args.artifact_dir, gate=gate)
         else:

@@ -373,6 +373,33 @@ class CandidateTests(unittest.TestCase):
                     self.assertEqual(install_stable_candidate(ledger,self.c,allow_unverified_auth=True,**kwargs),receipt)
                     self.assertEqual(sum(x[3:5]==["install","-r"] for x in calls),1)
                     self.assertNotIn("accepted",ledger.read(self.c.candidate_id))
+                    from unittest.mock import Mock
+                    with self.assertRaisesRegex(ValueError,"upgrade_health_unverified_reconcile"):
+                        install_stable_candidate(ledger,self.c,fresh_check=Mock(return_value=True),**kwargs)
+                    self.assertIsNone(ledger.read_upgrade_health(self.c.candidate_id))
+                    self.assertEqual(sum(x[3:5]==["install","-r"] for x in calls),1)
+                    for post in (False, True):
+                        # Separate hermetic fixture for an authenticated incremental update.
+                        other = CandidateLedger(":memory:")
+                        try:
+                            other.allocate(self.c,published_version=798,installed_version=799)
+                            other.record(self.c.candidate_id,"built",{"run_id":19,"artifact_id":9})
+                            other.record(self.c.candidate_id,"signed",signed)
+                            inspect.return_value = before
+                            calls.clear()
+                            check = Mock(side_effect=[True, post])
+                            result = install_stable_candidate(other,self.c,fresh_check=check,**kwargs)
+                            self.assertEqual(check.call_count,2)
+                            self.assertEqual(sum(x[3:5]==["install","-r"] for x in calls),1)
+                            self.assertIn("installed",other.read(self.c.candidate_id))
+                            self.assertEqual(result["status"],"installed" if post else "blocked")
+                            self.assertEqual(other.read_upgrade_health(self.c.candidate_id) is not None,post)
+                            if not post:
+                                with self.assertRaisesRegex(ValueError,"upgrade_health_unverified_reconcile"):
+                                    install_stable_candidate(other,self.c,fresh_check=Mock(return_value=True),**kwargs)
+                                self.assertEqual(sum(x[3:5]==["install","-r"] for x in calls),1)
+                        finally:
+                            other.close()
             finally:
                 ledger.close()
 
@@ -469,5 +496,40 @@ class CandidateTests(unittest.TestCase):
                 with self.assertRaises(sqlite3.OperationalError):
                     ledger.record(self.c.candidate_id, "built", {"run_id": 10})
                 self.assertNotIn("built", ledger.read(self.c.candidate_id))
+            finally:
+                ledger.close()
+
+    def test_upgrade_health_is_not_module_acceptance_or_retroactive_baseline(self):
+        from gway_remote.android_release_candidate import CandidateLedger, PACKAGE
+        for prior_auth in (False, True):
+            ledger = CandidateLedger(":memory:")
+            try:
+                ledger.allocate(self.c, published_version=798, installed_version=799)
+                ledger.record(self.c.candidate_id, "built", {"run_id": 19})
+                ledger.record(self.c.candidate_id, "signed", {"run_id":20,"artifact_id":10,
+                              "apk_sha256":"c"*64,"certificate_sha256":"d"*64})
+                before = dict(package=PACKAGE, version_code=799, apk_sha256="e"*64, certificate_sha256="d"*64)
+                after = dict(before, version_code=800, apk_sha256="c"*64)
+                ledger.record(self.c.candidate_id, "installed", {
+                    "candidate_id": self.c.candidate_id, "artifact_id":10,
+                    "apk_sha256":"c"*64,"certificate_sha256":"d"*64,
+                    "operation":"incremental_update","device":"gway-001","install_run_id":30,
+                    "credential_before":prior_auth,"canary_path_unchanged":True,
+                    "installed_before":before,"installed_after":after})
+                with self.assertRaisesRegex(ValueError,"post_install_authentication_failed"):
+                    ledger.record_upgrade_health(self.c, run_id=30, post_authenticated=False)
+                with self.assertRaisesRegex(ValueError,"upgrade_baseline_unverified"):
+                    ledger.record_upgrade_health(self.c, run_id=31, post_authenticated=True)
+                self.assertIsNone(ledger.read_upgrade_health(self.c.candidate_id))
+                if prior_auth:
+                    receipt = ledger.record_upgrade_health(self.c, run_id=30, post_authenticated=True)
+                    self.assertEqual(receipt["from_version"],799)
+                    self.assertEqual(receipt["to_version"],800)
+                    self.assertEqual(receipt,ledger.record_upgrade_health(self.c,run_id=30,post_authenticated=True))
+                    self.assertEqual(receipt,ledger.read_upgrade_health(self.c.candidate_id))
+                else:
+                    with self.assertRaisesRegex(ValueError,"upgrade_baseline_unverified"):
+                        ledger.record_upgrade_health(self.c,run_id=30,post_authenticated=True)
+                self.assertNotIn("accepted",ledger.read(self.c.candidate_id))
             finally:
                 ledger.close()
