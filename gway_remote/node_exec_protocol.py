@@ -176,7 +176,7 @@ def serve_one(raw, *, jobs=None, hostname=None, trusted_relay=False):
         options = {"node_id": host, "trusted_scope": scope}
         android_call = request.get("provider") == "android"
         started = time.monotonic()
-        if android_call:
+        if android_call or request.get("provider") == "agentops":
             options["invocation_id"] = rid
         result = dispatch_node_provider_request(registrations, request, **options)
         if android_call and request.get("tool") == "scenario_run":
