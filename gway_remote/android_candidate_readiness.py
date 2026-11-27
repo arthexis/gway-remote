@@ -4,6 +4,7 @@ This is an advisory status until the owner separately enables its reviewed
 ruleset context. Strict CI continues to be the required integration guard.
 """
 import argparse
+import copy
 import os
 import subprocess
 from gway_remote import android_release_gate as gate
@@ -166,6 +167,52 @@ def reconcile_all(url, *, api=gate.api, pages=gate.pages, write=report):
             print(f"PR #{pr}: evidence unavailable")
     gate.require(not failed, "one or more PR classifications unavailable")
 
+
+
+def ruleset_plan(existing):
+    """Pure additive plan only; no rule mutation or bypass is permitted."""
+    rule = copy.deepcopy({k: existing[k] for k in
+                          ("name", "target", "enforcement", "bypass_actors", "conditions", "rules")})
+    gate.require(rule["name"] == "main" and rule["target"] == "branch"
+                 and rule["enforcement"] == "active" and not rule["bypass_actors"],
+                 "unexpected branch ruleset")
+    checks = [x for x in rule["rules"] if x["type"] == "required_status_checks"]
+    gate.require(len(checks) == 1, "ambiguous required status checks")
+    params = checks[0]["parameters"]
+    required = params["required_status_checks"]
+    expected = {"context": CONTEXT, "integration_id": 15368}
+    gate.require(params["strict_required_status_checks_policy"] is True
+                 and {"context": "CI", "integration_id": 15368} in required,
+                 "existing strict CI missing")
+    found = [x for x in required if x["context"] == CONTEXT]
+    gate.require(not found or found == [expected], "wrong gate integration")
+    if not found:
+        required.append(expected)
+    return rule
+
+
+def merge_plan(pr, head, base, *, owner_opt_in, actor, api=gate.api, pages=gate.pages):
+    """Preflight only; never arm a latent merge or dispatch a candidate."""
+    gate.require(owner_opt_in is True and actor == gate.OWNER, "owner opt-in required")
+    p = exact_pr(pr, api=api)
+    gate.require(not p["draft"] and p["head"]["sha"] == head and p["base"]["sha"] == base
+                 and (p["head"].get("repo") or {}).get("full_name") == gate.REPO
+                 and (p.get("user") or {}).get("login") == gate.OWNER, "owner PR moved")
+    paths = exact_paths(p, pages=pages)
+    gate.require(all(x.startswith("android/") for x in paths), "mixed/control-plane PR requires protected normal merge")
+    gate.require(evaluate(p, paths, api=api) == ("success", "hosted-ready"), "hosted evidence not ready")
+    rules = api("rules/branches/main")
+    needed = {"CI", CONTEXT}
+    gate.require(any(x["type"] == "required_status_checks"
+                     and x["parameters"]["strict_required_status_checks_policy"] is True
+                     and needed <= {c["context"] for c in x["parameters"]["required_status_checks"]
+                                    if c.get("integration_id") == 15368} for x in rules),
+                 "protected candidate gate not active")
+    gate.require(identity(exact_pr(pr, api=api)) == identity(p), "PR identity changed")
+    gate.require(exact_paths(p, pages=pages) == paths, "changed-file evidence moved")
+    return {"pr": pr, "head": head, "base": base, "hosted_ready": True,
+            "merge_armed": False, "candidate_allocated": False,
+            "publication_admission": False}
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
