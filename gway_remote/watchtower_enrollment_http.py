@@ -6,6 +6,7 @@ client artifact stays in this package directory without importing it.
 from __future__ import annotations
 
 import json
+import os
 import re
 import subprocess
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -13,6 +14,9 @@ from pathlib import Path
 
 from .bootstrap_script import render_bootstrap_script
 from .watchtower_enrollment_ledger import EnrollmentRejected
+from typing import TYPE_CHECKING
+if TYPE_CHECKING:
+    from .deferred_enrollment import DeferredPreparations
 from .watchtower_enrollment_provisioner import Provisioner
 from .wireguard_enrollment_contract import (
     InvalidEnrollment, MAX_REQUEST_BYTES, parse_host_identity_enrollment,
@@ -21,7 +25,9 @@ from .wireguard_enrollment_contract import (
 
 
 def make_handler(provisioner: Provisioner | None, *, public_url: str, wireguard_endpoint: str,
-                 read_only_stage: bool = False):
+                 read_only_stage: bool = False, deferred: DeferredPreparations | None = None):
+    if deferred is not None:
+        from .deferred_enrollment import PreparationRejected
     class Handler(BaseHTTPRequestHandler):
         server_version = "gway-remote-watchtower"
         sys_version = ""
@@ -88,6 +94,17 @@ def make_handler(provisioner: Provisioner | None, *, public_url: str, wireguard_
                 except (EnrollmentRejected, OSError, subprocess.CalledProcessError):
                     self._send(404, {"error": "not_found"})
                 return
+            # Feature-gated; never active until an operator supplies the
+            # separately protected sealing key and enables the deferred store.
+            challenge = re.fullmatch(r"/v1/sd-preparations/([a-f0-9]{32})/challenge", self.path)
+            if challenge and not read_only_stage and deferred is not None and self.command == "GET":
+                try:
+                    nonce = deferred.challenge(challenge.group(1))
+                except PreparationRejected:
+                    self._send(404, {"error": "not_found"})
+                else:
+                    self._send(200, {"challenge": nonce})
+                return
             if self.path == "/health":
                 self._send(200, {"ok": True, "service": "gway-remote-watchtower", "enrollment_url": public_url})
             else:
@@ -96,6 +113,24 @@ def make_handler(provisioner: Provisioner | None, *, public_url: str, wireguard_
         do_HEAD = do_GET
 
         def do_POST(self) -> None:
+            claim = re.fullmatch(r"/v1/sd-preparations/([a-f0-9]{32})/claim", self.path)
+            if claim and not read_only_stage and deferred is not None:
+                try:
+                    length = int(self.headers.get("Content-Length", "0"))
+                    if not 0 < length <= 1024:
+                        raise ValueError("bad length")
+                    data = json.loads(self.rfile.read(length))
+                    if not isinstance(data, dict) or set(data) != {"challenge", "signature"}:
+                        raise ValueError("invalid fields")
+                    result = deferred.claim(claim.group(1), data["challenge"], data["signature"])
+                except (ValueError, TypeError, KeyError):
+                    self._send(400, {"error": "invalid_request"})
+                except PreparationRejected:
+                    self._send(403, {"error": "preparation_rejected"})
+                else:
+                    # Contains one secret URL: never log response body.
+                    self._send(200, result)
+                return
             completion = re.fullmatch(
                 r"/v1/bootstrap/([A-Za-z0-9_-]{32,128})/complete", self.path,
             )
@@ -150,7 +185,8 @@ def make_handler(provisioner: Provisioner | None, *, public_url: str, wireguard_
 
 
 def serve(provisioner: Provisioner | None, *, host: str, port: int, public_url: str,
-          wireguard_endpoint: str, read_only_stage: bool = False) -> None:
+          wireguard_endpoint: str, read_only_stage: bool = False,
+          deferred: DeferredPreparations | None = None) -> None:
     if host not in {"127.0.0.1", "::1"}:
         raise ValueError("Watchtower service must bind a loopback address")
     if read_only_stage:
@@ -160,7 +196,17 @@ def serve(provisioner: Provisioner | None, *, host: str, port: int, public_url: 
         raise ValueError("active Watchtower service requires a provisioner")
     else:
         provisioner.recover()
+    # Feature OFF by default. A protected 0600 root-owned key must be
+    # deliberately installed before the loopback API can accept claims.
+    if os.environ.get("GWAY_SD_PREPARATIONS_ENABLED") == "1":
+        if read_only_stage or provisioner is None or deferred is not None:
+            raise ValueError("invalid deferred enrollment activation")
+        from .deferred_enrollment_cli import read_sealing_key
+        from .deferred_enrollment import DeferredPreparations
+        deferred = DeferredPreparations(
+            provisioner.ledger.path,
+            sealing_key=read_sealing_key(Path("/etc/gway-remote/sd-sealing.key")))
     httpd = ThreadingHTTPServer((host, port), make_handler(
         provisioner, public_url=public_url, wireguard_endpoint=wireguard_endpoint,
-        read_only_stage=read_only_stage))
+        read_only_stage=read_only_stage, deferred=deferred))
     httpd.serve_forever()
