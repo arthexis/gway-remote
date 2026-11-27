@@ -27,7 +27,7 @@ class OpportunityTests(unittest.TestCase):
         def query(model, domain, fields, limit, offset=0):
             if model == "crm.lead":
                 self.assertEqual((limit, offset), (2, 1))
-                return [{"id": 7, "name": "Porsche #42: Example", "priority": "3", "description": "Urgente - Nueva - Model", "partner_id": [5, "Example"]}, {"id": 8}]
+                return [{"id": 7, "name": "Porsche #42: Example", "stage_id": [99, "Pre-Check"], "priority": "3", "description": "Urgente - Nueva - Model", "partner_id": [5, "Example"]}, {"id": 8}]
             if model == "sale.order":
                 self.assertIn(["opportunity_id", "=", 7], domain)
                 return [{"id": 10, "name": "S00001", "state": "draft"}]
@@ -43,6 +43,16 @@ class OpportunityTests(unittest.TestCase):
         row = result["opportunities"][0]
         self.assertEqual((row["id"], row["quotation_name"], row["request_type"]), (7, "S00001", "new"))
         self.assertIsNone(row["consent_url"])
+        self.assertEqual((row["stage_id"], row["stage_name"]), (99, "Pre-Check"))
+
+    def test_ticket_marker_and_stage_are_dynamic(self):
+        lead = {"name": "Example", "description": "<p>Porsche Ticket: 123<br/>Inspection</p>",
+                "stage_id": [81, "Pre-Check"]}
+        self.assertEqual(m._porsche_ticket(lead), "123")
+        self.assertEqual(m._stage_name(lead), "Pre-Check")
+        lead["name"] = "Porsche #124: Example"
+        self.assertIsNone(m._porsche_ticket(lead))
+        self.assertIsNone(m._stage_name({"stage_id": False}))
 
     def test_invalid_pagination(self):
         for args in ({"limit": 31}, {"page": True}, {"page": 0}, {"domain": []}):

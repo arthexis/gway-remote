@@ -122,6 +122,11 @@ def provider_call(registrations, *, provider, tool, arguments, authorized_scope,
             options["invocation_id"] = invocation_id
         if registration.source_id == "odoo" and tool == "customer_vehicle_batch_apply":
             options["timeout"] = 25
+        # CRM guarded writer has a 25s subprocess budget.
+        if registration.source_id == "odoo" and tool in (
+                "crm_opportunity_create", "crm_opportunity_update",
+                "crm_opportunity_stage_move"):
+            options["timeout"] = 28
         if registration.source_id == "android" and tool == "scenario_run":
             from .android_execution_contract import STDIO_SECONDS
             options["timeout"] = STDIO_SECONDS

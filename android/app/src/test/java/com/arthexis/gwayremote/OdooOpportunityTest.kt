@@ -26,6 +26,13 @@ class OdooOpportunityTest {
         assertEquals("Por cotizar", r.status)
     }
 
+    @Test fun stageNameIsDynamicAndBackwardCompatible() {
+        val r = parseOpportunityPage(response(row().put("stage_id", 987).put("stage_name", "Pre-Check"))).rows.single()
+        assertEquals(987, r.stageId)
+        assertEquals("Pre-Check", r.status)
+        assertEquals("Por cotizar", parseOpportunityPage(response(row())).rows.single().status)
+    }
+
     @Test fun onlyAssociatedSentOrLaterAndExplicitlyClosedAreExcluded() {
         val p = parseOpportunityPage(response(row(1), row(2, "draft"), row(3, "sent"),
             row(4, "sale"), row(5, "done"), row(6, null, "lost"), row(7, "cancel"),

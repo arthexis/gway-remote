@@ -15,7 +15,9 @@ internal data class Opportunity(
     val vin: String,
     val consentUrl: String?,
     val quotationName: String?,
-    val quotationState: String?
+    val quotationState: String?,
+    val stageId: Int? = null,
+    val stageName: String? = null
 ) {
     val copyValues: List<String> get() = listOf(
         customer, phone, address,
@@ -23,7 +25,7 @@ internal data class Opportunity(
             listOf(priority, requestType, model).joinToString(" - ") else "",
         vin
     )
-    val status: String get() = if (quotationState == "draft") "Cotización por enviar" else "Por cotizar"
+    val status: String get() = if (quotationState == "draft") "Cotización por enviar" else stageName?.takeIf { it.isNotBlank() } ?: "Por cotizar"
 }
 
 internal fun consentDocumentUrl(raw: String?): String? {
@@ -61,7 +63,8 @@ internal fun parseOpportunityPage(response: JSONObject): OpportunityPage {
         rows += Opportunity(id, value("customer"), value("phone"), value("complete_address"),
             value("priority"), type, value("vehicle_model"), value("vin"),
             consentDocumentUrl(value("consent_url")), value("quotation_name").takeIf { it.isNotBlank() },
-            state)
+            state, (row.opt("stage_id") as? Number)?.toInt()?.takeIf { it > 0 },
+            value("stage_name").ifEmpty { null })
     }
     return OpportunityPage(rows, result.getBoolean("has_next"))
 }
