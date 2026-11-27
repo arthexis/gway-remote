@@ -122,5 +122,50 @@ class ReadinessTests(unittest.TestCase):
             self.assertNotIn(marker, workflow)
 
 
+    def test_ruleset_plan_preserves_all_existing_protections(self):
+        old = {"name": "main", "target": "branch", "enforcement": "active",
+               "bypass_actors": [], "conditions": {"ref_name": {"include": ["refs/heads/main"], "exclude": []}},
+               "rules": [{"type": "deletion"}, {"type": "non_fast_forward"}, {"type": "pull_request"},
+                         {"type": "required_status_checks", "parameters": {
+                             "strict_required_status_checks_policy": True,
+                             "required_status_checks": [{"context": "CI", "integration_id": 15368}]}}]}
+        original = copy.deepcopy(old)
+        planned = r.ruleset_plan(old)
+        self.assertEqual(old, original)
+        self.assertEqual(planned["rules"][:-1], old["rules"][:-1])
+        self.assertEqual(planned["rules"][-1]["parameters"]["required_status_checks"][-1],
+                         {"context": r.CONTEXT, "integration_id": 15368})
+        self.assertEqual(r.ruleset_plan(planned), planned)
+        with self.assertRaises(RuntimeError):
+            r.ruleset_plan({**old, "bypass_actors": [{"actor_id": 1}]})
+
+    def test_merge_plan_requires_owner_exact_base_and_active_rules(self):
+        p = {**PR, "user": {"login": g.OWNER}}
+        def api(path):
+            if path == "pulls/42":
+                return p
+            if path == "branches/main":
+                return {"commit": {"sha": BASE}}
+            if path == "rules/branches/main":
+                return [{"type": "required_status_checks", "parameters": {
+                    "strict_required_status_checks_policy": True,
+                    "required_status_checks": [{"context": k, "integration_id": 15368}
+                                               for k in ("CI", r.CONTEXT)]}}]
+            return self.api(path)
+        rows = lambda _: [{"filename": "android/A.kt", "status": "modified"}]
+        for opt_in, actor, head in ((False, g.OWNER, HEAD), (True, "other", HEAD), (True, g.OWNER, BASE)):
+            with self.assertRaises(RuntimeError):
+                r.merge_plan(42, head, BASE, owner_opt_in=opt_in, actor=actor, api=api, pages=rows)
+        with self.assertRaises(RuntimeError):
+            r.merge_plan(42, HEAD, BASE, owner_opt_in=True, actor=g.OWNER,
+                         api=lambda path: [] if path == "rules/branches/main" else api(path), pages=rows)
+        plan = r.merge_plan(42, HEAD, BASE, owner_opt_in=True, actor=g.OWNER, api=api, pages=rows)
+        self.assertTrue(plan["hosted_ready"])
+        self.assertFalse(plan["merge_armed"])
+        self.assertFalse(plan["candidate_allocated"])
+        self.assertFalse(plan["publication_admission"])
+
+
+
 if __name__ == "__main__":
     unittest.main()
