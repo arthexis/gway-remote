@@ -533,3 +533,48 @@ class CandidateTests(unittest.TestCase):
                 self.assertNotIn("accepted",ledger.read(self.c.candidate_id))
             finally:
                 ledger.close()
+
+    def test_consecutive_authenticated_upgrades_require_linked_exact_digests(self):
+        from gway_remote.android_release_candidate import Candidate, CandidateLedger, PACKAGE
+        first = self.c
+        second = Candidate("f"*40, "a"*40, 801, "0.2.801")
+        def record(ledger, candidate, before_digest, after_digest, run, cert="d"*64):
+            v = candidate.version_code
+            ledger.allocate(candidate, published_version=798, installed_version=v-1)
+            ledger.record(candidate.candidate_id, "built", {"run_id": run-2})
+            ledger.record(candidate.candidate_id, "signed", {
+                "run_id":run-1, "artifact_id":run-10, "apk_sha256":after_digest,
+                "certificate_sha256":cert})
+            before = dict(package=PACKAGE, version_code=v-1, apk_sha256=before_digest,
+                          certificate_sha256=cert)
+            after = dict(before, version_code=v, apk_sha256=after_digest)
+            ledger.record(candidate.candidate_id, "installed", {
+                "candidate_id":candidate.candidate_id, "artifact_id":run-10,
+                "apk_sha256":after_digest, "certificate_sha256":cert,
+                "operation":"incremental_update", "device":"gway-001", "install_run_id":run,
+                "credential_before":True, "canary_path_unchanged":True,
+                "installed_before":before, "installed_after":after})
+            return ledger.record_upgrade_health(candidate, run_id=run, post_authenticated=True)
+        for linked in (True, False):
+            ledger = CandidateLedger(":memory:")
+            try:
+                prior = record(ledger, first, "b"*64, "c"*64, 30)
+                self.assertIsNone(ledger.consecutive_upgrade_health(first))
+                current = record(ledger, second, ("c" if linked else "e")*64, "f"*64, 40)
+                if linked:
+                    proof = ledger.consecutive_upgrade_health(second)
+                    self.assertEqual(proof["authenticated_upgrades"], [prior, current])
+                    self.assertFalse(proof["module_acceptance"])
+                    self.assertFalse(proof["publication_admission"])
+                    # Corrupt data is rejected instead of treated as a valid chain.
+                    bad = dict(current, authenticated_before=False)
+                    ledger.db.execute("UPDATE upgrade_health SET payload=? WHERE candidate_id=?",
+                                      (ledger.encode(bad), second.candidate_id))
+                    with self.assertRaisesRegex(ValueError, "upgrade_health_evidence_mismatch"):
+                        ledger.consecutive_upgrade_health(second)
+                else:
+                    with self.assertRaisesRegex(ValueError, "upgrade_chain_mismatch"):
+                        ledger.consecutive_upgrade_health(second)
+                self.assertNotIn("accepted", ledger.read(second.candidate_id))
+            finally:
+                ledger.close()

@@ -177,8 +177,8 @@ class CandidateLedger:
         row = self.db.execute("SELECT payload FROM upgrade_health WHERE candidate_id=?", (candidate_id,)).fetchone()
         return json.loads(row[0]) if row else None
 
-    def record_upgrade_health(self, candidate, *, run_id, post_authenticated):
-        """Record credential preservation, NOT full module acceptance."""
+    def _upgrade_health_evidence(self, candidate, *, run_id, post_authenticated):
+        """Validate and reconstruct the canonical credential-preservation receipt."""
         require(type(run_id) is int and run_id > 0 and post_authenticated is True,
                 "post_install_authentication_failed")
         state = self.read(candidate.candidate_id)
@@ -211,6 +211,11 @@ class CandidateLedger:
                     "from_sha256": before["apk_sha256"], "to_sha256": artifact.apk_sha256,
                     "certificate_sha256": artifact.certificate_sha256,
                     "device": "gway-001", "authenticated_before": True, "authenticated_after": True}
+        return evidence
+
+    def record_upgrade_health(self, candidate, *, run_id, post_authenticated):
+        """Record credential preservation, NOT full module acceptance."""
+        evidence = self._upgrade_health_evidence(candidate, run_id=run_id, post_authenticated=post_authenticated)
         payload = self.encode(evidence)
         self.db.execute("BEGIN IMMEDIATE")
         try:
@@ -224,6 +229,38 @@ class CandidateLedger:
         except BaseException:
             self.db.rollback()
             raise
+
+    def consecutive_upgrade_health(self, candidate):
+        """Read-only proof of two linked authenticated incremental upgrades.
+
+        Reconstruct both receipts from immutable signed/install evidence.
+        Historical receipts are not acceptance or permission to publish.
+        """
+        current = self.read_upgrade_health(candidate.candidate_id)
+        if current is None:
+            return None
+        require(current == self._upgrade_health_evidence(
+            candidate, run_id=current.get("run_id"), post_authenticated=current.get("authenticated_after")),
+            "upgrade_health_evidence_mismatch")
+        row = self.db.execute("SELECT id,manifest FROM candidate WHERE version=?",
+                              (current["from_version"],)).fetchone()
+        if row is None:
+            return None
+        previous = Candidate(**json.loads(row[1]))
+        require(previous.candidate_id == row[0], "previous_candidate_mismatch")
+        prior = self.read_upgrade_health(previous.candidate_id)
+        if prior is None:
+            return None
+        require(prior == self._upgrade_health_evidence(
+            previous, run_id=prior.get("run_id"), post_authenticated=prior.get("authenticated_after")),
+            "upgrade_health_evidence_mismatch")
+        require(prior["to_version"] == current["from_version"]
+                and prior["to_sha256"] == current["from_sha256"]
+                and prior["certificate_sha256"] == current["certificate_sha256"]
+                and prior["run_id"] != current["run_id"],
+                "upgrade_chain_mismatch")
+        return {"device": "gway-001", "authenticated_upgrades": [prior, current],
+                "module_acceptance": False, "publication_admission": False}
 
     def claim_dispatch(self, candidate_id, stage, inputs):
         """Reserve before network mutation; an uncertain intent is never replayed."""
@@ -706,6 +743,13 @@ def reconciliation_status(ledger, candidate, *, artifact_dir, gate):
         blockers.append("installation_missing")
     elif state["installed"].get("credential_before") is not True:
         blockers.append("authenticated_upgrade_baseline_missing")
+    upgrade_health = ledger.read_upgrade_health(candidate.candidate_id)
+    chain = ledger.consecutive_upgrade_health(candidate)
+    if state.get("installed", {}).get("credential_before") is True:
+        if upgrade_health is None:
+            blockers.append("post_install_authentication_missing")
+        elif chain is None:
+            blockers.append("consecutive_upgrade_health_missing")
     if "accepted" not in state:
         blockers.append("authenticated_acceptance_missing")
     if "approved" not in state:
@@ -715,7 +759,8 @@ def reconciliation_status(ledger, candidate, *, artifact_dir, gate):
     return {"candidate_id": candidate.candidate_id, "version_code": candidate.version_code,
             "source_sha": candidate.source_sha, "current_main": main_sha,
             "recorded_stages": [stage for stage in STAGES if stage in state],
-            "upgrade_health": ledger.read_upgrade_health(candidate.candidate_id),
+            "upgrade_health": upgrade_health,
+            "consecutive_upgrade_health": chain,
             "local_signed_artifact_verified": verified, "publication_hold": held,
             "blockers": blockers, "admission": False}
 

@@ -60,3 +60,21 @@ Next: privately restore or verify existing Mobile API access; integrate reviewed
 The stable 0.2.794 app now has a working owner-configured Mobile API baseline (#753 comment 7204848557). For a new reviewed candidate, normal install mode uses the fixed manifest activity and reviewed Home/System/API Health route to make a fresh API request before and after installing exactly the signed APK. It uses the existing Android provider lock throughout the hardware job, bounded fresh UI observations, no secret input or arbitrary destination, and restores initial sleep if safe. Preflight-only and previously authorized exceptional lab-only mode retain their prior semantics.
 
 An immutable upgrade_health record binds the original incremental install run, before and after versions/digests, signer and successful authenticated observations. A failed post-install check does not erase the install receipt or permit reinstall. An already installed digest without an original completed receipt is an uncertain installation, not a new upgrade; reconcile manually, never reconstruct a baseline from a later successful health check. Upgrade-health evidence is not module acceptance or publication approval. #718 remains held; no promotion path is enabled here. The new navigation and receipt code must pass hosted CI and physical validation in the reviewed workflow.
+
+## Reconciled authenticated upgrade chain (2026-11-26)
+
+Exact physical stable APKs 794 -> 795 -> 796 are linked by independently
+verified SHA256 identities, the same production certificate, and durable
+authenticated before/after receipts. Run 45916104556 recorded successful
+installation and authentication before a delayed sleep observation failed;
+the later independent audit and #769 reconcile that failure without retrying
+installation. Run 45921488776 succeeded, including sleep restoration. The
+read-only consecutive_upgrade_health checkpoint reconstructs both receipts
+from immutable install/sign records, verifies their shared APK digest,
+version, signer, and distinct run IDs, and rejects mismatched or corrupt
+receipts. It confers neither module acceptance nor publication authority.
+The integrated candidate 796 is bound to source 9d1baf292db18a62438dfc3a8d3c053422a3038e.
+Do not advance main with new delivery code until this candidate is reconciled,
+or treat an older digest as accepted for a different source. The exact-artifact
+publisher and trusted per-module acceptance receipt still require reviewed
+implementation; #718 and the signing environment protections remain unchanged.
