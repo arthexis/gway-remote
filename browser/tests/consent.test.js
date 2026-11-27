@@ -19,7 +19,7 @@ async function main() {
       get: async () => tab, executeScript: async (_, options) => { injections++; assert.equal(options.file, "reports.js"); },
       sendMessage: async () => ({ok: true, state: "ready"})}
   };
-  const context = {browser, URL, setTimeout: () => 1, clearTimeout: () => {}};
+  const context = {browser, URL, crypto: require("node:crypto").webcrypto, setTimeout: () => 1, clearTimeout: () => {}};
   vm.runInNewContext(fs.readFileSync(path.join(root, "background.js"), "utf8"), context);
   assert.equal(messages.length, 0);
   browser.browserAction.onClicked.fire(tab);
@@ -44,8 +44,8 @@ async function main() {
     location: {origin: "https://reports.example.test"}, window: {}, top: null};
   isolated.top = isolated.window;
   vm.runInNewContext(fs.readFileSync(path.join(root, "reports.js"), "utf8"), isolated);
-  assert.equal((await listener.fire({origin: "https://different.example.test", request: {operation: "snapshot"}})).state, "denied");
-  assert.equal((await listener.fire({origin: isolated.location.origin, request: {operation: "snapshot"}})).state, "denied");
+  assert.equal((await listener.fire({origin: "https://different.example.test", lease: "a".repeat(32), request: {operation: "snapshot"}})).state, "denied");
+  assert.equal((await listener.fire({origin: isolated.location.origin, lease: "a".repeat(32), request: {operation: "snapshot"}})).state, "denied");
   // Synthetic dashboard adapter: no real customer data or browser.
   const listener2 = event();
   class Anchor {
@@ -76,7 +76,8 @@ async function main() {
     getComputedStyle: () => ({visibility: "visible"}), setTimeout: fn => fn()};
   ctx.top = ctx.window;
   vm.runInNewContext(fs.readFileSync(path.join(root, "reports.js"), "utf8"), ctx);
-  const invoke = request => listener2.fire({origin: loc.origin, request});
+  let lease = "a".repeat(32);
+  const invoke = request => listener2.fire({origin: loc.origin, lease, request});
   let snap = await invoke({operation: "snapshot"});
   assert.equal(snap.controls.length, 1);
   assert.equal(snap.evidence.rfid_summary_rows, 2);
@@ -89,6 +90,9 @@ async function main() {
   assert.equal((await invoke({operation: "click", ref})).state, "stale");
   snap = await invoke({operation: "snapshot"});
   now += 30001;
+  assert.equal((await invoke({operation: "click", ref: snap.controls[0].ref})).state, "stale");
+  snap = await invoke({operation: "snapshot"});
+  lease = "b".repeat(32);
   assert.equal((await invoke({operation: "click", ref: snap.controls[0].ref})).state, "stale");
   snap = await invoke({operation: "snapshot"});
   valid.href = "https://other.example.test/rfid?rfid=fixture";
