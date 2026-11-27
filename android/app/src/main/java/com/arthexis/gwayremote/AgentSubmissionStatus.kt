@@ -25,8 +25,4 @@ internal enum class AgentSubmissionStatus(val label: String) {
 }
 
 /** Display-only gate; authoritative eligibility is rechecked by Agent Ops. */
-internal fun agentIssueEligible(issue: JSONObject): Boolean {
-    if (!issue.optBoolean("eligible", false)) return false
-    val labels = issue.optJSONArray("labels") ?: return false
-    return (0 until labels.length()).any { labels.optString(it) == "gway-001" }
-}
+internal fun agentIssueEligible(issue: JSONObject): Boolean = issue.optBoolean("eligible", false)

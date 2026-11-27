@@ -1,11 +1,18 @@
 # Codex GitHub discovery
 
-The existing idle Codex worker checks approved repositories every 300 seconds when `GITHUB_TOKEN` is present in its service environment. `GWAY_CODEX_POLL_SECONDS` may increase this interval (minimum 60 seconds). No second daemon is created. The worker remains execution-disabled.
+AgentOps is the sole owner of automatic GitHub issue pickup. Exact node identity
+labels (for example `gway-001`) express automatic assignment, and `on-hold`
+prevents automatic pickup. Explicit manual execution does not require either
+label. No workflow, issue template or legacy worker should apply node labels
+merely to describe a host, route a manual task or classify a finding.
 
-Only open issues with the `local-agent` label, created by GitHub user `arthexis` (numeric account ID `780437`), are imported as `requested` tasks. Issues from other accounts and pull requests are ignored. Discovery does not approve or execute tasks.
+The legacy GWay Remote Codex worker no longer imports GitHub issues into its
+independent queue. Its compatibility discovery command only reconciles
+historical GitHub-imported tasks when GitHub confirms closure, preserving
+explicit manual tasks and existing decisions. Removing a label cannot revoke
+a separately approved manual operation. The read-only issue list still shows
+open trusted-author issues in its existing allowed repositories.
 
-Manual inspection: `gway-remote codex discover`, `gway-remote codex tasks`, `gway-remote codex task ID`.
-
-To reject: `gway-remote codex veto ID --reason 'Not for local execution'`. A veto persists across restarts and discovery passes. To lift it: `gway-remote codex unveto ID`; this returns to `requested` and does not approve execution.
-
-Do not enable the worker in production until CI, migration, credential handling, and local field validation pass. A read-only GitHub token should be provisioned via a protected service environment, never committed to the repository. Closed-issue reconciliation remains a separate hardening requirement.
+Manual inspection: `gway-remote codex discover`, `gway-remote codex tasks`,
+`gway-remote codex task ID`. Do not activate the legacy worker as an automatic
+pickup mechanism. No change to runner labels, device identities or credentials.
