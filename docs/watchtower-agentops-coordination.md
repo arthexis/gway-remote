@@ -33,7 +33,7 @@ the fence. Historical hashes must be seeded before real admission.
    member via reviewed deployment recipes. Do not alter credentials, WireGuard,
    OAuth or Android. Confirm manifests and node identity.
 3. Run isolated synthetic acceptance before activation. On each node, use
-   a root-owned /etc/gway-mcp-providers/agentops.coordination-canary.json
+   a root-owned /etc/gway-agent-ops/coordination-canary.json
    with schema 1, same 32-hex epoch, members list, general_pickup_accepted
    false. Its separate owner-private coordination-canary mailbox cannot be
    used by a real worker. Test with an isolated Watchtower Ledger path
@@ -51,7 +51,7 @@ the fence. Historical hashes must be seeded before real admission.
    overwritten. Back up and retain the epoch and history.
 5. Stage disabled private timer with watchtower-agentops-coordination.yml,
    then test one tick under its existing gateway account. No public service.
-   Install matching root-managed node configuration only on all reviewed
+   Install matching root-managed /etc/gway-agent-ops/coordination.json node configuration only on all reviewed
    members while quiesced, with general_pickup_accepted=false. Enable the
    private timer only after controlled acceptance; verify real periodic
    progression. No general pickup activation in this change.
