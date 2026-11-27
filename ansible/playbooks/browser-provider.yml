@@ -99,7 +99,14 @@
         owner: root
         group: root
         mode: '0644'
-      loop: "{{ browser_files }}"
+      loop: "{{ browser_files | reject('equalto', 'browser/firefox/manifest.json') | list }}"
+    - name: Render exact origin optional permission (never a wildcard host)
+      ansible.builtin.copy:
+        content: "{{ (lookup('file', playbook_dir + '/../browser/firefox/manifest.json') | from_json | combine({'optional_permissions': [gway_browser_origin + '/*']})) | to_nice_json }}\n"
+        dest: "{{ browser_root }}/{{ gway_browser_revision }}/firefox/manifest.json"
+        owner: root
+        group: root
+        mode: '0644'
     - name: Install pinned entrypoints without relying on inherited PYTHONPATH
       ansible.builtin.copy:
         content: |
