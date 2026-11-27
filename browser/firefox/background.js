@@ -23,7 +23,9 @@ browser.browserAction.onClicked.addListener(tab => {
   if (lease) { revoke(); return; }
   if (!tab.active || !tab.url || !tab.url.startsWith("https://")) return;
   const port = browser.runtime.connectNative("com.arthexis.gway_browser");
-  const current = {port, tabId: tab.id, url: tab.url, origin: null, busy: false, timer: null};
+  const id = Array.from(crypto.getRandomValues(new Uint8Array(16)), x =>
+    x.toString(16).padStart(2, "0")).join("");
+  const current = {port, tabId: tab.id, url: tab.url, origin: null, busy: false, timer: null, id};
   lease = current;
   current.timer = setTimeout(revoke, 10000);
   port.onDisconnect.addListener(() => { if (lease === current) revoke(); });
@@ -51,7 +53,7 @@ browser.browserAction.onClicked.addListener(tab => {
       } else {
         await browser.tabs.executeScript(current.tabId, {file: "reports.js", frameId: 0});
         const result = await browser.tabs.sendMessage(current.tabId,
-          {origin: current.origin, request}, {frameId: 0});
+          {origin: current.origin, lease: current.id, request}, {frameId: 0});
         if (lease === current) port.postMessage(result);
       }
     } catch (_) {
