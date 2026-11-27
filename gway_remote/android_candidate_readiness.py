@@ -229,7 +229,7 @@ def published_issue_plan(candidate, ledger, *, requested, api=gate.api, release_
     import tempfile
     from pathlib import Path
     from gway_remote.android_rc_acceptance import identity as accepted_identity
-    from gway_remote.android_rc_promotion import verify_release_asset, PUBLISH_WORKFLOW
+    from gway_remote.android_rc_promotion import verify_release_asset, validate_full_receipt, PUBLISH_WORKFLOW
     from gway_remote.android_canary_certificate import certificate_sha256
 
     state = ledger.read(candidate.candidate_id)
@@ -246,13 +246,15 @@ def published_issue_plan(candidate, ledger, *, requested, api=gate.api, release_
                  and accepted.get("run_id") == published["acceptance_run"]
                  and approved_receipt_matches(approval, published, candidate),
                  "verified publication receipt missing")
+    validate_full_receipt(accepted, artifact, published["acceptance_run"], accepted.get("hosted_evidence", {}))
     run = api(f"actions/runs/{published['approval_run']}")
     release_gate.verify_run_identity(run, PUBLISH_WORKFLOW, published["approval_run"],
                                     "workflow_dispatch", approval["publication_revision"])
     gate.require(run.get("status") == "completed" and run.get("conclusion") == "success"
                  and run.get("run_attempt") == 1
                  and (run.get("actor") or {}).get("login") == gate.OWNER
-                 and (run.get("triggering_actor") or {}).get("login") == gate.OWNER,
+                 and (run.get("triggering_actor") or {}).get("login") == gate.OWNER
+                 and run.get("display_title") == f"Promote RC {candidate.version_code} {artifact.apk_sha256} acceptance {published['acceptance_run']}",
                  "publication workflow unverified")
     release = api(f"releases/tags/{tag}")
     verify_release_asset(artifact, release, draft=False, acceptance_run=published["acceptance_run"])
