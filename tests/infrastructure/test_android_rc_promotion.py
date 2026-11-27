@@ -62,14 +62,14 @@ class PromotionTests(unittest.TestCase):
     def release(self,draft=True):
         return {"id":40,"tag_name":self.tag,"target_commitish":self.c.source_sha,
                 "draft":draft,"prerelease":False,
-                "body":f"Source-Commit: {self.c.source_sha}\nAPK-SHA256: {self.digest}\nAcceptance-Run: 30\n",
+                "body":f"Android-Version-Code: {self.c.version_code}\nSource-Commit: {self.c.source_sha}\nAPK-SHA256: {self.digest}\nAcceptance-Run: 30\n",
                 "assets":[{"name":"gway-remote.apk","state":"uploaded","digest":"sha256:"+self.digest}]}
 
     def test_asset_identity(self):
         r = self.release()
         verify_release_asset(self.a,r,draft=True,acceptance_run=30)
         for bad in (dict(r,target_commitish="f"*40),dict(r,assets=[]),dict(r,body=""),
-                    dict(r,draft=False)):
+                    dict(r,draft=False),dict(r,body=r["body"].replace("Android-Version-Code: 800\n",""))):
             with self.assertRaises(ValueError):
                 verify_release_asset(self.a,bad,draft=True,acceptance_run=30)
 
