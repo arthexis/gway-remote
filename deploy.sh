@@ -125,6 +125,7 @@ except (OSError, ValueError, TypeError, KeyError):
 revision=$(git -C "$ROOT" rev-parse --verify HEAD)
 marker="$HOME/.local/state/gway-remote/deployed-commit"
 if [ "$#" -eq 0 ] &&
+   [ "${GWAY_REMOTE_FORCE_CLI_REPAIR:-0}" != "1" ] &&
    [ "$(cat "$marker" 2>/dev/null || true)" = "$revision" ] &&
    [ -x /usr/local/bin/gway-remote ] &&
    /usr/local/bin/gway-remote status --json | /usr/bin/python3 -c 'import json,sys; assert json.load(sys.stdin)["schema"] == "gway-remote/status/v1"' 2>/dev/null &&
@@ -135,8 +136,14 @@ if [ "$#" -eq 0 ] &&
   printf 'GWay Remote revision %s already installed and healthy; skipped Ansible.\n' "$revision"
   exit 0
 fi
-ansible-playbook "$ROOT/ansible/playbook.yml" -i 'gway_remote,' -c local \
-  -e "gway_remote_runner_user=$(id -un)" "$@"
+if [ "${GWAY_REMOTE_FORCE_CLI_REPAIR:-0}" = "1" ]; then
+  # The archive pointer may be unchanged after a rollback restored older CLI bytes.
+  ansible-playbook "$ROOT/ansible/playbook.yml" -i 'gway_remote,' -c local \
+    -e "gway_remote_runner_user=$(id -un)" -e gway_remote_force_cli_repair=true "$@"
+else
+  ansible-playbook "$ROOT/ansible/playbook.yml" -i 'gway_remote,' -c local \
+    -e "gway_remote_runner_user=$(id -un)" "$@"
+fi
 # Only the ordinary managed deployment can certify the default installation.
 if [ "$#" -eq 0 ]; then
   mkdir -p "$(dirname "$marker")"
