@@ -50,10 +50,11 @@
           - item.stat.uid == 0
           - not item.stat.islnk
           - item.stat.mode in ['0755', '0644']
+          - item.stat.isdir if item.item in ['/opt/gway-remote', '/opt/gway-remote/scripts'] else item.stat.isreg
       loop: "{{ watch_paths.results[:4] }}"
     - name: Refuse unsafe override directory or file
       ansible.builtin.assert:
-        that: not item.stat.exists or (item.stat.uid == 0 and not item.stat.islnk and item.stat.mode in ['0755', '0644'])
+        that: not item.stat.exists or (item.stat.uid == 0 and not item.stat.islnk and ((item.item == watch_override and item.stat.isreg and item.stat.mode == '0644') or (item.item != watch_override and item.stat.isdir and item.stat.mode == '0755')))
       loop: "{{ watch_paths.results[4:] }}"
     - name: Verify installed receiver resolves to protected archive and already has corrected kiosk probe
       ansible.builtin.command:
@@ -72,11 +73,30 @@
             from gway_remote.health import quick_component_check
             assert quick_component_check('gway-ap-kiosk') == 'release-missing'
       changed_when: false
+    - name: Compare CLI archive package sources with installed receiver
+      ansible.builtin.command:
+        argv:
+          - /usr/bin/python3
+          - -c
+          - |
+            import pathlib, zipfile
+            root = pathlib.Path('/opt/gway-remote/gway_remote')
+            with zipfile.ZipFile('/usr/local/bin/gway-remote') as z:
+                files = {str(p.relative_to(root)) for p in root.rglob('*.py')}
+                archived = {n.removeprefix('gway_remote/') for n in z.namelist()
+                            if n.startswith('gway_remote/') and n.endswith('.py')}
+                print('current' if files == archived and all(
+                    z.read('gway_remote/' + n) == (root / n).read_bytes()
+                    for n in files) else 'stale')
+      register: cli_package
+      changed_when: false
     - name: Stop only existing active watch timer during CLI repair
       ansible.builtin.systemd:
         name: "{{ watch_timer }}"
         state: stopped
-      when: "'ActiveState=active' in watch_state.results[1].stdout_lines"
+      when:
+        - "'ActiveState=active' in watch_state.results[1].stdout_lines"
+        - cli_package.stdout == 'stale' or '--apply' in watch_state.results[0].stdout
     - name: Verify no watch operation is running
       ansible.builtin.command:
         argv: [systemctl, show, "{{ watch_unit }}", --property=ActiveState, --value]
@@ -104,30 +124,13 @@
     - name: Reload systemd units without restarting services
       ansible.builtin.systemd:
         daemon_reload: true
-      when: watch_mode.changed
+      when: watch_mode.changed or '--apply' in watch_state.results[0].stdout
     - name: Verify effective command cannot dispatch deployments
       ansible.builtin.command:
         argv: [systemctl, show, "{{ watch_unit }}", --property=ExecStart, --value]
       register: watch_command
       changed_when: false
       failed_when: "'argv[]=/usr/local/bin/gway-remote watch ;' not in watch_command.stdout or '--apply' in watch_command.stdout"
-    - name: Compare CLI archive package sources with installed receiver
-      ansible.builtin.command:
-        argv:
-          - /usr/bin/python3
-          - -c
-          - |
-            import pathlib, zipfile
-            root = pathlib.Path('/opt/gway-remote/gway_remote')
-            with zipfile.ZipFile('/usr/local/bin/gway-remote') as z:
-                files = {str(p.relative_to(root)) for p in root.rglob('*.py')}
-                archived = {n.removeprefix('gway_remote/') for n in z.namelist()
-                            if n.startswith('gway_remote/') and n.endswith('.py')}
-                print('current' if files == archived and all(
-                    z.read('gway_remote/' + n) == (root / n).read_bytes()
-                    for n in files) else 'stale')
-      register: cli_package
-      changed_when: false
     - name: Converge repository-owned CLI installer with archive support
       ansible.builtin.copy:
         src: "{{ playbook_dir }}/../../scripts/install-cli.sh"
