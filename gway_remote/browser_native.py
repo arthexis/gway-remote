@@ -4,6 +4,7 @@ import json
 import os
 from pathlib import Path
 import selectors
+import signal
 import socket
 import stat
 import sys
@@ -110,6 +111,10 @@ def serve():
                 path.unlink(missing_ok=True)
 
 def main():
+    def stop(_signal, _frame):
+        raise SystemExit(0)
+    signal.signal(signal.SIGTERM, stop)
+    signal.signal(signal.SIGINT, stop)
     try:
         serve()
     except (OSError, ValueError, EOFError, RuntimeError):
