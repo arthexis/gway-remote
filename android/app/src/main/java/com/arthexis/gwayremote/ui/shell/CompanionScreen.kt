@@ -133,12 +133,10 @@ fun CompanionScreen(
                             availableUpdate = updates.available,
                             updateStatus = updates.status,
                             updating = updates.running,
-                            onOpenUpdate = { navigate("app-update") },
-                            onCheckUpdate = updates.check,
-                            onOpenSettings = { navigate(ModuleRegistry.SETTINGS) }
+                            onOpenUpdate = { navigate("app-update") }
                         )
                         key(feedConnection) {
-                            ActivityFeedPanel(feedConnection.first, feedConnection.second, onOpenSettings = { navigate(ModuleRegistry.SETTINGS) },
+                            ActivityFeedPanel(feedConnection.first, feedConnection.second,
                                 onNavigate = ::navigate)
                         }
                     }

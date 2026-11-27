@@ -97,7 +97,7 @@ internal fun rememberAppUpdateController(): AppUpdateController {
     }
 
     fun checkUpdates() {
-        if (updating) return
+        if (updateState.running) return
         updateState = updateState.started("Checking releases…")
         scope.launch {
             CompanionUpdateCheck.run(
