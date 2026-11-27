@@ -84,37 +84,80 @@ def search(arguments):
     leads = _query("crm.lead", [["type", "=", "opportunity"], ["active", "=", True]],
                    "id,name,partner_id,priority,description,probability,stage_id", limit + 1, (page - 1) * limit)
     bindings = _consent_bindings()
-    rows = []
+    # Preserve raw lead pagination and quote association. All related reads
+    # are bounded by the page size, never by the number of customers.
+    active = {}
+    seen = set()
     for lead in leads[:limit]:
         ident = lead.get("id")
-        if type(ident) is not int or ident <= 0:
+        if type(ident) is not int or ident <= 0 or ident in seen:
             raise RuntimeError("odoo_response_invalid")
-        if lead.get("probability", 0) == 100:
-            continue
-        partner_id = _rel(lead, "partner_id")
-        orders = _query("sale.order", [["opportunity_id", "=", ident], ["state", "!=", "cancel"]],
-                        "id,name,state", 2)
-        # Multiple live quotes require explicit current-quote resolution.
-        if len(orders) > 1:
-            raise RuntimeError("odoo_current_quotation_ambiguous")
-        order = orders[0] if orders else {}
+        seen.add(ident)
+        if lead.get("probability", 0) != 100:
+            active[ident] = lead
+
+    orders_by_lead = {}
+    if active:
+        orders = _query("sale.order", [["opportunity_id", "in", list(active)],
+                        ["state", "!=", "cancel"]], "id,name,state,opportunity_id", len(active) + 1)
+        for order in orders:
+            ident = _rel(order, "opportunity_id")
+            if ident not in active:
+                raise RuntimeError("odoo_response_invalid")
+            # A saturated result necessarily contains duplicate associations.
+            # Never select a current quote based on ordering or partner.
+            if ident in orders_by_lead:
+                raise RuntimeError("odoo_current_quotation_ambiguous")
+            orders_by_lead[ident] = order
+    pending = []
+    for ident, lead in active.items():
+        order = orders_by_lead.get(ident, {})
         state = _text(order, "state")
         if state in ("sent", "sale", "done"):
             continue
         if state not in ("", "draft"):
             raise RuntimeError("odoo_response_invalid")
-        partner = {}
-        vehicle = {}
-        ticket = _porsche_ticket(lead)
-        if partner_id:
-            partners = _query("res.partner", [["id", "=", partner_id]],
-                              "id,name,phone,mobile,street,street2,city,state_id,zip,country_id", 1)
-            partner = partners[0] if partners else {}
-            if ticket:
-                vehicles = _query("gelectriic.customer.vehicle", [["partner_id", "=", partner_id],
-                                  ["porsche_ticket", "=", ticket]], "id,model,vin", 2)
-                if len(vehicles) == 1:
-                    vehicle = vehicles[0]
+        pending.append((ident, lead, order, state, _rel(lead, "partner_id"), _porsche_ticket(lead)))
+
+    partner_ids = sorted({partner_id for _, _, _, _, partner_id, _ in pending if partner_id})
+    partners_by_id = {}
+    if partner_ids:
+        partners = _query("res.partner", [["id", "in", partner_ids]],
+                          "id,name,phone,mobile,street,street2,city,state_id,zip,country_id", len(partner_ids))
+        for partner in partners:
+            ident = partner.get("id")
+            if type(ident) is not int or ident not in partner_ids or ident in partners_by_id:
+                raise RuntimeError("odoo_response_invalid")
+            partners_by_id[ident] = partner
+
+    pairs = sorted({(partner_id, ticket) for _, _, _, _, partner_id, ticket in pending
+                    if partner_id and ticket})
+    vehicles_by_pair = {}
+    if pairs:
+        # An OR of exact (partner, ticket) conjunctions, not a Cartesian
+        # product of partner IDs and ticket numbers. Keep two matches distinct
+        # so an ambiguous vehicle remains unavailable as before.
+        domain = ["|"] * (len(pairs) - 1)
+        for partner_id, ticket in pairs:
+            domain.extend(["&", ["partner_id", "=", partner_id], ["porsche_ticket", "=", ticket]])
+        vehicle_limit = 2 * len(pairs) + 1
+        vehicles = _query("gelectriic.customer.vehicle", domain,
+                          "id,partner_id,porsche_ticket,model,vin", vehicle_limit)
+        if len(vehicles) == vehicle_limit:
+            # A truncated batch cannot establish uniqueness of every pair.
+            raise RuntimeError("odoo_vehicle_batch_incomplete")
+        allowed_pairs = set(pairs)
+        for vehicle in vehicles:
+            pair = (_rel(vehicle, "partner_id"), _text(vehicle, "porsche_ticket"))
+            if pair not in allowed_pairs:
+                raise RuntimeError("odoo_response_invalid")
+            vehicles_by_pair.setdefault(pair, []).append(vehicle)
+
+    rows = []
+    for ident, lead, order, state, partner_id, ticket in pending:
+        partner = partners_by_id.get(partner_id, {})
+        vehicles = vehicles_by_pair.get((partner_id, ticket), [])
+        vehicle = vehicles[0] if len(vehicles) == 1 else {}
         address = [_text(partner, k) for k in ("street", "street2", "city", "zip")]
         for key in ("state_id", "country_id"):
             val = partner.get(key)
