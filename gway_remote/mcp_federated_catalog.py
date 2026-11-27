@@ -7,6 +7,7 @@ import re
 
 from .mcp_catalog import compose_catalog
 from .mcp_tool_scope import required_scope
+from .node_exec_contract import RELAY_ONLY_NODE, ABB_OCPP_READ_TOOLS, abb_ocpp_catalog_allowed
 
 _NODE = re.compile(r"^[a-z][a-z0-9-]{1,63}$")
 _PROVIDER = re.compile(r"^[a-z][a-z0-9_]{1,39}$")
@@ -55,6 +56,10 @@ def catalog_from_nodes(builtins, node_catalogs):
             public_source = source if node == "gway-001" else node.replace("-", "_") + "_" + source
             if not _PROVIDER.fullmatch(public_source):
                 raise FederationError("invalid_public_provider")
+            if node == RELAY_ONLY_NODE and not abb_ocpp_catalog_allowed(provider):
+                # A malformed ABB declaration must never enable another source
+                # or an execute operation, nor withdraw healthy node routes.
+                continue
             if provider["status"] != "available":
                 continue
             for tool in provider["tools"]:
@@ -91,6 +96,15 @@ def route_provider_call(routes, name, arguments, *, authorized_scope, invoke,
     # Reject unsupported reads instead of downgrading to an execute-shaped RPC.
     if authorized_scope == "read" and not (len(route) > 4 and route[4] is True):
         raise FederationError("provider_read_receiver_unsupported")
+    if node == RELAY_ONLY_NODE:
+        if (provider != "ocpp" or tool not in ABB_OCPP_READ_TOOLS or scope != "read"
+                or len(route) < 5 or route[4] is not True
+                or verified_principal is not None):
+            raise PermissionError("ABB provider route denied")
+        # A caller possessing execute scope must still use the read RPC here.
+        # The relay-only receiver never accepts provider_call for ABB.
+        return invoke(node, {"operation": "provider_read", "provider": provider,
+                             "tool": tool, "arguments": arguments}, trusted_scope="read")
     from .mcp_principal_admission import owner_bound, validate_principal, validate_owner_arguments
     if owner_bound(provider):
         principal = validate_principal(verified_principal)

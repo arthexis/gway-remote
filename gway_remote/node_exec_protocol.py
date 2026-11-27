@@ -13,7 +13,9 @@ import sys
 import time
 
 from .node_exec_worker import Jobs, configured_max_active, require_account, validate_request_id
-from .node_exec_contract import validate_command, RELAY_ONLY_NODE, RELAY_ONLY_OPERATIONS
+from .node_exec_contract import (validate_command, RELAY_ONLY_NODE, ABB_PROVIDER_READ_OPERATIONS,
+                                 validate_abb_relay_request, abb_ocpp_registration,
+                                 abb_ocpp_catalog_allowed)
 
 MAX_REQUEST_BYTES = 65536
 OPERATIONS = {
@@ -67,8 +69,10 @@ def serve_one(raw, *, jobs=None, hostname=None, trusted_relay=False):
     host = hostname if hostname is not None else socket.gethostname()
     if (not re.fullmatch(r"gway-[0-9]+", host) and host != RELAY_ONLY_NODE) or req["node"] != host:
         raise PermissionError("unapproved node")
-    if host == RELAY_ONLY_NODE and op not in RELAY_ONLY_OPERATIONS:
-        raise PermissionError("relay-only node operation denied")
+    if host == RELAY_ONLY_NODE:
+        validate_abb_relay_request(req)
+        if op in ABB_PROVIDER_READ_OPERATIONS and trusted_relay is not True:
+            raise PermissionError("ABB provider read requires trusted relay")
     rid = validate_request_id(req["request_id"])
     if op in ("submit", "result", "cancel"):
         from .periodic_health_contract import slot_for
@@ -165,6 +169,10 @@ def serve_one(raw, *, jobs=None, hostname=None, trusted_relay=False):
         from .mcp_node_providers import dispatch_node_provider_request
         from .mcp_installed_providers import discover_installed_providers
         registrations = discover_installed_providers()
+        if host == RELAY_ONLY_NODE:
+            # No other installed provider, mutable mode or arbitrary argv may
+            # acquire authority through this node's read-only extension.
+            registrations = tuple(r for r in registrations if abb_ocpp_registration(r))
         if op == "provider_list":
             request, scope = {"operation": "provider_list"}, "read"
         elif op == "provider_read":
@@ -186,6 +194,9 @@ def serve_one(raw, *, jobs=None, hostname=None, trusted_relay=False):
         if android_call or request.get("provider") == "agentops":
             options["invocation_id"] = rid
         result = dispatch_node_provider_request(registrations, request, **options)
+        if host == RELAY_ONLY_NODE and op == "provider_list":
+            if not all(abb_ocpp_catalog_allowed(p) for p in result["providers"]):
+                raise PermissionError("ABB provider catalog denied")
         if android_call and request.get("tool") == "scenario_run":
             from .android_invocation_trace import annotate_transport
             result = annotate_transport(result, rid, "node_transport",

@@ -3,6 +3,7 @@ from copy import deepcopy
 
 from .mcp_federated_catalog import FederationError
 from .mcp_tool_scope import required_scope
+from .node_exec_contract import RELAY_ONLY_NODE
 
 
 def canonical_node_index(declarations, routes):
@@ -81,7 +82,9 @@ def canonical_catalog(builtins, declarations, routes, *, legacy_aliases=True):
             name = tool["name"]
             if name not in routes:
                 continue
-            if name in index:
+            if name in index or routes[name][0] == RELAY_ONLY_NODE:
+                # ABB has no historic aliases to preserve. Its first provider
+                # rollout exposes only canonical names with explicit routing.
                 continue
             pinned = deepcopy(tool)
             pinned["inputSchema"].setdefault("properties", {})["node"] = {

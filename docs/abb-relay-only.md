@@ -35,3 +35,47 @@ No AgentOps, Codex, managed deployment inventory or new credentials.
 5. Verify strict-pinned limits (1), direct MCP hostname/id, async result/cancel,
    duplicate binding, revoke and regrant, deployment preview/discovery denial,
    and unchanged OCPP services and other nodes. No charger traffic or restarts.
+
+
+## Candidate read-only OCPP federation extension (#716, separate acceptance)
+
+The original relay-only grant remains the baseline. The proposed protocol
+extension admits only authenticated `provider_list` and
+`provider_read` for the five fixed CSMS stored-evidence tools on
+`ocpp-abb-1`. The receiver filters its root-owned manifest registry to the
+exact CSMS immutable-release executable and schema-8 data directory already
+owned by ubuntu. The manifest must not enable execute or contain a managed
+deployment declaration. With no valid manifest, no ABB provider is exposed.
+Both endpoints reject all other provider operations; node declarations cannot
+add tools, and even an execute-scoped MCP principal uses the read RPC for ABB.
+Canonical discovery introduces no new ABB aliases. Existing generic execution,
+periodic health, pinning, keys, other nodes and deployment denials remain intact.
+
+This candidate is **not a deployment authorization or upgrade procedure**.
+The initial provisioning journal is revision-bound and must not be edited,
+deleted or bypassed to install a new receiver. Before rollout:
+
+1. Finish Stage 1's independent authorization and sanitized-rejection
+   acceptance (#716, existing PR #732) without disturbing other release holds.
+2. Review a separate receiver package upgrade and rollback transaction that
+   preserves the original SSH key, attestation, fixed command, sudoers,
+   service identities, active job ledger and original provisioning receipt.
+   Gate on no active execution jobs, verify exact package and previous
+   package, and retain the existing relay grant. Receiver first, gateway second;
+   an old receiver still denies new RPCs. No new SSH keys or general deployment
+   inventory. A gateway-only rollout cannot enable the old receiver.
+3. Provision the CSMS read-only manifest through the repository-owned
+   installer on the exact active CSMS release (`ocpp_csms_mcp_enabled=true`,
+   `ocpp_csms_mcp_execute=false`) only within the approved CSMS maintenance
+   gate. Do not handwrite an alternate provider registry or grant shell access.
+   Verify the actual writer, provider revision, root-owned manifest and
+   absence of execute. Do not restart a charging CSMS merely to register it.
+4. Validate the five canonical tools against real stored evidence with
+   independently authorized read and execute-scoped sessions; both must
+   use only the read RPC for ABB. Verify missing/invalid manifest,
+   wrong node, unknown tool, other provider, owner RPC, provider_call and
+   managed deployment denial, with no charger traffic. Check other nodes'
+   catalogs and periodic execution health. Keep #716 open until native
+   and externally authenticated acceptance are independently attested.
+
+No production authorization or rollout is implied by this document.
