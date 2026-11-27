@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from .attempts import read_attempts
+from .controller_release import controller_evidence
 from .reconcile import TARGETS
 from .status import installed_revision
 from .target_export import export_targets
@@ -22,20 +23,15 @@ def validate_selection(arguments):
             "confirmation_required": True, "ci_required": True}
 
 
-def overview(arguments, *, attempts_reader=read_attempts, revision_reader=installed_revision):
+def overview(arguments, *, attempts_reader=read_attempts, revision_reader=installed_revision,
+             controller_reader=controller_evidence):
     if type(arguments) is not dict or arguments:
         raise ValueError("invalid_deployment_arguments")
     attempts = attempts_reader()
     targets = export_targets()["targets"]
     return {
         "schema": 1,
-        "controller": {
-            "name": "gway-remote",
-            # A source checkout or GitHub commit date is not deployment evidence.
-            "installed_sha": None,
-            "last_successful_update": None,
-            "evidence": "unavailable",
-        },
+        "controller": controller_reader(),
         "targets": [{
             "name": entry["name"], "repository": entry["repository"],
             "installed_sha": revision_reader(entry["name"]),
