@@ -194,6 +194,8 @@ def assert_publication_ready():
     source = base64.b64decode(workflow["content"]).decode("utf-8")
     require("ANDROID_PUBLICATION_HOLD_718" not in source,
             "Android publication suspended by staged CRM rollout #718")
+    require("LEGACY_ANDROID_PUBLISHER_RETIRED" not in source,
+            "Legacy publication retired; use exact-artifact promotion")
 
 
 def assert_gate_required():

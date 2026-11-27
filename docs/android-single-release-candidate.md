@@ -78,3 +78,35 @@ Do not advance main with new delivery code until this candidate is reconciled,
 or treat an older digest as accepted for a different source. The exact-artifact
 publisher and trusted per-module acceptance receipt still require reviewed
 implementation; #718 and the signing environment protections remain unchanged.
+
+## Trusted smoke receipt and exact-artifact publication (staged in #772)
+
+A separate owner-dispatched main-only hardware workflow uses the shared USB
+concurrency group and device lock. It reads public installed package evidence
+before and after, verifies the linked authenticated upgrades, and emits a
+sanitized candidate-bound smoke receipt. It never installs, copies real customer
+values, dispatches deployments, or publishes. The receipt is independently
+reconciled against its successful attempt-one workflow and exact artifact.
+The current seven-probe suite is smoke evidence only. FULL_CHECKS deliberately
+requires additional detailed module checks and exact-source CI/Compose evidence;
+the workflow does not yet produce authenticated_full_v1. Do not fabricate one
+or relabel smoke evidence as acceptance.
+
+The staged promotion workflow defaults to PLAN_ONLY. An owner-dispatched
+PUBLISH_EXACT_ACCEPTED_APK requires exact digest and trusted full receipt,
+the original signer/bytes, the complete upgrade chain, unexpired receipt,
+and verified main/hold policy. It reserves immutable approval before creating
+a draft, verifies the draft download, publishes only those bytes, then verifies
+the final tag, metadata and download. A conflict or uncertain missing release
+stops without re-upload. Existing exact release is verification-only replay.
+The old rebuild-and-sign publication job is removed in this draft; its legacy
+coordinator remains disabled. No production key is available to promotion.
+The #718 marker stays in android.yml. After full acceptance and separate owner
+authorization, only a reviewed single-commit literal removal of that marker
+can bridge the accepted source to the publication revision; unrelated backend
+changes remain superseding. No release or issue closure has been performed.
+
+Candidate 796 remains installed and its successful 794 -> 795 -> 796 upgrade
+chain is historical valid evidence. Concurrent ABB work moved main beyond its
+source, so do not promote 796 under this policy. Finish the pipeline and module
+checks before allocating a successor; do not reinstall 796.
