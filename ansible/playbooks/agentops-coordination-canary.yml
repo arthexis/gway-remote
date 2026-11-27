@@ -1,0 +1,60 @@
+---
+- name: Provision a fixed isolated coordination canary, never real admission
+  hosts: localhost
+  connection: local
+  become: true
+  gather_facts: true
+  vars:
+    coordination_members: [gway-001, gway-004]
+  tasks:
+    - name: Require exact operator authorization and fixture epoch
+      ansible.builtin.assert:
+        that:
+          - agentops_canary_authorize | default(false) | bool
+          - agentops_canary_epoch is defined
+          - agentops_canary_epoch is match('^[0-9a-f]{32}$')
+          - agentops_canary_role in ['watchtower', 'node']
+          - (agentops_canary_role == 'watchtower' and ansible_hostname not in coordination_members) or (agentops_canary_role == 'node' and ansible_hostname in coordination_members)
+    - name: Verify role-specific existing installation
+      ansible.builtin.stat:
+        path: "{{ '/etc/gway-mcp/execute.json' if agentops_canary_role == 'watchtower' else '/etc/gway-mcp-providers/agentops.json' }}"
+      register: installed
+    - name: Require existing installation
+      ansible.builtin.assert:
+        that:
+          - installed.stat.isreg | default(false)
+          - installed.stat.uid == 0
+    - name: Select fixed canary path and expected configuration
+      ansible.builtin.set_fact:
+        canary_path: "{{ '/etc/gway-mcp/agentops-coordination-canary.json' if agentops_canary_role == 'watchtower' else '/etc/gway-mcp-providers/agentops.coordination-canary.json' }}"
+        expected: "{{ {'schema': 1, 'epoch': agentops_canary_epoch, 'members': coordination_members} | combine({'general_pickup_accepted': false} if agentops_canary_role == 'node' else {}) }}"
+    - name: Check fixture does not overwrite prior acceptance
+      ansible.builtin.stat:
+        path: "{{ canary_path }}"
+        follow: false
+      register: prior
+    - name: Verify existing fixture ownership before reading
+      ansible.builtin.assert:
+        that:
+          - prior.stat.isreg | default(false)
+          - prior.stat.uid == 0
+          - prior.stat.mode == '0644'
+      when: prior.stat.exists
+    - name: Read prior fixture
+      ansible.builtin.slurp:
+        src: "{{ canary_path }}"
+      register: previous
+      when: prior.stat.exists
+    - name: Refuse changed epoch or membership
+      ansible.builtin.assert:
+        that:
+          - (previous.content | b64decode | from_json) == expected
+      when: prior.stat.exists
+    - name: Write only isolated canary configuration
+      ansible.builtin.copy:
+        dest: "{{ canary_path }}"
+        content: "{{ expected | to_json }}\n"
+        owner: root
+        group: root
+        mode: '0644'
+        force: false
