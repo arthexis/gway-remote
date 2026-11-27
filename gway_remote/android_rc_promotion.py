@@ -7,7 +7,7 @@ import tempfile
 from pathlib import Path
 
 from gway_remote.android_release_candidate import _private_artifact_dir, require
-from gway_remote.android_rc_acceptance import WORKFLOW, FULL_CHECKS, identity, smoke_receipt
+from gway_remote.android_rc_acceptance import WORKFLOW, SMOKE_CHECKS, identity, smoke_receipt, full_receipt
 
 PUBLISH_WORKFLOW = "android-release-candidate-promote.yml"
 CONFIRM = "PUBLISH_EXACT_ACCEPTED_APK"
@@ -43,16 +43,18 @@ def validate_revision(candidate, revision, gate):
             "publication_policy_transition_unverified")
 
 
-def validate_full_receipt(receipt, artifact, run_id):
-    expected = smoke_receipt(artifact, run_id, dict.fromkeys(FULL_CHECKS,"pass"))
-    expected.update(scope="authenticated_full_v1", status="passed")
+def validate_full_receipt(receipt, artifact, run_id, hosted):
+    expected = full_receipt(artifact, run_id,
+        smoke_receipt(artifact, run_id, dict.fromkeys(SMOKE_CHECKS,"pass")), hosted)
     require(receipt == expected, "full_acceptance_missing_or_mismatched")
     return expected
 
 
-def read_full_receipt(artifact, run_id, gate):
+def read_full_receipt(artifact, run_id, gate, *, build_run):
+    from gway_remote.android_rc_contracts import reconcile, successful_run
     c = artifact.candidate
     require(type(run_id) is int and run_id > 0, "invalid_acceptance_run_id")
+    successful_run(gate, WORKFLOW, run_id, c.source_sha, "physical")
     run = gate.api(f"actions/runs/{run_id}")
     gate.verify_run_identity(run, WORKFLOW, run_id, "workflow_dispatch", c.source_sha)
     require(run.get("status") == "completed" and run.get("conclusion") == "success"
@@ -74,14 +76,21 @@ def read_full_receipt(artifact, run_id, gate):
         path = Path(tmp)/"receipt.json"
         require(path.is_file() and not path.is_symlink() and path.stat().st_size < 16384,
                 "invalid_receipt_file")
-        return validate_full_receipt(json.loads(path.read_text()), artifact, run_id)
+        payload = json.loads(path.read_text())
+    require(isinstance(payload, dict) and isinstance(payload.get("hosted_evidence"),dict),
+            "full_acceptance_missing_or_mismatched")
+    evidence = payload["hosted_evidence"]
+    hosted = reconcile(gate, c, ci_run=evidence.get("ci_run"),
+                       compose_run=evidence.get("compose_run"), build_run=build_run)
+    return validate_full_receipt(payload, artifact, run_id, hosted)
 
 
 def preflight(ledger, candidate, *, revision, acceptance_run, artifact_dir, gate):
     """All read-only. A smoke receipt or an expired full receipt cannot authorize release."""
     validate_revision(candidate, revision, gate)
     artifact = identity(ledger, candidate)
-    receipt = read_full_receipt(artifact, acceptance_run, gate)
+    receipt = read_full_receipt(artifact, acceptance_run, gate,
+                                build_run=ledger.read(candidate.candidate_id)["built"]["run_id"])
     from gway_remote.android_canary_certificate import certificate_sha256
     apk = _private_artifact_dir(artifact_dir)/f"{candidate.candidate_id}.apk"
     require(apk.is_file() and not apk.is_symlink() and apk.stat().st_uid == os.getuid()
