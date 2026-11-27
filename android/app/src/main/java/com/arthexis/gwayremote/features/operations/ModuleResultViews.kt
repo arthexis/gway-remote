@@ -184,28 +184,28 @@ internal fun AgentOpsPanel(
                 if (entries == null) Text("Issue list unavailable", style = MaterialTheme.typography.bodySmall)
                 else {
                     val localAgent = issueData?.optString("agent", "")?.lowercase().orEmpty()
-                    val instancePattern = remember { Regex("^gway-[0-9]+$") }
+                    val instancePattern = remember { Regex("^gway-[0-9]{3}$") }
                     val rows = (0 until entries.length()).mapNotNull { entries.optJSONObject(it) }
                     fun labels(row: JSONObject): Set<String> = agentIssueLabels(row)
                     val allLabels = rows.flatMap { labels(it) }.toSet()
                     val instances = (allLabels.filter { instancePattern.matches(it) } +
                         listOf(localAgent).filter { instancePattern.matches(it) }).distinct().sorted()
                     val categories = allLabels.filterNot { instancePattern.matches(it) }.sorted()
-                    var instanceFilter by remember(localAgent) { mutableStateOf(localAgent) }
+                    var instanceFilter by remember(localAgent) { mutableStateOf("*") }
                     var categoryFilter by remember { mutableStateOf("") }
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         Box(Modifier.weight(1f)) {
                             var open by remember { mutableStateOf(false) }
                             OutlinedButton(onClick = { open = true }, modifier = Modifier.fillMaxWidth()) {
                                 Text(when (instanceFilter) {
-                                    "*" -> "All instances"
+                                    "*" -> "All assignments"
                                     "-" -> "Unassigned"
-                                    "" -> "Agent unavailable"
+                                    "" -> "Assignment unavailable"
                                     else -> instanceFilter
                                 }, maxLines = 1)
                             }
                             DropdownMenu(expanded = open, onDismissRequest = { open = false }) {
-                                DropdownMenuItem(text = { Text("All instances") }, onClick = {
+                                DropdownMenuItem(text = { Text("All assignments") }, onClick = {
                                     instanceFilter = "*"; open = false
                                 })
                                 DropdownMenuItem(text = { Text("Unassigned") }, onClick = {
@@ -342,9 +342,9 @@ internal fun agentIssueLabels(issue: JSONObject): Set<String> {
     }.toSet()
 }
 
-/** Exactly one instance bucket per issue; labels remain authoritative over local defaults. */
+/** Filter automatic-assignment labels only; manual eligibility is independent. */
 internal fun agentIssueMatchesInstance(issue: JSONObject, selected: String): Boolean {
-    val instancePattern = Regex("^gway-[0-9]+$")
+    val instancePattern = Regex("^gway-[0-9]{3}$")
     val labels = agentIssueLabels(issue)
     return when (selected) {
         "*" -> true
