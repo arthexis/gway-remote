@@ -8,7 +8,11 @@ read, and click/scenario_run as execute. No new OAuth or public endpoint.
 
 The first release is intentionally not a general browser automation service.
 The operator grants one active tab at the exact root-configured HTTPS origin
-by clicking the extension toolbar button. The badge says ON during a lease of
+by clicking the extension toolbar button and approving its single exact-origin
+optional Firefox permission. Firefox's activeTab grant alone expires on new
+documents; the exact-origin permission lets the reviewed same-site links work.
+The extension removes this optional permission on revocation and at startup;
+if cleanup fails it refuses a new lease. The badge says ON during a lease of
 at most ten minutes. Click again, switch tabs, close the tab, navigate outside
 the supported Reports routes, disconnect or timeout to revoke. The grant is
 to the existing authorized GWay clients, not to an individual OAuth principal.
@@ -21,7 +25,7 @@ Snapshot returns opaque, single-use 30-second references, static control
 kinds and aggregate UI evidence. No DOM text, raw URLs, customer identifiers,
 cookies, password fields, profile data, storage, arbitrary JS, network fetches
 or screenshots are returned. Native host validates every result against
-a closed schema. No broad host permissions, debugger ports, or HTTP listener.
+a closed schema. No wildcard host permissions, debugger ports, or HTTP listener.
 No generic fill, keyboard, mouse or arbitrary click capability. Links are
 checked against a fixed same-origin route/query policy; Heartbeat expansion
 and the reviewed pagination button are the only non-link actions. Browser
@@ -39,6 +43,7 @@ with the usual Ansible privilege escalation:
       -e gway_browser_origin=https://reports.example.test
 
 The playbook stages only pinned browser files under /opt/gway-browser and
+renders the extension manifest with the exact configured HTTPS origin, and
 registers the native host and provider in the existing system registries.
 It does not restart the browser, modify its profile, change any OCPP service,
 or install an extension. The native host and MCP executable are pinned to the
@@ -54,7 +59,7 @@ normal Firefox signing/installation approval. Never disable signature checks.
 If Firefox or the platform refuses an action, stop and report the blocker.
 
 Open an existing authorized Reports session, click the extension toolbar
-button and verify ON. Refresh MCP discovery. Use the exact node gway-001.
+button, approve the exact site permission, and verify ON. Refresh MCP discovery. Use the exact node gway-001.
 
 ## Acceptance (read-only operations, no charge commands)
 
