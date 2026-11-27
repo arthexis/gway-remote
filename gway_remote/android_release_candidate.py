@@ -525,6 +525,83 @@ INSTALL_FIX_PATHS = DELIVERY_FIX_PATHS | frozenset({
 })
 
 
+def compatible_revision(candidate, revision, gate, *, revision_ci_run, backend_run, current=True):
+    """Reuse an immutable APK only across reviewed, independently tested backend changes."""
+    from gway_remote.android_rc_contracts import successful_run
+    from gway_remote.deploy_impact import SAFE_PATHS, POLICY_PATHS
+    require(isinstance(revision, str) and SHA.fullmatch(revision), "invalid_workflow_revision")
+    if current:
+        require(gate.api("branches/main")["commit"]["sha"] == revision, "candidate_superseded")
+    require(gate.api(f"git/commits/{candidate.source_sha}")["tree"]["sha"] == candidate.source_tree,
+            "source_tree_mismatch")
+    require(type(revision_ci_run) is int and revision_ci_run > 0
+            and type(backend_run) is int and backend_run > 0 and revision_ci_run != backend_run,
+            "compatible_evidence_missing")
+
+    def diff(before, after):
+        if before == after:
+            return []
+        comparison = gate.api(f"compare/{before}...{after}")
+        rows = comparison.get("files", [])
+        require(comparison.get("status") == "ahead"
+                and (comparison.get("merge_base_commit") or {}).get("sha") == before
+                and type(comparison.get("total_commits")) is int
+                and 0 < comparison["total_commits"] <= 60 and 0 < len(rows) < 300
+                and all(r.get("status") in ("added", "modified", "removed")
+                        and isinstance(r.get("filename"), str) for r in rows),
+                "candidate_superseded")
+        return [r["filename"] for r in rows]
+
+    def android_tree(sha):
+        rows = gate.api(f"git/trees/{sha}").get("tree", [])
+        matches = [r.get("sha") for r in rows if r.get("path") == "android" and r.get("type") == "tree"]
+        require(len(matches) == 1 and isinstance(matches[0], str) and SHA.fullmatch(matches[0]),
+                "android_tree_unverified")
+        return matches[0]
+
+    tree = android_tree(candidate.source_sha)
+    require(android_tree(revision) == tree, "android_tree_changed")
+    allowed = SAFE_PATHS | POLICY_PATHS | {".github/workflows/deploy-backend.yml", "deploy.sh"}
+    require(all(p != ".github/workflows/android-release-candidate.yml"
+                and (p in allowed or p.startswith(("gway_remote/", "tests/", "ansible/", "deploy/", "scripts/", "docs/")))
+                for p in diff(candidate.source_sha, revision)), "candidate_superseded")
+    successful_run(gate, "ci.yml", revision_ci_run, revision, "CI")
+    run = gate.api(f"actions/runs/{backend_run}")
+    backend = run.get("head_sha")
+    require(isinstance(backend, str) and SHA.fullmatch(backend), "backend_revision_unverified")
+    gate.verify_run_identity(run, "deploy-backend.yml", backend_run, "push", backend)
+    require(run.get("head_branch") == "main" and run.get("run_attempt") == 1
+            and run.get("status") == "completed" and run.get("conclusion") == "success"
+            and (run.get("head_repository") or {}).get("full_name") == gate.REPO,
+            "backend_deployment_unverified")
+    # The deployed runtime must match the acceptance revision. Only existing
+    # reviewed non-runtime delivery/evidence paths may follow that deployment.
+    require(android_tree(backend) == tree, "android_tree_changed")
+    diff(candidate.source_sha, backend)
+    require(set(diff(backend, revision)) <= (SAFE_PATHS | POLICY_PATHS),
+            "backend_revision_unverified")
+    jobs = gate.api(f"actions/runs/{backend_run}/jobs?per_page=100")
+    rows = jobs["jobs"]
+    require(jobs.get("total_count") == len(rows) and all(j.get("conclusion") == "success" for j in rows),
+            "backend_deployment_unverified")
+    for name, steps in (
+        ("deploy", ("Transactional install, restart and authenticated health",
+                    "Converge isolated gway-001 MCP runtime through Ansible")),
+        ("Deploy Watchtower MCP", ("Converge reviewed Watchtower MCP release over existing operator SSH",
+                                  "Verify live gway-001 MCP upstream excludes retired AgentOps tools",
+                                  "Verify authenticated mobile Feed delivery")),
+    ):
+        matches = [j for j in rows if j.get("name") == name]
+        require(len(matches) == 1 and all(
+            len([s for s in matches[0].get("steps", []) if s.get("name") == step
+                 and s.get("conclusion") == "success"]) == 1 for step in steps),
+            "backend_deployment_unverified")
+    if current:
+        require(gate.api("branches/main")["commit"]["sha"] == revision, "candidate_superseded")
+    return {"revision": revision, "android_tree": tree, "revision_ci_run": revision_ci_run,
+            "backend_revision": backend, "backend_run": backend_run}
+
+
 def validate_install_revision(candidate, revision, gate):
     """Verify the reviewed delivery-only revision, not arbitrary new app code."""
     require(isinstance(revision,str) and SHA.fullmatch(revision), "invalid_workflow_revision")
@@ -582,7 +659,7 @@ def health_is_authenticated(tree):
 def install_stable_candidate(ledger, candidate, *, artifact_dir, workflow_sha, install_run_id,
                              expected_digest, expected_certificate, expected_artifact_id,
                              preflight_only=False, allow_unverified_auth=False, gate=None, call=None, device=None,
-                             inspect=None, hostname=None, fresh_check=None):
+                             inspect=None, hostname=None, fresh_check=None, revision_ci_run=None, backend_run=None):
     """Reviewed hardware workflow only. No credential reads, reset or publication."""
     import socket
     from gway_remote import android_canary_install as usb
@@ -594,7 +671,11 @@ def install_stable_candidate(ledger, candidate, *, artifact_dir, workflow_sha, i
     inspect = inspect or installed_evidence
     device = device or Device()
     require((hostname or socket.gethostname()).split(".")[0] == "gway-001", "wrong_device")
-    validate_install_revision(candidate, workflow_sha, gate)
+    if revision_ci_run is not None or backend_run is not None:
+        require(not allow_unverified_auth, "compatible_install_requires_auth")
+        compatible_revision(candidate, workflow_sha, gate, revision_ci_run=revision_ci_run, backend_run=backend_run)
+    else:
+        validate_install_revision(candidate, workflow_sha, gate)
     run = gate.api(f"actions/runs/{install_run_id}")
     require(run.get("id") == install_run_id and run.get("path") == ".github/workflows/"+INSTALL_WORKFLOW
             and run.get("event") == "workflow_dispatch" and run.get("head_sha") == workflow_sha
@@ -798,6 +879,8 @@ def main(argv=None):
     lab.add_argument("--artifact-id", type=int, required=True)
     lab.add_argument("--digest", required=True)
     lab.add_argument("--certificate", required=True)
+    lab.add_argument("--revision-ci-run", type=int)
+    lab.add_argument("--backend-run", type=int)
     lab.add_argument("--preflight-only", action="store_true")
     lab.add_argument("--allow-unverified-auth", action="store_true")
     args = parser.parse_args(argv)
@@ -843,7 +926,8 @@ def main(argv=None):
                                    expected_artifact_id=args.artifact_id,expected_digest=args.digest,
                                    expected_certificate=args.certificate,preflight_only=args.preflight_only,
                                    allow_unverified_auth=args.allow_unverified_auth,device=device,
-                                   fresh_check=fresh_health if automatic else None)
+                                   fresh_check=fresh_health if automatic else None,
+                                   revision_ci_run=args.revision_ci_run, backend_run=args.backend_run)
                 finally:
                     if automatic and initial.get("screen_on") is False:
                         try:
