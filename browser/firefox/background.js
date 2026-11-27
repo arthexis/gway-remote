@@ -69,14 +69,17 @@ browser.browserAction.onClicked.addListener(async tab => {
     current.busy = true;
     try {
       const live = await browser.tabs.get(current.tabId);
-      if (!live.active || !permitted(live.url, current.origin) ||
-          !(await browser.permissions.contains({origins: [pattern]}))) {
+      const allowed = await browser.permissions.contains({origins: [pattern]});
+      if (lease !== current) return;
+      if (!live.active || !permitted(live.url, current.origin) || !allowed) {
         port.postMessage(denied()); revoke(); return;
       }
+      if (live.status === "loading") { port.postMessage(denied("loading")); return; }
       if (request.operation === "status") {
         port.postMessage({ok: true, state: "ready"});
       } else {
         await browser.tabs.executeScript(current.tabId, {file: "reports.js", frameId: 0});
+        if (lease !== current) return;
         const result = await browser.tabs.sendMessage(current.tabId,
           {origin: current.origin, lease: current.id, request}, {frameId: 0});
         if (lease === current) port.postMessage(result);
