@@ -7,6 +7,7 @@ import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.test.platform.app.InstrumentationRegistry
 import com.arthexis.gwayremote.features.liturgia.*
 import org.junit.Assert.*
+import org.junit.Assume.assumeTrue
 import org.junit.Before
 import org.junit.After
 import org.junit.Rule
@@ -18,18 +19,20 @@ import java.util.concurrent.CopyOnWriteArrayList
 class AndroidRcLiturgiaContractTest {
     @get:Rule val rule = createComposeRule()
     private var isolated = false
+    private val prefsName = "rc_liturgia_fixture_" + java.util.UUID.randomUUID()
+    private lateinit var library: LiturgiaLocalLibrary
     private val restricted = "FIXTURE RESTRICTED TEXT"
     private val permitted = "FIXTURE PERMITTED TEXT"
     private val context get() = InstrumentationRegistry.getInstrumentation().targetContext
 
     @Before fun requireEmulator() {
-        check(Build.HARDWARE in setOf("ranchu", "goldfish")) { "Fixture suite requires an emulator" }
+        assumeTrue("Fixture suite requires an emulator", Build.HARDWARE in setOf("ranchu", "goldfish"))
         isolated = true
-        context.getSharedPreferences("liturgia_local", 0).edit().clear().commit()
+        library = LiturgiaLocalLibrary(context.getSharedPreferences(prefsName, 0))
     }
 
     @After fun clearFixtureState() {
-        if (isolated) context.getSharedPreferences("liturgia_local", 0).edit().clear().commit()
+        if (isolated) context.deleteSharedPreferences(prefsName)
     }
 
     private inner class Fixture : LiturgiaSource {
@@ -66,7 +69,7 @@ class AndroidRcLiturgiaContractTest {
 
     @Test fun dayFormAndRightsBoundary() {
         val source = Fixture()
-        rule.setContent { MaterialTheme { LiturgiaPanel(source) } }
+        rule.setContent { MaterialTheme { LiturgiaPanel(source, library) } }
         rule.onNodeWithText("Fixture celebration").assertExists()
         rule.onNodeWithText("Cobertura: partial").assertExists()
         rule.onNodeWithText(restricted, substring = true).assertDoesNotExist()
@@ -82,7 +85,7 @@ class AndroidRcLiturgiaContractTest {
 
     @Test fun readerComparisonBookmarkAndHistory() {
         val source = Fixture()
-        rule.setContent { MaterialTheme { LiturgiaPanel(source) } }
+        rule.setContent { MaterialTheme { LiturgiaPanel(source, library) } }
         click("Biblia")
         click("Seleccionar")
         rule.onNodeWithText("Fixture Genesis").performClick()
@@ -97,7 +100,6 @@ class AndroidRcLiturgiaContractTest {
         click("Guardar")
         rule.onNodeWithText("Quitar marcador").assertExists()
         rule.runOnIdle {
-            val library = LiturgiaLocalLibrary(context)
             assertEquals(listOf(SavedPassage("spanishdhh", Passage("GEN", 1))), library.bookmarks())
             assertTrue(library.history().contains(SavedPassage("spanishdhh", Passage("GEN", 1))))
         }
@@ -107,7 +109,6 @@ class AndroidRcLiturgiaContractTest {
         rule.onNodeWithText("Tamaño normal").assertExists()
         click("Borrar historial")
         rule.runOnIdle {
-            val library = LiturgiaLocalLibrary(context)
             assertTrue(library.bookmarks().isEmpty())
             assertTrue(library.history().isEmpty())
         }
@@ -115,7 +116,7 @@ class AndroidRcLiturgiaContractTest {
 
     @Test fun searchPaginationAndSanitizedError() {
         val source = Fixture()
-        rule.setContent { MaterialTheme { LiturgiaPanel(source) } }
+        rule.setContent { MaterialTheme { LiturgiaPanel(source, library) } }
         click("Buscar")
         rule.onAllNodesWithText("Buscar")[1].assertIsNotEnabled()
         rule.onNodeWithText("Palabra o frase").performScrollTo().performTextInput("amor")
