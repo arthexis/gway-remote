@@ -2,6 +2,7 @@ package com.arthexis.gwayremote
 
 import android.view.View
 import android.view.accessibility.AccessibilityNodeInfo
+import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.test.junit4.ComposeTestRule
 import androidx.compose.ui.test.onNodeWithTag
 import org.junit.Assert.assertEquals
@@ -12,6 +13,7 @@ import org.junit.Assert.assertTrue
  * relying on the instrumented activity becoming the OS active window.
  * Physical acceptance independently inspects UiAutomator's USB hierarchy.
  */
+@OptIn(ExperimentalComposeUiApi::class)
 internal fun ComposeTestRule.awaitExportedControl(
     tag: String,
     predicate: (AccessibilityNodeInfo) -> Boolean
