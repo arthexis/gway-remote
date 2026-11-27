@@ -50,7 +50,7 @@
           - item.stat.uid == 0
           - not item.stat.islnk
           - item.stat.mode in ['0755', '0644']
-          - item.stat.isdir if item.item in ['/opt/gway-remote', '/opt/gway-remote/scripts'] else item.stat.isreg
+          - (item.item in ['/opt/gway-remote', '/opt/gway-remote/scripts'] and item.stat.isdir) or (item.item not in ['/opt/gway-remote', '/opt/gway-remote/scripts'] and item.stat.isreg)
       loop: "{{ watch_paths.results[:4] }}"
     - name: Refuse unsafe override directory or file
       ansible.builtin.assert:
