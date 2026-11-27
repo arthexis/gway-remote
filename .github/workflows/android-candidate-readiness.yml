@@ -1,0 +1,40 @@
+name: Android candidate readiness
+# Advisory until separately reviewed ruleset activation. No PR code, device,
+# production signing credentials, candidate allocation or merge permissions.
+on:
+  pull_request_target:
+    branches: [main]
+    types: [opened, reopened, synchronize, ready_for_review, converted_to_draft, edited, closed]
+  workflow_run:
+    workflows: [CI, Android APK, Android Compose UI Tests]
+    types: [completed]
+  push:
+    branches: [main]
+  workflow_dispatch:
+permissions:
+  contents: read
+  actions: read
+  pull-requests: read
+  statuses: write
+concurrency:
+  group: android-candidate-readiness-main
+  cancel-in-progress: false
+jobs:
+  reconcile:
+    if: >-
+      github.repository == 'arthexis/gway-remote' &&
+      (github.event_name != 'workflow_dispatch' ||
+       (github.ref == 'refs/heads/main' && github.actor == 'arthexis' &&
+        github.triggering_actor == 'arthexis'))
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # Never check out a PR head or a workflow_run artifact.
+          ref: ${{ github.event.pull_request.base.sha || github.sha }}
+          persist-credentials: false
+      - name: Reconcile bounded open PR set against current main
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 -B -m gway_remote.android_candidate_readiness --run-id "$GITHUB_RUN_ID"
