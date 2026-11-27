@@ -217,10 +217,13 @@ def publish_exact(ledger, candidate, *, revision, acceptance_run, artifact_dir, 
         verify_download(release, True)
         validate_revision(candidate, revision, gate)
         check_tag()
-        gate.gh("release","edit",tag,"-R",gate.REPO,"--draft=false")
+        gate.gh("release","edit",tag,"-R",gate.REPO,"--draft=false","--latest")
     release = exact_release()
     check_tag(required=True)
     verify_download(release, False)
+    latest = gate.api("releases/latest")
+    verify_release_asset(artifact, latest, draft=False, acceptance_run=acceptance_run)
+    require(latest.get("id") == release.get("id"), "latest_release_identity_mismatch")
     result = {"tag":tag,"source_sha":candidate.source_sha,"apk_sha256":artifact.apk_sha256,
               "certificate_sha256":artifact.certificate_sha256,"acceptance_run":acceptance_run,
               "approval_run":approval["approval_run"],"release_id":release["id"]}
