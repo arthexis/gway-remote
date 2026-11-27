@@ -79,34 +79,46 @@ or treat an older digest as accepted for a different source. The exact-artifact
 publisher and trusted per-module acceptance receipt still require reviewed
 implementation; #718 and the signing environment protections remain unchanged.
 
-## Trusted smoke receipt and exact-artifact publication (staged in #772)
+## Trusted full acceptance and exact-artifact publication (staged in #772)
 
-A separate owner-dispatched main-only hardware workflow uses the shared USB
-concurrency group and device lock. It reads public installed package evidence
-before and after, verifies the linked authenticated upgrades, and emits a
-sanitized candidate-bound smoke receipt. It never installs, copies real customer
-values, dispatches deployments, or publishes. The receipt is independently
-reconciled against its successful attempt-one workflow and exact artifact.
-The current seven-probe suite is smoke evidence only. FULL_CHECKS deliberately
-requires additional detailed module checks and exact-source CI/Compose evidence;
-the workflow does not yet produce authenticated_full_v1. Do not fabricate one
-or relabel smoke evidence as acceptance.
+The main-only hardware workflow has two scopes. Smoke uses the shared USB
+concurrency group and device lock to verify the exact signed stable package,
+linked authenticated upgrades, live health/Home/feed/Updates, Oportunidades,
+quotations, disabled deployment controls and Liturgia readings. It does not
+install, copy real customer values, mark real feed items read, dispatch a
+deployment, modify credentials or publish. It preserves the canary and restores
+the initial sleep state. Smoke alone never authorizes a release.
 
-The staged promotion workflow defaults to PLAN_ONLY. An owner-dispatched
-PUBLISH_EXACT_ACCEPTED_APK requires exact digest and trusted full receipt,
-the original signer/bytes, the complete upgrade chain, unexpired receipt,
-and verified main/hold policy. It reserves immutable approval before creating
-a draft, verifies the draft download, publishes only those bytes, then verifies
-the final tag, metadata and download. A conflict or uncertain missing release
-stops without re-upload. Existing exact release is verification-only replay.
-The old rebuild-and-sign publication job is removed in this draft; its legacy
-coordinator remains disabled. No production key is available to promotion.
-The #718 marker stays in android.yml. After full acceptance and separate owner
-authorization, only a reviewed single-commit literal removal of that marker
-can bridge the accepted source to the publication revision; unrelated backend
-changes remain superseding. No release or issue closure has been performed.
+Full mode independently reconciles owner-dispatched successful exact-main CI,
+the candidate's original build and the phone-profile hosted Compose run before
+touching the device. The hosted workflow produces a sanitized contract receipt
+only after every required named JUnit case actually passes; missing, skipped,
+duplicate and failed cases are rejected. Detailed synthetic module tests cover
+Oportunidades refresh/stale/consent/pagination/copy/missing credentials,
+Liturgia date/form/reader/comparison/search/pagination/rights/library/errors,
+quotation refresh/PDF save contract, feed failure and read handling,
+navigation, canary isolation and deployment confirmation. Liturgia test data
+uses isolated fixture preferences, never the existing library. The full receipt
+explicitly separates physical observations from synthetic hosted evidence.
+It binds the APK digest, signer, source tree, version and run identities.
+Promotion independently re-fetches the hosted artifact and validates the entire
+receipt. These are not claims that synthetic error injections ran on production.
 
-Candidate 796 remains installed and its successful 794 -> 795 -> 796 upgrade
-chain is historical valid evidence. Concurrent ABB work moved main beyond its
-source, so do not promote 796 under this policy. Finish the pipeline and module
-checks before allocating a successor; do not reinstall 796.
+The staged publisher defaults to PLAN_ONLY. Explicit owner dispatch with
+PUBLISH_EXACT_ACCEPTED_APK requires full acceptance, exact digest, original
+signed bytes and verified main/hold policy. It reserves immutable approval,
+creates a draft, checks the downloaded bytes, publishes the exact APK, and
+verifies the final tag, release notes, APK digest and releases/latest endpoint.
+Android-Version-Code metadata is mandatory for AppUpdater compatibility.
+Conflicting or uncertain prior publication intent fails closed. An existing
+exact published release is verification-only replay. Legacy rebuild publication
+is retired in the draft. No signing key is available to promotion.
+
+The #718 marker remains. After full acceptance and separate owner authorization,
+only a single reviewed literal hold-marker removal may bridge the accepted source
+to the publication revision; unrelated changes supersede a candidate.
+796 remains valid historical authentication evidence but is superseded by
+concurrent ABB development. Finish CI and the acceptance/promotion pipeline
+before allocating one successor. The new tests and workflow have not yet been
+physically validated. Do not reinstall 796 or close release-tracked issues
+before authorized publication and verification.
