@@ -5,7 +5,7 @@ from gway_remote.android_rc_health import MENU, _snapshot, _point, fresh_health
 
 WORKFLOW = "android-release-candidate-accept.yml"
 SMOKE_CHECKS = ("health", "home", "updates", "opportunities", "liturgia_today",
-                "quotation_list", "deployment_controls_visible")
+                "quotation_list", "deployment_controls_visible", "feed_view")
 FULL_CHECKS = frozenset(SMOKE_CHECKS + (
     "opportunity_refresh_and_stale", "opportunity_consent_and_copy_contract",
     "liturgia_reader_search_comparison", "liturgia_local_library_and_errors",
@@ -73,6 +73,37 @@ class PhysicalSmoke:
                                  any(r.get("description") == MENU for r in t["elements"]))
         raise ValueError("physical_module_not_visible")
 
+    def home_feed(self):
+        def ready(tree):
+            rows = tree["elements"]
+            unavailable = {"Acceso al feed no autorizado", "Activity Feed aún no habilitado",
+                           "Historial offline", "Feed no disponible",
+                           "Configura la API Key y el endpoint HTTPS desde el menú lateral."}
+            require(not any(row.get("text") in unavailable for row in rows), "feed_not_live")
+            return (self.has(tree, "Activity Feed")
+                    and any(row.get("text") == "Actualizar actividad" and row.get("enabled") is True
+                            for row in rows))
+        # This probe only views the Home feed; never mark a real item read.
+        tree = self.observe()
+        if not self.has(tree, "Activity Feed"):
+            self.scroll_home(down=True)
+            self.wait(ready)
+            self.scroll_home(down=False)
+        else:
+            self.wait(ready)
+        self.wait(lambda t: self.has(t, "Actualizaciones"))
+
+    def scroll_home(self, *, down):
+        tree = self.observe()
+        require(self.has(tree, "Inicio") and any(r.get("description") == MENU for r in tree["elements"]),
+                "home_screen_unconfirmed")
+        w, h = self.dimensions
+        x, top, bottom = w*2//3, h*3//10, h*8//10
+        require(self.device.serial() == self.serial, "usb_identity_changed")
+        self.device.adb(self.serial, "shell", "input", "swipe", x,
+                        bottom if down else top, x, top if down else bottom, 450)
+        self.pause(0.4)
+
     def run(self, candidate):
         checks = {}
         require(fresh_health(self.device, self.serial, pause=self.pause), "health_unverified")
@@ -80,6 +111,8 @@ class PhysicalSmoke:
         home = self.navigate("Inicio", "Inicio")
         require(self.has(home, "Versión instalada: " + candidate.version_name), "home_version_unverified")
         checks["home"] = "pass"
+        self.home_feed()
+        checks["feed_view"] = "pass"
         self.tap("text", "Actualizaciones")
         updates = self.wait(lambda t: self.has(t, "Actualizaciones de la aplicación"))
         require(not self.has(updates, "Comprobar actualizaciones"), "legacy_update_control")
@@ -99,7 +132,11 @@ class PhysicalSmoke:
         self.wait(lambda t: any(re.fullmatch(r"S[0-9]{4,}", r.get("text") or "") for r in t["elements"]))
         checks["quotation_list"] = "pass"
         self.navigate("Deployments", "Deployments")
-        self.wait(lambda t: self.has(t, "Confirm deployment of all repositories") and self.has(t, "Deploy all"))
+        controls = self.wait(lambda t: self.has(t, "Confirm deployment of all repositories") and self.has(t, "Deploy all"))
+        submits = [r for r in controls["elements"] if r.get("text") == "Deploy all"]
+        confirms = [r for r in controls["elements"] if r.get("text") == "Confirm deployment of all repositories"]
+        require(len(submits) == len(confirms) == 1 and submits[0].get("enabled") is False
+                and confirms[0].get("checked") is False, "deployment_guard_unverified")
         checks["deployment_controls_visible"] = "pass"
         self.navigate("Liturgia", "Lecturas, Biblia y búsqueda")
         self.wait(lambda t: self.has(t, "Esta edición solo tiene referencias disponibles para consulta remota.")
