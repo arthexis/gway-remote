@@ -24,7 +24,7 @@ internal class AuthenticatedLiturgiaSource(private val endpoint: String, private
 
     override suspend fun translations(): List<Edition> =
         read("translations").getJSONArray("items").objects().map {
-            Edition(it.getString("id"), it.getString("name"), it.getBoolean("text_available") && it.getString("id") != DEFAULT_EDITION)
+            Edition(it.getString("id"), it.getString("name"), mayDisplayText(it.getString("id"), it.getBoolean("text_available")))
         }
 
     override suspend fun books(edition: String): List<BibleBook> =
@@ -46,7 +46,7 @@ internal class AuthenticatedLiturgiaSource(private val endpoint: String, private
                     it.getJSONArray("ranges").objects().map { r ->
                         Passage(r.getString("book_id"), r.getInt("chapter"), r.getInt("first"), r.getInt("last"))
                     }, it.optionalString("note"),
-                    if (edition != DEFAULT_EDITION && it.getString("status") == "text_available")
+                    if (mayDisplayText(edition, it.getString("status") == "text_available"))
                         it.getJSONArray("verses").objects().map { v ->
                             Verse(v.getString("book_id"), v.getInt("chapter"), v.getInt("verse"), v.optionalString("text"))
                         } else emptyList())
@@ -71,7 +71,7 @@ internal class AuthenticatedLiturgiaSource(private val endpoint: String, private
 
     private fun decodePage(data: JSONObject, edition: String): VersePage {
         require(data.getString("translation_id") == edition)
-        val allowed = data.getBoolean("text_available") && edition != DEFAULT_EDITION
+        val allowed = mayDisplayText(edition, data.getBoolean("text_available"))
         return VersePage(edition, allowed, data.getJSONArray("items").objects().map {
             Verse(it.getString("book_id"), it.getInt("chapter"), it.getInt("verse"),
                 if (allowed) it.optionalString("text") else null)

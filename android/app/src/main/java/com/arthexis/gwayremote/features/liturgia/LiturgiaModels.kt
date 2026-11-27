@@ -5,6 +5,10 @@ import java.time.LocalDate
 /** Transport-independent models; no terminal parsing or execution privileges. */
 internal const val DEFAULT_EDITION = "spanishdhh"
 
+/** Rights are fail-closed even if an injected or remote source advertises DHH text. */
+internal fun mayDisplayText(edition: String, advertised: Boolean): Boolean =
+    advertised && !edition.equals(DEFAULT_EDITION, ignoreCase = true)
+
 internal data class Edition(val id: String, val name: String, val textAvailable: Boolean)
 internal data class BibleBook(val id: String, val name: String, val testament: String, val chapters: List<Int>)
 internal data class Passage(

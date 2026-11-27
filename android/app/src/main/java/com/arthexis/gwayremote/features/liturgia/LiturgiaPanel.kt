@@ -118,7 +118,7 @@ internal fun LiturgiaPanel(source: LiturgiaSource) {
         val available = editions.value.orEmpty()
         val selected = available.firstOrNull { it.id == edition }
         Choice("Traducción", selected?.name ?: edition, available.map { it.id to it.name }) { edition = it }
-        if (selected != null && !selected.textAvailable) {
+        if (selected != null && !mayDisplayText(edition, selected.textAvailable)) {
             ModuleNotice("Esta edición solo tiene referencias disponibles para consulta remota.")
         }
         if (available.isNotEmpty() && selected == null) {
@@ -150,7 +150,8 @@ internal fun LiturgiaPanel(source: LiturgiaSource) {
                                 Text(reading.label, style = MaterialTheme.typography.titleMedium)
                                 Text(reading.citation ?: "Referencia no disponible")
                                 ModuleNotice(reading.note)
-                                reading.verses.forEach { verse ->
+                                if (mayDisplayText(edition, selected?.textAvailable == true &&
+                                        reading.status == "text_available")) reading.verses.forEach { verse ->
                                     verse.text?.let { Text(verse.reference + " · " + it, style = MaterialTheme.typography.bodyLarge) }
                                 }
                                 reading.ranges.forEach { range ->
@@ -277,12 +278,13 @@ private fun ResultPage(state: Load<VersePage>, offset: Int, pageSize: Int, onPag
     state.value?.let { result ->
         Text("${result.total} versículos · ${result.translationId}")
         if (result.items.isEmpty()) ModuleNotice("Sin resultados en esta edición.")
-        if (!result.textAvailable) ModuleNotice("Texto no disponible para consulta remota.")
+        val showText = mayDisplayText(result.translationId, result.textAvailable)
+        if (!showText) ModuleNotice("Texto no disponible para consulta remota.")
         result.items.forEach { verse ->
             ElevatedCard(Modifier.fillMaxWidth()) {
                 Column(Modifier.padding(12.dp)) {
                     Text(verse.reference, style = MaterialTheme.typography.labelMedium)
-                    if (result.textAvailable) verse.text?.let { Text(it, style = if (enlarged) MaterialTheme.typography.headlineSmall else MaterialTheme.typography.bodyLarge) }
+                    if (showText) verse.text?.let { Text(it, style = if (enlarged) MaterialTheme.typography.headlineSmall else MaterialTheme.typography.bodyLarge) }
                     if (onVerse != null) TextButton(onClick = { onVerse(verse) }) { Text("Abrir") }
                 }
             }

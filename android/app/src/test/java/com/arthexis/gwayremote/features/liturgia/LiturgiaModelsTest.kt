@@ -8,6 +8,13 @@ class LiturgiaModelsTest {
         assertEquals("spanishdhh", DEFAULT_EDITION)
     }
 
+    @Test fun restrictedEditionNeverDisplaysTextEvenIfAdvertised() {
+        assertFalse(mayDisplayText("spanishdhh", true))
+        assertFalse(mayDisplayText("SPANISHDHH", true))
+        assertFalse(mayDisplayText("sblm", false))
+        assertTrue(mayDisplayText("sblm", true))
+    }
+
     @Test fun rangesAreBoundedAndExplicit() {
         assertEquals(1..1, parseRange("1"))
         assertEquals(1..10, parseRange("1-10"))
