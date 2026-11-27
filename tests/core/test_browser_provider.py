@@ -81,7 +81,7 @@ class BrowserContractTests(unittest.TestCase):
         self.assertEqual(set(manifest["permissions"]), {"activeTab", "nativeMessaging"})
         self.assertNotIn("content_scripts", manifest)
         self.assertNotIn("host_permissions", manifest)
-        self.assertNotIn("optional_permissions", manifest)
+        self.assertEqual(manifest["optional_permissions"], ["https://reports.example.invalid/*"])
         self.assertNotIn("externally_connectable", manifest)
 
     @unittest.skipUnless(shutil.which("node"), "Node.js not installed")
