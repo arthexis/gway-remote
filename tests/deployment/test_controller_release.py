@@ -10,7 +10,6 @@ import subprocess
 import tempfile
 import unittest
 from unittest.mock import patch
-import zipapp
 import zipfile
 
 from gway_remote.controller_release import (
@@ -101,12 +100,20 @@ class ControllerArchiveTests(unittest.TestCase):
             ["git", "-C", str(REPO), "rev-parse", "HEAD"], text=True).strip()
         install = runpy.run_path(str(REPO / "scripts/install-package-archive.py"))["install"]
         self.assertTrue(install(REPO, self.root, expected_uid=self.uid)["changed"])
-        package = self.root / "zip-source"
-        shutil.copytree(self.root / "gway_remote", package / "gway_remote")
-        (package / "__main__.py").write_text("from gway_remote.__main__ import main\nmain()\n")
-        self.executable = self.root / "gway-remote"
-        zipapp.create_archive(package, self.executable, interpreter="/usr/bin/env python3")
-        self.executable.chmod(0o755)
+        # Exercise the actual shell installer, changing only its fixed
+        # destination to a private writable directory. Never touch /usr/local.
+        scripts = self.root / "scripts"
+        scripts.mkdir()
+        destination = self.root / "bin"
+        destination.mkdir()
+        script = scripts / "install-cli.sh"
+        source = (REPO / "scripts/install-cli.sh").read_text()
+        script.write_text(source.replace("/usr/local/bin", str(destination)))
+        env = {**os.environ, "GWAY_INSTALL_FEED_ALIAS": "0"}
+        subprocess.run(["sh", str(script)], env=env, check=True, capture_output=True)
+        self.executable = destination / "gway-remote"
+        with zipfile.ZipFile(self.executable) as archive:
+            self.assertNotIn("gway-remote", archive.namelist())
         self.digest = hashlib.sha256(self.executable.read_bytes()).hexdigest()
         self.receipt = self.root / "controller-deployment.json"
         self.kw = dict(root=self.root, executable=self.executable, uid=self.uid)
