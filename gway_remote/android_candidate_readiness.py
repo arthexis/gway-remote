@@ -215,6 +215,97 @@ def merge_plan(pr, head, base, *, owner_opt_in, actor, api=gate.api, pages=gate.
             "merge_armed": False, "candidate_allocated": False,
             "publication_admission": False}
 
+
+def published_issue_plan(candidate, ledger, *, requested, api=gate.api, release_gate=gate,
+                         verify_bytes=None):
+    """Require durable published receipt and a source-bound explicit issue allowlist.
+
+    Returns a read-only plan, never closes an issue. A later reviewed owner
+    workflow must re-run this before each idempotent close.
+    """
+    import base64
+    import hashlib
+    import json
+    import tempfile
+    from pathlib import Path
+    from gway_remote.android_rc_acceptance import identity as accepted_identity
+    from gway_remote.android_rc_promotion import verify_release_asset, PUBLISH_WORKFLOW
+    from gway_remote.android_canary_certificate import certificate_sha256
+
+    state = ledger.read(candidate.candidate_id)
+    artifact = accepted_identity(ledger, candidate)
+    published = state.get("published") or {}
+    approval = state.get("approved") or {}
+    accepted = state.get("accepted") or {}
+    tag = f"android-v{candidate.version_name}"
+    gate.require(published.get("tag") == tag
+                 and published.get("source_sha") == candidate.source_sha
+                 and published.get("apk_sha256") == artifact.apk_sha256
+                 and published.get("certificate_sha256") == artifact.certificate_sha256
+                 and type(published.get("acceptance_run")) is int
+                 and accepted.get("run_id") == published["acceptance_run"]
+                 and approved_receipt_matches(approval, published, candidate),
+                 "verified publication receipt missing")
+    run = api(f"actions/runs/{published['approval_run']}")
+    release_gate.verify_run_identity(run, PUBLISH_WORKFLOW, published["approval_run"],
+                                    "workflow_dispatch", approval["publication_revision"])
+    gate.require(run.get("status") == "completed" and run.get("conclusion") == "success"
+                 and run.get("run_attempt") == 1
+                 and (run.get("actor") or {}).get("login") == gate.OWNER
+                 and (run.get("triggering_actor") or {}).get("login") == gate.OWNER,
+                 "publication workflow unverified")
+    release = api(f"releases/tags/{tag}")
+    verify_release_asset(artifact, release, draft=False, acceptance_run=published["acceptance_run"])
+    gate.require(release.get("id") == published.get("release_id")
+                 and api(f"commits/{tag}")["sha"] == candidate.source_sha
+                 and api(f"git/commits/{candidate.source_sha}")["tree"]["sha"] == candidate.source_tree,
+                 "published release identity mismatch")
+
+    def download_verify():
+        with tempfile.TemporaryDirectory() as tmp:
+            release_gate.gh("release", "download", tag, "-R", gate.REPO,
+                            "--pattern", "gway-remote.apk", "--dir", tmp)
+            apk = Path(tmp) / "gway-remote.apk"
+            gate.require(apk.is_file() and not apk.is_symlink()
+                         and 10000 < apk.stat().st_size < 104857600
+                         and hashlib.sha256(apk.read_bytes()).hexdigest() == artifact.apk_sha256
+                         and certificate_sha256(apk) == artifact.certificate_sha256,
+                         "published APK bytes or signer mismatch")
+    (verify_bytes or download_verify)()
+    row = api(f"contents/docs/android-release-issues.json?ref={candidate.source_sha}")
+    gate.require(row.get("encoding") == "base64", "release issue manifest unavailable")
+    raw = base64.b64decode(row["content"], validate=False)
+    gate.require(0 < len(raw) <= 16384, "invalid release issue manifest")
+    manifest = json.loads(raw)
+    allowed = manifest.get("issues")
+    gate.require(set(manifest) == {"schema", "issues"} and type(manifest["schema"]) is int
+                 and manifest["schema"] == 1 and isinstance(allowed, list)
+                 and all(type(n) is int and n > 0 and n != 718 for n in allowed)
+                 and len(set(allowed)) == len(allowed), "invalid release issue allowlist")
+    gate.require(isinstance(requested, list) and requested and len(set(requested)) == len(requested)
+                 and all(type(n) is int and n in allowed for n in requested),
+                 "unapproved release issue")
+    rows = [api(f"issues/{n}") for n in requested]
+    gate.require(all("pull_request" not in row and row.get("state") in ("open", "closed")
+                     and row.get("number") == n for row, n in zip(rows, requested)),
+                 "release issue identity mismatch")
+    return {"tag": tag, "source_sha": candidate.source_sha,
+            "apk_sha256": artifact.apk_sha256, "release_id": published["release_id"],
+            "to_close": [n for n, row in zip(requested, rows) if row["state"] == "open"],
+            "already_closed": [n for n, row in zip(requested, rows) if row["state"] == "closed"],
+            "mutation_authorized": False}
+
+
+def approved_receipt_matches(approval, published, candidate):
+    return (approval.get("candidate_id") == candidate.candidate_id
+            and approval.get("apk_sha256") == published.get("apk_sha256")
+            and approval.get("acceptance_run") == published.get("acceptance_run")
+            and type(approval.get("approval_run")) is int
+            and approval["approval_run"] > 0
+            and approval["approval_run"] == published.get("approval_run")
+            and bool(gate.SHA.fullmatch(approval.get("publication_revision") or "")))
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--run-id", type=int, required=True)
