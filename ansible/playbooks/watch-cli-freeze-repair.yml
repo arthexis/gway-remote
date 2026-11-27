@@ -43,6 +43,7 @@
         - /usr/local/bin/gway-remote
         - /etc/systemd/system/gway-remote-watch.service.d
         - "{{ watch_override }}"
+        - /etc/gway-remote/deployment.yml
       register: watch_paths
     - name: Refuse missing or unsafe installation paths
       ansible.builtin.assert:
@@ -56,7 +57,7 @@
     - name: Refuse unsafe override directory or file
       ansible.builtin.assert:
         that: not item.stat.exists or (item.stat.uid == 0 and not item.stat.islnk and ((item.item == watch_override and item.stat.isreg and item.stat.mode == '0644') or (item.item != watch_override and item.stat.isdir and item.stat.mode == '0755')))
-      loop: "{{ watch_paths.results[4:] }}"
+      loop: "{{ watch_paths.results[4:6] }}"
     - name: Read any previously installed freeze override
       ansible.builtin.slurp:
         src: "{{ watch_override }}"
@@ -64,8 +65,24 @@
       when: watch_paths.results[5].stat.exists
     - name: Refuse to replace unrelated watch override
       ansible.builtin.assert:
-        that: (existing_watch_override.content | b64decode) == '[Service]\nExecStart=\nExecStart=/usr/local/bin/gway-remote watch\n'
+        that: (existing_watch_override.content | b64decode) in ['[Service]\nExecStart=\nExecStart=/usr/local/bin/gway-remote watch\n', '[Service]\nExecStart=\nExecStart=/usr/local/bin/gway-remote watch\nEnvironment=ANSIBLE_LOCAL_TEMP=/tmp\n']
       when: watch_paths.results[5].stat.exists
+    - name: Verify canonical inventory gives this satellite no managed deployment permissions
+      ansible.builtin.command:
+        argv: [ansible-inventory, -i, "{{ playbook_dir }}/../inventory/deployment.yml", --host, "{{ ansible_hostname }}"]
+      register: canonical_watch_policy
+      changed_when: false
+      failed_when: canonical_watch_policy.rc != 0 or (canonical_watch_policy.stdout | from_json).remote_managed_repositories != []
+    - name: Reject unsafe existing deployment policy
+      ansible.builtin.assert:
+        that: not watch_paths.results[6].stat.exists or (watch_paths.results[6].stat.uid == 0 and watch_paths.results[6].stat.isreg and not watch_paths.results[6].stat.islnk and watch_paths.results[6].stat.mode == '0644')
+    - name: Verify existing inventory grants no satellite deployment permissions
+      ansible.builtin.command:
+        argv: [ansible-inventory, -i, /etc/gway-remote/deployment.yml, --host, "{{ ansible_hostname }}"]
+      register: installed_watch_policy
+      changed_when: false
+      failed_when: installed_watch_policy.rc != 0 or (installed_watch_policy.stdout | from_json).remote_managed_repositories != []
+      when: watch_paths.results[6].stat.exists
     - name: Verify installed receiver resolves to protected archive and already has corrected kiosk probe
       ansible.builtin.command:
         argv:
@@ -106,7 +123,7 @@
         state: stopped
       when:
         - "'ActiveState=active' in watch_state.results[1].stdout_lines"
-        - cli_package.stdout == 'stale' or '--apply' in watch_state.results[0].stdout
+        - cli_package.stdout == 'stale' or '--apply' in watch_state.results[0].stdout or not watch_paths.results[6].stat.exists or not watch_paths.results[5].stat.exists or 'Environment=ANSIBLE_LOCAL_TEMP=/tmp' not in (existing_watch_override.content | default('') | b64decode)
     - name: Verify no watch operation is running
       ansible.builtin.command:
         argv: [systemctl, show, "{{ watch_unit }}", --property=ActiveState, --value]
@@ -130,6 +147,7 @@
           [Service]
           ExecStart=
           ExecStart=/usr/local/bin/gway-remote watch
+          Environment=ANSIBLE_LOCAL_TEMP=/tmp
       register: watch_mode
     - name: Reload systemd units without restarting services
       ansible.builtin.systemd:
@@ -141,6 +159,21 @@
       register: watch_command
       changed_when: false
       failed_when: "'argv[]=/usr/local/bin/gway-remote watch ;' not in watch_command.stdout or '--apply' in watch_command.stdout"
+    - name: Install missing canonical inventory without granting satellite deployment authority
+      ansible.builtin.copy:
+        src: "{{ playbook_dir }}/../inventory/deployment.yml"
+        dest: /etc/gway-remote/deployment.yml
+        owner: root
+        group: root
+        mode: '0644'
+        force: false
+      when: not watch_paths.results[6].stat.exists
+    - name: Verify live installed inventory still grants no deployment authority
+      ansible.builtin.command:
+        argv: [ansible-inventory, -i, /etc/gway-remote/deployment.yml, --host, "{{ ansible_hostname }}"]
+      register: verified_watch_policy
+      changed_when: false
+      failed_when: verified_watch_policy.rc != 0 or (verified_watch_policy.stdout | from_json).remote_managed_repositories != []
     - name: Converge repository-owned CLI installer with archive support
       ansible.builtin.copy:
         src: "{{ playbook_dir }}/../../scripts/install-cli.sh"
