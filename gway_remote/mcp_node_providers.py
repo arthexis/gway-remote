@@ -87,15 +87,20 @@ def provider_list(registrations, *, node_id):
 
 
 def provider_call(registrations, *, provider, tool, arguments, authorized_scope,
-                  invocation_id=None):
+                  invocation_id=None, verified_principal=None):
     """Revalidate a declaration and enforce permissions on the owning node."""
     if authorized_scope not in ("read", "execute"):
         raise NodeProviderError("permission_denied", provider=provider)
     if type(tool) is not str or not tool or type(arguments) is not dict:
         raise NodeProviderError("invalid_arguments", provider=provider)
-    from .mcp_principal_admission import owner_bound
+    from .mcp_principal_admission import owner_bound, validate_principal, validate_owner_arguments
     if owner_bound(provider):
-        raise NodeProviderError("principal_bound_transport_required", provider=provider)
+        if verified_principal is None:
+            raise NodeProviderError("principal_bound_transport_required", provider=provider)
+        validate_principal(verified_principal)
+        validate_owner_arguments(arguments)
+    elif verified_principal is not None:
+        raise NodeProviderError("unexpected_provider_principal", provider=provider)
     registration = _registration(registrations, provider)
     catalog = _catalog(registration)
     matching = [t for t in catalog["read"] + catalog["execute_required"]
@@ -111,6 +116,8 @@ def provider_call(registrations, *, provider, tool, arguments, authorized_scope,
         # stdio budget, leaving 5s for the existing 30s gateway deadline.
         # Authorization and declaration revalidation still run unchanged.
         options = {"authorized_scope": authorized_scope}
+        if verified_principal is not None:
+            options["verified_principal"] = verified_principal
         if registration.source_id == "android" and invocation_id is not None:
             options["invocation_id"] = invocation_id
         if registration.source_id == "odoo" and tool == "customer_vehicle_batch_apply":

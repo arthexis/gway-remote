@@ -44,7 +44,10 @@ OPERATIONS = {
 }
 
 
-def serve_one(raw, *, jobs=None, hostname=None):
+from .mcp_owner_bound_wire import OPS as OWNER_OPS, FIELDS as OWNER_FIELDS
+OPERATIONS.update({op: frozenset(OWNER_FIELDS) for op in OWNER_OPS})
+
+def serve_one(raw, *, jobs=None, hostname=None, trusted_relay=False):
     """One message per process, no interactive shell or arbitrary Python calls."""
     require_account()
     if type(raw) is not bytes or len(raw) > MAX_REQUEST_BYTES:
@@ -138,6 +141,18 @@ def serve_one(raw, *, jobs=None, hostname=None):
                 result = accept(req["application"], rid, expected_revision=req["expected_revision"])
         except (ValueError, PermissionError, OSError) as exc:
             return {"node": host, "request_id": rid, "error": deployment_error_code(exc)}
+        return {"node": host, "request_id": rid, "result": result}
+    if op in OWNER_OPS:
+        if trusted_relay is not True:
+            raise PermissionError("owner_rpc_requires_trusted_relay")
+        from .mcp_owner_bound_wire import validate, reserve
+        from .mcp_installed_providers import discover_installed_providers
+        from .mcp_node_providers import provider_call
+        scope = validate(req, host)
+        reserve(req)
+        result = provider_call(discover_installed_providers(), provider=req["provider"],
+                               tool=req["tool"], arguments=req["arguments"],
+                               authorized_scope=scope, verified_principal=req["principal"])
         return {"node": host, "request_id": rid, "result": result}
     if op in ("provider_list", "provider_call", "provider_read"):
         from .mcp_node_providers import dispatch_node_provider_request
@@ -233,7 +248,17 @@ def main():
     # SSH, the operator must independently bind a fixed, dedicated key to this
     # module and restrict forwarding, PTY and environment.
     try:
-        result = serve_one(sys.stdin.buffer.read(MAX_REQUEST_BYTES + 1))
+        # sudo sets this for the fixed gway-relay transition. This is not
+        # an isolation mechanism against the trusted local installation user.
+        import pwd
+        try:
+            relay = pwd.getpwnam("gway-relay")
+            trusted = (os.environ.get("SUDO_USER") == relay.pw_name
+                       and os.environ.get("SUDO_UID") == str(relay.pw_uid))
+        except KeyError:
+            trusted = False
+        result = serve_one(sys.stdin.buffer.read(MAX_REQUEST_BYTES + 1),
+                           trusted_relay=trusted)
         print(json.dumps(result, separators=(",", ":")))
         return 0
     except (ValueError, PermissionError, RuntimeError, OSError):

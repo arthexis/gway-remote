@@ -14,6 +14,17 @@ class ProviderTransport:
     def __init__(self, execution_transport):
         self.execution_transport = execution_transport
 
+    def invoke_principal(self, node, request, *, trusted_scope, verified_principal):
+        from .mcp_owner_bound_wire import make_payload
+        payload = make_payload(node, request, trusted_scope, verified_principal,
+                               secrets.token_hex(16))
+        response = pinned_transport(self.execution_transport, node).invoke(payload)
+        if (type(response) is not dict or response.get("node") != node
+                or response.get("request_id") != payload["request_id"]
+                or "result" not in response):
+            raise ValueError("uncorrelated_owner_response")
+        return response["result"]
+
     def invoke(self, node, request, *, trusted_scope):
         if trusted_scope not in ("read", "execute"):
             raise PermissionError("invalid provider scope")

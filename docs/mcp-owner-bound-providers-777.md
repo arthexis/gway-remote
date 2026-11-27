@@ -26,3 +26,16 @@ digest or environment variable is not isolation against this operator.
 Do not claim mutually hostile shell-operator isolation; achieving that would
 require a separately approved change to the identity/authorization model.
 No credentials or existing permissions are changed by this PR.
+
+## Stage B (candidate)
+
+Distinct provider_owner_read/execute operations carry a stable verified
+principal, request identity, time and canonical argument digest over the
+existing pinned SSH transport. The node accepts only the fixed relay ingress
+and reserves each request in a private SQLite ledger before dispatch. The
+90-second freshness window and 4096-entry cap fail closed; clocks must remain
+synchronized. The node checks the live tool declaration and gives the fixed
+stdio process its identity and scope via a minimal environment, never args.
+The SUDO_USER/SUDO_UID check distinguishes the normal fixed relay invocation,
+not hostile local operators; SSH authentication is the actual peer boundary.
+The same-account operator caveat remains. No new credential or key.
