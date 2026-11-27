@@ -1,0 +1,33 @@
+---
+# Explicit operator provisioning only. This never creates a database, changes
+# existing credentials or starts/enables a timer.
+- name: Stage private Watchtower AgentOps coordination timer
+  hosts: localhost
+  connection: local
+  become: true
+  gather_facts: false
+  tasks:
+    - name: Verify existing Watchtower runtime
+      ansible.builtin.stat:
+        path: /opt/gway-mcp/current/run.py
+      register: runtime
+    - name: Require already provisioned Watchtower
+      ansible.builtin.assert:
+        that:
+          - runtime.stat.exists
+          - runtime.stat.isreg
+    - name: Install dedicated private timer units only
+      ansible.builtin.copy:
+        src: "{{ playbook_dir }}/../../deploy/mcp-bearer/{{ item }}"
+        dest: "/etc/systemd/system/{{ item }}"
+        owner: root
+        group: root
+        mode: '0644'
+      loop:
+        - gway-agentops-coordination.service
+        - gway-agentops-coordination.timer
+      register: units
+    - name: Reload unit definitions without activation
+      ansible.builtin.systemd:
+        daemon_reload: true
+      when: units.changed

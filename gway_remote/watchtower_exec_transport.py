@@ -295,7 +295,8 @@ class SSHTransport:
         self._run = run
 
     def invoke(self, payload):
-        if type(payload) is not dict or payload.get("operation") not in {"periodic_health_submit","periodic_health_result","submit","result","health_probe_submit","health_probe_result","cancel","limits","lcd_sound_event","provider_list","provider_call","provider_read","provider_owner_read","provider_owner_execute","file_read","deployment_discovery","deployment_preview","deployment_status","deployment_run","workspace_inspect","feed_provision_status","feed_provision_install","probe_provision_status","probe_provision_install"}:
+        from .agentops_coordination import OPS as COORDINATION_OPS
+        if type(payload) is not dict or payload.get("operation") not in {"periodic_health_submit","periodic_health_result","submit","result","health_probe_submit","health_probe_result","cancel","limits","lcd_sound_event","provider_list","provider_call","provider_read","provider_owner_read","provider_owner_execute","file_read","deployment_discovery","deployment_preview","deployment_status","deployment_run","workspace_inspect","feed_provision_status","feed_provision_install","probe_provision_status","probe_provision_install"} | set(COORDINATION_OPS):
             raise ValueError("invalid node operation")
         fields = {"periodic_health_submit":{"operation","node","request_id"},
                   "periodic_health_result":{"operation","node","request_id"},"probe_provision_status":{"operation","node","request_id"},
@@ -318,6 +319,7 @@ class SSHTransport:
                   "deployment_preview":{"operation","node","request_id","application"},
                   "deployment_status":{"operation","node","request_id","application"},
                   "deployment_run":{"operation","node","request_id","application","expected_revision"}}
+        fields.update(COORDINATION_OPS)
         from .mcp_owner_bound_wire import OPS, FIELDS, validate
         for operation in OPS:
             fields[operation] = FIELDS

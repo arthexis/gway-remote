@@ -4,7 +4,7 @@ import subprocess
 import tempfile
 import unittest
 
-from gway_remote.deploy_impact import SAFE_PATHS, ANDROID_DELIVERY_PATHS, POLICY_PATHS, classify_paths, classify_push
+from gway_remote.deploy_impact import SAFE_PATHS, ANDROID_DELIVERY_PATHS, AEON_DELIVERY_PATHS, POLICY_PATHS, classify_paths, classify_push
 
 ROOT = pathlib.Path(__file__).resolve().parents[2]
 
@@ -123,3 +123,9 @@ class AndroidRcHealthImpactTests(unittest.TestCase):
         self.assertEqual(classify_paths(paths),"skip")
         self.assertEqual(classify_paths(paths+["gway_remote/mcp_android.py"]),"deploy")
         self.assertEqual(classify_paths(paths+[".github/workflows/android.yml"]),"deploy")
+
+class AeonDeliveryImpactTests(unittest.TestCase):
+    def test_aeon_delivery_only_does_not_restart_backend(self):
+        self.assertEqual(classify_paths(sorted(AEON_DELIVERY_PATHS)), "skip")
+        self.assertEqual(classify_paths(sorted(AEON_DELIVERY_PATHS | POLICY_PATHS)), "skip")
+        self.assertEqual(classify_paths([*AEON_DELIVERY_PATHS, "gway_remote/mcp_http.py"]), "deploy")

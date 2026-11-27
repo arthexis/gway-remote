@@ -40,8 +40,12 @@ class ProviderTransport:
             raise PermissionError("read operation requires read-only admission")
         if operation == "provider_call" and trusted_scope != "execute":
             raise PermissionError("provider_call requires execute admission")
-        payload = {"operation": operation, "node": node,
-                   "request_id": secrets.token_hex(16)}
+        from .agentops_invocation_trace import current_id, event
+        traced = request.get("provider") == "agentops" and operation != "provider_list"
+        rid = (current_id() if traced else None) or secrets.token_hex(16)
+        payload = {"operation": operation, "node": node, "request_id": rid}
+        if traced:
+            event("transport", rid, node=node, tool=request["tool"], scope=trusted_scope)
         if operation in ("provider_call", "provider_read"):
             payload.update({key: request[key] for key in ("provider", "tool", "arguments")})
         transport = pinned_transport(self.execution_transport, node)
@@ -52,13 +56,19 @@ class ProviderTransport:
             response = transport.invoke(payload)
             if type(response) is not dict or "result" not in response:
                 raise ValueError("invalid provider response")
-            if scenario and (response.get("request_id") != payload["request_id"]
+            if (scenario or traced) and (response.get("request_id") != payload["request_id"]
                              or response.get("node") != node):
                 raise ValueError("invalid scenario response identity")
             result = response["result"]
+            if traced:
+                event("returned", rid, node=node, tool=request["tool"])
         except PermissionError:
+            if traced:
+                event("uncertain", rid, node=node, tool=request["tool"])
             raise
         except (OSError, ValueError, RuntimeError, subprocess.SubprocessError) as exc:
+            if traced:
+                event("uncertain", rid, node=node, tool=request["tool"])
             if not scenario:
                 raise
             from .android_execution_contract import uncertain_result

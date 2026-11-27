@@ -30,15 +30,13 @@ def _count(issue: dict) -> int:
 
 
 def eligible_issue(issue: dict, repository: str) -> bool:
-    """Only open, creator-owned, labeled issues in allowed repositories."""
+    """Only open, creator-owned issues in allowed repositories; manual dispatch has no label gate."""
     return (
         repository in ALLOWED
         and issue.get("state") == "open"
         and verify_issue_creator(issue, trusted_id=TRUSTED_CREATOR_ID)
         and type(issue.get("number")) is int
         and issue["number"] > 0
-        and any(isinstance(label, dict) and label.get("name") == "local-agent"
-                for label in issue.get("labels", ()))
     )
 
 

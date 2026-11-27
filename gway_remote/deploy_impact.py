@@ -44,7 +44,12 @@ ANDROID_DELIVERY_PATHS = frozenset({
     "tests/infrastructure/test_android_rc_health.py",
     "tests/mobile/test_android_release_gate.py",
 })
-SAFE_PATHS = EVIDENCE_PATHS | ANDROID_DELIVERY_PATHS
+AEON_DELIVERY_PATHS = frozenset({
+    ".github/workflows/aeon-score-deploy.yml",
+    "scripts/deploy-aeon-score.py",
+    "tests/deployment/test_aeon_score_deploy.py",
+})
+SAFE_PATHS = EVIDENCE_PATHS | ANDROID_DELIVERY_PATHS | AEON_DELIVERY_PATHS
 # The classifier runs from the reviewed checkout in the hosted admission job.
 # Updating its policy requires accompanying regression tests. It is not a
 # runtime backend change. A policy-only change without tests remains deploy.

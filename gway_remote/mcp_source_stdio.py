@@ -276,8 +276,8 @@ def call_source_tool(registration, name, arguments, declared_tool, *, authorized
         raise SourceProtocolError("unexpected_provider_identity")
     rpc_id = 3
     if invocation_id is not None:
-        from .android_invocation_trace import valid_id
-        if registration.source_id != "android" or not valid_id(invocation_id):
+        from .agentops_invocation_trace import valid_id
+        if registration.source_id not in ("android", "agentops") or not valid_id(invocation_id):
             raise SourceProtocolError("invalid invocation id")
         rpc_id = invocation_id
     if timeout > 30:

@@ -46,6 +46,8 @@ OPERATIONS = {
 
 from .mcp_owner_bound_wire import OPS as OWNER_OPS, FIELDS as OWNER_FIELDS
 OPERATIONS.update({op: frozenset(OWNER_FIELDS) for op in OWNER_OPS})
+from .agentops_coordination import OPS as COORDINATION_OPS
+OPERATIONS.update(COORDINATION_OPS)
 
 def serve_one(raw, *, jobs=None, hostname=None, trusted_relay=False):
     """One message per process, no interactive shell or arbitrary Python calls."""
@@ -142,6 +144,11 @@ def serve_one(raw, *, jobs=None, hostname=None, trusted_relay=False):
         except (ValueError, PermissionError, OSError) as exc:
             return {"node": host, "request_id": rid, "error": deployment_error_code(exc)}
         return {"node": host, "request_id": rid, "result": result}
+    if op in COORDINATION_OPS:
+        if trusted_relay is not True:
+            raise PermissionError("coordination_requires_trusted_relay")
+        from .agentops_coordination import node_exchange
+        return {"node":host,"request_id":rid,"result":node_exchange(host,req)}
     if op in OWNER_OPS:
         if trusted_relay is not True:
             raise PermissionError("owner_rpc_requires_trusted_relay")
@@ -176,7 +183,7 @@ def serve_one(raw, *, jobs=None, hostname=None, trusted_relay=False):
         options = {"node_id": host, "trusted_scope": scope}
         android_call = request.get("provider") == "android"
         started = time.monotonic()
-        if android_call:
+        if android_call or request.get("provider") == "agentops":
             options["invocation_id"] = rid
         result = dispatch_node_provider_request(registrations, request, **options)
         if android_call and request.get("tool") == "scenario_run":

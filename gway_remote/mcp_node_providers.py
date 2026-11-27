@@ -118,7 +118,7 @@ def provider_call(registrations, *, provider, tool, arguments, authorized_scope,
         options = {"authorized_scope": authorized_scope}
         if verified_principal is not None:
             options["verified_principal"] = verified_principal
-        if registration.source_id == "android" and invocation_id is not None:
+        if registration.source_id in ("android", "agentops") and invocation_id is not None:
             options["invocation_id"] = invocation_id
         if registration.source_id == "odoo" and tool == "customer_vehicle_batch_apply":
             options["timeout"] = 25
@@ -166,7 +166,7 @@ def dispatch_node_provider_request(registrations, request, *, node_id, trusted_s
         if set(request) != {"operation", "provider", "tool", "arguments"}:
             raise NodeProviderError("invalid_request")
         options = {"authorized_scope": trusted_scope}
-        if invocation_id is not None and request["provider"] == "android":
+        if invocation_id is not None and request["provider"] in ("android", "agentops"):
             options["invocation_id"] = invocation_id
         return provider_call(registrations, provider=request["provider"],
                              tool=request["tool"], arguments=request["arguments"], **options)
