@@ -5,7 +5,8 @@ import unittest
 from pathlib import Path
 from unittest.mock import Mock, patch
 from gway_remote.android_release_candidate import Candidate, SignedArtifact
-from gway_remote.android_rc_acceptance import SMOKE_CHECKS, FULL_CHECKS, smoke_receipt
+from gway_remote.android_rc_acceptance import SMOKE_CHECKS, FULL_CHECKS, smoke_receipt, full_receipt
+from gway_remote.android_rc_contracts import GROUPS
 from gway_remote.android_rc_promotion import (CONFIRM, HOLD_LINE, validate_revision,
     validate_full_receipt, verify_release_asset, publish_exact)
 
@@ -16,8 +17,9 @@ class PromotionTests(unittest.TestCase):
         self.data = b"mock signed artifact"*1000
         self.digest = hashlib.sha256(self.data).hexdigest()
         self.a = SignedArtifact(self.c,self.digest,"d"*64,10,20)
-        self.full = smoke_receipt(self.a,30,dict.fromkeys(FULL_CHECKS,"pass"))
-        self.full.update(scope="authenticated_full_v1",status="passed")
+        self.hosted = {"ci_run":31,"compose_run":32,"build_run":33,"contract_artifact_id":34,
+                       "hosted_groups":dict.fromkeys(GROUPS,"pass")}
+        self.full = full_receipt(self.a,30,smoke_receipt(self.a,30,dict.fromkeys(SMOKE_CHECKS,"pass")),self.hosted)
         self.old = HOLD_LINE+"\n# LEGACY_ANDROID_PUBLISHER_RETIRED\nname: Android APK\n"
         self.new = self.old.replace(HOLD_LINE+"\n","")
         self.tag = "android-v0.2.800"
@@ -52,12 +54,14 @@ class PromotionTests(unittest.TestCase):
             validate_revision(self.c,revision,self.policy_gate(revision,self.new+"# extra\n"))
 
     def test_partial_cannot_pass_full_acceptance(self):
-        validate_full_receipt(self.full,self.a,30)
+        validate_full_receipt(self.full,self.a,30,self.hosted)
         smoke = smoke_receipt(self.a,30,dict.fromkeys(SMOKE_CHECKS,"pass"))
         for bad in (smoke,dict(self.full,checks={"health":"pass"}),
-                    dict(self.full,run_id=31),dict(self.full,screen_restored=False)):
+                    dict(self.full,run_id=31),dict(self.full,screen_restored=False),
+                    dict(self.full,physical_checks={}),
+                    dict(self.full,hosted_evidence=dict(self.hosted, compose_run=99))):
             with self.assertRaisesRegex(ValueError,"full_acceptance_missing"):
-                validate_full_receipt(bad,self.a,30)
+                validate_full_receipt(bad,self.a,30,self.hosted)
 
     def release(self,draft=True):
         return {"id":40,"tag_name":self.tag,"target_commitish":self.c.source_sha,
