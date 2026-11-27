@@ -8,13 +8,14 @@ const root = path.join(__dirname, "../firefox");
 function event() { return {addListener(fn) { this.fire = fn; }}; }
 async function main() {
   const messages = [];
-  let disconnected = false, injections = 0;
+  let disconnected = false, injections = 0, granted = false, allow = true;
   const tab = {id: 4, active: true, url: "https://reports.example.test/"};
   const port = {onMessage: event(), onDisconnect: event(), postMessage(v) { messages.push(v); },
     disconnect() { disconnected = true; }};
   const browser = {
     browserAction: {onClicked: event(), setBadgeText: async () => {}},
-    runtime: {connectNative(name) { assert.equal(name, "com.arthexis.gway_browser"); return port; }},
+    permissions: {onRemoved: event(), contains: async () => granted, remove: async () => { granted = false; return true; }, request: async ({origins}) => { assert.equal(origins[0], "https://reports.example.test/*"); granted = allow; return allow; }},
+    runtime: {getManifest: () => ({optional_permissions: ["https://reports.example.test/*"]}), connectNative(name) { assert.equal(name, "com.arthexis.gway_browser"); return port; }},
     tabs: {onRemoved: event(), onActivated: event(), onUpdated: event(),
       get: async () => tab, executeScript: async (_, options) => { injections++; assert.equal(options.file, "reports.js"); },
       sendMessage: async () => ({ok: true, state: "ready"})}
@@ -22,7 +23,8 @@ async function main() {
   const context = {browser, URL, crypto: require("node:crypto").webcrypto, setTimeout: () => 1, clearTimeout: () => {}};
   vm.runInNewContext(fs.readFileSync(path.join(root, "background.js"), "utf8"), context);
   assert.equal(messages.length, 0);
-  browser.browserAction.onClicked.fire(tab);
+  await new Promise(resolve => setImmediate(resolve));
+  await browser.browserAction.onClicked.fire(tab);
   await port.onMessage.fire({origin: "https://reports.example.test", lease_seconds: 600});
   assert.equal(messages[0].consent, true);
   await port.onMessage.fire({operation: "status"});
@@ -31,9 +33,12 @@ async function main() {
   assert.equal(injections, 1);
   browser.tabs.onActivated.fire({tabId: 99});
   assert.equal(disconnected, true);
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(granted, false);
   await port.onMessage.fire({operation: "snapshot"});
   assert.equal(injections, 1);
-  browser.browserAction.onClicked.fire(tab);
+  await new Promise(resolve => setImmediate(resolve));
+  await browser.browserAction.onClicked.fire(tab);
   await port.onMessage.fire({origin: "https://different.example.test", lease_seconds: 600});
   assert.equal(messages.length, 3);
   assert.equal(injections, 1);
