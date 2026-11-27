@@ -139,7 +139,7 @@ def verified_noop(source, revision, *, root=ROOT, executable=EXECUTABLE, uid=0):
     """Require protected prior success and exact installed bytes, not the hint."""
     try:
         digest = hashlib.sha256(_read_protected(executable, MAX_ARCHIVE, uid=uid)).hexdigest()
-        row = controller_evidence(receipt=root / RECEIPT.name, executable=executable,
+        row = controller_evidence(receipt=Path(root) / RECEIPT.name, executable=executable,
                                   running_digest=digest, uid=uid)
         if row["installed_sha"] != revision:
             return False
@@ -154,6 +154,10 @@ def record_verified_deployment(source, revision, executable_digest, *, execute,
     """Called only after the existing transactional install and authenticated health."""
     verify_source_package(source, revision, executable_digest, root=root,
                           executable=executable, uid=uid)
+    existing = controller_evidence(receipt=Path(root) / RECEIPT.name, executable=executable,
+                                   running_digest=executable_digest, uid=uid)
+    if existing["installed_sha"] == revision:
+        return  # Idempotent retry preserves the original successful update time.
     record = {"schema": 1, "source_sha": revision,
               "executable_sha256": executable_digest,
               "verified_at": datetime.now(timezone.utc).isoformat()}
