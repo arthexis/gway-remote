@@ -193,6 +193,39 @@ def execute_smoke(ledger, candidate, run_id, gate):
         return validate_smoke_receipt(smoke_receipt(artifact, run_id, checks), artifact, run_id)
 
 
+
+def full_receipt(artifact, run_id, smoke, hosted):
+    """Combine verified physical observations and exact-source synthetic contracts.
+
+    The receipt identifies both scopes; fixture failures cannot be waived by a
+    successful physical smoke test, and hosted tests do not imply live writes.
+    """
+    from gway_remote.android_rc_contracts import GROUPS
+    validate_smoke_receipt(smoke, artifact, run_id)
+    require(set(hosted) == {"ci_run", "compose_run", "build_run",
+                           "contract_artifact_id", "hosted_groups"}
+            and all(type(hosted[k]) is int and hosted[k] > 0 for k in
+                    ("ci_run", "compose_run", "build_run", "contract_artifact_id"))
+            and len({hosted["ci_run"], hosted["compose_run"], hosted["build_run"], run_id}) == 4
+            and hosted["hosted_groups"] == dict.fromkeys(GROUPS, "pass"),
+            "hosted_contract_evidence_mismatch")
+    checks = {**smoke["checks"], **hosted["hosted_groups"], "exact_source_ci_and_compose": "pass"}
+    require(checks == dict.fromkeys(FULL_CHECKS, "pass"), "full_acceptance_checks_missing")
+    return {**smoke, "scope":"authenticated_full_v1", "status":"passed", "checks":checks,
+            "physical_checks":smoke["checks"], "hosted_evidence":hosted}
+
+
+def execute_full(ledger, candidate, run_id, gate, *, ci_run, compose_run):
+    from gway_remote.android_rc_contracts import reconcile
+    validate_run(candidate, run_id, gate, completed=False)
+    artifact = identity(ledger, candidate)
+    build_run = ledger.read(candidate.candidate_id)["built"]["run_id"]
+    hosted = reconcile(gate, candidate, ci_run=ci_run, compose_run=compose_run, build_run=build_run)
+    smoke = execute_smoke(ledger, candidate, run_id, gate)
+    validate_run(candidate, run_id, gate, completed=False)
+    return full_receipt(artifact, run_id, smoke, hosted)
+
+
 def reconcile_smoke(ledger, candidate, run_id, gate):
     import json
     import tempfile
@@ -233,7 +266,9 @@ def main():
     p.add_argument("--tree", required=True)
     p.add_argument("--version", type=int, required=True)
     p.add_argument("--run-id", type=int, required=True)
-    p.add_argument("mode", choices=("execute", "reconcile"))
+    p.add_argument("--ci-run", type=int)
+    p.add_argument("--compose-run", type=int)
+    p.add_argument("mode", choices=("execute", "reconcile", "execute-full"))
     a = p.parse_args()
     require(a.ledger.is_absolute() and a.ledger.is_file() and not a.ledger.is_symlink()
             and a.ledger.stat().st_uid == os.getuid() and a.ledger.stat().st_mode & 0o077 == 0,
@@ -241,8 +276,13 @@ def main():
     candidate = Candidate(a.sha, a.tree, a.version, f"0.2.{a.version}")
     ledger = CandidateLedger(a.ledger, read_only=True)
     try:
-        fn = execute_smoke if a.mode == "execute" else reconcile_smoke
-        print(json.dumps(fn(ledger, candidate, a.run_id, gate), sort_keys=True))
+        if a.mode == "execute-full":
+            result = execute_full(ledger, candidate, a.run_id, gate, ci_run=a.ci_run, compose_run=a.compose_run)
+        else:
+            require(a.ci_run is None and a.compose_run is None, "unexpected_hosted_evidence")
+            fn = execute_smoke if a.mode == "execute" else reconcile_smoke
+            result = fn(ledger, candidate, a.run_id, gate)
+        print(json.dumps(result, sort_keys=True))
     finally:
         ledger.close()
 
