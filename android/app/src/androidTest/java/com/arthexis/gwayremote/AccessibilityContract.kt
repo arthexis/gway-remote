@@ -1,49 +1,40 @@
 package com.arthexis.gwayremote
 
-import android.accessibilityservice.AccessibilityServiceInfo
+import android.view.View
 import android.view.accessibility.AccessibilityNodeInfo
 import androidx.compose.ui.test.junit4.ComposeTestRule
-import androidx.test.platform.app.InstrumentationRegistry
+import androidx.compose.ui.test.onNodeWithTag
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertTrue
 
-/** Observe the same exported resource-id and state as UiAutomator's XML dump.
- * Raw Compose tag IDs are not fully-qualified Android resource names, so the
- * framework findAccessibilityNodeInfosByViewId lookup is not reliable here.
+/** Check the actual Android accessibility provider's exported node rather than
+ * relying on the instrumented activity becoming the OS active window.
+ * Physical acceptance independently inspects UiAutomator's USB hierarchy.
  */
 internal fun ComposeTestRule.awaitExportedControl(
     tag: String,
     predicate: (AccessibilityNodeInfo) -> Boolean
 ) {
-    val automation = InstrumentationRegistry.getInstrumentation().uiAutomation
-    val info = automation.serviceInfo
-    val priorFlags = info.flags
-    try {
-        info.flags = priorFlags or AccessibilityServiceInfo.FLAG_REPORT_VIEW_IDS or
-            AccessibilityServiceInfo.FLAG_INCLUDE_NOT_IMPORTANT_VIEWS
-        automation.serviceInfo = info
-        waitUntil(8000) {
-            val root = automation.rootInActiveWindow ?: return@waitUntil false
-            val queue = java.util.ArrayDeque<AccessibilityNodeInfo>()
-            queue.add(root)
-            var matches = 0
-            var valid = false
-            var visited = 0
-            while (queue.isNotEmpty() && visited++ < 2048) {
-                val node = queue.removeFirst()
-                if (node.viewIdResourceName == tag) {
-                    matches++
-                    valid = predicate(node)
-                }
-                for (i in 0 until node.childCount) node.getChild(i)?.let(queue::add)
+    val semantic = onNodeWithTag(tag, useUnmergedTree = true).fetchSemanticsNode()
+    val root = requireNotNull(semantic.root)
+    runOnIdle {
+        val view = root as View
+        root.forceAccessibilityForTesting(true)
+        try {
+            val provider = requireNotNull(view.accessibilityNodeProvider)
+            val node = provider.createAccessibilityNodeInfo(semantic.id)
+            assertNotNull("Missing exported accessibility node for $tag", node)
+            val exported = requireNotNull(node)
+            try {
+                assertEquals("Exported resource ID", tag, exported.viewIdResourceName)
+                assertTrue("Incorrect exported control state for $tag", predicate(exported))
+            } finally {
                 @Suppress("DEPRECATION")
-                node.recycle()
+                exported.recycle()
             }
-            val complete = queue.isEmpty()
-            @Suppress("DEPRECATION")
-            while (queue.isNotEmpty()) queue.removeFirst().recycle()
-            complete && matches == 1 && valid
+        } finally {
+            root.forceAccessibilityForTesting(false)
         }
-    } finally {
-        info.flags = priorFlags
-        automation.serviceInfo = info
     }
 }
