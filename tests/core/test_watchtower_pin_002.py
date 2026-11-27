@@ -112,6 +112,43 @@ class WatchtowerPin002Tests(unittest.TestCase):
             pin.plan(service_uid=self.uid, config=self.config,
                      host_key=self.host, inventory=self.root / "snapshot")
 
+    def test_abb_preview_binds_named_attested_host_and_preserves_existing(self):
+        ledger = fake_ledger()
+        ledger['nodes'][0]['node'] = pin.ABB_NODE
+        ledger['nodes'][0]['host_identity']['node'] = pin.ABB_NODE
+        inventory = fake_inventory()
+        inventory['nodes'][0]['node'] = pin.ABB_NODE
+        self._patch(pin, 'snapshot_from_path', lambda _: ledger)
+        self._patch(pin.node_registry_inventory, 'load', lambda _: inventory)
+        report = pin.plan(service_uid=self.uid, config=self.config,
+                          host_key=self.host, node=pin.ABB_NODE)
+        self.assertEqual(report['existing_nodes'], ('gway-004',))
+        self.assertIn(b'ocpp-abb-1 ', report['known'][2])
+        self.assertEqual(report['known'][1], self.known.read_bytes())
+        inventory['nodes'][0]['execute_eligible'] = False
+        with self.assertRaisesRegex(pin.PinRefused, 'eligibility'):
+            pin.plan(service_uid=self.uid, config=self.config,
+                     host_key=self.host, node=pin.ABB_NODE)
+        with self.assertRaisesRegex(pin.PinRefused, 'unsupported'):
+            pin.plan(service_uid=self.uid, config=self.config,
+                     host_key=self.host, node='ocpp-abb-2')
+
+    def test_abb_transaction_uses_separate_authorization_and_rollback(self):
+        before_config, before_known = self.config.read_bytes(), self.known.read_bytes()
+        data = {'config': (self.config, before_config, before_config + b'\n', self.config.stat()),
+                'known': (self.known, before_known, before_known + b'ocpp-abb-1 ' + HOST_PUBLIC.encode() + b'\n', self.known.stat())}
+        self._patch(pin, 'plan', lambda *, service_uid, node: data)
+        state = self.root / 'abb-transaction'
+        with self.assertRaisesRegex(pin.PinRefused, 'explicit relay'):
+            pin.apply(service_uid=self.uid, approval=pin._APPROVAL, relay_confirmed=True, state=state, node=pin.ABB_NODE)
+        self.assertEqual(pin.apply(service_uid=self.uid, approval=pin.ABB_APPROVAL, relay_confirmed=True, state=state, node=pin.ABB_NODE), 'pending_acceptance')
+        self.assertEqual(json.loads((state / 'journal.json').read_text())['node'], pin.ABB_NODE)
+        with self.assertRaises(pin.PinRefused):
+            pin.recover(state=state, approval='I_ACCEPT_GWAY_002_PIN_ROLLBACK', node=pin.ABB_NODE)
+        self.assertEqual(pin.recover(state=state, approval=pin.ABB_ROLLBACK, node=pin.ABB_NODE), 'rolled_back')
+        self.assertEqual(self.config.read_bytes(), before_config)
+        self.assertEqual(self.known.read_bytes(), before_known)
+
     def test_preview_refuses_denied_grant_duplicate_and_drift(self):
         self._patch(pin, "snapshot_from_path", lambda _: fake_ledger())
         denied = fake_inventory()

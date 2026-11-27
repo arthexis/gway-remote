@@ -31,7 +31,9 @@ TRANSITIONS = {
     "queued": frozenset({"running", "cancelled", "timed_out", "unknown"}),
     "running": frozenset({"succeeded", "failed", "cancelled", "timed_out", "unknown"}),
 }
-_NODE = re.compile(r"gway-[0-9]{3,}$")
+RELAY_ONLY_NODE = "ocpp-abb-1"
+RELAY_ONLY_OPERATIONS = frozenset({"submit", "result", "cancel", "limits"})
+_NODE = re.compile(r"(?:gway-[0-9]{3,}|ocpp-abb-1)\Z")
 _REQUEST = re.compile(r"[a-f0-9]{32}$")
 
 
