@@ -129,9 +129,10 @@ def report(head, base, state, reason, url):
             "-f", f"target_url={url}")
 
 
-def reconcile(pr, url, *, api=gate.api, pages=gate.pages, write=report):
+def reconcile(pr, url, *, trusted_base=None, api=gate.api, pages=gate.pages, write=report):
     p = exact_pr(pr, api=api)
     head, base = p["head"]["sha"], p["base"]["sha"]
+    gate.require(trusted_base is None or trusted_base == base, "trusted workflow base moved")
     def same():
         gate.require(identity(exact_pr(pr, api=api)) == identity(p), "PR identity changed")
     same()
@@ -152,7 +153,7 @@ def reconcile(pr, url, *, api=gate.api, pages=gate.pages, write=report):
     return state, reason
 
 
-def reconcile_all(url, *, api=gate.api, pages=gate.pages, write=report):
+def reconcile_all(url, *, trusted_base=None, api=gate.api, pages=gate.pages, write=report):
     rows = api("pulls?state=open&base=main&per_page=100")
     gate.require(isinstance(rows, list) and len(rows) <= MAX_PRS,
                  "open PR count exceeds reviewed reconciliation bound")
@@ -160,7 +161,7 @@ def reconcile_all(url, *, api=gate.api, pages=gate.pages, write=report):
     for row in rows:
         pr = row["number"]
         try:
-            state, reason = reconcile(pr, url, api=api, pages=pages, write=write)
+            state, reason = reconcile(pr, url, trusted_base=trusted_base, api=api, pages=pages, write=write)
             print(f"PR #{pr}: {state} {reason}")
         except Exception:
             failed.append(pr)
@@ -223,7 +224,7 @@ def main():
     trusted = subprocess.check_output(["git", "rev-parse", "HEAD"], text=True).strip()
     gate.require(gate.SHA.fullmatch(trusted) and gate.api("branches/main")["commit"]["sha"] == trusted,
                  "trusted workflow base moved; reconcile from current main")
-    reconcile_all(f"https://github.com/{gate.REPO}/actions/runs/{args.run_id}")
+    reconcile_all(f"https://github.com/{gate.REPO}/actions/runs/{args.run_id}", trusted_base=trusted)
 
 
 if __name__ == "__main__":
