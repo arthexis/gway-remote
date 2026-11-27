@@ -41,6 +41,9 @@ object FeatureRegistry {
             FeatureKind.OPERATION, operation,
             if (operation.id in homeOperationIds) FeatureGroup.HOME else FeatureGroup.TOOLS)
     } + listOf(
+        FeatureSpec("odoo-opportunities", "Oportunidades", "file-text",
+            setOf("odoo", "crm", "oportunidades", "pendientes", "consentimiento", "ventas"),
+            FeatureKind.LOCAL_PANEL, group = FeatureGroup.HOME),
         FeatureSpec("odoo-quotations", "Cotizaciones", "file-text",
             setOf("odoo", "cotizaciones", "presupuesto", "pdf", "ventas"),
             FeatureKind.LOCAL_PANEL, group = FeatureGroup.HOME),
@@ -51,6 +54,7 @@ object FeatureRegistry {
             group = FeatureGroup.HOME),
         FeatureSpec("github-health", "GitHub Health", "github",
             setOf("github", "ci", "alerts", "watch"), FeatureKind.LOCAL_PANEL, group = FeatureGroup.HOME),
+        FeatureSpec("liturgia", "Liturgia", "file-text", setOf("biblia", "lecturas", "misal"), FeatureKind.LOCAL_PANEL),
         FeatureSpec("app-update", "App update", "update",
             setOf("apk", "release", "install", "upgrade"), FeatureKind.LOCAL_PANEL, group = FeatureGroup.SETTINGS)
     )

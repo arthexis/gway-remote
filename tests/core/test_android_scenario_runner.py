@@ -151,12 +151,70 @@ class ScenarioContracts(unittest.TestCase):
                 self.assertFalse(any(name == "key" for name, _ in dev.calls))
                 self.assertLessEqual(sum(name == "wake_if_needed" for name, _ in dev.calls), 1)
 
+    def test_semantic_scenario_is_bounded_and_stops_on_uncertainty(self):
+        class Semantic(FakeDevice):
+            def semantic_transition(self, source, destination):
+                self.calls.append((source, destination))
+                return next(self.outcomes)
+        preview = runner.preview("developer-options-from-search-v1")
+        self.assertEqual(preview["actions"], 2)
+        self.assertEqual(preview["run_scope"], "gway:execute")
+        for outcomes, expected, count in [
+            ([{"status": "confirmed", "dispatched": True}] * 2, "passed", 2),
+            ([{"status": "unconfirmed", "dispatched": True}], "failed", 1),
+            ([{"status": "unconfirmed", "dispatched": False}], "failed", 0),
+        ]:
+            dev = Semantic()
+            dev.outcomes = iter(outcomes)
+            receipt = runner.run("developer-options-from-search-v1", device=dev,
+                                 receipt_root=self.root)
+            self.assertEqual(receipt["status"], expected)
+            self.assertEqual(receipt["action_invocations"], count)
+            self.assertEqual(len(dev.calls), 2 if expected == "passed" else 1)
+
+    def test_semantic_receipt_dispatch_attribution_is_sanitized_and_consistent(self):
+        class Semantic(FakeDevice):
+            def semantic_transition(self, source, destination):
+                self.calls.append((source, destination))
+                if isinstance(self.observed, Exception):
+                    raise self.observed
+                return self.observed
+        for observed, count, dispatch, reason in [
+            ({"status": "unconfirmed", "dispatched": False, "reason": "target_changed"},
+             0, "not_attempted", "target_changed"),
+            ({"status": "unconfirmed", "dispatched": True, "reason": "dispatch_uncertain"},
+             1, "uncertain", "dispatch_uncertain"),
+            ({"status": "unconfirmed", "dispatched": True, "reason": "verification_error"},
+             1, "attempted", "verification_error"),
+            ({"status": "confirmed", "dispatched": False, "reason": "private text"},
+             0, "not_attempted", None),
+            (TimeoutError("private text"), 1, "uncertain", "provider_error"),
+        ]:
+            with self.subTest(dispatch=dispatch, reason=reason):
+                dev = Semantic()
+                dev.observed = observed
+                receipt = runner.run("developer-options-from-search-v1", device=dev,
+                                     receipt_root=self.root)
+                verified = runner.result(receipt["receipt_id"], root=self.root)
+                self.assertEqual(verified["sha256"], receipt["receipt_sha256"])
+                self.assertEqual(receipt["status"], "failed")
+                self.assertEqual(receipt["action_invocations"], count)
+                self.assertEqual(verified["manifest"]["action_invocations"], count)
+                trace = verified["manifest"]["operations"][0]
+                self.assertEqual(trace["dispatch"], dispatch)
+                self.assertEqual(trace.get("reason"), reason)
+                self.assertNotIn("private text", json.dumps(verified))
+                self.assertEqual(len(dev.calls), 1)
+
     def test_explicit_read_execute_scope_and_strict_scenario_ids(self):
         scopes = {t["name"]: required_scope(t) for t in TOOLS}
         self.assertEqual(scopes["scenario_preview"], "read")
         self.assertEqual(scopes["scenario_run"], "execute")
         self.assertEqual(scopes["scenario_result"], "read")
-        self.assertEqual(len(TOOLS), 12)
+        self.assertEqual(scopes["scenario_status"], "read")
+        self.assertEqual(scopes["scenario_reconcile"], "execute")
+        self.assertEqual(scopes["navigation_model"], "read")
+        self.assertEqual(len(TOOLS), 15)
         for name in ("scenario_preview", "scenario_run"):
             with self.subTest(name=name):
                 err = call_tool(name, {"scenario_id": "../../etc/passwd"},

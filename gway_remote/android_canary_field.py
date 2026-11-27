@@ -33,6 +33,7 @@ SUITE = ",".join((
 SUITES = {
     "baseline": (SUITE, 6),
     "quotations": ("com.arthexis.gwayremote.OdooQuotationRefreshTest", 5),
+    "opportunities": ("com.arthexis.gwayremote.OdooOpportunityCopyTest", 2),
 }
 FILES = ("gway-remote-canary.apk", "gway-remote-canary-test.apk")
 SHA = re.compile(r"[0-9a-f]{40}\Z")
@@ -106,7 +107,7 @@ def provenance(directory, *, pr, sha, run_id):
     return hashes
 
 
-def eligible_run(pr):
+def eligible_run(pr, expected_run=None):
     """Only a successful manual workflow run whose artifact matches current PR HEAD."""
     item = gh(f"repos/{REPO}/pulls/{pr}")
     if item.get("state") != "open" or item.get("head", {}).get("repo", {}).get("full_name") != REPO:
@@ -120,7 +121,7 @@ def eligible_run(pr):
                 or run.get("status") != "completed" or run.get("conclusion") != "success"):
             continue
         run_id = run.get("id")
-        if type(run_id) is not int:
+        if type(run_id) is not int or (expected_run is not None and run_id != expected_run):
             continue
         listing = gh(f"repos/{REPO}/actions/runs/{run_id}/artifacts?per_page=25")
         name = f"android-canary-pr{pr}-{sha[:12]}"
@@ -272,7 +273,7 @@ def instrument(serial, *, wake=False, suite="baseline"):
 def state_path(suite="baseline"):
     if suite not in SUITES:
         raise CanaryError("unknown_test_suite")
-    filename = "android-canary.json" if suite == "baseline" else "android-canary-quotations.json"
+    filename = "android-canary.json" if suite == "baseline" else f"android-canary-{suite}.json"
     return Path.home() / ".local/state/gway-remote" / filename
 
 
@@ -284,12 +285,12 @@ def write_state(path, record):
     os.replace(tmp, path)
 
 
-def run(pr, *, install_enabled=False, reset=False, wake=False, retry=False, suite="baseline"):
+def run(pr, *, install_enabled=False, reset=False, wake=False, retry=False, suite="baseline", expected_run=None):
     if suite not in SUITES:
         raise CanaryError("unknown_test_suite")
     if not 1 <= pr <= 9999999:
         raise CanaryError("invalid_pr_number")
-    run_id, artifact, sha = eligible_run(pr)
+    run_id, artifact, sha = eligible_run(pr) if expected_run is None else eligible_run(pr, expected_run)
     state_file = state_path(suite)
     if state_file.exists():
         old = json.loads(state_file.read_text())
@@ -309,11 +310,15 @@ def run(pr, *, install_enabled=False, reset=False, wake=False, retry=False, suit
             "checked_at": datetime.now(timezone.utc).isoformat(),
         }
         try:
+            before_production = adb(serial, "shell", "pm", "path", PRODUCTION)
             install(serial, directory, allow_canary_reset=reset)
             # Package installation can consume the display timeout. Revalidate
             # a live unlocked screen before starting the Compose runner.
             device_ready(serial, wake=wake)
             record["tests_passed"] = instrument(serial, wake=wake, suite=suite)
+            if adb(serial, "shell", "pm", "path", PRODUCTION) != before_production:
+                raise CanaryError("production_package_changed")
+            record["production_package_unchanged"] = True
             record["status"] = "passed"
         except CanaryError as exc:
             record["reason"] = str(exc)
@@ -335,12 +340,13 @@ def main():
     parser.add_argument("--allow-canary-reset", action="store_true", help="only isolated canary package")
     parser.add_argument("--wake", action="store_true", help="restore screen-off after test")
     parser.add_argument("--retry", action="store_true")
+    parser.add_argument("--expected-run", type=int)
     parser.add_argument("--suite", choices=tuple(SUITES), default="baseline")
     args = parser.parse_args()
     try:
         print(json.dumps(run(args.pr, install_enabled=args.install,
                              reset=args.allow_canary_reset, wake=args.wake,
-                             retry=args.retry, suite=args.suite), sort_keys=True))
+                             retry=args.retry, suite=args.suite, expected_run=args.expected_run), sort_keys=True))
     except (CanaryError, OSError, ValueError, json.JSONDecodeError) as exc:
         # Never include command stdout/stderr, device serials, private UI or tokens.
         print(json.dumps({"status": "blocked", "reason": str(exc)}, sort_keys=True))

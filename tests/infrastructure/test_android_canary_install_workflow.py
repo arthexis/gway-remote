@@ -62,7 +62,9 @@ class CanaryInstallWorkflowTests(unittest.TestCase):
         self.assertIn("--install --allow-canary-reset --wake", text)
         self.assertIn('r.get("source_sha") == os.environ["EXPECTED_SHA"]', text)
         self.assertIn('str(r.get("run_id")) == os.environ["ARTIFACT_RUN"]', text)
-        self.assertIn("n >= 6", text)
+        self.assertIn('"baseline": 6', text)
+        self.assertIn('"quotations": 5', text)
+        self.assertIn('"opportunities": 2', text)
         self.assertLess(text.index("Install ONLY isolated canary"), text.index("Run pinned hermetic Compose tests"))
 
     def test_named_quotation_suite_is_explicit_and_receipt_bound(self):
@@ -70,9 +72,18 @@ class CanaryInstallWorkflowTests(unittest.TestCase):
         self.assertIn("compose_suite:", text)
         self.assertIn("default: baseline", text)
         self.assertIn("COMPOSE_SUITE: ${{ inputs.compose_suite }}", text)
-        self.assertIn('case "$COMPOSE_SUITE" in baseline|quotations)', text)
+        self.assertIn('case "$COMPOSE_SUITE" in baseline|quotations|opportunities)', text)
         self.assertIn('--suite "$COMPOSE_SUITE"', text)
         self.assertIn('r.get("suite") == os.environ["COMPOSE_SUITE"]', text)
-        self.assertIn("else n >= 5", text)
-        self.assertIn('no) RESULT=$(python3 -m gway_remote.android_canary_field --pr "$PR_NUMBER" --install --wake --suite "$COMPOSE_SUITE")', text)
-        self.assertIn('RESET_CANARY_ONLY) RESULT=$(python3 -m gway_remote.android_canary_field --pr "$PR_NUMBER" --install --allow-canary-reset --wake --suite "$COMPOSE_SUITE")', text)
+        self.assertIn('"opportunities": 2', text)
+        self.assertIn('no) RESULT=$(python3 -m gway_remote.android_canary_field --pr "$PR_NUMBER" --install --wake --expected-run "$ARTIFACT_RUN" --suite "$COMPOSE_SUITE")', text)
+        self.assertIn('RESET_CANARY_ONLY) RESULT=$(python3 -m gway_remote.android_canary_field --pr "$PR_NUMBER" --install --allow-canary-reset --wake --expected-run "$ARTIFACT_RUN" --suite "$COMPOSE_SUITE")', text)
+
+    def test_standalone_install_excludes_compose_and_feed(self):
+        text = WORKFLOW.read_text()
+        standalone = text.split("Install ONLY isolated canary", 1)[1].split("Run pinned hermetic Compose tests", 1)[0]
+        self.assertIn("inputs.run_feed_tests == 'no' && inputs.run_compose_tests == 'no'", standalone)
+        self.assertIn("gway_remote.android_canary_install", standalone)
+        compose = text.split("Run pinned hermetic Compose tests", 1)[1].split("Upload sanitized physical acceptance receipt", 1)[0]
+        self.assertIn("inputs.run_compose_tests == 'RUN_HERMETIC_TESTS'", compose)
+        self.assertIn("gway_remote.android_canary_field", compose)

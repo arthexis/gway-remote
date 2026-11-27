@@ -1,0 +1,73 @@
+---
+# Restricted SSH relay has no desktop/audio duties. Leave operator sessions
+# and global user-unit enablement untouched; next PAM session sees these masks.
+- name: Inspect dedicated relay home and per-user configuration
+  ansible.builtin.stat:
+    path: "{{ item }}"
+    follow: false
+  loop:
+    - /var/lib/gway-relay
+    - /var/lib/gway-relay/.config
+    - /var/lib/gway-relay/.config/systemd
+    - /var/lib/gway-relay/.config/systemd/user
+  register: relay_headless_dirs
+
+- name: Refuse unsafe relay home or existing configuration
+  ansible.builtin.assert:
+    that:
+      - relay_headless_dirs.results[0].stat.exists
+      - not item.stat.exists or (item.stat.isdir and not item.stat.islnk and item.stat.uid == 0 and item.stat.mode == '0755')
+  loop: "{{ relay_headless_dirs.results }}"
+
+- name: Verify restricted relay account home and group
+  ansible.builtin.command:
+    argv: [getent, passwd, gway-relay]
+  register: relay_headless_account
+  changed_when: false
+  failed_when: relay_headless_account.rc != 0 or relay_headless_account.stdout.split(':')[5] != '/var/lib/gway-relay' or relay_headless_account.stdout.split(':')[2] == '0'
+
+- name: Inspect exact audio unit override destinations
+  ansible.builtin.stat:
+    path: "/var/lib/gway-relay/.config/systemd/user/{{ item }}"
+    follow: false
+  loop: &relay_audio_units
+    - pipewire.service
+    - pipewire.socket
+    - pipewire-pulse.service
+    - pipewire-pulse.socket
+    - wireplumber.service
+    - wireplumber@.service
+    - pulseaudio.service
+    - pulseaudio.socket
+    - pulseaudio-x11.service
+    - filter-chain.service
+  register: relay_audio_existing
+
+- name: Refuse to replace unrelated user unit overrides
+  ansible.builtin.assert:
+    that: not item.stat.exists or (item.stat.islnk and item.stat.uid == 0 and item.stat.lnk_source == '/dev/null')
+  loop: "{{ relay_audio_existing.results }}"
+
+- name: Create root-owned restricted relay user configuration
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    owner: root
+    group: root
+    mode: '0755'
+    follow: false
+  loop:
+    - /var/lib/gway-relay/.config
+    - /var/lib/gway-relay/.config/systemd
+    - /var/lib/gway-relay/.config/systemd/user
+
+- name: Mask desktop audio only for the restricted relay account
+  ansible.builtin.file:
+    src: /dev/null
+    dest: "/var/lib/gway-relay/.config/systemd/user/{{ item }}"
+    state: link
+    owner: root
+    group: root
+    follow: false
+    force: false
+  loop: *relay_audio_units

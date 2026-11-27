@@ -26,7 +26,7 @@ ALLOWED_METHODS = frozenset({"server/discover", "initialize", "notifications/ini
 ALLOWED_TOOLS = frozenset({"mcp_source_status",
     "node_list", "node_capabilities", "node_file_download", "node_exec_preview",
     "node_exec", "node_result", "node_cancel", "node_deploy", "node_deploy_status",
-    "node_deploy_preview", "workspace_inspect", "mcp_catalog_inspect", "node_exec_diagnostic"})
+    "node_deploy_preview", "node_deploy_discovery", "workspace_inspect", "mcp_catalog_inspect", "node_exec_diagnostic"})
 
 EXEC_TOOL_NAMES = frozenset({"node_exec", "node_result", "node_cancel", "node_deploy", "node_deploy_status", "node_exec_diagnostic"})
 from .watchtower_exec_failure_receipts import FailureReceipts, ExecutionStageError
@@ -73,6 +73,11 @@ EXEC_TOOLS = (
 )
 
 NODE_TOOLS = (
+    {"name": "node_deploy_discovery", "_meta": READ_SECURITY,
+     "description": "Inspect live node-owned deployment declarations; no execution or paths.",
+     "inputSchema": {"type": "object", "properties": {"node": {"type": "string"}},
+                     "required": ["node"], "additionalProperties": False},
+     "annotations": {"readOnlyHint": True}},
     {"name": "node_file_download", "_meta": READ_SECURITY,
      "description": "Read one 8 KiB Base64 chunk of a file up to 1 MiB from the operator-provisioned node export directory. Reassemble chunks using next_offset and verify sha256.",
      "inputSchema": {"type": "object", "properties": {
@@ -130,6 +135,10 @@ def scoped_tool(tool, scheme):
 def local_node_result(method, arguments, *, execution=None):
     """Only inventory operations, never a shell or user-supplied address."""
     from . import node_registry_inventory
+    if method == "node_deploy_discovery" and type(arguments) is dict and set(arguments) == {"node"}:
+        if execution is None:
+            raise PermissionError("deployment unavailable")
+        return execution.deployment_discovery(**arguments)
     if method == "node_deploy_preview" and type(arguments) is dict and \
             {"node", "application"} <= set(arguments) and \
             set(arguments) <= {"node", "application", "revision"}:
@@ -430,6 +439,9 @@ class Handler(BaseHTTPRequestHandler):
         has_read = self.server.registry.verify(token)
         has_exec = self.server.registry.verify(token, required_scope="gway:execute")
         if not (has_read or has_exec):
+            if (getattr(self.server,'health_probe_enabled',False) is True
+                    and self.server.registry.verify(token,required_scope='gway:health-probe')):
+                return self._process_authenticated(token,False,False,probe=True)
             return self.reject(401)
         # Node audiences are resolved after validating each tool call, not
         # fixed to gway-001 for the lifetime of an entire HTTP request.
@@ -505,7 +517,7 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
-    def _process_authenticated(self, token, has_read, has_exec):
+    def _process_authenticated(self, token, has_read, has_exec, *, probe=False):
         if self.headers.get("Content-Type", "").split(";", 1)[0].strip().lower() != "application/json":
             return self.reject(415)
         if (self.headers.get("Transfer-Encoding") is not None
@@ -519,6 +531,26 @@ class Handler(BaseHTTPRequestHandler):
         if not 0 < length <= MAX_BODY:
             return self.reject(413)
         raw = self.rfile.read(length)
+        if probe:
+            if self.headers.get('MCP-Protocol-Version','2025-03-26')!='2025-03-26':
+                return self.reject(400)
+            from .mcp_health_probe_ingress import rpc
+            try:
+                response=rpc(self.server,token,json.loads(raw))
+            except (PermissionError,ValueError,RuntimeError,OSError,TypeError,KeyError):
+                return self.reject(403)
+            body=b'' if response is None else json.dumps(response,separators=(',',':')).encode()
+            if len(body)>8192:
+                return self.reject(502)
+            self.send_response(202 if response is None else 200)
+            if response is not None:
+                self.send_header('Content-Type','application/json')
+            self.send_header('MCP-Protocol-Version','2025-03-26')
+            self.send_header('Cache-Control','no-store')
+            self.send_header('Content-Length',str(len(body)))
+            self.end_headers()
+            if body:self.wfile.write(body)
+            return
         if not inspect_rpc(raw, self.server.approved_sources):
             return self.reject(403, reason="rpc_policy")
         # Only a valid read credential reaches here. Missing execute scope
@@ -694,7 +726,14 @@ class Handler(BaseHTTPRequestHandler):
                     if isinstance(exc, ExecutionStageError):
                         _EXEC_FAILURES.record(args.get("request_id"), principal,
                                               exc.stage, "failure")
-                result = {"content":[{"type":"text","text":"Execution request rejected"}],"isError":True}
+                from .mcp_bridge_transport import BridgeReadUnavailable
+                code = str(exc)
+                if (name in {"node_deploy", "node_deploy_status"} and
+                        code in BridgeReadUnavailable.CODES and code.startswith("deployment_")):
+                    result = {"content": [{"type": "text", "text": json.dumps({
+                        "error": "Deployment request rejected", "code": code})}], "isError": True}
+                else:
+                    result = {"content":[{"type":"text","text":"Execution request rejected"}],"isError":True}
             if version == "2026-07-28":
                 result = {"resultType":"complete", **result}
             body = json.dumps({"jsonrpc":"2.0","id":payload.get("id"),"result":result},
@@ -707,7 +746,7 @@ class Handler(BaseHTTPRequestHandler):
             self.end_headers()
             self.wfile.write(body)
             return
-        if payload["method"] == "tools/call" and payload.get("params", {}).get("name") in {"node_list", "node_capabilities", "node_file_download", "node_exec_preview", "node_deploy_preview", "workspace_inspect"}:
+        if payload["method"] == "tools/call" and payload.get("params", {}).get("name") in {"node_list", "node_capabilities", "node_file_download", "node_exec_preview", "node_deploy_preview", "node_deploy_discovery", "workspace_inspect"}:
             # The enrollment ledger lives on Watchtower. Never pass these tools
             # to gway-001, and never grant the gateway access to the root DB.
             arguments = payload["params"].get("arguments", {})
@@ -720,7 +759,17 @@ class Handler(BaseHTTPRequestHandler):
                     # Never impersonate a node through Watchtower-local env/config.
                     raise PermissionError("attested read bridge unavailable")
                 else:
-                    selected = local_node_result(payload["params"]["name"], arguments, execution=self.server.execution)
+                    # The installed Watchtower may use its existing authenticated
+                    # local execution service instead of the optional signed bridge.
+                    # Preserve only the same fixed deployment diagnostic codes.
+                    try:
+                        selected = local_node_result(payload["params"]["name"], arguments, execution=self.server.execution)
+                    except (PermissionError, ValueError) as exc:
+                        from .mcp_bridge_transport import BridgeReadUnavailable
+                        if (payload["params"]["name"] in {"node_deploy_preview", "node_deploy_discovery"}
+                                and str(exc) in BridgeReadUnavailable.CODES and str(exc).startswith("deployment_")):
+                            raise BridgeReadUnavailable(str(exc)) from None
+                        raise
                 result = {"content": [{"type": "text", "text": json.dumps(selected, separators=(",", ":"))}]}
             except (OSError, ValueError, PermissionError, KeyError, TypeError, json.JSONDecodeError) as exc:
                 # Do not return exception messages: they can contain paths or credentials.
@@ -729,6 +778,7 @@ class Handler(BaseHTTPRequestHandler):
                 from .mcp_bridge_transport import BridgeReadUnavailable
                 code = (exc.code if isinstance(exc, (WorkspaceUnavailable, BridgeReadUnavailable))
                         else "deployment_preview_unavailable" if payload["params"]["name"] == "node_deploy_preview"
+                        else "deployment_node_protocol_unavailable" if payload["params"]["name"] == "node_deploy_discovery"
                         else "workspace_inspection_unavailable" if payload["params"]["name"] == "workspace_inspect"
                         else "node_inventory_unavailable")
                 result = {"content": [{"type": "text", "text": json.dumps({
@@ -817,9 +867,18 @@ class Handler(BaseHTTPRequestHandler):
                 # Reuse the same authenticated route snapshot used for
                 # OAuth admission. A second discovery would introduce a
                 # transient availability/classification race inside one call.
-                selected = self.server.federation.call(
-                    name, arguments, authorized_scope="execute" if has_exec else "read",
-                    routes=routes)
+                from .mcp_principal_admission import owner_bound, verify_admission
+                scope = "execute" if has_exec else "read"
+                options = {}
+                if owner_bound(routes[name][1]):
+                    options["verified_principal"] = verify_admission(
+                        self.server.registry, token, scope)
+                from .agentops_invocation_trace import ingress
+                with ingress(routes[name][1], registry=self.server.registry,
+                             credential=token, scope=scope, rpc_id=payload.get("id")):
+                    selected = self.server.federation.call(
+                        name, arguments, authorized_scope=scope,
+                        routes=routes, **options)
                 from .mcp_gateway_federation import federated_tool_result
                 result = federated_tool_result(selected)
                 body = json.dumps({"jsonrpc": "2.0", "id": payload.get("id"),
@@ -901,7 +960,7 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
-def make_server(address, registry, upstream, backend_token, *, execution=None, bridge_sessions=None, bridge_transport=None, approved_sources=None, federation=None, lcd_sound_ingress_enabled=False, lcd_sound_dispatch=None, lcd_sound_grants_loader=None, activity_feed=None):
+def make_server(address, registry, upstream, backend_token, *, execution=None, bridge_sessions=None, bridge_transport=None, approved_sources=None, federation=None, lcd_sound_ingress_enabled=False, lcd_sound_dispatch=None, lcd_sound_grants_loader=None, activity_feed=None, health_probe_enabled=False):
     from urllib.parse import urlsplit
     parsed = urlsplit(upstream)
     if parsed.scheme != "http" or parsed.hostname != "127.0.0.1" or not parsed.port or parsed.path != "/mcp" or parsed.query or parsed.fragment or parsed.username or parsed.password:
@@ -922,6 +981,9 @@ def make_server(address, registry, upstream, backend_token, *, execution=None, b
             raise ValueError("invalid approved source policy")
     if type(lcd_sound_ingress_enabled) is not bool:
         raise ValueError("invalid LCD/Sound ingress activation")
+    if type(health_probe_enabled) is not bool:
+        raise ValueError('invalid probe activation')
+    server.health_probe_enabled=health_probe_enabled
     server.activity_feed = activity_feed
     server.lcd_sound_ingress_enabled = lcd_sound_ingress_enabled
     server.lcd_sound_dispatch = lcd_sound_dispatch
@@ -1043,7 +1105,8 @@ def main():
         with make_server(("127.0.0.1", args.port), verifier, args.upstream,
                          token, execution=execution, approved_sources=approved_sources,
                          federation=federation,
-                         lcd_sound_ingress_enabled=ingress_enabled, activity_feed=activity_feed, **options) as service:
+                         lcd_sound_ingress_enabled=ingress_enabled, activity_feed=activity_feed,
+                         health_probe_enabled=os.environ.get("GWAY_MCP_HEALTH_PROBE_ENABLED")=="1", **options) as service:
             service.serve_forever()
     finally:
         if started is not None:

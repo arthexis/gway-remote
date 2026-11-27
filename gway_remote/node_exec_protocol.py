@@ -10,21 +10,29 @@ import re
 import socket
 import subprocess
 import sys
+import time
 
 from .node_exec_worker import Jobs, configured_max_active, require_account, validate_request_id
-from .node_exec_contract import validate_command
+from .node_exec_contract import validate_command, RELAY_ONLY_NODE, RELAY_ONLY_OPERATIONS
 
 MAX_REQUEST_BYTES = 65536
 OPERATIONS = {
+    "periodic_health_submit": frozenset({"operation", "node", "request_id"}),
+    "periodic_health_result": frozenset({"operation", "node", "request_id"}),
+    "probe_provision_status": frozenset({"operation","node","request_id"}),
+    "probe_provision_install": frozenset({"operation","node","request_id","credential"}),
     "feed_provision_status": frozenset({"operation","node","request_id"}),
     "feed_provision_install": frozenset({"operation","node","request_id","principal","credential"}),
     "lcd_sound_event": frozenset({"operation", "node", "request_id", "event"}),
     "submit": frozenset({"operation", "node", "request_id", "command"}),
+    "health_probe_submit": frozenset({"operation", "node", "request_id"}),
+    "health_probe_result": frozenset({"operation", "node", "request_id"}),
     "result": frozenset({"operation", "node", "request_id", "cursor"}),
     "cancel": frozenset({"operation", "node", "request_id"}),
     "limits": frozenset({"operation", "node", "request_id"}),
     "file_read": frozenset({"operation", "node", "request_id", "filename", "offset"}),
     "workspace_inspect": frozenset({"operation", "node", "request_id", "repository"}),
+    "deployment_discovery": frozenset({"operation", "node", "request_id"}),
     "deployment_preview": frozenset({"operation", "node", "request_id", "application"}),
     "deployment_status": frozenset({"operation", "node", "request_id", "application"}),
     "deployment_run": frozenset({"operation", "node", "request_id", "application", "expected_revision"}),
@@ -36,7 +44,12 @@ OPERATIONS = {
 }
 
 
-def serve_one(raw, *, jobs=None, hostname=None):
+from .mcp_owner_bound_wire import OPS as OWNER_OPS, FIELDS as OWNER_FIELDS
+OPERATIONS.update({op: frozenset(OWNER_FIELDS) for op in OWNER_OPS})
+from .agentops_coordination import OPS as COORDINATION_OPS
+OPERATIONS.update(COORDINATION_OPS)
+
+def serve_one(raw, *, jobs=None, hostname=None, trusted_relay=False):
     """One message per process, no interactive shell or arbitrary Python calls."""
     require_account()
     if type(raw) is not bytes or len(raw) > MAX_REQUEST_BYTES:
@@ -52,9 +65,21 @@ def serve_one(raw, *, jobs=None, hostname=None):
     if fields != OPERATIONS[op]:
         raise ValueError("invalid request fields")
     host = hostname if hostname is not None else socket.gethostname()
-    if not re.fullmatch(r"gway-[0-9]+", host) or req["node"] != host:
+    if (not re.fullmatch(r"gway-[0-9]+", host) and host != RELAY_ONLY_NODE) or req["node"] != host:
         raise PermissionError("unapproved node")
+    if host == RELAY_ONLY_NODE and op not in RELAY_ONLY_OPERATIONS:
+        raise PermissionError("relay-only node operation denied")
     rid = validate_request_id(req["request_id"])
+    if op in ("submit", "result", "cancel"):
+        from .periodic_health_contract import slot_for
+        if slot_for(host, rid) is not None:
+            raise PermissionError("periodic probe identity reserved")
+    if op in ('probe_provision_status','probe_provision_install'):
+        from .node_exec_identity import selected_user
+        if host!='gway-001' or selected_user()!='arthe':raise PermissionError('probe provision target or owner denied')
+        from .probe_provision_node import deliver
+        result=deliver(op,req.get('credential'))
+        return {'node':host,'request_id':rid,'result':result}
     if op in ("feed_provision_status", "feed_provision_install"):
         from .activity_feed_provision_node import status, install
         result = status(host) if op == "feed_provision_status" else install(host, req["principal"], req["credential"])
@@ -99,14 +124,42 @@ def serve_one(raw, *, jobs=None, hostname=None):
         result = inspect_authorized({"node": host, "repository": req["repository"]},
                                     trusted_node=host)
         return {"node": host, "request_id": rid, "result": result}
+    if op == "deployment_discovery":
+        from .mcp_deployment_resolver import deployment_catalog
+        try:
+            result = deployment_catalog()
+        except (ValueError, PermissionError, OSError):
+            return {"node": host, "request_id": rid, "error": "deployment_declaration_invalid"}
+        return {"node": host, "request_id": rid, "result": result}
     if op in ("deployment_preview", "deployment_status", "deployment_run"):
         from .mcp_deployment_broker import preview, request_status, accept
-        if op == "deployment_preview":
-            result = preview(req["application"])
-        elif op == "deployment_status":
-            result = request_status(req["application"], rid)
-        else:
-            result = accept(req["application"], rid, expected_revision=req["expected_revision"])
+        from .mcp_deployment_resolver import deployment_error_code
+        try:
+            if op == "deployment_preview":
+                result = preview(req["application"])
+            elif op == "deployment_status":
+                result = request_status(req["application"], rid)
+            else:
+                result = accept(req["application"], rid, expected_revision=req["expected_revision"])
+        except (ValueError, PermissionError, OSError) as exc:
+            return {"node": host, "request_id": rid, "error": deployment_error_code(exc)}
+        return {"node": host, "request_id": rid, "result": result}
+    if op in COORDINATION_OPS:
+        if trusted_relay is not True:
+            raise PermissionError("coordination_requires_trusted_relay")
+        from .agentops_coordination import node_exchange
+        return {"node":host,"request_id":rid,"result":node_exchange(host,req)}
+    if op in OWNER_OPS:
+        if trusted_relay is not True:
+            raise PermissionError("owner_rpc_requires_trusted_relay")
+        from .mcp_owner_bound_wire import validate, reserve
+        from .mcp_installed_providers import discover_installed_providers
+        from .mcp_node_providers import provider_call
+        scope = validate(req, host)
+        reserve(req)
+        result = provider_call(discover_installed_providers(), provider=req["provider"],
+                               tool=req["tool"], arguments=req["arguments"],
+                               authorized_scope=scope, verified_principal=req["principal"])
         return {"node": host, "request_id": rid, "result": result}
     if op in ("provider_list", "provider_call", "provider_read"):
         from .mcp_node_providers import dispatch_node_provider_request
@@ -127,13 +180,50 @@ def serve_one(raw, *, jobs=None, hostname=None):
             scope = "execute"
             request = {key: req[key] for key in ("provider", "tool", "arguments")}
             request["operation"] = "provider_call"
-        return {"node": host, "request_id": rid, "result": dispatch_node_provider_request(
-            registrations, request, node_id=host, trusted_scope=scope)}
+        options = {"node_id": host, "trusted_scope": scope}
+        android_call = request.get("provider") == "android"
+        started = time.monotonic()
+        if android_call or request.get("provider") == "agentops":
+            options["invocation_id"] = rid
+        result = dispatch_node_provider_request(registrations, request, **options)
+        if android_call and request.get("tool") == "scenario_run":
+            from .android_invocation_trace import annotate_transport
+            result = annotate_transport(result, rid, "node_transport",
+                                        (time.monotonic() - started) * 1000)
+        return {"node": host, "request_id": rid, "result": result}
     if op == "limits":
         return {"node": host, "request_id": rid,
                 "concurrent_jobs_per_node": configured_max_active()}
     if jobs is None:
         jobs = Jobs()
+    if op in ('periodic_health_submit', 'periodic_health_result'):
+        from .periodic_health_contract import COMMAND, validate_probe
+        slot = validate_probe(host, rid, submit=op == 'periodic_health_submit')
+        if op == 'periodic_health_submit':
+            try:
+                jobs.submit(host, COMMAND, request_id=rid, periodic_slot=slot)
+            except RuntimeError as exc:
+                if str(exc) == 'executor busy':
+                    return {'node':host,'request_id':rid,'status':'busy'}
+                if str(exc) == 'executor user manager unavailable':
+                    return {'node':host,'request_id':rid,'status':'failed'}
+                raise
+            return {'node':host,'request_id':rid,'status':'accepted'}
+        return jobs.periodic_result(host, rid)
+    if op in ('health_probe_submit', 'health_probe_result'):
+        from .mcp_health_probe_contract import NODE, nonce_command, project_result
+        if host != NODE:
+            raise PermissionError('probe_node_denied')
+        command = nonce_command(rid)
+        if op == 'health_probe_submit':
+            try:
+                jobs.submit(host, command, request_id=rid,health_probe=True)
+            except RuntimeError as exc:
+                if str(exc) == 'executor user manager unavailable':
+                    return {'node':host,'request_id':rid,'status':'rejected','failure_stage':'worker_readiness'}
+                raise
+            return {'node':host,'request_id':rid,'status':'accepted'}
+        return jobs.probe_result(rid)
     if op == "submit":
         validate_command(host, req["command"])
         try:
@@ -165,7 +255,17 @@ def main():
     # SSH, the operator must independently bind a fixed, dedicated key to this
     # module and restrict forwarding, PTY and environment.
     try:
-        result = serve_one(sys.stdin.buffer.read(MAX_REQUEST_BYTES + 1))
+        # sudo sets this for the fixed gway-relay transition. This is not
+        # an isolation mechanism against the trusted local installation user.
+        import pwd
+        try:
+            relay = pwd.getpwnam("gway-relay")
+            trusted = (os.environ.get("SUDO_USER") == relay.pw_name
+                       and os.environ.get("SUDO_UID") == str(relay.pw_uid))
+        except KeyError:
+            trusted = False
+        result = serve_one(sys.stdin.buffer.read(MAX_REQUEST_BYTES + 1),
+                           trusted_relay=trusted)
         print(json.dumps(result, separators=(",", ":")))
         return 0
     except (ValueError, PermissionError, RuntimeError, OSError):

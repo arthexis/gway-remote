@@ -8,7 +8,8 @@ import subprocess
 import shutil
 
 from .benchmark import echo
-from . import agent_ops_adapter, mobile_deployments, mobile_deploy_dispatch, mobile_deploy_follow, mobile_odoo_quotations
+from . import mobile_odoo_opportunities
+from . import agent_ops_adapter, mobile_deployments, mobile_deploy_dispatch, mobile_deploy_follow, mobile_odoo_quotations, mobile_liturgia
 from .codex_views import list_tasks, task_detail
 from .codex_issue_views import list_assignments
 from .csms_health import csms_probe
@@ -54,7 +55,11 @@ OPERATIONS = {"probe-csms": csms_probe, "status": status,
 
 
 def commands():
-    return ([{"name": "odoo-quotations", "read_only": True, "arguments": {
+    return ([{"name": "odoo-opportunities", "read_only": True, "arguments": {
+                 "limit": {"type": "integer", "min": 1, "max": 30, "required": False},
+                 "page": {"type": "integer", "min": 1, "max": 1000, "required": False}}},
+             {"name": "liturgia-read", "read_only": True, "arguments": {"tool": {"type": "choice", "choices": sorted(mobile_liturgia.TOOLS), "required": True}, "arguments": {"type": "object", "required": True}}},
+             {"name": "odoo-quotations", "read_only": True, "arguments": {
                  "query": {"type": "string", "max_length": 80, "required": False},
                  "limit": {"type": "integer", "min": 1, "max": 30, "required": False},
                  "page": {"type": "integer", "min": 1, "max": 1000, "required": False}}},
@@ -178,6 +183,10 @@ def codex_mobile(name, arguments):
 
 
 def execute(name, arguments):
+    if name == "odoo-opportunities":
+        return mobile_odoo_opportunities.search(arguments)
+    if name == "liturgia-read":
+        return mobile_liturgia.read(arguments)
     if name == "odoo-quotations":
         return mobile_odoo_quotations.search(arguments)
     if name == "deployments-follow":

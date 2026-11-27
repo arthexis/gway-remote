@@ -33,11 +33,11 @@ class FeatureRegistryTest {
 
     @Test fun stageAHomeKeepsOperationalFunctionsAndAgentOps() {
         assertEquals(
-            setOf("system", "agent-ops", "deployments", "github-health", "mcp-access", "odoo-quotations"),
+            setOf("system", "agent-ops", "deployments", "github-health", "mcp-access", "odoo-quotations", "odoo-opportunities"),
             FeatureRegistry.home.map { it.id }.toSet()
         )
         assertEquals(
-            setOf("csms", "benchmark", "notifications", "app-update"),
+            setOf("csms", "benchmark", "notifications", "app-update", "liturgia"),
             FeatureRegistry.secondary.map { it.id }.toSet()
         )
         assertEquals(FeatureGroup.SETTINGS, FeatureRegistry.get("app-update")?.group)

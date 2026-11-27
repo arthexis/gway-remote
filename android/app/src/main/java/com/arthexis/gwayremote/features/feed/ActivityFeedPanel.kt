@@ -6,6 +6,9 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.ExperimentalComposeUiApi
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.testTagsAsResourceId
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
@@ -17,7 +20,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 @Composable
-internal fun ActivityFeedPanel(endpoint: String, token: String, onOpenSettings: () -> Unit, onNavigate: (String) -> Unit) {
+internal fun ActivityFeedPanel(endpoint: String, token: String, onNavigate: (String) -> Unit) {
     val context = LocalContext.current
     val cache = remember(context, endpoint) { FeedCache(context.applicationContext, endpoint) }
     val repository = remember(context, endpoint) { FeedRepository(context.applicationContext, endpoint) }
@@ -72,18 +75,21 @@ internal fun ActivityFeedPanel(endpoint: String, token: String, onOpenSettings: 
     if (isCanary) Text("Activity Feed · CANARY (USB)", style = MaterialTheme.typography.labelMedium)
     if (!configured) {
         Text("Activity Feed", style = MaterialTheme.typography.titleMedium)
-        ModuleNotice(if (isCanary) "Feed aislado: requiere prueba USB autorizada." else "Configura la API Key y el endpoint HTTPS de GWay Remote.")
-        if (!isCanary) OutlinedButton(onClick = onOpenSettings) { Text("Configuración") }
+        ModuleNotice(if (isCanary) "Feed aislado: requiere prueba USB autorizada." else "Configura la API Key y el endpoint HTTPS desde el menú lateral.")
     } else {
         FeedContent(state, category, busy, offline, notice,
             onCategory = { category = it },
             onRefresh = { scope.launch { refresh(true) } },
             onMore = { scope.launch { refresh(false) } },
             onRead = { seq ->
-                state = state.mark(seq)
-                val snapshot = state
-                // Atomic write on the UI thread preserves ordering with subsequent marks.
-                runCatching { cache.write(token, snapshot) }
+                val snapshot = state.mark(seq)
+                // Publish only after the atomic local write succeeds.
+                if (runCatching { cache.write(token, snapshot) }.getOrDefault(false)) {
+                    state = snapshot
+                    notice = null
+                } else {
+                    notice = "No se pudo marcar como leído"
+                }
             },
             allowExternalActions = !isCanary,
             onNavigate = onNavigate,
@@ -96,7 +102,7 @@ internal fun ActivityFeedPanel(endpoint: String, token: String, onOpenSettings: 
     }
 }
 
-@OptIn(ExperimentalLayoutApi::class)
+@OptIn(ExperimentalLayoutApi::class, ExperimentalComposeUiApi::class)
 @Composable
 internal fun FeedContent(state: FeedState, category: String?, busy: Boolean, offline: Boolean,
                          notice: String?, onCategory: (String?) -> Unit, onRefresh: () -> Unit,
@@ -107,7 +113,8 @@ internal fun FeedContent(state: FeedState, category: String?, busy: Boolean, off
     Text("Activity Feed", style = MaterialTheme.typography.titleLarge)
     Text("Actividad reciente · sin alertas", style = MaterialTheme.typography.bodySmall)
     ModuleActions {
-        OutlinedButton(onClick = onRefresh, enabled = !busy) { Text("Actualizar actividad") }
+        OutlinedButton(onClick = onRefresh, enabled = !busy,
+            modifier = Modifier.testTag("rc-feed-refresh").semantics { testTagsAsResourceId = true }) { Text("Actualizar actividad") }
     }
     if (busy) LinearProgressIndicator(Modifier.fillMaxWidth())
     if (offline) Text("Historial offline", color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -133,9 +140,8 @@ internal fun FeedContent(state: FeedState, category: String?, busy: Boolean, off
                     Text(runCatching { java.time.Instant.parse(item.time).atZone(java.time.ZoneId.systemDefault())
                         .format(java.time.format.DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm")) }
                         .getOrDefault(item.time), style = MaterialTheme.typography.bodySmall)
-                    if (item.seq !in state.read) Text("Sin leer", style = MaterialTheme.typography.labelMedium)
                     ModuleActions {
-                        if (item.seq !in state.read) TextButton(enabled = !busy, onClick = { onRead(item.seq) }) { Text("Marcar leído") }
+                        TextButton(enabled = !busy, onClick = { onRead(item.seq) }) { Text("Marcar leído") }
                         if (allowExternalActions) item.moduleId?.let { id -> TextButton(enabled = !busy, onClick = { onRead(item.seq); onNavigate(id) }) { Text("Abrir módulo") } }
                         if (allowExternalActions) item.url?.let { link -> TextButton(enabled = !busy, onClick = { onRead(item.seq); onLink(link) }) { Text("Abrir enlace") } }
                     }

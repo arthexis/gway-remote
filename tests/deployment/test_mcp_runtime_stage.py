@@ -26,7 +26,7 @@ class MCPRuntimeStageTests(unittest.TestCase):
         package = self.source / "gway_remote"
         package.mkdir()
         (package / "__init__.py").write_text("")
-        for module in ("mcp_http", "mcp_bearer_gateway", "mcp_link_http"):
+        for module in ("mcp_http", "mcp_bearer_gateway", "mcp_link_http", "periodic_execution_health", "agentops_coordination"):
             (package / (module + ".py")).write_text("print('pinned-runtime')\n")
         units = self.source / "deploy/mcp-bearer"
         units.mkdir(parents=True)
@@ -46,6 +46,7 @@ class MCPRuntimeStageTests(unittest.TestCase):
         manifest = json.loads((release / "manifest.json").read_text())
         self.assertEqual(manifest["revision"], self.sha)
         self.assertIn("gway_remote/mcp_http.py", manifest["sha256"])
+        self.assertIn("gway_remote/agentops_coordination.py", manifest["sha256"])
         self.assertEqual(release.stat().st_mode & 0o777, 0o755)
         self.assertEqual((release / "gway_remote").stat().st_mode & 0o777, 0o755)
         self.assertFalse((self.prefix / "previous").exists())

@@ -181,9 +181,9 @@ class SemanticContracts(unittest.TestCase):
         scopes = {t["name"]: required_scope(t) for t in TOOLS}
         self.assertEqual(scopes["tap_target"], "execute")
         self.assertEqual(scopes["wait_ui"], "read")
-        self.assertEqual(len(TOOLS), 12)
+        self.assertEqual(len(TOOLS), 15)
         self.assertEqual(len(handle_rpc({"jsonrpc":"2.0","id":1,
-                                         "method":"tools/list","params":{}})["tools"]), 12)
+                                         "method":"tools/list","params":{}})["tools"]), 15)
         invalid = (
             {"resource_id": "abc", "expect_id": "def"},
             {"resource_id": "abc", "expect_state": "present"},

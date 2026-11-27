@@ -1,0 +1,96 @@
+name: Android release candidate (physical lab only)
+run-name: "Android RC ${{ inputs.mode }} version ${{ inputs.version_code }} artifact ${{ inputs.artifact_id }}"
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        type: choice
+        options: [preflight, install, install-lab-only]
+        default: preflight
+        required: true
+      source_sha:
+        required: true
+        type: string
+      source_tree:
+        required: true
+        type: string
+      workflow_sha:
+        required: true
+        type: string
+      version_code:
+        required: true
+        type: string
+      artifact_id:
+        required: true
+        type: string
+      apk_sha256:
+        required: true
+        type: string
+      certificate_sha256:
+        required: true
+        type: string
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: gway-001-android-canary-install
+  cancel-in-progress: false
+jobs:
+  physical:
+    if: github.repository == 'arthexis/gway-remote' && github.ref == 'refs/heads/main' && github.actor == 'arthexis' && github.triggering_actor == 'arthexis'
+    runs-on: [self-hosted, Linux, ARM64, gway-001]
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Verify exact signed candidate and physical prerequisites
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          MODE: ${{ inputs.mode }}
+          SOURCE_SHA: ${{ inputs.source_sha }}
+          SOURCE_TREE: ${{ inputs.source_tree }}
+          WORKFLOW_SHA: ${{ inputs.workflow_sha }}
+          VERSION: ${{ inputs.version_code }}
+          ARTIFACT: ${{ inputs.artifact_id }}
+          DIGEST: ${{ inputs.apk_sha256 }}
+          CERTIFICATE: ${{ inputs.certificate_sha256 }}
+        run: |
+          set -euo pipefail
+          umask 077
+          [[ "$(hostname -s)" == gway-001 && "$WORKFLOW_SHA" == "$GITHUB_SHA" ]]
+          [[ "$SOURCE_SHA" =~ ^[0-9a-f]{40}$ && "$SOURCE_TREE" =~ ^[0-9a-f]{40}$ ]]
+          [[ "$VERSION" =~ ^[1-9][0-9]{0,9}$ && "$ARTIFACT" =~ ^[1-9][0-9]{0,19}$ ]]
+          [[ "$DIGEST" =~ ^[0-9a-f]{64}$ && "$CERTIFICATE" =~ ^[0-9a-f]{64}$ ]]
+          [[ "$(git rev-parse HEAD)" == "$WORKFLOW_SHA" ]]
+          STATE="$HOME/.local/state/gway-android-rc"
+          [[ -d "$STATE" && ! -L "$STATE" && "$(stat -c '%a:%U' "$STATE")" == "700:$(id -un)" ]]
+          [[ -f "$STATE/ledger.sqlite" && ! -L "$STATE/ledger.sqlite" ]]
+          args=()
+          case "$MODE" in
+            preflight) args+=(--preflight-only) ;;
+            install) ;;
+            install-lab-only) args+=(--allow-unverified-auth) ;;
+            *) exit 1 ;;
+          esac
+          python3 -B -m gway_remote.android_release_candidate \
+            --ledger "$STATE/ledger.sqlite" --sha "$SOURCE_SHA" --tree "$SOURCE_TREE" \
+            --version "$VERSION" lab-install --artifact-dir "$STATE/artifacts" \
+            --workflow-sha "$WORKFLOW_SHA" --run-id "$GITHUB_RUN_ID" --artifact-id "$ARTIFACT" \
+            --digest "$DIGEST" --certificate "$CERTIFICATE" "${args[@]}" \
+            > "$RUNNER_TEMP/rc-lab-receipt-$GITHUB_RUN_ID.json"
+          cat "$RUNNER_TEMP/rc-lab-receipt-$GITHUB_RUN_ID.json"
+      - name: Preserve sanitized physical receipt
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-rc-lab-receipt-${{ github.run_id }}
+          path: ${{ runner.temp }}/rc-lab-receipt-${{ github.run_id }}.json
+          if-no-files-found: error
+          retention-days: 30
+      - name: Reject blocked preflight
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -c 'import json,sys; r=json.load(open(sys.argv[1])); assert r["status"] in ("ready","installed"), r.get("reason","physical_acceptance_blocked")' "$RUNNER_TEMP/rc-lab-receipt-$GITHUB_RUN_ID.json"

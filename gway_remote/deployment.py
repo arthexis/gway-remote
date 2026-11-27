@@ -69,7 +69,7 @@ def local_api_token(*, service=SERVICE, execute=subprocess.run):
 
 
 def deploy(*, token, install, execute=run, probe=health, executable=EXECUTABLE,
-           runtime=None, backup_dir=None, notify=None, revision=None):
+           runtime=None, backup_dir=None, notify=None, revision=None, record_verified=None):
     if not token:
         raise ValueError("GWAY_REMOTE_API_TOKEN must be configured")
     runtime = pathlib.Path(runtime or f"/run/user/{os.getuid()}")
@@ -136,6 +136,8 @@ def deploy(*, token, install, execute=run, probe=health, executable=EXECUTABLE,
                 probe(token)
                 if hashlib.sha256(executable.read_bytes()).digest() != installed_digest:
                     raise RuntimeError("Installed executable changed during verification")
+                if record_verified is not None:
+                    record_verified(revision, installed_digest.hex())
                 emit("deploy-verified")
             except Exception as failure:
                 emit("deploy-failed")

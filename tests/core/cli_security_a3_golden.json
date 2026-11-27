@@ -6,7 +6,7 @@
   },
   "bearer --help": {
     "code": 0,
-    "stdout_sha256": "330cbeedd73b80a3bf7174d35d4d30424ba3c54292b40b05b650673560be45e4",
+    "stdout_sha256": "23ce1cee1dd215e6c7ab427d90722f67171e5e92061abd3eae7e97854a4c6209",
     "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
   },
   "exec --help": {

@@ -32,6 +32,11 @@ FIELDS = frozenset(("node", "address", "ssh_host_alias", "known_hosts",
                     "identity_file", "host_key_sha256", "remote_user"))
 SHA = re.compile(r"^[0-9a-f]{64}$")
 _APPROVAL = "I_ACCEPT_GWAY_002_WATCHTOWER_PIN"
+ABB_NODE = "ocpp-abb-1"
+ABB_HOST_KEY = Path("/etc/gway-remote/verified-ocpp-abb-1-host.pub")
+ABB_STATE = Path("/var/lib/gway-remote/watchtower-pin-abb")
+ABB_APPROVAL = "I_ACCEPT_ABB_WATCHTOWER_PIN"
+ABB_ROLLBACK = "I_ACCEPT_ABB_PIN_ROLLBACK"
 MAX_CONFIG = 4096
 MAX_KNOWN = 65536
 
@@ -136,15 +141,19 @@ def _attested_key(node, path):
     return key, rows[0]["address"]
 
 
-def plan(*, service_uid, config=CONFIG, host_key=HOST_KEY,
-         inventory=INVENTORY):
+def plan(*, service_uid, config=CONFIG, host_key=None,
+         inventory=INVENTORY, node=NODE):
     """Pure read-side preparation; never connects to SSH or mutates any file."""
+    if node not in (NODE, ABB_NODE):
+        raise PinRefused("unsupported pin target")
+    if host_key is None:
+        host_key = ABB_HOST_KEY if node == ABB_NODE else HOST_KEY
     if type(service_uid) is not int or service_uid <= 0:
         raise PinRefused("explicit nonroot gateway service UID required")
     original_config, config_stat = _file(config, uid=0, maximum=MAX_CONFIG)
     parsed = _parse_config(original_config)
-    if any(x["node"] == NODE for x in parsed["nodes"]):
-        raise PinRefused("gway-002 is already configured; manual review required")
+    if any(x["node"] == node for x in parsed["nodes"]):
+        raise PinRefused(f"{node} is already configured; manual review required")
     paths = {x["known_hosts"] for x in parsed["nodes"]}
     identities = {x["identity_file"] for x in parsed["nodes"]}
     if len(paths) != 1 or len(identities) != 1:
@@ -157,21 +166,21 @@ def plan(*, service_uid, config=CONFIG, host_key=HOST_KEY,
     original_known, known_stat = _file(
         known_path, uid=service_uid, maximum=MAX_KNOWN, private=True)
     _metadata(identity_path, uid=service_uid)
-    if b"gway-002" in original_known:
+    if node.encode("ascii") in original_known:
         # Conservative: any pre-existing reference needs operator reconciliation.
-        raise PinRefused("existing gway-002 pin requires manual reconciliation")
+        raise PinRefused(f"existing {node} pin requires manual reconciliation")
     for entry in parsed["nodes"]:
         if (not SHA.fullmatch(entry["host_key_sha256"])
                 or _key_for_alias(original_known, entry["node"])
                 != entry["host_key_sha256"]):
             raise PinRefused("an existing node pin is no longer valid")
 
-    host_pub, ledger_address = _attested_key(NODE, host_key)
+    host_pub, ledger_address = _attested_key(node, host_key)
     enrolled_ip = ipaddress.ip_interface(ledger_address)
     if enrolled_ip.version != 4 or enrolled_ip.network.prefixlen != 32:
         raise PinRefused("invalid enrolled WireGuard /32")
     current = node_registry_inventory.load(inventory)
-    matches = [x for x in current["nodes"] if x["node"] == NODE]
+    matches = [x for x in current["nodes"] if x["node"] == node]
     if (len(matches) != 1 or matches[0]["registered"] is not True
             or matches[0]["identity_verified"] is not True
             or matches[0]["execute_eligible"] is not True
@@ -181,11 +190,11 @@ def plan(*, service_uid, config=CONFIG, host_key=HOST_KEY,
 
     digest = _digest(base64.b64decode(host_pub.split()[1], validate=True))
     appended = ("" if original_known.endswith(b"\n") else "\n").encode("ascii")
-    new_known = original_known + appended + (NODE + " " + host_pub + "\n").encode("ascii")
+    new_known = original_known + appended + (node + " " + host_pub + "\n").encode("ascii")
     entry = {
-        "node": NODE,
+        "node": node,
         "address": str(enrolled_ip.ip),
-        "ssh_host_alias": NODE,
+        "ssh_host_alias": node,
         "known_hosts": str(known_path),
         "identity_file": str(identity_path),
         "host_key_sha256": digest,
@@ -199,7 +208,7 @@ def plan(*, service_uid, config=CONFIG, host_key=HOST_KEY,
     return {
         "config": (Path(config), original_config, new_config, config_stat),
         "known": (known_path, original_known, new_known, known_stat),
-        "existing_nodes": tuple(x["node"] for x in parsed["nodes"] if x["node"] != NODE),
+        "existing_nodes": tuple(x["node"] for x in parsed["nodes"] if x["node"] != node),
         "pin_digest": digest,
     }
 
@@ -265,20 +274,20 @@ def _journal(root, payload):
     _sync_dir(root)
 
 
-def _read_journal(root):
+def _read_journal(root, *, node=NODE):
     raw, _ = _file(root / "journal.json", uid=0, maximum=8192, private=True)
     data = json.loads(raw)
     if (type(data) is not dict or data.get("schema") != 1
-            or data.get("node") != NODE
+            or data.get("node") != node
             or data.get("state") not in ("prepared", "pending_acceptance",
                                          "rolled_back")):
         raise PinRefused("invalid transaction journal")
     return data
 
 
-def _recover(root, *, expected_paths=None):
+def _recover(root, *, expected_paths=None, node=NODE):
     """Restore both original images; tolerate a crash after either swap."""
-    data = _read_journal(root)
+    data = _read_journal(root, node=node)
     if data["state"] == "rolled_back":
         return "already_rolled_back"
     if (set(data) != {"schema", "node", "state", "targets"}
@@ -320,13 +329,17 @@ def _recover(root, *, expected_paths=None):
     return "rolled_back"
 
 
-def apply(*, service_uid, approval, relay_confirmed, state=STATE):
+def apply(*, service_uid, approval, relay_confirmed, state=None, node=NODE):
     """Explicit operator-only publication. Does NOT reload gateway or test SSH."""
-    if approval != _APPROVAL or relay_confirmed is not True:
+    if node not in (NODE, ABB_NODE):
+        raise PinRefused("unsupported pin target")
+    if state is None:
+        state = ABB_STATE if node == ABB_NODE else STATE
+    if approval != (ABB_APPROVAL if node == ABB_NODE else _APPROVAL) or relay_confirmed is not True:
         raise PinRefused("explicit relay acceptance and pin authorization required")
     if os.geteuid() != 0:
         raise PinRefused("Watchtower pin application requires root")
-    p = plan(service_uid=service_uid)
+    p = plan(service_uid=service_uid) if node == NODE else plan(service_uid=service_uid, node=node)
     _directory(state.parent, owner=0)
     # mkdir is a one-shot exclusive transaction lock. Any residue blocks a
     # new operation until explicit recovery/review.
@@ -343,7 +356,7 @@ def apply(*, service_uid, approval, relay_confirmed, state=STATE):
             "before": _digest(before), "after": _digest(after),
         }
     _sync_dir(state)
-    _journal(state, {"schema": 1, "node": NODE, "state": "prepared",
+    _journal(state, {"schema": 1, "node": node, "state": "prepared",
                      "targets": targets})
     try:
         # Compare-and-swap reads prevent overwriting changed files.
@@ -373,27 +386,32 @@ def apply(*, service_uid, approval, relay_confirmed, state=STATE):
                                 private=(kind == "known"))
             if observed != after:
                 raise PinRefused("post-write readback mismatch")
-        _journal(state, {"schema": 1, "node": NODE,
+        _journal(state, {"schema": 1, "node": node,
                          "state": "pending_acceptance", "targets": targets})
         return "pending_acceptance"
     except Exception:
         try:
-            _recover(state, expected_paths={k: p[k][0] for k in ("config", "known")})
+            _recover(state, expected_paths={k: p[k][0] for k in ("config", "known")}, node=node)
         except Exception:
             pass  # never mask the original error; recovery remains operator-visible
         raise
 
 
-def recover(*, state=STATE, approval):
-    if os.geteuid() != 0 or approval != "I_ACCEPT_GWAY_002_PIN_ROLLBACK":
+def recover(*, state=None, approval, node=NODE):
+    if node not in (NODE, ABB_NODE):
+        raise PinRefused("unsupported pin target")
+    if state is None:
+        state = ABB_STATE if node == ABB_NODE else STATE
+    if os.geteuid() != 0 or approval != (ABB_ROLLBACK if node == ABB_NODE else "I_ACCEPT_GWAY_002_PIN_ROLLBACK"):
         raise PinRefused("explicit root rollback approval required")
     _directory(state, owner=0)
-    return _recover(state)
+    return _recover(state, node=node)
 
 
 def main(argv=None):
     parser = argparse.ArgumentParser(description="Watchtower-only gway-002 pin; no SSH/deploy")
     parser.add_argument("action", choices=("preview", "apply", "recover"))
+    parser.add_argument("--node", choices=(NODE, ABB_NODE), default=NODE)
     parser.add_argument("--service-uid", type=int)
     parser.add_argument("--approval", default="")
     parser.add_argument("--relay-confirmed", action="store_true",
@@ -403,17 +421,17 @@ def main(argv=None):
         parser.error("Watchtower root operator session required")
     try:
         if args.action == "recover":
-            status = recover(approval=args.approval)
+            status = recover(approval=args.approval, node=args.node)
         else:
             if args.service_uid is None:
                 parser.error("verified gateway service UID required")
             if args.action == "preview":
-                result = plan(service_uid=args.service_uid)
+                result = plan(service_uid=args.service_uid, node=args.node)
                 status = "preflight_only"
             else:
                 status = apply(service_uid=args.service_uid, approval=args.approval,
-                               relay_confirmed=args.relay_confirmed)
-        print(json.dumps({"schema": 1, "node": NODE, "status": status,
+                               relay_confirmed=args.relay_confirmed, node=args.node)
+        print(json.dumps({"schema": 1, "node": args.node, "status": status,
                           "services_reloaded": False, "execution_verified": False}))
         return 0
     except (OSError, ValueError, KeyError, TypeError) as exc:

@@ -175,6 +175,9 @@ class Jobs:
                 id TEXT PRIMARY KEY, node TEXT NOT NULL, command_sha256 TEXT NOT NULL,
                 status TEXT NOT NULL
             )""")
+            db.execute("CREATE TABLE IF NOT EXISTS health_probe_jobs (id TEXT PRIMARY KEY)")
+            db.execute("CREATE TABLE IF NOT EXISTS periodic_health_jobs (id TEXT PRIMARY KEY, slot INTEGER NOT NULL)")
+            db.execute("CREATE TABLE IF NOT EXISTS periodic_health_clock (singleton INTEGER PRIMARY KEY CHECK(singleton=1), slot INTEGER NOT NULL)")
             with db:
                 yield db
         finally:
@@ -216,35 +219,73 @@ class Jobs:
                 changed += 1
         return changed
 
-    def submit(self, node, command, *, request_id=None, execute=subprocess.run, python=sys.executable):
+    def submit(self, node, command, *, request_id=None, execute=subprocess.run, python=sys.executable, health_probe=False, periodic_slot=None):
         validate_command(node, command)
         # Avoid fallback to root, system manager or a shell on the submitting host.
         require_account()
         # The upstream relay owns a stable request ID across retries. Reusing
         # it with different command bytes/node is an error, never another job.
         job_id = validate_request_id(request_id) if request_id is not None else secrets.token_hex(16)
+        if type(health_probe) is not bool:
+            raise ValueError('invalid job purpose')
+        if health_probe:
+            from .mcp_health_probe_contract import NODE, nonce_command
+            if node!=NODE or command!=nonce_command(job_id):raise PermissionError('probe command denied')
+        from .periodic_health_contract import COMMAND, slot_for, validate_probe, NODE_RETENTION, current_slot
+        is_periodic = periodic_slot is not None
+        if is_periodic:
+            if health_probe or command != COMMAND or periodic_slot != validate_probe(node, job_id, submit=True):
+                raise PermissionError('periodic probe binding denied')
+        elif slot_for(node, job_id) is not None:
+            raise PermissionError('request ID reserved for periodic probe')
         # Old queued/running rows without an actual systemd unit must not
         # consume capacity forever. Reconcile only aged rows, before the
         # admission transaction, so we never nest SQLite write locks.
-        self.reconcile_stale_capacity()
+        if not is_periodic:
+            self.reconcile_stale_capacity()
+        else:
+            # Only reconcile our own aged worker after confirming its actual
+            # unit state. Never cancel or reconcile ordinary jobs for a probe.
+            cutoff = (datetime.now(timezone.utc) - timedelta(seconds=JOB_TIMEOUT+30)).isoformat()
+            with self.connection() as db:
+                stale = db.execute("SELECT j.id FROM jobs j JOIN periodic_health_jobs p ON j.id=p.id WHERE j.status IN ('queued','running') AND j.created_at < ? ORDER BY j.created_at LIMIT 1",(cutoff,)).fetchone()
+            if stale:
+                self.reconcile(stale['id'])
         with self.connection() as db:
             db.execute("BEGIN IMMEDIATE")
+            # Retire only expired terminal periodic records, never ordinary jobs.
+            if is_periodic:
+                high = db.execute("SELECT slot FROM periodic_health_clock WHERE singleton=1").fetchone()
+                now_slot = current_slot()
+                if high and (now_slot < high["slot"] or periodic_slot < high["slot"]-1):
+                    raise PermissionError("periodic probe clock regression")
+                db.execute("INSERT OR REPLACE INTO periodic_health_clock VALUES (1,?)",(now_slot,))
+                cutoff = now_slot - NODE_RETENTION
+                db.execute("DELETE FROM jobs WHERE id IN (SELECT id FROM periodic_health_jobs WHERE slot < ?) AND status NOT IN ('queued','running')", (cutoff,))
+                db.execute("DELETE FROM periodic_health_jobs WHERE slot < ? AND id NOT IN (SELECT id FROM jobs)", (cutoff,))
+            periodic = db.execute('SELECT slot FROM periodic_health_jobs WHERE id=?',(job_id,)).fetchone()
+            if periodic is not None and (not is_periodic or periodic['slot'] != periodic_slot):
+                raise PermissionError('periodic probe identity conflict')
+            marked=bool(db.execute('SELECT 1 FROM health_probe_jobs WHERE id=?',(job_id,)).fetchone())
             existing = db.execute("SELECT node, command FROM jobs WHERE id=?", (job_id,)).fetchone()
             if existing is not None:
-                if existing["node"] != node or existing["command"] != command:
+                if existing["node"] != node or existing["command"] != command or marked != health_probe or bool(periodic) != is_periodic:
                     raise ValueError("request ID conflict")
                 return job_id
             tombstone = db.execute("SELECT node, command_sha256 FROM job_tombstones WHERE id=?", (job_id,)).fetchone()
             digest = hashlib.sha256(command.encode("utf-8")).hexdigest()
             if tombstone is not None:
-                if tombstone["node"] != node or tombstone["command_sha256"] != digest:
+                if tombstone["node"] != node or tombstone["command_sha256"] != digest or marked != health_probe or is_periodic:
                     raise ValueError("request ID conflict")
                 return job_id
-            count = db.execute("SELECT count(*) FROM jobs").fetchone()[0]
-            if count >= MAX_HISTORY:
+            active = db.execute("SELECT count(*) FROM jobs WHERE status IN ('queued','running')").fetchone()[0]
+            if active >= self.max_active or (is_periodic and active):
+                raise RuntimeError("executor busy")
+            count = db.execute("SELECT count(*) FROM jobs WHERE id NOT IN (SELECT id FROM periodic_health_jobs)").fetchone()[0]
+            if not is_periodic and count >= MAX_HISTORY:
                 oldest = db.execute("SELECT id,node,command,status FROM jobs WHERE status IN "
                                     "('succeeded','failed','cancelled','timed_out','unknown') "
-                                    "ORDER BY created_at,id LIMIT 1").fetchone()
+                                    "AND id NOT IN (SELECT id FROM periodic_health_jobs) ORDER BY created_at,id LIMIT 1").fetchone()
                 if oldest is None or db.execute("SELECT count(*) FROM job_tombstones").fetchone()[0] >= MAX_TOMBSTONES:
                     raise RuntimeError("job history capacity exceeded")
                 db.execute("INSERT INTO job_tombstones VALUES (?,?,?,?)", (oldest["id"], oldest["node"],
@@ -255,6 +296,12 @@ class Jobs:
             active = db.execute("SELECT count(*) FROM jobs WHERE status IN ('queued','running')").fetchone()[0]
             if active >= self.max_active:
                 raise RuntimeError("executor busy")
+            if marked:raise PermissionError('orphan probe purpose')
+            if is_periodic:
+                if periodic is not None or db.execute('SELECT count(*) FROM periodic_health_jobs').fetchone()[0] >= 2 * NODE_RETENTION + 4:
+                    raise RuntimeError('periodic health ledger unavailable')
+                db.execute('INSERT INTO periodic_health_jobs VALUES (?,?)',(job_id,periodic_slot))
+            if health_probe:db.execute('INSERT INTO health_probe_jobs VALUES (?)',(job_id,))
             db.execute("INSERT INTO jobs (id,node,command,status,created_at) VALUES (?,?,?,?,?)",
                        (job_id, node, command, "queued", utcnow()))
         # The systemd user manager does not inherit the caller's Python import
@@ -281,6 +328,32 @@ class Jobs:
                            (utcnow(), diagnostic, job_id))
             raise RuntimeError(diagnostic) from None
         return job_id
+
+    def probe_result(self, job_id):
+        from .mcp_health_probe_contract import NODE, nonce_command, project_result
+        command=nonce_command(job_id)
+        with self.connection() as db:
+            if not db.execute('SELECT 1 FROM health_probe_jobs WHERE id=?',(job_id,)).fetchone():raise PermissionError('probe receipt denied')
+            row=db.execute('SELECT node,command FROM jobs WHERE id=?',(job_id,)).fetchone()
+            if row is not None:
+                if row['node']!=NODE or row['command']!=command:raise PermissionError('probe binding denied')
+            else:
+                old=db.execute('SELECT node,command_sha256 FROM job_tombstones WHERE id=?',(job_id,)).fetchone()
+                if not old or old['node']!=NODE or old['command_sha256']!=hashlib.sha256(command.encode()).hexdigest():raise PermissionError('probe binding denied')
+        return project_result(self.result(job_id,0),job_id)
+
+    def periodic_result(self, node, job_id):
+        from .periodic_health_contract import COMMAND, validate_probe
+        slot = validate_probe(node, job_id, submit=False)
+        with self.connection() as db:
+            row = db.execute('SELECT j.node,j.command,p.slot FROM jobs j JOIN periodic_health_jobs p ON j.id=p.id WHERE j.id=?',(job_id,)).fetchone()
+            if not row or (row['node'],row['command'],row['slot']) != (node,COMMAND,slot):
+                raise PermissionError('periodic probe receipt denied')
+        result = self.result(job_id,0)
+        status = result['status']
+        if status == 'succeeded' and not (result['exit_code']==0 and result['stdout']==node+'\n' and not result['stderr'] and not result['truncated'] and result['cursor'] is None):
+            status = 'failed'
+        return {'node':node,'request_id':job_id,'status':status}
 
     def row(self, job_id):
         unit_name(job_id)

@@ -1,6 +1,6 @@
 """Conservative push impact gate for GWay Remote's existing auto-deploy.
 
-Only exact, reviewed, currently non-runtime V1 evidence files are safe.
+Only exact, reviewed, non-runtime evidence and Android delivery tooling are safe.
 Everything else requires the existing gway-001 and Watchtower deployment path.
 Unverifiable history raises and blocks both jobs rather than silently skipping.
 """
@@ -12,21 +12,64 @@ import re
 import subprocess
 
 _SHA = re.compile(r"[0-9a-f]{40}\Z")
-SAFE_PATHS = frozenset({
+EVIDENCE_PATHS = frozenset({
     "docs/development-evidence-v1.md",
     "tests/deployment/test_development_evidence.py",
     "gway_remote/development_evidence.py",
 })
+# These are trusted workflow entrypoints/helpers/tests, not the running
+# Mobile API, MCP provider, Watchtower, deploy scripts or configuration.
+ANDROID_DELIVERY_PATHS = frozenset({
+    ".github/workflows/android-canary-certificate.yml",
+    ".github/workflows/android-canary-install.yml",
+    ".github/workflows/android-canary.yml",
+    ".github/workflows/android-release-candidate-sign.yml",
+    ".github/workflows/android-release-candidate-install.yml",
+    ".github/workflows/android-release-candidate-accept.yml",
+    ".github/workflows/android-release-candidate-promote.yml",
+    ".github/workflows/android-release-candidate.yml",
+    "docs/android-single-release-candidate.md",
+    "gway_remote/android_canary_certificate.py",
+    "gway_remote/android_release_candidate.py",
+    "gway_remote/android_rc_health.py",
+    "gway_remote/android_rc_acceptance.py",
+    "gway_remote/android_rc_promotion.py",
+    "tests/infrastructure/test_android_rc_promotion.py",
+    "tests/infrastructure/test_android_rc_acceptance.py",
+    "gway_remote/android_release_gate.py",
+    "tests/infrastructure/test_android_canary_certificate.py",
+    "tests/infrastructure/test_android_canary_install_workflow.py",
+    "tests/infrastructure/test_android_canary_workflow.py",
+    "tests/infrastructure/test_android_release_candidate.py",
+    "tests/infrastructure/test_android_rc_health.py",
+    "tests/mobile/test_android_release_gate.py",
+})
+AEON_DELIVERY_PATHS = frozenset({
+    ".github/workflows/aeon-score-deploy.yml",
+    "scripts/deploy-aeon-score.py",
+    "tests/deployment/test_aeon_score_deploy.py",
+})
+SAFE_PATHS = EVIDENCE_PATHS | ANDROID_DELIVERY_PATHS | AEON_DELIVERY_PATHS
+# The classifier runs from the reviewed checkout in the hosted admission job.
+# Updating its policy requires accompanying regression tests. It is not a
+# runtime backend change. A policy-only change without tests remains deploy.
+POLICY_PATHS = frozenset({
+    "gway_remote/deploy_impact.py",
+    "tests/deployment/test_deploy_impact.py",
+})
 
 
 def classify_paths(paths):
-    """Return skip only for a non-empty, exact subset of reviewed V1 paths."""
+    """Skip only explicitly reviewed non-runtime paths, never a directory prefix."""
     if not isinstance(paths, (tuple, list)) or not paths:
         raise ValueError("missing changed-file evidence")
     if any(not isinstance(path, str) or not path or
            path.startswith("/") or "\x00" in path for path in paths):
         raise ValueError("invalid changed-file evidence")
-    return "skip" if all(path in SAFE_PATHS for path in paths) else "deploy"
+    changed = frozenset(paths)
+    if changed & POLICY_PATHS:
+        return "skip" if POLICY_PATHS <= changed <= (SAFE_PATHS | POLICY_PATHS) else "deploy"
+    return "skip" if changed <= SAFE_PATHS else "deploy"
 
 
 def classify_push(before, after, *, runner=subprocess.run):

@@ -149,8 +149,21 @@ jobs:
           TEST_APK=android/app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk
           test -s "$APK"
           test -s "$TEST_APK"
-          "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --verbose "$APK"
-          "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --verbose "$TEST_APK"
+          # Public certificate fingerprints only; never export signing material.
+          SIGNER="$ANDROID_HOME/build-tools/35.0.0/apksigner"
+          certificate() {
+            local report
+            report=$("$SIGNER" verify --verbose --print-certs "$1")
+            local digest
+            digest=$(printf '%s\n' "$report" | sed -nE 's/^Signer #1 certificate SHA-256 digest: ([0-9a-fA-F]{64})$/\1/p')
+            [[ "$digest" =~ ^[0-9a-fA-F]{64}$ ]]
+            printf '%s\n' "${digest,,}"
+          }
+          APK_CERT=$(certificate "$APK")
+          TEST_CERT=$(certificate "$TEST_APK")
+          [[ "$APK_CERT" == "$TEST_CERT" ]] || { echo "::error::Canary/test signer mismatch"; exit 1; }
+          echo "Canary certificate SHA256: $APK_CERT" >> "$GITHUB_STEP_SUMMARY"
+          echo "Canary test certificate SHA256: $TEST_CERT" >> "$GITHUB_STEP_SUMMARY"
           BADGING=$("$ANDROID_HOME/build-tools/35.0.0/aapt" dump badging "$APK")
           grep -q "^package: name='com.arthexis.gwayremote.canary' " <<< "$BADGING"
           TEST_BADGING=$("$ANDROID_HOME/build-tools/35.0.0/aapt" dump badging "$TEST_APK")
@@ -177,3 +190,4 @@ jobs:
           path: ${{ runner.temp }}/gway-canary/
           if-no-files-found: error
           retention-days: 14
+

@@ -294,6 +294,9 @@ def deploy_lcd_sound(sha: str) -> None:
 
 
 def main() -> None:
+    if sys.argv[1:2] == ['probe-provision']:
+        from .probe_provision import main as provision_main
+        raise SystemExit(provision_main(sys.argv[2:]))
     if sys.argv[1:2] == ["feed-provision"]:
         from .activity_feed_provision import main as provision_main
         raise SystemExit(provision_main(sys.argv[2:]))

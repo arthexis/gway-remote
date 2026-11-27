@@ -6,15 +6,15 @@ import org.json.JSONArray
 import org.json.JSONObject
 
 class AgentSubmissionStatusTest {
-    @Test fun issueRoutingRequiresExactLabelAndServerEligibility() {
+    @Test fun manualRoutingRequiresServerEligibilityOnly() {
         fun row(eligible: Boolean, vararg labels: String) = JSONObject()
             .put("eligible", eligible)
             .put("labels", JSONArray(labels.toList()))
         assertTrue(agentIssueEligible(row(true, "bug", "gway-001")))
         assertFalse(agentIssueEligible(row(false, "gway-001")))
-        assertFalse(agentIssueEligible(row(true, "GWAY-001")))
-        assertFalse(agentIssueEligible(row(true, "gway-001-extra")))
-        assertFalse(agentIssueEligible(row(true)))
+        assertTrue(agentIssueEligible(row(true, "GWAY-001")))
+        assertTrue(agentIssueEligible(row(true, "on-hold")))
+        assertTrue(agentIssueEligible(row(true)))
         assertFalse(agentIssueEligible(JSONObject().put("labels", JSONArray(listOf("gway-001")))))
     }
 

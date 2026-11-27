@@ -170,7 +170,7 @@ class McpProtocolContracts(unittest.TestCase):
         init = handle_rpc({"jsonrpc": "2.0", "id": 1, "method": "initialize"})
         self.assertEqual(init["protocolVersion"], "2025-03-26")
         tools = handle_rpc({"jsonrpc": "2.0", "id": 2, "method": "tools/list", "params": {}})
-        self.assertEqual(len(tools["tools"]), 12)
+        self.assertEqual(len(tools["tools"]), 15)
         self.assertIsNone(handle_rpc({"jsonrpc": "2.0", "method": "notifications/initialized"}))
 
     def test_legacy_provider_results_are_unchanged(self):

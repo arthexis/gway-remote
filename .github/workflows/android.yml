@@ -1,21 +1,30 @@
 name: Android APK
+# ANDROID_PUBLICATION_HOLD_718: preserve the staged CRM rollout.
+# LEGACY_ANDROID_PUBLISHER_RETIRED: use exact-artifact promotion only.
 on:
   pull_request:
-    paths: ['android/**', '.github/workflows/android.yml']
+    paths: ['android/**', '.github/workflows/android.yml', '.github/workflows/android-compose-ui.yml']
   push:
     branches: [main]
-    paths: ['android/**', '.github/workflows/android.yml']
+    paths: ['android/**']
   workflow_dispatch:
+    inputs:
+      expected_sha:
+        description: "Deprecated legacy dispatch input; no publication job"
+        required: false
+        type: string
+        default: ""
 
 concurrency:
-  group: android-publish-main
+  group: ${{ github.event_name == 'pull_request' && format('android-pr-{0}', github.event.pull_request.number) || 'android-publish-main' }}
   cancel-in-progress: false
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   build:
+    if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
     env:
       GWAY_ANDROID_VERSION_CODE: ${{ github.run_number }}
@@ -57,87 +66,3 @@ jobs:
           start=$SECONDS
           gradle :app:testDebugUnitTest :app:assembleDebugAndroidTest --no-daemon
           echo "Android PR unit tests: $((SECONDS - start))s" >> "$GITHUB_STEP_SUMMARY"
-      - name: Require release signing secrets
-        if: github.ref == 'refs/heads/main'
-        env:
-          KEYSTORE: ${{ secrets.GWAY_APK_KEYSTORE_BASE64 }}
-          STORE_PASSWORD: ${{ secrets.GWAY_APK_STORE_PASSWORD }}
-          KEY_ALIAS: ${{ secrets.GWAY_APK_KEY_ALIAS }}
-          KEY_PASSWORD: ${{ secrets.GWAY_APK_KEY_PASSWORD }}
-        run: |
-          test -n "$KEYSTORE" && test -n "$STORE_PASSWORD" && test -n "$KEY_ALIAS" && test -n "$KEY_PASSWORD"
-          printf '%s' "$KEYSTORE" | base64 --decode > "$RUNNER_TEMP/gway-release.jks"
-          chmod 600 "$RUNNER_TEMP/gway-release.jks"
-      - name: Validate and build release APK (main)
-        if: github.ref == 'refs/heads/main'
-        run: |
-          start=$SECONDS
-          gradle :app:testDebugUnitTest :app:assembleRelease --no-daemon
-          echo "Android release build: $((SECONDS - start))s" >> "$GITHUB_STEP_SUMMARY"
-      - name: Sign and verify release APK
-        if: github.ref == 'refs/heads/main'
-        env:
-          GWAY_APK_STORE_PASSWORD: ${{ secrets.GWAY_APK_STORE_PASSWORD }}
-          GWAY_APK_KEY_ALIAS: ${{ secrets.GWAY_APK_KEY_ALIAS }}
-          GWAY_APK_KEY_PASSWORD: ${{ secrets.GWAY_APK_KEY_PASSWORD }}
-        run: |
-          set -euo pipefail
-          UNSIGNED=app/build/outputs/apk/release/app-release-unsigned.apk
-          SIGNED=app/build/outputs/apk/release/app-release.apk
-          if [[ -s "$UNSIGNED" ]]; then
-            # Gradle produced an unsigned release; sign it explicitly with Android SDK.
-            APKSIGNER="$ANDROID_HOME/build-tools/35.0.0/apksigner"
-            "$APKSIGNER" sign --ks "$RUNNER_TEMP/gway-release.jks" \
-              --ks-key-alias "$GWAY_APK_KEY_ALIAS" \
-              --ks-pass env:GWAY_APK_STORE_PASSWORD \
-              --key-pass env:GWAY_APK_KEY_PASSWORD \
-              --out "$SIGNED" "$UNSIGNED"
-          fi
-          test -s "$SIGNED"
-          "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --verbose "$SIGNED"
-      - name: Record release signing certificate fingerprint
-        if: github.ref == 'refs/heads/main'
-        run: |
-          set -euo pipefail
-          APK=app/build/outputs/apk/release/app-release.apk
-          APKSIGNER="$ANDROID_HOME/build-tools/35.0.0/apksigner"
-          "$APKSIGNER" verify --verbose --print-certs "$APK" > "$RUNNER_TEMP/apk-signature.txt"
-          grep -E '^Signer #[0-9]+ certificate SHA-256 digest: [0-9a-fA-F]{64}$' "$RUNNER_TEMP/apk-signature.txt" > "$RUNNER_TEMP/apk-certificates.txt"
-          test -s "$RUNNER_TEMP/apk-certificates.txt"
-          cat "$RUNNER_TEMP/apk-certificates.txt" >> "$GITHUB_STEP_SUMMARY"
-      - name: Stage release asset
-        if: github.ref == 'refs/heads/main'
-        run: |
-          test -s app/build/outputs/apk/release/app-release.apk || { echo "::error::Signed APK missing; check signing configuration"; ls -l app/build/outputs/apk/release/; exit 1; }
-          cp app/build/outputs/apk/release/app-release.apk "$RUNNER_TEMP/gway-remote.apk"
-      - name: Write release metadata
-        if: github.ref == 'refs/heads/main'
-        run: |
-          printf 'Android-Version-Code: %s\nSource-Commit: %s\n' "$GWAY_ANDROID_VERSION_CODE" "$GITHUB_SHA" > "$RUNNER_TEMP/android-release-notes.txt"
-      - name: Resolve Android release tag
-        if: github.ref == 'refs/heads/main'
-        id: release
-        run: echo "tag=android-v$GWAY_ANDROID_VERSION_NAME" >> "$GITHUB_OUTPUT"
-      - name: Reject stale main release
-        if: github.ref == 'refs/heads/main'
-        env:
-          GH_TOKEN: ${{ github.token }}
-        working-directory: .
-        run: |
-          set -euo pipefail
-          CURRENT_MAIN=$(gh api "repos/$GITHUB_REPOSITORY/branches/main" --jq '.commit.sha')
-          if [[ "$CURRENT_MAIN" != "$GITHUB_SHA" ]]; then
-            echo "::error::Main has advanced; refusing to publish an outdated APK ($GITHUB_SHA vs $CURRENT_MAIN)"
-            exit 1
-          fi
-      - name: Publish GitHub Release
-        if: github.ref == 'refs/heads/main'
-        env:
-          GH_TOKEN: ${{ github.token }}
-        working-directory: .
-        run: |
-          if gh release view "${{ steps.release.outputs.tag }}" >/dev/null 2>&1; then
-            echo "Release already exists; refusing to replace signed APK" >&2
-            exit 1
-          fi
-          gh release create "${{ steps.release.outputs.tag }}" "$RUNNER_TEMP/gway-remote.apk" --target "$GITHUB_SHA" --title "GWay Remote ${{ steps.release.outputs.tag }}" --notes-file "$RUNNER_TEMP/android-release-notes.txt"

@@ -128,3 +128,94 @@ class ExternalHealthTests(unittest.TestCase):
         self.assertEqual(health.probe('private-token', opener=denied), 'authentication_failed')
         self.assertEqual(health.probe('private-token', opener=lambda *a, **kw:
             Response(b'{"id":1,"result":{"isError":true}}')), 'tool_failed')
+
+
+class ExtendedHealthTests(unittest.TestCase):
+    def test_fixed_calls_and_no_secrets_in_report(self):
+        seen=[]
+        names=['agentops__daily_health_status','agentops__status','android__status']
+        def open_request(request, timeout):
+            doc=json.loads(request.data)
+            if not request.has_header('Authorization'):
+                raise HTTPError('private-url',401,'private',{},None)
+            method=doc['method']; params=doc['params']
+            seen.append((method,params))
+            if method=='initialize':
+                result={'protocolVersion':'2025-03-26'}
+            elif method=='tools/list':
+                result={'tools':[{'name':n,'inputSchema':{'properties':{'node':{}}}} for n in names]}
+            else:
+                name=params['name']
+                payload={'tools':[{'name':n,'required_scope':'gway:read','nodes':['gway-001','gway-004'] if n=='agentops__status' else ['gway-001']} for n in names]} if name=='mcp_catalog_inspect' else {'schedule':{'id':'gway-001-daily-health'}} if name==names[0] else {'node':'gway-001','status':'preview_only','authorization':{'required_scope':'gway:execute'}} if name=='node_exec_preview' else {'private':'never-publish'}
+                result={'content':[{'type':'text','text':json.dumps(payload)}]}
+            return Response(json.dumps({'id':1,'result':result}).encode())
+        report=health.extended_probe('private-token',opener=open_request)
+        self.assertEqual(report,{'anonymous':'denied','read':'ok','optional_failures':0,'optional_checked':3})
+        self.assertIn(('tools/call',{'name':'agentops__status','arguments':{'node':'gway-004'}}),seen)
+        self.assertNotIn('private',repr(report))
+
+    def test_projection_caches_healthy_but_not_failure_or_auth(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path=Path(tmp)/'status.json'; calls=[]
+            def healthy(token):
+                calls.append(1)
+                return {'anonymous':'denied','read':'ok','optional_failures':0,'optional_checked':3}
+            health.publish_extended('private',path=path,now=lambda:1000,probe=healthy)
+            health.publish_extended('private',path=path,now=lambda:1100,probe=healthy)
+            self.assertEqual(len(calls),1)
+            health.publish_extended(None,base_status='credential_unavailable',path=path,now=lambda:1200,probe=healthy)
+            self.assertEqual(json.loads(path.read_text())['read'],'authorization')
+            self.assertEqual(path.stat().st_mode&0o777,0o644)
+            health.publish_extended('private',path=path,now=lambda:1300,probe=healthy)
+            self.assertEqual(len(calls),2)
+
+
+class FederatedEnvelopeTests(unittest.TestCase):
+    @staticmethod
+    def wrap(payload, **extra):
+        return {'content':[{'type':'text','text':json.dumps(payload)}],**extra}
+
+    def test_builtin_and_federated(self):
+        payload={'schedule':{'id':'gway-001-daily-health'}}
+        self.assertEqual(health.decode_tool_result(self.wrap(payload)),payload)
+        self.assertEqual(health.decode_tool_result(self.wrap(self.wrap(payload))),payload)
+
+    def test_reject_nested_error_and_third_envelope(self):
+        for v in (self.wrap(self.wrap({},isError=True)),self.wrap(self.wrap(self.wrap({}))),self.wrap({'error':'private'}),{'content':[]}):
+            with self.subTest():
+                with self.assertRaises(ValueError):
+                    health.decode_tool_result(v)
+
+
+class ExecutionProjectionTests(unittest.TestCase):
+    def test_pending_nonce_is_reconciled_not_replayed(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root=Path(tmp);path=root/'status.json';token=root/'probe-oauth.json'
+            state={'client_id':'gway-health-probe-001','access_token':'gwr_'+'a'*24+'_'+'b'*43,'refresh_token':'gwf_'+'a'*24+'_'+'c'*43,'parent_id':'d'*24,'parent_expires_at':99999,'expires_at':9999,'refresh_state':'ready'}
+            health._write_state(token,state);calls=[]
+            def probe(secret,*,rid,submit):
+                calls.append((rid,submit));return ('exec_infra_failure','ssh_transport',False) if submit else ('ok',None,True)
+            for stamp in (1000,1100,2000):
+                health.publish_execution(path=path,token_path=token,now=lambda:stamp,get_token=lambda *a,**kw:'private',probe=probe,catalog=lambda _:None)
+            self.assertEqual(len(calls),2);self.assertEqual(calls[0][0],calls[1][0]);self.assertEqual([x[1] for x in calls],[True,False])
+            self.assertFalse((root/'probe-pending.json').exists());self.assertEqual(json.loads(path.read_text())['execute'],'ok');self.assertNotIn(calls[0][0],path.read_text())
+
+
+class ProbeInstallDeliveryTests(unittest.TestCase):
+    def test_fixed_install_private_and_no_replace(self):
+        import time
+        with tempfile.TemporaryDirectory() as tmp:
+            path=Path(tmp)/'probe-oauth.json';now=int(time.time())
+            state={'client_id':'gway-health-probe-001','access_token':'gwr_'+'a'*24+'_'+'b'*43,'refresh_token':'gwf_'+'a'*24+'_'+'c'*43,'parent_id':'d'*24,'parent_expires_at':now+86400,'expires_at':now+3600,'refresh_state':'ready'}
+            self.assertEqual(health.probe_install_status(path),{'configured':False})
+            receipt=health.install_probe_state(state,path)
+            self.assertEqual(receipt['parent_id'],state['parent_id'])
+            self.assertNotIn('access_token',receipt);self.assertNotIn('refresh_token',receipt)
+            self.assertEqual(path.stat().st_mode&0o777,0o600)
+            with self.assertRaises(PermissionError):health.install_probe_state(state,path)
+            self.assertEqual(json.loads(path.read_text()),state)
+
+    def test_pending_identity_not_replaced(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path=Path(tmp)/'probe-oauth.json';(path.parent/'probe-pending.json').write_text('{}')
+            with self.assertRaises(PermissionError):health.probe_install_status(path)

@@ -1,0 +1,177 @@
+---
+# Explicit, local-only production relay; never include the appliance role.
+- name: Provision ABB execution relay only
+  hosts: localhost
+  connection: local
+  become: true
+  gather_facts: true
+  vars:
+    gway_remote_install_root: /opt/gway-remote
+    gway_remote_exec_user: gway-exec
+    gway_remote_exec_run_user: ubuntu
+    gway_named_relay_only: true
+    journal: /var/lib/gway-abb-relay-provision.json
+  tasks:
+    - name: Require exact approved host and explicit operator opt-in
+      ansible.builtin.assert:
+        that:
+          - ansible_hostname == 'ocpp-abb-1'
+          - gway_abb_relay_authorize | default(false) | bool
+          - gway_remote_exec_run_user == 'ubuntu'
+          - gway_remote_install_root == '/opt/gway-remote'
+          - journal == '/var/lib/gway-abb-relay-provision.json'
+          - gway_exec_relay_public_key is defined
+          - gway_exec_relay_public_key is match('^ssh-ed25519 [A-Za-z0-9+/=]+( [A-Za-z0-9_.@-]+)?$')
+    - name: Resolve installer identity with existing selector
+      ansible.builtin.command:
+        argv: "{{ ['/usr/bin/python3', playbook_dir + '/../scripts/resolve-executor-user.py', '--installer', 'ubuntu', '--override', 'ubuntu'] + (['--abb-empty-legacy-cutover'] if (gway_abb_empty_legacy_cutover | default(false) | bool) else []) }}"
+      register: selected
+      changed_when: false
+    - name: Bind verified executor
+      ansible.builtin.set_fact:
+        gway_remote_resolved_executor_user: '{{ selected.stdout }}'
+    - name: Require selected user and existing active WireGuard
+      ansible.builtin.assert:
+        that: selected.stdout == 'ubuntu'
+    - name: Verify existing WireGuard without changing it
+      ansible.builtin.command: systemctl is-active wg-quick@gway
+      changed_when: false
+    - name: Read exact committed source revision
+      ansible.builtin.command:
+        argv: [git, -C, "{{ playbook_dir }}/..", rev-parse, --verify, HEAD]
+      register: revision
+      changed_when: false
+    - name: Require exact source revision
+      ansible.builtin.assert:
+        that: revision.stdout is match('^[a-f0-9]{40}$')
+    - name: Inspect prior durable journal
+      ansible.builtin.stat:
+        path: '{{ journal }}'
+        follow: false
+      register: prior
+    - name: Reject unsafe journal metadata
+      ansible.builtin.assert:
+        that: not prior.stat.exists or (prior.stat.isreg and prior.stat.uid == 0 and prior.stat.mode == '0600')
+    - name: Read prior journal
+      ansible.builtin.slurp:
+        src: '{{ journal }}'
+      register: prior_data
+      when: prior.stat.exists
+    - name: Refuse ambiguous partial provisioning
+      ansible.builtin.assert:
+        that: not prior.stat.exists or (prior_data.content | b64decode | from_json) == {'state':'complete','node':'ocpp-abb-1','user':'ubuntu','revision':revision.stdout}
+    - name: Inspect independent deployment policy (must be absent)
+      ansible.builtin.stat:
+        path: /etc/gway-remote/deployment.yml
+        follow: false
+      register: deployment
+    - name: Deny unexpected managed deployment configuration
+      ansible.builtin.assert:
+        that: not deployment.stat.exists
+    - name: Verify completed install without mutating existing relay
+      when: prior.stat.exists
+      block:
+        - name: Check existing public relay key
+          ansible.builtin.slurp:
+            src: /var/lib/gway-relay/.ssh/authorized_keys
+          register: current_key
+          no_log: true
+        - name: Require exact existing key and restriction
+          ansible.builtin.assert:
+            that: (current_key.content | b64decode | trim) == ('restrict,no-agent-forwarding,no-port-forwarding,no-pty,no-user-rc,no-X11-forwarding ' ~ gway_exec_relay_public_key)
+          no_log: true
+        - name: Verify existing relay identity
+          ansible.builtin.command:
+            argv: [/usr/bin/python3, "{{ playbook_dir }}/../scripts/verify-exec-relay-policy.py", --user, ubuntu]
+          changed_when: false
+        - name: Verify effective SSH config
+          ansible.builtin.command: /usr/sbin/sshd -t
+          changed_when: false
+        - name: End unchanged completed provisioning
+          ansible.builtin.meta: end_play
+    - name: Inspect potential conflicts on first installation
+      ansible.builtin.stat:
+        path: '{{ item }}'
+        follow: false
+      loop:
+        - /opt/gway-remote
+        - /etc/gway-remote
+        - /var/lib/gway-relay
+        - /var/lib/gway-remote-exec-ubuntu
+        - /etc/ssh/sshd_config.d/40-gway-exec-relay.conf
+        - /etc/sudoers.d/gway-exec-relay
+      register: conflicts
+      when: not prior.stat.exists
+    - name: Refuse unmanaged existing paths
+      ansible.builtin.assert:
+        that: not item.stat.exists
+      loop: '{{ conflicts.results | default([]) }}'
+      when: not prior.stat.exists
+    - name: Verify no preexisting relay account or group
+      ansible.builtin.command: 'getent {{ item }} gway-relay'
+      loop: [passwd, group]
+      register: account_check
+      changed_when: false
+      failed_when: account_check.rc != 2
+      when: not prior.stat.exists
+    - name: Confirm immutable committed source and clean package
+      ansible.builtin.command: git -C {{ playbook_dir }}/.. status --porcelain --untracked-files=all -- gway_remote
+      register: dirty
+      changed_when: false
+      failed_when: dirty.rc != 0 or dirty.stdout | trim != ''
+    - name: Record provisioning intent before effects
+      ansible.builtin.copy:
+        dest: '{{ journal }}'
+        owner: root
+        group: root
+        mode: '0600'
+        content: '{"state":"pending","node":"ocpp-abb-1","user":"ubuntu"}'
+    - name: Converge only bounded receiver and restricted relay
+      block:
+        - name: Create fixed package installation directory
+          ansible.builtin.file:
+            path: /opt/gway-remote
+            state: directory
+            owner: root
+            group: root
+            mode: '0755'
+            follow: false
+        - name: Install committed receiver package using existing installer
+          ansible.builtin.command:
+            argv: [/usr/bin/python3, '{{ playbook_dir }}/../scripts/install-package-archive.py', --source, '{{ playbook_dir }}/..', --root, /opt/gway-remote]
+          register: package
+          changed_when: (package.stdout | from_json).changed | bool
+        - name: Converge existing executor selection and user bus
+          ansible.builtin.include_tasks: roles/gway_remote/tasks/node-exec-select.yml
+        - name: Set conservative production concurrency limit
+          ansible.builtin.copy:
+            dest: /etc/gway-remote/executor.json
+            owner: root
+            group: root
+            mode: '0644'
+            content: '{"max_active":1}'
+        - name: Install existing restricted relay
+          ansible.builtin.include_tasks: roles/gway_remote/tasks/node-exec-relay.yml
+        - name: Check effective relay policy
+          ansible.builtin.command:
+            argv: [/usr/bin/python3, '{{ playbook_dir }}/../scripts/verify-exec-relay-policy.py', --user, ubuntu]
+          changed_when: false
+        - name: Validate complete sudo policy
+          ansible.builtin.command: /usr/sbin/visudo -c
+          changed_when: false
+        - name: Commit durable local provisioning receipt
+          ansible.builtin.copy:
+            dest: '{{ journal }}'
+            owner: root
+            group: root
+            mode: '0600'
+            content: '{{ {"state":"complete","node":"ocpp-abb-1","user":"ubuntu","revision":revision.stdout} | to_json }}'
+      rescue:
+        - name: Disable newly provisioned relay key on failed first install
+          ansible.builtin.file:
+            path: /var/lib/gway-relay/.ssh/authorized_keys
+            state: absent
+          when: not prior.stat.exists
+        - name: Fail closed with durable pending journal
+          ansible.builtin.fail:
+            msg: Provisioning uncertain; reconcile journal and local changes before retry or central grant. Do not remove existing ledgers or accounts.

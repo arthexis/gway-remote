@@ -1,0 +1,17 @@
+[Unit]
+Description=Purpose-exclusive external MCP execution nonce probe
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=root
+ExecStart=/usr/local/libexec/gway-mcp-external-health --execution
+StateDirectory=gway-mcp-execution-health
+StateDirectoryMode=0755
+TimeoutStartSec=140
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/etc/gway-mcp-monitor

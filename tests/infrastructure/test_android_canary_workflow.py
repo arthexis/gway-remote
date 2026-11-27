@@ -50,8 +50,20 @@ class CanaryWorkflowTests(unittest.TestCase):
 
     def test_existing_android_workflow_is_path_filtered(self):
         content = ANDROID.read_text()
-        self.assertIn("paths: ['android/**', '.github/workflows/android.yml']", content)
-        self.assertIn("branches: [main]", content)
+        self.assertIn("paths: ['android/**', '.github/workflows/android.yml', '.github/workflows/android-compose-ui.yml']", content)
+        self.assertIn("push:\n    branches: [main]\n    paths: ['android/**']", content)
+
+    def test_public_certificate_evidence_and_matching_test_signer(self):
+        content = CANARY.read_text()
+        self.assertIn("--print-certs", content)
+        self.assertIn("Signer #1 certificate SHA-256 digest", content)
+        self.assertIn('[[ "$APK_CERT" == "$TEST_CERT" ]]', content)
+        self.assertIn("Canary certificate SHA256:", content)
+        self.assertIn("Canary test certificate SHA256:", content)
+
+    def test_no_separate_persistent_canary_signer(self):
+        self.assertFalse((ROOT / ".github/workflows/android-canary-signing.yml").exists())
+        self.assertNotIn("secrets.", CANARY.read_text())
 
 
 if __name__ == "__main__":

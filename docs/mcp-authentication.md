@@ -35,6 +35,18 @@ Use the existing OAuth browser-link flow and the operator bearer of the appropri
 
 Refreshing tool discovery is not credential issuance or a permission change. Reconnection, where required by the existing OAuth access-token lifetime, reuses a still-valid operator bearer; it does not create a new per-command approval.
 
+## Acceptance boundary
+
+OAuth and scope isolation are centralized gateway contracts. Revalidate live
+independent OAuth authorization when that boundary changes (including token
+validation, scope classification/enforcement or authorization transport).
+Ordinary feature changes inherit the existing authorization contract and must
+pass applicable gateway and provider scope regression tests, authenticated
+functional acceptance and receipt reconciliation when relevant. Do not require
+new credentials, manual token export or a separate live OAuth acceptance client
+for each feature merely because it consumes the shared authorization path.
+This policy does not relax scope enforcement or release/publication gates.
+
 ## Historical implementation material
 
 The retired `docs/m3-b2b3-activation.md` described an M3 milestone, early gway-001-specific relay setup, and field acceptance steps. Its original contents remain in Git history and **must not** be treated as current deployment instructions. For node enrollment, relay configuration, identity and deploy operations, consult the relevant current implementation and dedicated operational guidance rather than reviving milestone-specific steps.

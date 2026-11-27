@@ -34,7 +34,7 @@ class FederatedProviders:
         from .mcp_node_routing import canonical_catalog
         return canonical_catalog(builtins, tools, routes, legacy_aliases=self.legacy_aliases)
 
-    def call(self, name, arguments, *, authorized_scope, routes=None):
+    def call(self, name, arguments, *, authorized_scope, routes=None, verified_principal=None):
         """Dispatch a route already authenticated and classified by the gateway.
 
         The HTTP gateway may pass the exact routes snapshot used for public OAuth
@@ -45,7 +45,9 @@ class FederatedProviders:
             _, routes = self.discover()
         return route_provider_call(routes, name, arguments,
                                    authorized_scope=authorized_scope,
-                                   invoke=self.transport.invoke)
+                                   invoke=self.transport.invoke,
+                                   verified_principal=verified_principal,
+                                   invoke_principal=getattr(self.transport, "invoke_principal", None))
 
 
 def federated_tool_result(selected):

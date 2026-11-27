@@ -86,12 +86,21 @@ def provider_list(registrations, *, node_id):
     return {"node": node_id, "providers": providers}
 
 
-def provider_call(registrations, *, provider, tool, arguments, authorized_scope):
+def provider_call(registrations, *, provider, tool, arguments, authorized_scope,
+                  invocation_id=None, verified_principal=None):
     """Revalidate a declaration and enforce permissions on the owning node."""
     if authorized_scope not in ("read", "execute"):
         raise NodeProviderError("permission_denied", provider=provider)
     if type(tool) is not str or not tool or type(arguments) is not dict:
         raise NodeProviderError("invalid_arguments", provider=provider)
+    from .mcp_principal_admission import owner_bound, validate_principal, validate_owner_arguments
+    if owner_bound(provider):
+        if verified_principal is None:
+            raise NodeProviderError("principal_bound_transport_required", provider=provider)
+        validate_principal(verified_principal)
+        validate_owner_arguments(arguments)
+    elif verified_principal is not None:
+        raise NodeProviderError("unexpected_provider_principal", provider=provider)
     registration = _registration(registrations, provider)
     catalog = _catalog(registration)
     matching = [t for t in catalog["read"] + catalog["execute_required"]
@@ -107,18 +116,40 @@ def provider_call(registrations, *, provider, tool, arguments, authorized_scope)
         # stdio budget, leaving 5s for the existing 30s gateway deadline.
         # Authorization and declaration revalidation still run unchanged.
         options = {"authorized_scope": authorized_scope}
+        if verified_principal is not None:
+            options["verified_principal"] = verified_principal
+        if registration.source_id in ("android", "agentops") and invocation_id is not None:
+            options["invocation_id"] = invocation_id
         if registration.source_id == "odoo" and tool == "customer_vehicle_batch_apply":
             options["timeout"] = 25
+        # CRM guarded writer has a 25s subprocess budget.
+        if registration.source_id == "odoo" and tool in (
+                "crm_opportunity_create", "crm_opportunity_update",
+                "crm_opportunity_stage_move"):
+            options["timeout"] = 28
+        if registration.source_id == "android" and tool == "scenario_run":
+            from .android_execution_contract import STDIO_SECONDS
+            options["timeout"] = STDIO_SECONDS
         return call_source_tool(_node_registration(registration), tool, arguments, declaration,
                                 **options)
     except SourceProtocolError as exc:
+        if (provider == "android" and tool == "scenario_run" and authorized_scope == "execute"
+                and exc.code not in ("permission_denied", "tool_declaration_changed",
+                                     "invalid invocation id", "invalid tool timeout")):
+            from .android_execution_contract import uncertain_result
+            code = "provider_timeout" if exc.code == "provider_timeout" else "provider_execution_uncertain"
+            return uncertain_result(arguments, invocation_id, code)
         raise NodeProviderError(exc.code, provider=provider, stage=exc.stage,
                                 retryable=exc.retryable) from exc
     except (OSError, ValueError, RuntimeError, TimeoutError) as exc:
+        if provider == "android" and tool == "scenario_run" and authorized_scope == "execute":
+            from .android_execution_contract import uncertain_result
+            return uncertain_result(arguments, invocation_id, "provider_execution_uncertain")
         raise NodeProviderError("provider_unavailable", provider=provider,
                                 stage="execution", retryable=True) from exc
 
-def dispatch_node_provider_request(registrations, request, *, node_id, trusted_scope):
+def dispatch_node_provider_request(registrations, request, *, node_id, trusted_scope,
+                                   invocation_id=None):
     """RPC entrypoint for an authenticated node transport.
 
     The transport MUST derive trusted_scope from its authenticated peer and
@@ -134,7 +165,9 @@ def dispatch_node_provider_request(registrations, request, *, node_id, trusted_s
     if operation == "provider_call":
         if set(request) != {"operation", "provider", "tool", "arguments"}:
             raise NodeProviderError("invalid_request")
+        options = {"authorized_scope": trusted_scope}
+        if invocation_id is not None and request["provider"] in ("android", "agentops"):
+            options["invocation_id"] = invocation_id
         return provider_call(registrations, provider=request["provider"],
-                             tool=request["tool"], arguments=request["arguments"],
-                             authorized_scope=trusted_scope)
+                             tool=request["tool"], arguments=request["arguments"], **options)
     raise NodeProviderError("unknown_operation")

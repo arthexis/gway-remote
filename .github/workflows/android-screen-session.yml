@@ -1,0 +1,33 @@
+name: Android USB screen session (manual gway-001)
+on:
+  workflow_dispatch:
+    inputs:
+      seconds:
+        description: "Bounded screen-awake window; original USB power setting restored"
+        type: choice
+        options: ["120", "180", "300"]
+        default: "180"
+        required: true
+permissions:
+  contents: read
+concurrency:
+  group: gway-001-android-canary-install
+  cancel-in-progress: false
+jobs:
+  screen-session:
+    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && github.actor == 'arthexis'
+    runs-on: [self-hosted, Linux, ARM64, gway-001]
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Hold authorized USB screen awake and restore setting
+        env:
+          SESSION_SECONDS: ${{ inputs.seconds }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "$(hostname -s)" == "gway-001" ]]
+          case "$SESSION_SECONDS" in 120|180|300) ;; *) exit 1 ;; esac
+          python3 -m gway_remote.android_screen_session --seconds "$SESSION_SECONDS"

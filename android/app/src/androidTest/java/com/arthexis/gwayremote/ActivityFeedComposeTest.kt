@@ -30,13 +30,18 @@ class ActivityFeedComposeTest {
             }
         }
         rule.onNodeWithText("Historial offline").assertExists()
+        rule.onNodeWithTag("rc-feed-refresh").assertIsEnabled()
+        rule.awaitExportedControl("rc-feed-refresh") { it.isEnabled }
         rule.onNodeWithText("deployment", substring = false).performClick()
         rule.onNodeWithText("Deploy completed").assertExists()
         rule.onNodeWithText("Node connected").assertDoesNotExist()
         rule.onNodeWithText("Marcar leído").performScrollTo().performClick()
         rule.onNodeWithText("Sin leer").assertDoesNotExist()
-        rule.onNodeWithText("Abrir módulo").performScrollTo().performClick()
+        rule.onNodeWithTag("feed-item-2").assertDoesNotExist()
+        rule.onNodeWithText("Deploy completed").assertDoesNotExist()
+        rule.onNodeWithText("Todos").performClick()
+        rule.onNodeWithText("Node connected").assertExists()
         rule.onNodeWithText("Cargar anteriores").performScrollTo().performClick()
-        rule.runOnIdle { assertEquals("deployments", opened); assertEquals(1, more) }
+        rule.runOnIdle { assertEquals("", opened); assertEquals(1, more) }
     }
 }

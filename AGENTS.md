@@ -9,6 +9,8 @@ ChatGPT memory, neighboring issues, or access to local credentials.
 
 Developer agents are assigned implementation, refactoring, testing, and PR work.
 
+**Android validation:** When an authorized physical Android is available, validate relevant Android behavior on the device within the user-authorized scope. Use focused automated tests as well for repeatable edge cases and safety boundaries. Do not require cloud development for portable work. AgentOps delegation requires explicit authorization; unavailable cloud tooling or ordinary node access does not grant it.
+
 - Read the assigned issue/PR and relevant repository files before editing.
 - Implement only the requested scope; use a feature branch and PR, never
   silently modify production deployments.

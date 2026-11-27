@@ -43,9 +43,14 @@ on:
         options:
           - baseline
           - quotations
+          - opportunities
         default: baseline
         required: true
 
+      authorization_run_id:
+        description: "Trusted owner-dispatched acceptance run ID (automation only)"
+        type: string
+        default: ""
       run_feed_tests:
         description: "Run isolated Feed TLS and Compose acceptance (PR #706; dedicated volumes required)"
         type: choice
@@ -65,8 +70,29 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  authorize:
+    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - env:
+          GH_TOKEN: ${{ github.token }}
+          AUTH: ${{ inputs.authorization_run_id }}
+          PR: ${{ inputs.pr_number }}
+          SHA: ${{ inputs.expected_sha }}
+          RESET: ${{ inputs.canary_reset }}
+          MODE: ${{ inputs.run_compose_tests }}
+          SUITE: ${{ inputs.compose_suite }}
+          FEED: ${{ inputs.run_feed_tests }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ "$GITHUB_ACTOR" == arthexis && -z "$AUTH" ]]; then exit 0; fi
+          [[ "$GITHUB_ACTOR" == 'github-actions[bot]' && "$AUTH" =~ ^[1-9][0-9]{0,11}$ && "$MODE" == RUN_HERMETIC_TESTS && "$SUITE" == baseline && "$FEED" == no ]]
+          gh api "repos/$GITHUB_REPOSITORY/actions/runs/$AUTH" | python3 -c 'import json,os,sys; r=json.load(sys.stdin); e=os.environ; assert r["path"]==".github/workflows/android-acceptance.yml" and r["event"]=="workflow_dispatch" and r["head_branch"]=="main" and r["actor"]["login"]=="arthexis" and r["triggering_actor"]["login"]=="arthexis" and r["status"]=="in_progress" and r["display_title"]=="Android acceptance accept PR #"+e["PR"]+" SHA "+e["SHA"]+" reset "+e["RESET"]'
   install:
-    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && github.actor == 'arthexis'
+    needs: authorize
+    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && (github.actor == 'arthexis' || github.actor == 'github-actions[bot]')
     runs-on: [self-hosted, Linux, ARM64, gway-001]
     timeout-minutes: 12
     steps:
@@ -122,7 +148,7 @@ jobs:
           echo "Verified pinned APK and provenance for PR #$PR_NUMBER"
 
       - name: Install ONLY isolated canary on one authorized USB Android
-        if: inputs.run_feed_tests == 'no'
+        if: ${{ inputs.run_feed_tests == 'no' && inputs.run_compose_tests == 'no' }}
         shell: bash
         env:
           CANARY_RESET: ${{ inputs.canary_reset }}
@@ -155,18 +181,28 @@ jobs:
           set -euo pipefail
           # Default preserves canary data; only the explicit reset selection
           # permits package replacement after a recognized signature conflict.
-          case "$COMPOSE_SUITE" in baseline|quotations) ;; *) exit 1 ;; esac
+          case "$COMPOSE_SUITE" in baseline|quotations|opportunities) ;; *) exit 1 ;; esac
           case "$CANARY_RESET" in
-            no) RESULT=$(python3 -m gway_remote.android_canary_field --pr "$PR_NUMBER" --install --wake --suite "$COMPOSE_SUITE") ;;
-            RESET_CANARY_ONLY) RESULT=$(python3 -m gway_remote.android_canary_field --pr "$PR_NUMBER" --install --allow-canary-reset --wake --suite "$COMPOSE_SUITE") ;;
+            no) RESULT=$(python3 -m gway_remote.android_canary_field --pr "$PR_NUMBER" --install --wake --expected-run "$ARTIFACT_RUN" --suite "$COMPOSE_SUITE") ;;
+            RESET_CANARY_ONLY) RESULT=$(python3 -m gway_remote.android_canary_field --pr "$PR_NUMBER" --install --allow-canary-reset --wake --expected-run "$ARTIFACT_RUN" --suite "$COMPOSE_SUITE") ;;
             *) exit 1 ;;
           esac
-          COUNT=$(printf '%s' "$RESULT" | python3 -c 'import json, os, sys; r=json.load(sys.stdin); assert r.get("status") == "passed" and r.get("source_sha") == os.environ["EXPECTED_SHA"] and str(r.get("run_id")) == os.environ["ARTIFACT_RUN"] and r.get("pr") == int(os.environ["PR_NUMBER"]), "Canary field receipt not accepted"; n=r.get("tests_passed"); assert r.get("suite") == os.environ["COMPOSE_SUITE"], "Unexpected test suite"; assert type(n) is int and (n >= 6 if os.environ["COMPOSE_SUITE"] == "baseline" else n >= 5), "Compose suite incomplete"; print(n)')
+          COUNT=$(printf '%s' "$RESULT" | python3 -c 'import json, os, sys; r=json.load(sys.stdin); assert r.get("status") == "passed" and r.get("source_sha") == os.environ["EXPECTED_SHA"] and str(r.get("run_id")) == os.environ["ARTIFACT_RUN"] and r.get("pr") == int(os.environ["PR_NUMBER"]), "Canary field receipt not accepted"; n=r.get("tests_passed"); assert r.get("suite") == os.environ["COMPOSE_SUITE"], "Unexpected test suite"; assert type(n) is int and n >= {"baseline": 6, "quotations": 5, "opportunities": 2}[os.environ["COMPOSE_SUITE"]], "Compose suite incomplete"; print(n)')
+          mkdir -m 700 "$RUNNER_TEMP/android-physical-receipt-$GITHUB_RUN_ID"
+          printf '%s' "$RESULT" | python3 -c 'import json,os,sys; r=json.load(sys.stdin); assert r["production_package_unchanged"] is True; r["install_run_id"]=int(os.environ["GITHUB_RUN_ID"]); print(json.dumps(r))' > "$RUNNER_TEMP/android-physical-receipt-$GITHUB_RUN_ID/receipt.json"
           echo "### Physical Compose acceptance on gway-001" >> "$GITHUB_STEP_SUMMARY"
           echo "Source PR: #$PR_NUMBER; revision: $EXPECTED_SHA" >> "$GITHUB_STEP_SUMMARY"
           echo "Suite: $COMPOSE_SUITE" >> "$GITHUB_STEP_SUMMARY"
           echo "Hermetic Compose tests passed: $COUNT" >> "$GITHUB_STEP_SUMMARY"
           echo "Scope: canary and canary.test only; not a full screen-by-screen visual audit." >> "$GITHUB_STEP_SUMMARY"
+      - name: Upload sanitized physical acceptance receipt
+        if: inputs.run_feed_tests == 'no' && inputs.run_compose_tests == 'RUN_HERMETIC_TESTS'
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-physical-receipt-${{ github.run_id }}
+          path: ${{ runner.temp }}/android-physical-receipt-${{ github.run_id }}/receipt.json
+          if-no-files-found: error
+          retention-days: 14
       # This mode executes reviewed main code only, never a PR checkout on
       # the physical self-hosted node. Existing actor/ref/concurrency gates
       # apply. No sudo, mount creation, production deploy or auto-reset.

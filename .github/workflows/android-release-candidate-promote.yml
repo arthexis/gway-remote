@@ -1,0 +1,67 @@
+name: Android release candidate (exact artifact promotion)
+run-name: Promote RC ${{ inputs.version_code }} ${{ inputs.apk_sha256 }} acceptance ${{ inputs.acceptance_run }}
+on:
+  workflow_dispatch:
+    inputs:
+      source_sha:
+        required: true
+        type: string
+      source_tree:
+        required: true
+        type: string
+      version_code:
+        required: true
+        type: string
+      apk_sha256:
+        required: true
+        type: string
+      acceptance_run:
+        required: true
+        type: string
+      confirmation:
+        required: true
+        type: choice
+        options: [PLAN_ONLY, PUBLISH_EXACT_ACCEPTED_APK]
+        default: PLAN_ONLY
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: android-release-candidate-promote
+  cancel-in-progress: false
+jobs:
+  promote:
+    if: github.repository == 'arthexis/gway-remote' && github.ref == 'refs/heads/main' && github.actor == 'arthexis' && github.triggering_actor == 'arthexis' && inputs.confirmation == 'PUBLISH_EXACT_ACCEPTED_APK'
+    runs-on: [self-hosted, Linux, ARM64, gway-001]
+    timeout-minutes: 10
+    permissions:
+      contents: write
+      actions: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Verify full acceptance, explicit authorization and promote exact artifact
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SOURCE_SHA: ${{ inputs.source_sha }}
+          SOURCE_TREE: ${{ inputs.source_tree }}
+          VERSION: ${{ inputs.version_code }}
+          DIGEST: ${{ inputs.apk_sha256 }}
+          ACCEPTANCE: ${{ inputs.acceptance_run }}
+          CONFIRMATION: ${{ inputs.confirmation }}
+        run: |
+          set -euo pipefail
+          umask 077
+          [[ "$(hostname -s)" == gway-001 && "$(git rev-parse HEAD)" == "$GITHUB_SHA" ]]
+          [[ "$SOURCE_SHA" =~ ^[0-9a-f]{40}$ && "$SOURCE_TREE" =~ ^[0-9a-f]{40}$ ]]
+          [[ "$VERSION" =~ ^[1-9][0-9]{0,9}$ && "$DIGEST" =~ ^[0-9a-f]{64}$ ]]
+          [[ "$ACCEPTANCE" =~ ^[1-9][0-9]{0,19}$ && "$CONFIRMATION" == PUBLISH_EXACT_ACCEPTED_APK ]]
+          STATE="$HOME/.local/state/gway-android-rc"
+          [[ -d "$STATE" && ! -L "$STATE" && "$(stat -c '%a:%U' "$STATE")" == "700:$(id -un)" ]]
+          python3 -B -m gway_remote.android_rc_promotion --ledger "$STATE/ledger.sqlite" \
+            --artifact-dir "$STATE/artifacts" --sha "$SOURCE_SHA" --tree "$SOURCE_TREE" --version "$VERSION" \
+            --revision "$GITHUB_SHA" --acceptance-run "$ACCEPTANCE" --publish-run "$GITHUB_RUN_ID" \
+            --confirm "$CONFIRMATION" --digest "$DIGEST"

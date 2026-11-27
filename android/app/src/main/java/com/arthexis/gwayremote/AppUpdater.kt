@@ -30,7 +30,8 @@ object AppUpdater {
         }
     }
 
-    fun check(installedCode: Long): AvailableUpdate? {
+    fun check(installedCode: Long, packageName: String): AvailableUpdate? {
+        AppUpdateChannel.requireStableUpdates(packageName)
         val conn = connection(RELEASE_URL)
         try {
             require(conn.responseCode == 200) { "Release check HTTP ${conn.responseCode}" }
@@ -64,6 +65,7 @@ object AppUpdater {
     }
 
     fun download(context: Context, update: AvailableUpdate): File {
+        AppUpdateChannel.requireStableUpdates(context.packageName)
         val output = File(context.cacheDir, "gway-remote-update.apk")
         val partial = File(context.cacheDir, "gway-remote-update.part")
         partial.delete()
@@ -98,13 +100,17 @@ object AppUpdater {
     }
 
     fun canInstall(context: Context): Boolean =
-        Build.VERSION.SDK_INT < 26 || context.packageManager.canRequestPackageInstalls()
+        AppUpdateChannel.supportsStableUpdates(context.packageName) &&
+            (Build.VERSION.SDK_INT < 26 || context.packageManager.canRequestPackageInstalls())
 
-    fun installPermissionIntent(context: Context): Intent =
-        Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES,
+    fun installPermissionIntent(context: Context): Intent {
+        AppUpdateChannel.requireStableUpdates(context.packageName)
+        return Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES,
             Uri.parse("package:${context.packageName}"))
+    }
 
     fun verifyDownloadedApk(context: Context, apk: File, update: AvailableUpdate) {
+        AppUpdateChannel.requireStableUpdates(context.packageName)
         require(apk.isFile && apk.canRead()) { "Downloaded APK is missing; download it again" }
         require(apk.length() == update.size) { "Downloaded APK size changed; download it again" }
         val digest = MessageDigest.getInstance("SHA-256")
@@ -152,6 +158,7 @@ object AppUpdater {
     }
 
     fun install(context: Context, apk: File) {
+        AppUpdateChannel.requireStableUpdates(context.packageName)
         check(canInstall(context)) { "Allow installation from GWay Remote in Android settings" }
         require(apk.isFile && apk.canRead()) { "Downloaded APK is missing; download it again" }
         val uri = FileProvider.getUriForFile(context, "${context.packageName}.updates", apk)

@@ -20,7 +20,7 @@ import sqlite3
 import stat
 import subprocess
 
-from .node_exec_contract import validate_command
+from .node_exec_contract import validate_command, RELAY_ONLY_NODE, RELAY_ONLY_OPERATIONS
 from .node_exec_worker import validate_request_id
 
 DEFAULT_LEDGER = Path("/var/lib/gway-mcp-exec/requests.sqlite3")
@@ -104,6 +104,9 @@ class RequestLedger:
                 host_key_sha256, expires_at):
         validate_request_id(request_id)
         validate_command(node, command)
+        from .periodic_health_contract import slot_for
+        if slot_for(node, request_id) is not None:
+            raise PermissionError("request ID reserved for periodic probe")
         if type(principal) is not str or not principal or len(principal) > 256:
             raise ValueError("invalid principal")
         if type(host_key_sha256) is not str or not HEX_SHA256.fullmatch(host_key_sha256):
@@ -111,6 +114,8 @@ class RequestLedger:
         identity_digest = _digest(node, command, principal, host_key_sha256)
         with self.connection() as db:
             db.execute("BEGIN IMMEDIATE")
+            if db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='health_probe_requests'").fetchone() and db.execute('SELECT 1 FROM health_probe_requests WHERE request_id=?',(request_id,)).fetchone():
+                raise PermissionError('request_id_reserved_for_health_probe')
             existing = db.execute("SELECT * FROM requests WHERE request_id=?",
                                   (request_id,)).fetchone()
             if existing is not None:
@@ -151,6 +156,8 @@ class RequestLedger:
         digest = _digest(node, binding, principal, host_key_sha256)
         with self.connection() as db:
             db.execute("BEGIN IMMEDIATE")
+            if db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='health_probe_requests'").fetchone() and db.execute('SELECT 1 FROM health_probe_requests WHERE request_id=?',(request_id,)).fetchone():
+                raise PermissionError('request_id_reserved_for_health_probe')
             row = db.execute("SELECT * FROM requests WHERE request_id=?", (request_id,)).fetchone()
             if row is not None:
                 if (row["node"] != node or row["principal"] != principal
@@ -288,11 +295,17 @@ class SSHTransport:
         self._run = run
 
     def invoke(self, payload):
-        if type(payload) is not dict or payload.get("operation") not in {"submit","result","cancel","limits","lcd_sound_event","provider_list","provider_call","provider_read","file_read","deployment_preview","deployment_status","deployment_run","workspace_inspect","feed_provision_status","feed_provision_install"}:
+        from .agentops_coordination import OPS as COORDINATION_OPS
+        if type(payload) is not dict or payload.get("operation") not in {"periodic_health_submit","periodic_health_result","submit","result","health_probe_submit","health_probe_result","cancel","limits","lcd_sound_event","provider_list","provider_call","provider_read","provider_owner_read","provider_owner_execute","file_read","deployment_discovery","deployment_preview","deployment_status","deployment_run","workspace_inspect","feed_provision_status","feed_provision_install","probe_provision_status","probe_provision_install"} | set(COORDINATION_OPS):
             raise ValueError("invalid node operation")
-        fields = {"feed_provision_status":{"operation","node","request_id"},
+        fields = {"periodic_health_submit":{"operation","node","request_id"},
+                  "periodic_health_result":{"operation","node","request_id"},"probe_provision_status":{"operation","node","request_id"},
+                  "probe_provision_install":{"operation","node","request_id","credential"},
+                  "feed_provision_status":{"operation","node","request_id"},
                   "feed_provision_install":{"operation","node","request_id","principal","credential"},
                   "submit":{"operation","node","request_id","command"},
+                  "health_probe_submit":{"operation","node","request_id"},
+                  "health_probe_result":{"operation","node","request_id"},
                   "lcd_sound_event":{"operation","node","request_id","event"},
                   "result":{"operation","node","request_id","cursor"},
                   "cancel":{"operation","node","request_id"},
@@ -302,9 +315,16 @@ class SSHTransport:
                   "provider_read":{"operation","node","request_id","provider","tool","arguments"},
                   "file_read":{"operation","node","request_id","filename","offset"},
                   "workspace_inspect":{"operation","node","request_id","repository"},
+                  "deployment_discovery":{"operation","node","request_id"},
                   "deployment_preview":{"operation","node","request_id","application"},
                   "deployment_status":{"operation","node","request_id","application"},
                   "deployment_run":{"operation","node","request_id","application","expected_revision"}}
+        fields.update(COORDINATION_OPS)
+        from .mcp_owner_bound_wire import OPS, FIELDS, validate
+        for operation in OPS:
+            fields[operation] = FIELDS
+        if payload["operation"] in OPS:
+            validate(payload, self.node.node)
         actual_fields = set(payload)
         expected_fields = fields[payload["operation"]]
         # Scoped legacy SSH messages are not accepted.
@@ -314,9 +334,16 @@ class SSHTransport:
             raise ValueError("invalid expected deployment revision")
         if payload.get("node") != self.node.node:
             raise ValueError("wrong pinned node")
+        if self.node.node == RELAY_ONLY_NODE and payload["operation"] not in RELAY_ONLY_OPERATIONS:
+            raise PermissionError("relay-only node operation denied")
         validate_request_id(payload.get("request_id"))
+        if payload['operation'] in ('health_probe_submit','health_probe_result','probe_provision_status','probe_provision_install') and self.node.node != 'gway-001':
+            raise PermissionError('probe_node_denied')
+        if payload["operation"] in ("periodic_health_submit", "periodic_health_result"):
+            from .periodic_health_contract import validate_probe
+            validate_probe(self.node.node, payload["request_id"], submit=payload["operation"] == "periodic_health_submit")
         raw = json.dumps(payload, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
-        if len(raw) > (65536 if payload["operation"] in ("provider_call", "provider_read") else 8192):
+        if len(raw) > (65536 if payload["operation"] in ("provider_call", "provider_read", "provider_owner_read", "provider_owner_execute") else 8192):
             raise ValueError("transport request too large")
         # Forced-command key on node must ignore all SSH_ORIGINAL_COMMAND values.
         argv = ["ssh","-F","/dev/null","-T","-o","BatchMode=yes","-o","StrictHostKeyChecking=yes",
@@ -328,8 +355,13 @@ class SSHTransport:
                 "-i",str(self.node.identity_file),
                 "-l",self.node.remote_user,
                 self.node.wireguard_address, "gway-exec-protocol-v1"]
+        timeout = 15
+        if (payload["operation"] == "provider_call" and payload.get("provider") == "android"
+                and payload.get("tool") == "scenario_run"):
+            from .android_execution_contract import SSH_SECONDS
+            timeout = SSH_SECONDS
         try:
-            completed = self._run(argv,input=raw,capture_output=True,timeout=15,check=True)
+            completed = self._run(argv,input=raw,capture_output=True,timeout=timeout,check=True)
         except OSError:
             # Local SSH invocation failed; never classify a remote exit code.
             raise SSHTransportFailure("ssh transport unavailable") from None

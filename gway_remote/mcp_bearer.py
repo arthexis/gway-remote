@@ -13,10 +13,14 @@ from pathlib import Path
 
 SCOPES = frozenset({"gway:read", "gway:execute", "gway:lcd-sound", "gway:feed-publish"})
 COMBINED_SCOPE = "gway:execute gway:read"
+PROBE_SCOPE = "gway:health-probe"
+PROBE_CLIENT = "gway-health-probe-001"
 
 
 def _scope_grants(stored, required):
     """Legacy single-scope rows stay unchanged; combined grants are explicit."""
+    if PROBE_SCOPE in (stored, required):
+        return stored == required == PROBE_SCOPE
     if required in {"gway:lcd-sound", "gway:feed-publish"}:
         return stored == required
     return (required in SCOPES and (stored == required or stored == COMBINED_SCOPE)
@@ -84,6 +88,33 @@ class BearerRegistry:
         return credential
 
 
+    def issue_health_probe(self, *, lifetime=3600, operator_approved=False):
+        """Dedicated issuance API only; not a generic grant or OAuth scope."""
+        if operator_approved is not True:
+            raise PermissionError('direct_administrator_approval_required')
+        if type(lifetime) is not int or not 60 <= lifetime <= 3600:
+            raise ValueError('invalid_probe_lifetime')
+        key_id = secrets.token_hex(12)
+        secret = secrets.token_urlsafe(32)
+        with self._db() as con:
+            con.execute('INSERT INTO credentials VALUES (?, ?, ?, ?, NULL)',
+                        (key_id, _digest(secret), PROBE_SCOPE, int(time.time()) + lifetime))
+        return TOKEN_PREFIX + key_id + '_' + secret
+
+    def issue_health_probe_pair(self, *, lifetime=30*86400, operator_approved=False):
+        if operator_approved is not True:
+            raise PermissionError('direct_administrator_approval_required')
+        if type(lifetime) is not int or not 3600 <= lifetime <= 30*86400:
+            raise ValueError('invalid_probe_lifetime')
+        now=int(time.time())
+        with self._db() as con:
+            parent=secrets.token_hex(12)
+            con.execute('INSERT INTO credentials VALUES (?, ?, ?, ?, NULL)',(parent,_digest(secrets.token_urlsafe(32)),PROBE_SCOPE,now+lifetime))
+            family,_=_store_oauth_credential(con,PROBE_SCOPE,now+lifetime,parent)
+            _,access=_store_oauth_credential(con,PROBE_SCOPE,now+3600,family)
+            refresh=_store_oauth_refresh(con,family,PROBE_CLIENT,PROBE_SCOPE,now+lifetime)
+        return {'parent_id':parent,'parent_expires_at':now+lifetime,'client_id':PROBE_CLIENT,'access_token':access,'refresh_token':refresh,'expires_at':now+3600,'refresh_state':'ready'}
+
     def issue_combined(self, *, lifetime=86400, operator_approved=False):
         """Issue one explicitly approved, combined read+execute parent token.
 
@@ -103,7 +134,7 @@ class BearerRegistry:
 
     def issue_oauth_pair(self, *, parent_id, scope, client_id):
         """Mint access and rotating refresh tokens bound to a hidden revocable family."""
-        if scope not in SCOPES | {COMBINED_SCOPE} or not isinstance(client_id, str) or not client_id:
+        if scope not in SCOPES | {COMBINED_SCOPE} or not isinstance(client_id, str) or not client_id or client_id == PROBE_CLIENT:
             raise ValueError("invalid_grant")
         now = int(time.time())
         parent = _lookup(self.path, parent_id)
@@ -142,7 +173,8 @@ class BearerRegistry:
                 "SELECT digest,family_id,client_id,scope,expires_at,consumed_at "
                 "FROM oauth_refresh WHERE key_id=?", (parts[1],)).fetchone()
             if (not row or not hmac.compare_digest(row[0], digest)
-                    or row[2] != client_id or row[4] <= now):
+                    or row[2] != client_id or row[4] <= now
+                    or (row[3] == PROBE_SCOPE) != (client_id == PROBE_CLIENT)):
                 raise ValueError("invalid_grant")
             if row[5] is not None:
                 con.execute("UPDATE credentials SET revoked_at=? "
@@ -167,7 +199,7 @@ class BearerRegistry:
                 "scope": row[3]}
 
     def verify(self, credential, *, required_scope="gway:read"):
-        if required_scope not in SCOPES or not isinstance(credential, str):
+        if required_scope not in SCOPES | {PROBE_SCOPE} or not isinstance(credential, str):
             return False
         parts = credential.split("_", 2)
         if len(parts) != 3 or parts[0] != "gwr" or len(parts[1]) != 24:
@@ -245,7 +277,7 @@ class BearerVerifier:
         self.path = Path(path)
 
     def verify(self, credential, *, required_scope="gway:read"):
-        if required_scope not in SCOPES or not isinstance(credential, str):
+        if required_scope not in SCOPES | {PROBE_SCOPE} or not isinstance(credential, str):
             return False
         parts = credential.split("_", 2)
         if len(parts) != 3 or parts[0] != "gwr" or len(parts[1]) != 24:
@@ -303,6 +335,31 @@ class BearerVerifier:
                     return current
                 current = row[0]
             raise PermissionError("credential delegation depth exceeded")
+
+    def health_probe_principal(self, credential):
+        """Return stable root identity after complete scoped lineage verification."""
+        if not self.verify(credential, required_scope=PROBE_SCOPE):
+            raise PermissionError('probe_credential_required')
+        current=credential.split('_',2)[1]
+        with sqlite3.connect('file:'+str(self.path.resolve())+'?mode=ro',uri=True,timeout=3) as db:
+            seen=set()
+            for _ in range(32):
+                if current in seen: break
+                seen.add(current)
+                row=db.execute('SELECT scope,expires_at,revoked_at FROM credentials WHERE key_id=?',(current,)).fetchone()
+                if not row or row[0]!=PROBE_SCOPE or row[1]<=int(time.time()) or row[2] is not None: break
+                parent=db.execute('SELECT parent_id FROM delegations WHERE key_id=?',(current,)).fetchone()
+                if not parent:return current
+                current=parent[0]
+        raise PermissionError('probe_lineage_denied')
+
+    def federated_principal(self, credential, *, scope):
+        """Stable identity only after verifying the corresponding OAuth scope."""
+        if scope == "execute":
+            return self.execution_principal(credential)
+        if scope != "read" or not self.verify(credential, required_scope="gway:read"):
+            raise PermissionError("read credential required")
+        return self._feed_root(credential)
 
     def execution_principal(self, credential):
         """Stable parent identity across OAuth reconnects; requires valid execute scope."""

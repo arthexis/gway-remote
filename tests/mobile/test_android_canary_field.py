@@ -174,6 +174,9 @@ class InstrumentationTests(unittest.TestCase):
 
     def test_suite_receipts_do_not_overwrite_baseline(self):
         self.assertNotEqual(field.state_path(), field.state_path("quotations"))
+        self.assertNotEqual(field.state_path("opportunities"), field.state_path("quotations"))
+        self.assertNotEqual(field.state_path("opportunities"), field.state_path())
+        self.assertEqual(field.SUITES["opportunities"], ("com.arthexis.gwayremote.OdooOpportunityCopyTest", 2))
 
     @patch.object(field, "adb")
     def test_pass_requires_android_runner_success(self, adb):

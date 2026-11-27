@@ -1,0 +1,124 @@
+# Single signed Android release candidate — #753 (supersedes dual-signing design)
+
+## Verified baseline and constraints
+At main 531b8f9598f77afe6bc3fbdabf8b252dbafb0f30, android.yml assembles release on main, uses existing GWAY_APK signing secrets, records signer/digest, creates release, downloads and compares it. The keystore is written before Gradle; separate these trust boundaries. android/app/build.gradle.kts uses com.arthexis.gwayremote, minSdk 26, release non-minified and optional environment-driven distribution signing. Do not set signing env during build. android-canary.yml builds debug PR code with separate package and ephemeral signer; historical evidence in #753 comment 7172312094 reports distinct certs. #749 coordinator currently gates PR acceptance using debug canary and #752 single-dispatch barrier. #718 publication hold remains unchanged. Backend deploy admission currently treats these paths as deployment impact; no merge until exact non-runtime path policy reviewed and CI passes, or explicitly authorized backend deployment. No production changes, reset, publish or AgentOps during design.
+
+## Target architecture
+One signed distribution APK per immutable candidate; no separate canary signing key, package overlay, or second distribution build. Test APKs/emulators may exist for premerge CI, but they are never distribution candidates and never get production signing material. Use the existing production certificate (pin public digest from independently verified latest release and installed stable app, never assume it matches). Do not provision another key.
+
+1. Premerge: ordinary unit, Compose/emulator and integrated CI continue. Preserve existing physical branch gate until an explicitly reviewed replacement is admitted. If physical acceptance is required before main merge, use a separately protected, reviewed integration ref with exact merge-tree proof and equivalent admission; do not sign arbitrary PR heads. Prefer protected main after CI and protected merge, then gate publication on physical acceptance. Feature flags default off for incomplete modules; authorization remains server-side. Do not weaken rulesets or use admin bypass.
+2. Candidate allocation: immutable reviewed commit/tree, monotonic versionCode higher than latest published AND lab installed versions, versionName and tag reserved once via a durable serialized ledger. Do not use independent workflow run counters. Record compatibility/feature manifest and candidate ID; identical resume reuses artifact; no rebuild after accepted digest. Concurrent main work may proceed without reusing candidate version; stale candidate cannot release a different tree; supersede by default if main advances unless protected immutable release-ref policy explicitly approved.
+3. Build unsigned release once from reviewed integrated commit with no signing secrets, write access or production credential; use pinned dependencies/actions, no shared writable cache with signer. Verify artifact provenance (workflow/ref/actor/run/status, exact artifact ID, source/tree, hash, package/version, non-debuggable, no test-only flag) in isolated trusted fresh runner. Sign only that immutable artifact in protected main workflow/environment, with existing GWAY_APK secrets scoped to signing step, no checkout/Gradle/PR scripts and least permissions. Restrict environment to protected reviewed refs/authorized approvals; verify existing public cert pin, key identity, package/version, apksigner verification, digest, no secrets in logs/artifacts. Sign once, never upload key. Persist signed APK and manifest privately with retention exceeding acceptance; if bytes expire, invalidate and allocate a fresh candidate, never rebuild under old acceptance.
+4. Single physical owner: extend #749 and reuse #752 dispatch barrier. Lease/fencing across install, hermetic and authenticated live checks, manual jobs included. Dedicate gway-001 Android as lab by explicit approval; only one production-ID app can be installed on it. Obtain public installed base APK digest, package/version/signing certificate via reviewed owner-only read-only workflow; distinguish installed stable credential presence from canary (no values read). Compare to pinned release certificate and candidate. If absent or wrong signer, missing live credential or version not increasing, stop; no automatic uninstall, data clear, downgrade, reset, new credential or migration of private data. Existing stable app's own data/Android Keystore should survive normal install -r if signer/package/UID compatible; prove with authenticated read-only smoke and local state before/after. Existing canary remains untouched until separate retirement approval; if credential exists only there, owner must authorize legitimate enrollment of lab stable app separately, never copy tokens. No installation on customer devices or distribution channels. Keep test device from auto-updating candidate unexpectedly using an explicit supported lab policy; no global production updater changes.
+5. Install exact signed release APK once. Same installed digest -> verify and no-op. Compare post-install APK digest, version, signer, production-ID package, stable credential presence, backend compatibility. Physical acceptance must exercise actual non-debuggable signed artifact using dedicated UI MCP and read-only authenticated flows, including Liturgia rights and Oportunidades, and test that incomplete features are gated. Existing debug instrumentation cannot be assumed to attach to release; retain hermetic Compose on emulator/legacy isolated test package as distinct evidence, not proof of release acceptance. Never sign instrumentation APK with production key just to make tests pass; no clear app data on lab release. Restore screen state; sanitize receipts.
+6. Ledger: durable candidate SHA/tree/version/digest/cert/artifact/run IDs, install evidence, per-module live results, lease/expiry, explicit approval, publication and closure. Resume by reconciling actual state; no uncertain replay. Publication workflow only consumes accepted immutable signed APK (no Gradle, no signing secrets); validate lease/approval, hold #718, source compatibility, exact digest and cert, tag/version ordering. Idempotent tag/asset: if already present verify exact bytes and target, otherwise fail closed on conflict; never overwrite. Download release and compare digest/cert/bytes, then close explicitly accepted linked issues only. No publish until #718 accepted and explicit owner authorization to change hold. Rollback via forward-fix with increasing versionCode and same signer; do not assume downgrade possible or delete data.
+
+## Acceptance gates
+- [ ] Independently verify current public release and lab installed stable certificate/package/version; compare with signer pin. Record credential presence without secret values; historical missing canary credential remains unknown unless evidence proves cause.
+- [ ] Prove signing key available only to isolated trusted signing step for integrated reviewed commit, no PR/Gradle, no second signing key, no signed untrusted PR, no secret exposure. Negative wrong provenance, wrong certificate, package, version, debug/test flags, expired artifacts.
+- [ ] One allocation/build/sign/install/promote per candidate; same SHA256 from signed artifact through physical installed APK and downloaded release. Resume/duplicate dispatch and install idempotent; no rebuild or re-sign for promotion.
+- [ ] Two successive physical upgrades preserve existing stable lab credential, local settings and Android Keystore-dependent functions; demonstrate authenticated Liturgia/Oportunidades and rights; legacy canary untouched. Fail closed if absent/incompatible or locked; no reset, downgrade, automatic new credential.
+- [ ] Premerge CI, rulesets, coordinator lease and #718 hold preserved; document approved replacement for any legacy PR physical check before changing it. Negative concurrency, stale SHA, expired lease, main advances, interrupted stage, tag conflict; no bypass.
+- [ ] Existing production release workflow not invoked during design/migration; no customer device modifications; exact Android-only backend deployment impact classification with mixed/unknown paths fail closed.
+- [ ] Publication disabled until approved; then verify downloaded asset digest, cert, tag and source before issue closure. Document staged rollback and separate owner-approved retirement of legacy canary.
+
+
+## Operator-side preparation (staged, not deployed)
+Use a reviewed trusted main checkout and the installation owner's authenticated GitHub CLI. The new `python3 -m gway_remote.android_release_candidate` entrypoint uses a private owner-only persistent SQLite file, not runner temporary storage. Its supported operations are allocate, dispatch built, reconcile built, dispatch signed, reconcile signed, and status. For each command supply the same absolute --ledger path, --sha, --tree and --version before the subcommand. Allocate additionally requires independently verified published and installed version floors; reconcile signed requires --certificate. No install or publish subcommand is enabled. A missing run ID after a reserved dispatch is a reconciliation blocker, not a reason to retry. Review the exact GitHub run and artifact with the owner; do not fabricate evidence or clear the ledger.
+
+Production reference verified from GitHub release android-v0.2.793, target a3ec9811a38c8c999a14614c7d404dee604b10a4:
+- downloaded APK SHA256 b64d2e336d9099cd266d678625d7d8bcbed5128f0380b30e1302199b0aed3b6a matches GitHub asset metadata;
+- extracted APK v2 certificate SHA256 ead21dc9471b403e1331a87d5a67f1e86a2a52a3ae2a5d40ffd8c468d3afc7ce. Extraction alone does not verify the signature; independently verify the published APK with apksigner before authorizing signing.
+- Dispatch the owner-only android-canary-certificate.yml with package=stable and expected_certificate equal to the verified reference, after reviewed integration. It shares the hardware concurrency group and reads only the installed base APK and version; no private files. No raw ADB via node_exec. Require exact package, compatible signer, valid version, and an authenticated baseline before allocation/installation.
+
+## Existing lab configuration — owner decision (2026-11-25)
+The owner confirms the phone is already configured. Do not implement enrollment, issue or rotate Mobile API credentials, copy tokens, alter endpoint/settings, or use the canary-only run-as bridge. Verify real behavior through the existing stable app and dedicated Android MCP, without exposing secrets. USB authorized/unlocked is distinct from app API authentication. A prior and fresh stable System/API Health check displayed "Token is required"; this is evidence of an unsuccessful authenticated check, not a reason to change configuration. Record ordinary UI/device checks separately from authenticated module acceptance. If the existing configuration cannot demonstrate authenticated operation, report the failed check and stop that gate; no automatic provisioning or reset. Keep both installed apps intact until separately authorized. Preserve #718 and all existing protection.
+
+
+## Downloadable candidate artifacts — audit decision (2026-11-25)
+Owner approved ordinary signed GitHub Actions artifacts before physical acceptance. The repository is public; authenticated GitHub readers may download the candidate. This is intentionally distinct from stable release publication. The 0.2.794 unsigned artifact (build 45692469642, artifact 15059572077, SHA256 ac5e69a5d8372e9f3635d5b2a101cd896711518b77a6e2948d8b4f149669c42f) passed a bounded 186-file pattern scan with no recognized device tokens, GitHub tokens, PEM private keys or keystore files. Six live anonymous/invalid-credential Mobile API checks returned 401. This is not an exhaustive penetration test. Possession of an APK is not API authorization; premature sideload onto an already authorized phone remains a residual operational risk. No automatic discovery of a candidate via the stable release updater.
+
+Sign once in the protected main-only owner-reviewed environment, using the existing production key, exact source and artifact pins, independent apksigner verification of the published reference, package/version and debug/test flags. Upload only gway-remote.apk and manifest.json; no keystore or credentials. No transport key, CMS or additional encryption is needed. Reconcile the exact signed artifact via the recorded workflow and artifact ID, verify digest and certificate, and atomically persist the bytes in an owner-only directory (--artifact-dir). Never overwrite conflicting bytes. The original candidate source/tree and build identity remain unchanged: an explicitly approved delivery-only signing revision may advance main only if the Android subtree is identical and every changed path is in the narrow delivery-fix allowlist. Keep the publication hold and existing credential configuration intact; no rebuild or stable release during acceptance.
+
+
+## Stable physical installation
+The manual main-only android-release-candidate-install.yml workflow uses the same gway-001-android-canary-install concurrency group as the canary and certificate audit. It verifies owner dispatch, exact reviewed workflow revision, delivery-only ancestry and identical Android subtree, existing signed ledger evidence and successful attempt-one signing run, unexpired exact artifact metadata, the locally persisted APK hash/certificate, authorized physical USB and unlocked display. Default preflight is read-only and emits a sanitized receipt. A visible API Health response with the exact authenticated health JSON is required; refresh the existing app first using the dedicated Android MCP tools. A blank or invalid credential, unknown UI, or truncated tree blocks installation; do not read or change credentials to make it pass. The installer makes one incremental install -r only, no first install, uninstall, clear, downgrade, or reset. It reserves the install intent before touching ADB, verifies installed package/version/digest/certificate and unchanged canary path afterwards, and records installed evidence. A replay of the exact installed artifact is a verification-only no-op; uncertain installation may be reconciled only by matching the actual installed identity, never by retrying blindly. The install receipt is not authenticated module acceptance. Actual release UI health, Oportunidades, and Liturgia must still be verified separately; do not mark accepted or publish solely on the install result. The #718 hold remains unchanged.
+
+## Owner-approved independent physical installation
+The owner explicitly authorized the laboratory-only incremental installation despite an unverified pre-existing Mobile API credential. Select the explicit owner-dispatched `install-lab-only` mode; normal preflight/install remains strict. The run title, exact immutable artifact, signer, version, USB, device and shared hardware concurrency gates still apply. Record the actual pre-install authentication result; never turn false into true. Installation evidence leaves authenticated acceptance pending, and cannot authorize publication. No reset, credential changes, rebuild, re-sign, or #718 hold removal. Verify UI separately.
+
+## Reconciliation after the semantic scenario reliability rollout (2026-11-26)
+
+Main 4ef64d81857fc7e4a5411138e3c8d63db25ea7ed includes #759/#763/#764. Candidate 794 is recorded as installed only; the signed bytes remain unchanged. A fresh stable API health observation still reported Token is required. This is not proof of credential loss. Do not reinstall 794, reset the canary, or promote the superseded source. Release 793, #718 hold and strict CI remain in place. Android acceptance is not yet a required check.
+
+Use the existing candidate identity and ledger with the new reconciliation-status --artifact-dir <private directory> subcommand to report recorded stages, local APK digest/certificate agreement, current main, publication hold and blockers. It is a read-only checkpoint, not a live device audit or permission to execute. An installed receipt with an unverified pre-upgrade credential cannot establish credential preservation retrospectively. A fresh candidate built at protected main may use the exact same source/workflow revision for installation; the tree must match and any moved main fails closed.
+
+Next: privately restore or verify existing Mobile API access; integrate reviewed #731/#747/#674 changes under their own CI and gates; allocate a fresh monotonic candidate after final integration. Obtain two successive authenticated upgrades and module-level acceptance including rights. #749 must migrate the legacy canary/auto-release coordinator to exact candidate promotion, preserving strict CI and #718. No promotion implementation or acceptance is implied by this checkpoint.
+
+## Automatic authenticated upgrades — staged correction
+
+The stable 0.2.794 app now has a working owner-configured Mobile API baseline (#753 comment 7204848557). For a new reviewed candidate, normal install mode uses the fixed manifest activity and reviewed Home/System/API Health route to make a fresh API request before and after installing exactly the signed APK. It uses the existing Android provider lock throughout the hardware job, bounded fresh UI observations, no secret input or arbitrary destination, and restores initial sleep if safe. Preflight-only and previously authorized exceptional lab-only mode retain their prior semantics.
+
+An immutable upgrade_health record binds the original incremental install run, before and after versions/digests, signer and successful authenticated observations. A failed post-install check does not erase the install receipt or permit reinstall. An already installed digest without an original completed receipt is an uncertain installation, not a new upgrade; reconcile manually, never reconstruct a baseline from a later successful health check. Upgrade-health evidence is not module acceptance or publication approval. #718 remains held; no promotion path is enabled here. The new navigation and receipt code must pass hosted CI and physical validation in the reviewed workflow.
+
+## Reconciled authenticated upgrade chain (2026-11-26)
+
+Exact physical stable APKs 794 -> 795 -> 796 are linked by independently
+verified SHA256 identities, the same production certificate, and durable
+authenticated before/after receipts. Run 45916104556 recorded successful
+installation and authentication before a delayed sleep observation failed;
+the later independent audit and #769 reconcile that failure without retrying
+installation. Run 45921488776 succeeded, including sleep restoration. The
+read-only consecutive_upgrade_health checkpoint reconstructs both receipts
+from immutable install/sign records, verifies their shared APK digest,
+version, signer, and distinct run IDs, and rejects mismatched or corrupt
+receipts. It confers neither module acceptance nor publication authority.
+The integrated candidate 796 is bound to source 9d1baf292db18a62438dfc3a8d3c053422a3038e.
+Do not advance main with new delivery code until this candidate is reconciled,
+or treat an older digest as accepted for a different source. The exact-artifact
+publisher and trusted per-module acceptance receipt still require reviewed
+implementation; #718 and the signing environment protections remain unchanged.
+
+## Trusted full acceptance and exact-artifact publication (staged in #772)
+
+The main-only hardware workflow has two scopes. Smoke uses the shared USB
+concurrency group and device lock to verify the exact signed stable package,
+linked authenticated upgrades, live health/Home/feed/Updates, Oportunidades,
+quotations, disabled deployment controls and Liturgia readings. It does not
+install, copy real customer values, mark real feed items read, dispatch a
+deployment, modify credentials or publish. It preserves the canary and restores
+the initial sleep state. Smoke alone never authorizes a release.
+
+Full mode independently reconciles owner-dispatched successful exact-main CI,
+the candidate's original build and the phone-profile hosted Compose run before
+touching the device. The hosted workflow produces a sanitized contract receipt
+only after every required named JUnit case actually passes; missing, skipped,
+duplicate and failed cases are rejected. Detailed synthetic module tests cover
+Oportunidades refresh/stale/consent/pagination/copy/missing credentials,
+Liturgia date/form/reader/comparison/search/pagination/rights/library/errors,
+quotation refresh/PDF save contract, feed failure and read handling,
+navigation, canary isolation and deployment confirmation. Liturgia test data
+uses isolated fixture preferences, never the existing library. The full receipt
+explicitly separates physical observations from synthetic hosted evidence.
+It binds the APK digest, signer, source tree, version and run identities.
+Promotion independently re-fetches the hosted artifact and validates the entire
+receipt. These are not claims that synthetic error injections ran on production.
+
+The staged publisher defaults to PLAN_ONLY. Explicit owner dispatch with
+PUBLISH_EXACT_ACCEPTED_APK requires full acceptance, exact digest, original
+signed bytes and verified main/hold policy. It reserves immutable approval,
+creates a draft, checks the downloaded bytes, publishes the exact APK, and
+verifies the final tag, release notes, APK digest and releases/latest endpoint.
+Android-Version-Code metadata is mandatory for AppUpdater compatibility.
+Conflicting or uncertain prior publication intent fails closed. An existing
+exact published release is verification-only replay. Legacy rebuild publication
+is retired in the draft. No signing key is available to promotion.
+
+The #718 marker remains. After full acceptance and separate owner authorization,
+only a single reviewed literal hold-marker removal may bridge the accepted source
+to the publication revision; unrelated changes supersede a candidate.
+796 remains valid historical authentication evidence but is superseded by
+concurrent ABB development. Finish CI and the acceptance/promotion pipeline
+before allocating one successor. The new tests and workflow have not yet been
+physically validated. Do not reinstall 796 or close release-tracked issues
+before authorized publication and verification.

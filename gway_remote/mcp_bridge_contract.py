@@ -14,10 +14,11 @@ MAX_CLOCK_SKEW = 5
 NODE = re.compile(r"gway-[0-9]{3}", re.ASCII)
 REQUEST = re.compile(r"[0-9a-f]{32}", re.ASCII)
 OPERATIONS = frozenset({
+    "health_probe.start", "health_probe.result", "health_probe.diagnostic",
     "inventory.list", "inventory.capabilities", "execution.preview",
     "file.read", "workspace.inspect",
     "execution.start", "execution.result", "execution.cancel",
-    "deployment.preview", "deployment.start", "deployment.status",
+    "deployment.discovery", "deployment.preview", "deployment.start", "deployment.status",
 })
 EXECUTE_OPERATIONS = frozenset({
     "execution.start", "execution.result", "execution.cancel",
@@ -48,7 +49,16 @@ def validate_envelope(data, *, audience, now=None):
     if type(operation) is not str or operation not in OPERATIONS:
         raise InvalidBridgeRequest("operation not allowed")
     scope = data["scope"]
-    if scope not in ("gway:read", "gway:execute"):
+    probe_ops = {'health_probe.start','health_probe.result','health_probe.diagnostic'}
+    if operation in probe_ops or scope == 'gway:health-probe':
+        if operation not in probe_ops or scope != 'gway:health-probe' or audience != 'gway-001':
+            raise InvalidBridgeRequest('probe_scope_or_target_denied')
+        from .mcp_health_probe_contract import validate_call
+        try:
+            validate_call({'health_probe.start':'node_exec','health_probe.result':'node_result','health_probe.diagnostic':'node_exec_diagnostic'}[operation],data['arguments'])
+        except (ValueError,PermissionError):
+            raise InvalidBridgeRequest('probe_arguments_denied') from None
+    if scope not in ("gway:read", "gway:execute", "gway:health-probe"):
         raise InvalidBridgeRequest("invalid scope")
     if operation in ("file.read", "workspace.inspect") and scope != "gway:read":
         raise InvalidBridgeRequest("insufficient read scope")

@@ -4,7 +4,7 @@
 - name: Require dedicated audited relay public key
   ansible.builtin.assert:
     that:
-      - (ansible_hostname | default('')) is match('^gway-[0-9]+$')
+      - (ansible_hostname | default('')) is match('^gway-[0-9]+$') or ((ansible_hostname | default('')) == 'ocpp-abb-1' and (gway_named_relay_only | default(false) | bool) and gway_remote_exec_run_user == 'ubuntu')
       - gway_exec_relay_public_key is defined
       - (gway_exec_relay_public_key | string) is match('^ssh-ed25519 [A-Za-z0-9+/=]+( [A-Za-z0-9_.@-]+)?$')
     fail_msg: Explicit ed25519 relay public key and enrolled gway node identity required.
@@ -106,3 +106,6 @@
   ansible.builtin.assert:
     that:
       - gway_relay_groups.stdout.split() == ['gway-relay']
+
+- name: Keep dedicated relay PAM sessions free of desktop audio
+  ansible.builtin.include_tasks: node-exec-relay-headless.yml

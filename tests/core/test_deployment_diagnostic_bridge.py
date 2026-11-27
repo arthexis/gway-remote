@@ -25,7 +25,9 @@ class DeploymentDiagnosticBridgeTests(unittest.TestCase):
                      "deployment_ssh_unverified",
                      "deployment_node_protocol_unavailable",
                      "deployment_declaration_unavailable",
-                     "deployment_execution_disabled"):
+                     "deployment_execution_disabled", "deployment_invalid_application",
+                     "deployment_unknown_application", "deployment_not_enabled",
+                     "deployment_no_declaration", "deployment_declaration_invalid"):
             dispatcher.execution.deployment_preview.side_effect = PermissionError(code)
             with self.subTest(code=code), self.assertRaises(BridgeReadUnavailable) as raised:
                 dispatcher(envelope)

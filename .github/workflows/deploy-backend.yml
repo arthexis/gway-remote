@@ -75,17 +75,23 @@ jobs:
           import pathlib
           import subprocess
           import tempfile
-          from gway_remote.deployment import deploy, local_api_token
+          from gway_remote.deployment import deploy, local_api_token, run
+          from gway_remote.controller_release import record_verified_deployment, verified_noop
 
           def install():
               with tempfile.TemporaryDirectory() as temp:
                   marker = pathlib.Path(temp) / "no-op"
                   env = os.environ.copy()
                   env["GWAY_REMOTE_DEPLOY_NOOP_FILE"] = str(marker)
+                  # A rollback may leave the old installer hint at the failed revision.
+                  env["GWAY_REMOTE_FORCE_CLI_REPAIR"] = (
+                      "0" if verified_noop(pathlib.Path.cwd(), os.environ.get("GITHUB_SHA")) else "1")
                   subprocess.run(["sh", "deploy.sh"], check=True, env=env)
                   return not (marker.is_file() and marker.read_text().strip() == "skipped")
 
-          deploy(token=local_api_token(), install=install, revision=os.environ.get("GITHUB_SHA"))
+          deploy(token=local_api_token(), install=install, revision=os.environ.get("GITHUB_SHA"),
+                 record_verified=lambda revision, digest: record_verified_deployment(
+                     pathlib.Path.cwd(), revision, digest, execute=run))
           PY
           /usr/local/bin/gway-remote status --json | python3 -c 'import json,sys; assert json.load(sys.stdin)["schema"] == "gway-remote/status/v1"'
       - name: Converge isolated gway-001 MCP runtime through Ansible

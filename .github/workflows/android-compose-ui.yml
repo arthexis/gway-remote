@@ -2,7 +2,7 @@ name: Android Compose UI Tests
 
 on:
   pull_request:
-    paths: ['android/**', '.github/workflows/android-compose-ui.yml']
+    paths: ['android/**', '.github/workflows/android.yml', '.github/workflows/android-compose-ui.yml']
   workflow_dispatch:
     inputs:
       profile:
@@ -45,6 +45,25 @@ jobs:
           profile: pixel_6
           disable-animations: true
           script: bash android/scripts/run-compose-ui-tests.sh "${{ inputs.profile || 'phone' }}"
+      - name: Verify named module contracts
+        if: github.event_name == 'pull_request' || (github.ref == 'refs/heads/main' && github.actor == 'arthexis' && github.triggering_actor == 'arthexis' && inputs.profile == 'phone')
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          mkdir -m 700 "$RUNNER_TEMP/rc-contract-$GITHUB_RUN_ID"
+          python3 -B -m gway_remote.android_rc_contracts \
+            --report-dir android/app/build/outputs/androidTest-results \
+            --sha "$GITHUB_SHA" --tree "$(git rev-parse HEAD^{tree})" --run-id "$GITHUB_RUN_ID" \
+            > "$RUNNER_TEMP/rc-contract-$GITHUB_RUN_ID/contracts.json"
+      - name: Preserve sanitized exact-source contract evidence
+        if: github.ref == 'refs/heads/main' && github.actor == 'arthexis' && github.triggering_actor == 'arthexis' && github.event_name == 'workflow_dispatch' && inputs.profile == 'phone'
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-rc-contract-${{ github.run_id }}
+          path: ${{ runner.temp }}/rc-contract-${{ github.run_id }}/contracts.json
+          if-no-files-found: error
+          retention-days: 30
       - uses: actions/upload-artifact@v4
         if: always()
         with:

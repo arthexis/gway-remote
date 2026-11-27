@@ -4,7 +4,7 @@ import subprocess
 import tempfile
 import unittest
 
-from gway_remote.deploy_impact import SAFE_PATHS, classify_paths, classify_push
+from gway_remote.deploy_impact import SAFE_PATHS, ANDROID_DELIVERY_PATHS, AEON_DELIVERY_PATHS, POLICY_PATHS, classify_paths, classify_push
 
 ROOT = pathlib.Path(__file__).resolve().parents[2]
 
@@ -19,6 +19,27 @@ class PushImpactTests(unittest.TestCase):
                      "scripts/watchtower-auto-deploy.sh",
                      "gway_remote/development_evidence.py/extra"):
             self.assertEqual(classify_paths([*SAFE_PATHS, path]), "deploy")
+
+    def test_android_delivery_only_and_mixed_paths(self):
+        self.assertEqual(classify_paths(sorted(ANDROID_DELIVERY_PATHS)), "skip")
+        self.assertEqual(classify_paths([".github/workflows/android-release-candidate-install.yml"]), "skip")
+        self.assertEqual(classify_paths([".github/workflows/android-release-candidate-install.yml", "gway_remote/api.py"]), "deploy")
+        for path in ("android/app/src/main/AndroidManifest.xml",
+                     "gway_remote/mobile_http.py", "gway_remote/mcp_android.py",
+                     "gway_remote/android_unknown.py", ".github/workflows/android-unknown.yml",
+                     ".github/workflows/deploy-backend.yml", "ansible/playbooks/gway001-mcp-runtime.yml",
+                     "gway_remote/android_release_candidate.py/extra"):
+            with self.subTest(path=path):
+                self.assertEqual(classify_paths([*ANDROID_DELIVERY_PATHS, path]), "deploy")
+                self.assertEqual(classify_paths([*ANDROID_DELIVERY_PATHS, *POLICY_PATHS, path]), "deploy")
+
+    def test_policy_changes_require_paired_tests_and_no_runtime_paths(self):
+        for path in POLICY_PATHS:
+            self.assertEqual(classify_paths([path]), "deploy")
+        self.assertEqual(classify_paths(sorted(POLICY_PATHS)), "skip")
+        self.assertEqual(classify_paths(sorted(POLICY_PATHS | ANDROID_DELIVERY_PATHS)), "skip")
+        self.assertEqual(classify_paths([*POLICY_PATHS, "deploy.sh"]), "deploy")
+        self.assertFalse(SAFE_PATHS & POLICY_PATHS)
 
     def test_missing_or_malformed_evidence_fails_closed(self):
         for paths in ([], (), ["", "docs/development-evidence-v1.md"],
@@ -84,3 +105,27 @@ class PushImpactTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class AndroidRcHealthImpactTests(unittest.TestCase):
+    def test_exact_workflow_only_paths_do_not_deploy(self):
+        paths = ["gway_remote/android_rc_health.py", "tests/infrastructure/test_android_rc_health.py",
+                 "gway_remote/android_release_candidate.py"]
+        self.assertEqual(classify_paths(paths), "skip")
+        self.assertEqual(classify_paths(paths+["gway_remote/mcp_android.py"]), "deploy")
+
+    def test_exact_acceptance_and_promotion_helpers_are_delivery_only(self):
+        paths = [".github/workflows/android-release-candidate-accept.yml",
+                 ".github/workflows/android-release-candidate-promote.yml",
+                 "gway_remote/android_rc_acceptance.py","gway_remote/android_rc_promotion.py",
+                 "tests/infrastructure/test_android_rc_acceptance.py",
+                 "tests/infrastructure/test_android_rc_promotion.py"]
+        self.assertEqual(classify_paths(paths),"skip")
+        self.assertEqual(classify_paths(paths+["gway_remote/mcp_android.py"]),"deploy")
+        self.assertEqual(classify_paths(paths+[".github/workflows/android.yml"]),"deploy")
+
+class AeonDeliveryImpactTests(unittest.TestCase):
+    def test_aeon_delivery_only_does_not_restart_backend(self):
+        self.assertEqual(classify_paths(sorted(AEON_DELIVERY_PATHS)), "skip")
+        self.assertEqual(classify_paths(sorted(AEON_DELIVERY_PATHS | POLICY_PATHS)), "skip")
+        self.assertEqual(classify_paths([*AEON_DELIVERY_PATHS, "gway_remote/mcp_http.py"]), "deploy")

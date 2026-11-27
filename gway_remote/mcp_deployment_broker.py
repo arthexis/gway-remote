@@ -237,6 +237,16 @@ def request_status(application, request_id, *, state_dir=STATE_DIR,
     return result
 
 
+
+def _worker_argv(application, request_id):
+    # The protocol may be imported via a root-owned package-release symlink.
+    # Pin the already loaded release, not current, cwd, or inherited PYTHONPATH.
+    package_root = Path(__file__).resolve().parents[1]
+    bootstrap = ("import runpy,sys; sys.path.insert(0,sys.argv.pop(1)); "
+                 "runpy.run_module('gway_remote.mcp_deployment_broker',run_name='__main__')")
+    return [sys.executable, "-I", "-B", "-c", bootstrap, str(package_root),
+            "worker", application, request_id]
+
 def accept(application, request_id, *, expected_revision, state_dir=STATE_DIR,
            resolve=resolve_deployment, spawn=subprocess.Popen):
     """Durably claim a request before launching a detached, unprivileged worker.
@@ -289,8 +299,7 @@ def accept(application, request_id, *, expected_revision, state_dir=STATE_DIR,
         # Fail closed: the claimed ID is never automatically dispatched again.
         raise
     try:
-        spawn([sys.executable, "-m", "gway_remote.mcp_deployment_broker",
-               "worker", application, request_id],
+        spawn(_worker_argv(application, request_id),
               stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
               stderr=subprocess.DEVNULL, close_fds=True,
               start_new_session=True,
