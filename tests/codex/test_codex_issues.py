@@ -36,12 +36,13 @@ class IssueProjectionTests(unittest.TestCase):
             self.assertEqual(project(issue(comments=4), retry)["state"], "attended")
             self.assertEqual(project(issue(comments=4, state="closed"), retry)["state"], "closed")
 
-    def test_creator_label_state_and_repository_are_required(self):
+    def test_creator_state_and_repository_are_required_not_labels(self):
         task = issue()
         self.assertTrue(eligible_issue(task, REPO))
         self.assertFalse(eligible_issue(task, "untrusted/repo"))
         self.assertFalse(eligible_issue(issue(state="closed"), REPO))
-        self.assertFalse(eligible_issue(issue(labels=[]), REPO))
+        self.assertTrue(eligible_issue(issue(labels=[]), REPO))
+        self.assertTrue(eligible_issue(issue(labels=['on-hold']), REPO))
         task["user"]["id"] = 123
         self.assertFalse(eligible_issue(task, REPO))
 
