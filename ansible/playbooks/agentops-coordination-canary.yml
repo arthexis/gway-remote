@@ -26,8 +26,16 @@
           - installed.stat.uid == 0
     - name: Select fixed canary path and expected configuration
       ansible.builtin.set_fact:
-        canary_path: "{{ '/etc/gway-mcp/agentops-coordination-canary.json' if agentops_canary_role == 'watchtower' else '/etc/gway-mcp-providers/agentops.coordination-canary.json' }}"
+        canary_path: "{{ '/etc/gway-mcp/agentops-coordination-canary.json' if agentops_canary_role == 'watchtower' else '/etc/gway-agent-ops/coordination-canary.json' }}"
         expected: "{{ {'schema': 1, 'epoch': agentops_canary_epoch, 'members': coordination_members} | combine({'general_pickup_accepted': false} if agentops_canary_role == 'node' else {}) }}"
+    - name: Ensure dedicated node configuration directory outside provider registry
+      ansible.builtin.file:
+        path: /etc/gway-agent-ops
+        state: directory
+        owner: root
+        group: root
+        mode: '0755'
+      when: agentops_canary_role == 'node'
     - name: Check fixture does not overwrite prior acceptance
       ansible.builtin.stat:
         path: "{{ canary_path }}"
