@@ -1,7 +1,20 @@
-name: Android release candidate (authenticated smoke)
+name: Android release candidate (authenticated acceptance)
 on:
   workflow_dispatch:
     inputs:
+      scope:
+        required: true
+        type: choice
+        options: [smoke, full]
+        default: smoke
+      ci_run:
+        required: false
+        type: string
+        default: ""
+      compose_run:
+        required: false
+        type: string
+        default: ""
       source_sha:
         required: true
         type: string
@@ -21,7 +34,7 @@ jobs:
   physical:
     if: github.repository == 'arthexis/gway-remote' && github.ref == 'refs/heads/main' && github.actor == 'arthexis' && github.triggering_actor == 'arthexis'
     runs-on: [self-hosted, Linux, ARM64, gway-001]
-    timeout-minutes: 14
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
         with:
@@ -34,6 +47,9 @@ jobs:
           SOURCE_SHA: ${{ inputs.source_sha }}
           SOURCE_TREE: ${{ inputs.source_tree }}
           VERSION: ${{ inputs.version_code }}
+          SCOPE: ${{ inputs.scope }}
+          CI_RUN: ${{ inputs.ci_run }}
+          COMPOSE_RUN: ${{ inputs.compose_run }}
         run: |
           set -euo pipefail
           umask 077
@@ -42,13 +58,24 @@ jobs:
           [[ "$VERSION" =~ ^[1-9][0-9]{0,9}$ && "$(git rev-parse HEAD^{tree})" == "$SOURCE_TREE" ]]
           STATE="$HOME/.local/state/gway-android-rc"
           [[ -d "$STATE" && ! -L "$STATE" && "$(stat -c '%a:%U' "$STATE")" == "700:$(id -un)" ]]
-          mkdir -m 700 "$RUNNER_TEMP/rc-smoke-$GITHUB_RUN_ID"
+          case "$SCOPE" in
+            smoke)
+              [[ -z "$CI_RUN" && -z "$COMPOSE_RUN" ]]
+              args=(execute)
+              ;;
+            full)
+              [[ "$CI_RUN" =~ ^[1-9][0-9]{0,19}$ && "$COMPOSE_RUN" =~ ^[1-9][0-9]{0,19}$ ]]
+              args=(--ci-run "$CI_RUN" --compose-run "$COMPOSE_RUN" execute-full)
+              ;;
+            *) exit 1 ;;
+          esac
+          mkdir -m 700 "$RUNNER_TEMP/rc-accept-$GITHUB_RUN_ID"
           python3 -B -m gway_remote.android_rc_acceptance --ledger "$STATE/ledger.sqlite" \
             --sha "$SOURCE_SHA" --tree "$SOURCE_TREE" --version "$VERSION" \
-            --run-id "$GITHUB_RUN_ID" execute > "$RUNNER_TEMP/rc-smoke-$GITHUB_RUN_ID/receipt.json"
+            --run-id "$GITHUB_RUN_ID" "${args[@]}" > "$RUNNER_TEMP/rc-accept-$GITHUB_RUN_ID/receipt.json"
       - uses: actions/upload-artifact@v4
         with:
-          name: android-rc-smoke-${{ github.run_id }}
-          path: ${{ runner.temp }}/rc-smoke-${{ github.run_id }}/receipt.json
+          name: android-rc-${{ inputs.scope }}-${{ github.run_id }}
+          path: ${{ runner.temp }}/rc-accept-${{ github.run_id }}/receipt.json
           if-no-files-found: error
           retention-days: 30
