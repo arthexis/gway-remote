@@ -20,6 +20,7 @@ internal data class AppUpdateController(
     val status: String,
     val running: Boolean,
     val apkReady: Boolean,
+    val updatesEnabled: Boolean,
     val check: () -> Unit,
     val download: () -> Unit,
     val install: () -> Unit
@@ -28,12 +29,13 @@ internal data class AppUpdateController(
 @Composable
 internal fun rememberAppUpdateController(): AppUpdateController {
     val context = LocalContext.current
+    val updatesEnabled = AppUpdateChannel.supportsStableUpdates(context.packageName)
     val scope = rememberCoroutineScope()
     val notificationPermissionLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission()
     ) { /* Background checks continue; alerts require permission. */ }
     LaunchedEffect(Unit) {
-        if (android.os.Build.VERSION.SDK_INT >= 33 &&
+        if (updatesEnabled && android.os.Build.VERSION.SDK_INT >= 33 &&
             androidx.core.content.ContextCompat.checkSelfPermission(
                 context, android.Manifest.permission.POST_NOTIFICATIONS
             ) != android.content.pm.PackageManager.PERMISSION_GRANTED
@@ -43,7 +45,10 @@ internal fun rememberAppUpdateController(): AppUpdateController {
         context.packageManager.getPackageInfo(context.packageName, android.content.pm.PackageManager.PackageInfoFlags.of(0)).longVersionCode
     else @Suppress("DEPRECATION") context.packageManager.getPackageInfo(context.packageName, 0).longVersionCode
     var update by remember { mutableStateOf<AvailableUpdate?>(null) }
-    var updateState by remember { mutableStateOf(CompanionUpdateState()) }
+    var updateState by remember {
+        mutableStateOf(CompanionUpdateState(status =
+            if (updatesEnabled) "" else AppUpdateChannel.CANARY_NOTICE))
+    }
     val updateStatus = updateState.status
     val updating = updateState.running
     var apk by remember {
@@ -52,6 +57,10 @@ internal fun rememberAppUpdateController(): AppUpdateController {
     var installPermissionState by remember { mutableStateOf(CompanionInstallPermissionState()) }
 
     fun launchInstaller() {
+        if (!updatesEnabled) {
+            updateState = updateState.status(AppUpdateChannel.CANARY_NOTICE)
+            return
+        }
         val candidate = update
         val file = apk
         if (candidate == null || file == null) {
@@ -82,6 +91,10 @@ internal fun rememberAppUpdateController(): AppUpdateController {
     }
 
     fun requestInstall() {
+        if (!updatesEnabled) {
+            updateState = updateState.status(AppUpdateChannel.CANARY_NOTICE)
+            return
+        }
         if (updating) return
         if (!AppUpdater.canInstall(context)) {
             installPermissionState = installPermissionState.requested()
@@ -97,11 +110,17 @@ internal fun rememberAppUpdateController(): AppUpdateController {
     }
 
     fun checkUpdates() {
+        if (!updatesEnabled) {
+            update = null
+            apk = null
+            updateState = updateState.status(AppUpdateChannel.CANARY_NOTICE)
+            return
+        }
         if (updateState.running) return
         updateState = updateState.started("Checking releases…")
         scope.launch {
             CompanionUpdateCheck.run(
-                check = { withContext(Dispatchers.IO) { AppUpdater.check(installedCode) } },
+                check = { withContext(Dispatchers.IO) { AppUpdater.check(installedCode, context.packageName) } },
                 onUpdate = { update = it },
                 onStatus = { updateState = updateState.status(it) },
                 onFinished = { updateState = updateState.finished() }
@@ -110,6 +129,10 @@ internal fun rememberAppUpdateController(): AppUpdateController {
     }
 
     fun downloadUpdate() {
+        if (!updatesEnabled) {
+            updateState = updateState.status(AppUpdateChannel.CANARY_NOTICE)
+            return
+        }
         val candidate = update ?: return
         if (updating) return
         updateState = updateState.started("Downloading and verifying…")
@@ -126,7 +149,8 @@ internal fun rememberAppUpdateController(): AppUpdateController {
     LaunchedEffect(Unit) { checkUpdates() }
     return AppUpdateController(
         available = update, status = updateState.status, running = updating,
-        apkReady = apk?.isFile == true,
+        apkReady = updatesEnabled && apk?.isFile == true,
+        updatesEnabled = updatesEnabled,
         check = ::checkUpdates, download = ::downloadUpdate, install = ::requestInstall
     )
 }

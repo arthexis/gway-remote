@@ -61,7 +61,8 @@ internal fun ModuleHomePage(
     availableUpdate: AvailableUpdate?,
     updateStatus: String,
     updating: Boolean,
-    onOpenUpdate: () -> Unit
+    onOpenUpdate: () -> Unit,
+    updatesEnabled: Boolean = true
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
         ModuleHeader("Aplicación")
@@ -70,9 +71,11 @@ internal fun ModuleHomePage(
                 Text("GWay Remote", style = MaterialTheme.typography.titleLarge)
                 Text("Versión instalada: " + installedVersion)
                 Text("API: " + configuredEndpoint)
-                availableUpdate?.let { Text("Actualización disponible: " + it.version) }
+                if (!updatesEnabled) Text(AppUpdateChannel.CANARY_NOTICE)
+                else availableUpdate?.let { Text("Actualización disponible: " + it.version) }
                 ModuleLoading(updating)
-                ModuleNotice(updateStatus, isError = updateStatus.startsWith("Update check failed"))
+                ModuleNotice(if (updatesEnabled) updateStatus else "",
+                    isError = updateStatus.startsWith("Update check failed"))
                 ModuleActions {
                     Button(onClick = onOpenUpdate) { Text("Actualizaciones") }
                 }
@@ -89,16 +92,19 @@ internal fun ModuleUpdatePage(
     apkReady: Boolean,
     onCheck: () -> Unit,
     onDownload: () -> Unit,
-    onInstall: () -> Unit
+    onInstall: () -> Unit,
+    updatesEnabled: Boolean = true
 ) {
-    LaunchedEffect(Unit) { onCheck() }
+    LaunchedEffect(updatesEnabled) { if (updatesEnabled) onCheck() }
     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
         ModuleHeader("Actualizaciones de la aplicación")
         ModuleLoading(updating)
-        Text(if (update == null) "No hay una actualización disponible detectada."
+        Text(if (!updatesEnabled) AppUpdateChannel.CANARY_NOTICE
+            else if (update == null) "No hay una actualización disponible detectada."
             else "Nueva versión: " + update.version)
-        ModuleNotice(updateStatus, isError = updateStatus.startsWith("Update check failed"))
-        if (update != null) {
+        ModuleNotice(if (updatesEnabled) updateStatus else "",
+                    isError = updateStatus.startsWith("Update check failed"))
+        if (updatesEnabled && update != null) {
             Button(onClick = onDownload, enabled = !updating) {
                 Text("Descargar y verificar APK")
             }

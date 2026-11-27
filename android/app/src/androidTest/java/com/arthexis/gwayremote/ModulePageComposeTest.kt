@@ -14,6 +14,12 @@ import com.arthexis.gwayremote.ui.components.ModuleHeader
 import com.arthexis.gwayremote.ui.components.ModuleNotice
 import com.arthexis.gwayremote.ui.components.ModulePage
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertEquals
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
+import com.arthexis.gwayremote.ui.shell.ModuleUpdatePage
+import com.arthexis.gwayremote.features.deployments.DeploymentSubmitButton
 import org.junit.Rule
 import org.junit.Test
 
@@ -56,4 +62,46 @@ class ModulePageComposeTest {
         val overlapY = a.top < b.bottom && b.top < a.bottom
         assertFalse("Action buttons overlap", overlapX && overlapY)
     }
+    @Test fun deploymentIsDisabledWithoutTokenEvenAfterExplicitConfirmation() {
+        var token by mutableStateOf("")
+        var confirmed by mutableStateOf(true)
+        var dispatched = 0
+        rule.setContent {
+            MaterialTheme {
+                DeploymentSubmitButton(
+                    selected = "all", confirmed = confirmed,
+                    endpoint = "https://remote.arthexis.com", token = token,
+                    busy = false, requestId = ""
+                ) { dispatched++ }
+            }
+        }
+        rule.onNodeWithText("Deploy all").assertIsNotEnabled()
+        rule.runOnIdle { assertEquals(0, dispatched); token = "test-only-token" }
+        rule.onNodeWithText("Deploy all").assertIsEnabled()
+        rule.onNodeWithText("Deploy all").performClick()
+        rule.runOnIdle { assertEquals(1, dispatched); confirmed = false }
+        rule.onNodeWithText("Deploy all").assertIsNotEnabled()
+    }
+
+    @Test fun canaryUpdatePageCannotDownloadOrInstallStableRelease() {
+        var requests = 0
+        rule.setContent {
+            MaterialTheme {
+                ModuleUpdatePage(
+                    update = AvailableUpdate("9.9.9", 999L, "https://example.test/app.apk", "test", 1),
+                    updateStatus = AppUpdateChannel.CANARY_NOTICE,
+                    updating = false, apkReady = true,
+                    onCheck = { requests++ }, onDownload = { requests++ },
+                    onInstall = { requests++ },
+                    updatesEnabled = false
+                )
+            }
+        }
+        rule.onNodeWithText(AppUpdateChannel.CANARY_NOTICE).assertExists()
+        rule.onNodeWithText("Comprobar actualizaciones").assertDoesNotExist()
+        rule.onNodeWithText("Descargar y verificar APK").assertDoesNotExist()
+        rule.onNodeWithText("Instalar APK verificado").assertDoesNotExist()
+        rule.runOnIdle { assertEquals(0, requests) }
+    }
+
 }

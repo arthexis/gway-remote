@@ -28,6 +28,7 @@ internal object UpdateNotifications {
     private const val LAST_NOTIFIED = "last_notified_version_code"
 
     fun schedule(context: Context) {
+        if (!AppUpdateChannel.supportsStableUpdates(context.packageName)) return
         val constraints = Constraints.Builder()
             .setRequiredNetworkType(NetworkType.CONNECTED)
             .build()
@@ -40,6 +41,7 @@ internal object UpdateNotifications {
     }
 
     fun createChannel(context: Context) {
+        if (!AppUpdateChannel.supportsStableUpdates(context.packageName)) return
         if (Build.VERSION.SDK_INT >= 26) {
             val manager = context.getSystemService(NotificationManager::class.java)
             manager.createNotificationChannel(
@@ -50,6 +52,7 @@ internal object UpdateNotifications {
     }
 
     fun showIfNew(context: Context, update: AvailableUpdate) {
+        if (!AppUpdateChannel.supportsStableUpdates(context.packageName)) return
         if (Build.VERSION.SDK_INT >= 33 &&
             ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
         ) return
@@ -81,11 +84,13 @@ internal object UpdateNotifications {
 class UpdateCheckWorker(context: Context, parameters: WorkerParameters) :
     CoroutineWorker(context, parameters) {
     override suspend fun doWork(): Result = withContext(Dispatchers.IO) {
+        if (!AppUpdateChannel.supportsStableUpdates(applicationContext.packageName))
+            return@withContext Result.success()
         try {
             @Suppress("DEPRECATION")
             val installed = applicationContext.packageManager
                 .getPackageInfo(applicationContext.packageName, 0).longVersionCode
-            AppUpdater.check(installed)?.let { UpdateNotifications.showIfNew(applicationContext, it) }
+            AppUpdater.check(installed, applicationContext.packageName)?.let { UpdateNotifications.showIfNew(applicationContext, it) }
             Result.success()
         } catch (_: Exception) {
             Result.retry()
