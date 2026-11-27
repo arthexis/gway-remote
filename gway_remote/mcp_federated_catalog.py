@@ -96,6 +96,15 @@ def route_provider_call(routes, name, arguments, *, authorized_scope, invoke,
     # Reject unsupported reads instead of downgrading to an execute-shaped RPC.
     if authorized_scope == "read" and not (len(route) > 4 and route[4] is True):
         raise FederationError("provider_read_receiver_unsupported")
+    if node == RELAY_ONLY_NODE:
+        if (provider != "ocpp" or tool not in ABB_OCPP_READ_TOOLS or scope != "read"
+                or len(route) < 5 or route[4] is not True
+                or verified_principal is not None):
+            raise PermissionError("ABB provider route denied")
+        # A caller possessing execute scope must still use the read RPC here.
+        # The relay-only receiver never accepts provider_call for ABB.
+        return invoke(node, {"operation": "provider_read", "provider": provider,
+                             "tool": tool, "arguments": arguments}, trusted_scope="read")
     from .mcp_principal_admission import owner_bound, validate_principal, validate_owner_arguments
     if owner_bound(provider):
         principal = validate_principal(verified_principal)
@@ -108,14 +117,6 @@ def route_provider_call(routes, name, arguments, *, authorized_scope, invoke,
                                 verified_principal=principal)
     if verified_principal is not None:
         raise FederationError("unexpected_provider_principal")
-    if node == RELAY_ONLY_NODE:
-        if (provider != "ocpp" or tool not in ABB_OCPP_READ_TOOLS or scope != "read"
-                or len(route) < 5 or route[4] is not True):
-            raise PermissionError("ABB provider route denied")
-        # A caller possessing execute scope must still use the read RPC here.
-        # The relay-only receiver never accepts provider_call for ABB.
-        return invoke(node, {"operation": "provider_read", "provider": provider,
-                             "tool": tool, "arguments": arguments}, trusted_scope="read")
     operation = "provider_read" if authorized_scope == "read" else "provider_call"
     return invoke(node, {"operation": operation, "provider": provider,
                          "tool": tool, "arguments": arguments},
