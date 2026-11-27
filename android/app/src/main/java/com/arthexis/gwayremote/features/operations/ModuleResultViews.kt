@@ -250,7 +250,7 @@ internal fun AgentOpsPanel(
                         "https://github.com/${issue.optString("repository")}/issues/${issue.optInt("number")}" else ""
                     val validUrl = expectedUrl.isNotEmpty() && issueUrl == expectedUrl
                     // A cached projection is advisory; Agent Ops independently
-                    // rechecks fresh labels before submission and execution.
+                    // rechecks trusted issue eligibility before submission and execution.
                     val eligible = agentIssueEligible(issue)
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         TextButton(enabled = validUrl, onClick = {
@@ -268,7 +268,7 @@ internal fun AgentOpsPanel(
                         OutlinedButton(enabled = validUrl, onClick = { onCopyPrompt(issueRef) }) { Text("Copy Prompt") }
                     }
                     if (!eligible) {
-                        Text("Not eligible: add the exact gway-001 label before sending.",
+                        Text("Not eligible for manual execution; check the issue state and AgentOps eligibility.",
                             color = MaterialTheme.colorScheme.error,
                             style = MaterialTheme.typography.bodySmall)
                     }
