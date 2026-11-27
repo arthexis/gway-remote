@@ -42,6 +42,24 @@ async function main() {
   await port.onMessage.fire({origin: "https://different.example.test", lease_seconds: 600});
   assert.equal(messages.length, 3);
   assert.equal(injections, 1);
+  await new Promise(resolve => setImmediate(resolve));
+  allow = false;
+  await browser.browserAction.onClicked.fire(tab);
+  assert.equal(granted, false);
+  assert.equal(messages.length, 3);
+  allow = true;
+  await browser.browserAction.onClicked.fire(tab);
+  await port.onMessage.fire({origin: "https://reports.example.test", lease_seconds: 600});
+  assert.equal(granted, true);
+  let resolveInjection, sent = 0;
+  browser.tabs.executeScript = async () => new Promise(resolve => { resolveInjection = resolve; });
+  browser.tabs.sendMessage = async () => { sent++; return {ok:true,state:"ready"}; };
+  const inFlight = port.onMessage.fire({operation: "click", ref: "a".repeat(32)});
+  await new Promise(resolve => setImmediate(resolve));
+  browser.tabs.onActivated.fire({tabId: 99});
+  resolveInjection();
+  await inFlight;
+  assert.equal(sent, 0);
   // Adapter refuses login pages and unapproved origin without reading DOM.
   const listener = event();
   const doc = {querySelector(selector) { assert.equal(selector, 'input[type="password"]'); return {}; }};
