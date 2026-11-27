@@ -20,5 +20,8 @@
   },
   "browser_action": {
     "default_title": "GWay: enable/revoke Reports tab"
-  }
+  },
+  "optional_permissions": [
+    "https://reports.example.invalid/*"
+  ]
 }
