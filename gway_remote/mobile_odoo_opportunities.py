@@ -26,6 +26,17 @@ def _text(row, field):
     value = row.get(field)
     return value.strip() if isinstance(value, str) else ""
 
+def _porsche_ticket(lead):
+    name = re.match(r"^Porsche #([0-9]{1,12}): ", _text(lead, "name"))
+    description = unescape(re.sub(r"<[^>]*>", "", re.sub(r"<br\s*/?>", "\n", _text(lead, "description"), flags=re.I))).strip()
+    markers = re.findall(r"(?m)^Porsche Ticket: ([0-9]{1,12})[ \t]*$", description)
+    tickets = set(markers) | ({name[1]} if name else set())
+    return next(iter(tickets)) if len(tickets) == 1 else None
+
+def _stage_name(lead):
+    stage = lead.get("stage_id")
+    return stage[1].strip() if _rel(lead, "stage_id") and isinstance(stage[1], str) else None
+
 def _request_type(description):
     # Imported CRM descriptions start with a verified normalized priority and type.
     text = unescape(re.sub(r"<[^>]*>", "", description)).strip()
@@ -71,7 +82,7 @@ def search(arguments):
     if type(page) is not int or not 1 <= page <= 1000 or type(limit) is not int or not 1 <= limit <= 30:
         raise ValueError("invalid_pagination")
     leads = _query("crm.lead", [["type", "=", "opportunity"], ["active", "=", True]],
-                   "id,name,partner_id,priority,description,probability", limit + 1, (page - 1) * limit)
+                   "id,name,partner_id,priority,description,probability,stage_id", limit + 1, (page - 1) * limit)
     bindings = _consent_bindings()
     rows = []
     for lead in leads[:limit]:
@@ -94,14 +105,14 @@ def search(arguments):
             raise RuntimeError("odoo_response_invalid")
         partner = {}
         vehicle = {}
-        ticket = re.match(r"^Porsche #([0-9]+): ", _text(lead, "name"))
+        ticket = _porsche_ticket(lead)
         if partner_id:
             partners = _query("res.partner", [["id", "=", partner_id]],
                               "id,name,phone,mobile,street,street2,city,state_id,zip,country_id", 1)
             partner = partners[0] if partners else {}
             if ticket:
                 vehicles = _query("gelectriic.customer.vehicle", [["partner_id", "=", partner_id],
-                                  ["porsche_ticket", "=", ticket.group(1)]], "id,model,vin", 2)
+                                  ["porsche_ticket", "=", ticket]], "id,model,vin", 2)
                 if len(vehicles) == 1:
                     vehicle = vehicles[0]
         address = [_text(partner, k) for k in ("street", "street2", "city", "zip")]
@@ -111,10 +122,11 @@ def search(arguments):
                 address.append(val[1])
         rows.append({"id": ident, "disposition": "pending",
                      "customer": _text(partner, "name"),
+                     "stage_id": _rel(lead, "stage_id"), "stage_name": _stage_name(lead),
                      "phone": _text(partner, "phone") or _text(partner, "mobile"),
                      "complete_address": ", ".join(filter(None, address)),
                      "priority": {"3": "Urgente", "2": "Alta", "1": "Normal"}.get(_text(lead, "priority"), ""),
                      "request_type": _request_type(_text(lead, "description")), "vehicle_model": _text(vehicle, "model"), "vin": _text(vehicle, "vin"),
-                     "consent_url": _consent_url(bindings, ident, partner_id, ticket.group(1) if ticket else None), "quotation_name": _text(order, "name") or None,
+                     "consent_url": _consent_url(bindings, ident, partner_id, ticket), "quotation_name": _text(order, "name") or None,
                      "quotation_state": state or None})
     return {"opportunities": rows, "has_next": len(leads) > limit}
