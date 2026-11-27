@@ -784,7 +784,7 @@ def main(argv=None):
             result = reconcile_artifact(ledger,candidate,args.stage,pinned_certificate=args.certificate,artifact_dir=args.artifact_dir)
         elif args.action == "lab-install":
             from gway_remote.mcp_android import Device, _device_session
-            from gway_remote.android_rc_health import fresh_health
+            from gway_remote.android_rc_health import fresh_health, restore_sleep
             from gway_remote.android_execution_contract import budget
             with _device_session():
                 device = Device()
@@ -801,12 +801,14 @@ def main(argv=None):
                                    fresh_check=fresh_health if automatic else None)
                 finally:
                     if automatic and initial.get("screen_on") is False:
-                        require(device.serial() == serial, "usb_identity_changed")
-                        final = device.screen_state(serial)
-                        if final.get("screen_on") is True and final.get("locked") is False:
-                            device.invoke("key", {"key":"SLEEP"})
-                        require(device.screen_state(serial).get("screen_on") is False,
-                                "sleep_restore_unverified")
+                        try:
+                            restored = restore_sleep(device, serial)
+                        except (ValueError, RuntimeError, OSError):
+                            restored = False
+                if automatic and initial.get("screen_on") is False:
+                    result = {**result, "sleep_restored": restored}
+                    if not restored:
+                        result = {**result, "status": "blocked", "reason": "sleep_restore_unverified"}
         elif args.action == "reconciliation-status":
             result = reconciliation_status(ledger, candidate, artifact_dir=args.artifact_dir, gate=gate)
         else:

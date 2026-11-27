@@ -52,3 +52,32 @@ class FreshHealthTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "health_target_moved"):
             fresh_health(d, "LAB", pause=lambda _:None)
         self.assertEqual(d.adb.call_count,1)
+
+    def test_sleep_restoration_observes_delayed_display_transition(self):
+        from gway_remote.android_rc_health import restore_sleep
+        d = self.device()
+        d.screen_state.side_effect = [
+            {"screen_on": True, "locked": False},
+            {"screen_on": True, "locked": False},
+            {"screen_on": None},
+            {"screen_on": False},
+        ]
+        self.assertTrue(restore_sleep(d, "LAB", pause=lambda _:None))
+        d.adb.assert_called_once_with("LAB", "shell", "input", "keyevent", "KEYCODE_SLEEP")
+
+    def test_sleep_unconfirmed_never_replays_input(self):
+        from gway_remote.android_rc_health import restore_sleep
+        d = self.device()
+        self.assertFalse(restore_sleep(d, "LAB", pause=lambda _:None))
+        self.assertEqual(d.adb.call_count, 1)
+        self.assertEqual(d.screen_state.call_count, 7)
+
+    def test_already_asleep_is_noop_and_locked_is_blocked(self):
+        from gway_remote.android_rc_health import restore_sleep
+        d = self.device()
+        d.screen_state.return_value = {"screen_on": False}
+        self.assertTrue(restore_sleep(d, "LAB", pause=lambda _:None))
+        d.screen_state.return_value = {"screen_on": True, "locked": True}
+        with self.assertRaisesRegex(ValueError, "sleep_restore_unsafe"):
+            restore_sleep(d, "LAB", pause=lambda _:None)
+        d.adb.assert_not_called()
