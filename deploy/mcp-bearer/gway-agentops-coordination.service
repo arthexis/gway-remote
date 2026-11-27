@@ -1,0 +1,24 @@
+[Unit]
+Description=Private Watchtower AgentOps reservation reconciliation
+After=network-online.target
+ConditionPathExists=/etc/gway-mcp/agentops-coordination.json
+ConditionPathExists=/var/lib/gway-mcp-exec/agentops-coordination.sqlite3
+
+[Service]
+Type=oneshot
+User=gway-mcp-gateway
+Group=gway-mcp-read
+UMask=0077
+ExecStart=/usr/bin/python3 -I /opt/gway-mcp/current/run.py agentops_coordination
+TimeoutStartSec=120
+NoNewPrivileges=true
+PrivateDevices=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+CapabilityBoundingSet=
+ReadWritePaths=/var/lib/gway-mcp-exec
