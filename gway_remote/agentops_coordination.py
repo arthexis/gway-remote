@@ -26,6 +26,7 @@ OPS = {"agentops_coordination_snapshot": frozenset({"operation","node","request_
        "agentops_coordination_apply": frozenset({"operation","node","request_id","epoch","decisions"})}
 CONFIG = Path("/etc/gway-mcp/agentops-coordination.json")
 DATABASE = Path("/var/lib/gway-mcp-exec/agentops-coordination.sqlite3")
+SEED = Path("/etc/gway-mcp/agentops-coordination-seed.json")
 
 
 def require(ok):
@@ -225,9 +226,23 @@ def load_config(path=CONFIG):
 
 def main():
     # Private operator/systemd one-shot entrypoint. No server/listener.
+    import argparse
+    parser=argparse.ArgumentParser(description="Private Watchtower coordination tick")
+    parser.add_argument("--initialize",action="store_true")
+    args=parser.parse_args()
     cfg=load_config()
-    from .watchtower_exec_service import load_service
     ledger=Ledger(DATABASE,epoch=cfg["epoch"],members=cfg["members"])
+    if args.initialize:
+        info=SEED.lstat()
+        require(stat.S_ISREG(info.st_mode) and info.st_uid==0 and not info.st_mode&0o022
+                and info.st_nlink==1 and info.st_size<=8*1024*1024)
+        seed=json.loads(SEED.read_text())
+        require(type(seed) is dict and set(seed)=={"schema","epoch","members","history"}
+                and seed["schema"]==1 and seed["epoch"]==cfg["epoch"] and seed["members"]==cfg["members"])
+        ledger.initialize(seed["history"])
+        print(json.dumps({"initialized":True,"history_count":len(seed["history"])}))
+        return 0
+    from .watchtower_exec_service import load_service
     service=load_service()
     print(json.dumps(tick(ledger,service.relay.transport),sort_keys=True))
     return 0
