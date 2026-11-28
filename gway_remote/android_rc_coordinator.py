@@ -99,12 +99,13 @@ def bind(ledger,candidate,stage,spec,run_id):
         ledger.db.rollback()
         raise
 
-def pick_run(gate,workflow,revision,*,title=None,adopt=None):
+def pick_run(gate,workflow,revision,*,title=None,adopt=None,exclude=()):
     if adopt is not None:
+        require(adopt not in exclude,"cannot_adopt_failed_predecessor")
         r=verified_run(gate,workflow,adopt,revision)
         require(title is None or r.get("display_title")==title,"adopted_run_title_mismatch")
         return adopt
-    rows=list_runs(gate,workflow,revision)
+    rows=[r for r in list_runs(gate,workflow,revision) if r["id"] not in exclude]
     if title is not None:
         rows=[r for r in rows if r.get("display_title")==title]
     # Generic legacy acceptance names cannot identify a candidate. Never guess.
@@ -125,7 +126,7 @@ def pick_run(gate,workflow,revision,*,title=None,adopt=None):
         return max(eligible,key=lambda r:r["id"])["id"]
     return None
 
-def workflow_step(ledger,candidate,gate,stage,workflow,revision,inputs,*,adopt=None,title=None):
+def workflow_step(ledger,candidate,gate,stage,workflow,revision,inputs,*,adopt=None,title=None,exclude=()):
     spec={"workflow":workflow,"revision":revision,"inputs":inputs}
     old=tracked(ledger,candidate,stage)
     if old:
@@ -138,7 +139,7 @@ def workflow_step(ledger,candidate,gate,stage,workflow,revision,inputs,*,adopt=N
             bind(ledger,candidate,stage,spec,adopt)
             run_id=adopt
     else:
-        run_id=pick_run(gate,workflow,revision,title=title,adopt=adopt)
+        run_id=pick_run(gate,workflow,revision,title=title,adopt=adopt,exclude=exclude)
         require(run_id is not None or gate.api("branches/main")["commit"]["sha"]==revision,
                 "historical_evidence_missing_or_main_moved")
         new,run_id=reserve(ledger,candidate,stage,spec,run_id)
@@ -255,8 +256,42 @@ def historical(ledger,candidate,gate,artifact_dir):
                    release_id=release["id"],tag=tag,compatibility=receipt.get("compatibility"),
                    replayed=False)
 
+def acceptance_attempt(ledger,candidate,gate,retry_run):
+    """Append a new read-only acceptance attempt only after explicit failure review.
+
+    Retain every predecessor. The same retry authorization resumes its child,
+    never creates another child, and cannot retry a successful/uncertain run.
+    """
+    stage="acceptance"
+    predecessors=[]
+    for _ in range(20):
+        row=tracked(ledger,candidate,stage)
+        if not row or row[1] is None:
+            require(retry_run is None or retry_run in predecessors,"retry_run_not_tracked")
+            return stage,tuple(predecessors)
+        run_id=row[1]
+        child=f"acceptance-retry:{run_id}"
+        if tracked(ledger,candidate,child):
+            predecessors.append(run_id)
+            stage=child
+            continue
+        if retry_run==run_id and retry_run not in predecessors:
+            r=verified_run(gate,ACCEPT,run_id,row[0]["revision"])
+            require(r["status"]=="completed" and r.get("conclusion")=="failure",
+                    "acceptance_retry_requires_terminal_failure")
+            listing=gate.api(f"actions/runs/{run_id}/artifacts?per_page=100")
+            require(listing.get("total_count")==len(listing["artifacts"])
+                    and not any(x.get("name")==f"android-rc-full-{run_id}" for x in listing["artifacts"]),
+                    "acceptance_receipt_exists_or_unknown")
+            return child,tuple(predecessors+[run_id])
+        require(retry_run is None or retry_run in predecessors,"retry_run_not_tracked")
+        return stage,tuple(predecessors)
+    raise ValueError("acceptance_attempt_limit")
+
+
 def advance(ledger,candidate,gate,artifact_dir,*,revision,backend_run=None,ci_run=None,
-            compose_run=None,revision_ci_run=None,install_run=None,acceptance_run=None):
+            compose_run=None,revision_ci_run=None,install_run=None,acceptance_run=None,
+            retry_acceptance=None):
     state=ledger.read(candidate.candidate_id)
     require(state.get("allocated")==asdict(candidate),"candidate_not_allocated")
     prior=historical(ledger,candidate,gate,artifact_dir)
@@ -312,8 +347,10 @@ def advance(ledger,candidate,gate,artifact_dir,*,revision,backend_run=None,ci_ru
         successful_run(gate,INSTALL,run,row[1]["workflow_sha"],"physical")
     require(identity(ledger,candidate)==a,"authenticated_upgrade_missing")
     # Existing acceptance workflow performs all physical checks and issues the receipt.
-    run,wait=workflow_step(ledger,candidate,gate,"acceptance",ACCEPT,revision,
-        {**inputs,"scope":"full","ci_run":str(ci),"compose_run":str(compose),**extra},adopt=acceptance_run)
+    stage,predecessors=acceptance_attempt(ledger,candidate,gate,retry_acceptance)
+    run,wait=workflow_step(ledger,candidate,gate,stage,ACCEPT,revision,
+        {**inputs,"scope":"full","ci_run":str(ci),"compose_run":str(compose),**extra},
+        adopt=acceptance_run,exclude=predecessors)
     if wait: return wait
     receipt=read_full_receipt(a,run,gate,build_run=state["built"]["run_id"])
     require(receipt["hosted_evidence"]["ci_run"]==ci and receipt["hosted_evidence"]["compose_run"]==compose
@@ -345,6 +382,7 @@ def main():
     p.add_argument("--revision")
     for name in ("backend-run","ci-run","compose-run","revision-ci-run","install-run","acceptance-run"):
         p.add_argument("--"+name,type=int)
+    p.add_argument("--retry-acceptance",type=int,help="Explicitly authorize one new read-only attempt after reviewing this failed tracked acceptance run")
     p.add_argument("--execute",action="store_true",help="Owner authorization to advance this allocated candidate through acceptance only")
     p.add_argument("--wait-seconds",type=int,default=3600)
     args=p.parse_args()
@@ -377,7 +415,7 @@ def main():
             while True:
                 result=advance(ledger,c,gate,args.artifact_dir,revision=args.revision,backend_run=args.backend_run,
                     ci_run=args.ci_run,compose_run=args.compose_run,revision_ci_run=args.revision_ci_run,
-                    install_run=args.install_run,acceptance_run=args.acceptance_run)
+                    install_run=args.install_run,acceptance_run=args.acceptance_run,retry_acceptance=args.retry_acceptance)
                 print(json.dumps(result,sort_keys=True),flush=True)
                 if result["status"]!="waiting" or time.monotonic()>=deadline: break
                 if not wait_current(gate,result,deadline): break

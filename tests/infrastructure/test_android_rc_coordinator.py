@@ -5,7 +5,7 @@ from unittest.mock import Mock,patch
 from gway_remote.android_release_candidate import Candidate,CandidateLedger
 from gway_remote.android_rc_coordinator import (
     setup as setup_ledger,reserve,bind,tracked,workflow_step,advance,historical,artifact_step,pick_run,
-    CI,COMPOSE,INSTALL,ACCEPT,wait_current,
+    CI,COMPOSE,INSTALL,ACCEPT,wait_current,acceptance_attempt,
 )
 
 class CoordinatorTests(unittest.TestCase):
@@ -143,4 +143,34 @@ class CoordinatorTests(unittest.TestCase):
         self.assertTrue(wait_current(self.g,{"run_id":11,"stage":"ci"},100,
                                      clock=lambda:0,pause=lambda _:None))
         self.g.api.assert_called_once_with("actions/runs/11")
+        self.g.create_run.assert_not_called()
+
+    def test_explicit_failed_acceptance_retry_is_append_only(self):
+        spec={"workflow":ACCEPT,"revision":self.c.source_sha,"inputs":{"scope":"full"}}
+        reserve(self.l,self.c,"acceptance",spec,21)
+        failed=self.run_data(21,status="completed",conclusion="failure")
+        self.runs[21]=failed;self.rows=[failed]
+        orig=self.g.api.side_effect
+        self.g.api.side_effect=lambda path: {"total_count":0,"artifacts":[]} if path.endswith("/artifacts?per_page=100") else orig(path)
+        self.assertEqual(acceptance_attempt(self.l,self.c,self.g,None),("acceptance",()))
+        stage,excluded=acceptance_attempt(self.l,self.c,self.g,21)
+        self.assertEqual((stage,excluded),("acceptance-retry:21",(21,)))
+        self.g.create_run.return_value=22;self.runs[22]=self.run_data(22)
+        self.assertEqual(workflow_step(self.l,self.c,self.g,stage,ACCEPT,self.c.source_sha,{"scope":"full"},exclude=excluded)[0],22)
+        self.assertEqual(acceptance_attempt(self.l,self.c,self.g,21),(stage,excluded))
+        self.assertEqual(acceptance_attempt(self.l,self.c,self.g,None),(stage,excluded))
+        self.assertEqual(tracked(self.l,self.c,"acceptance")[1],21)
+        self.g.create_run.assert_called_once_with(ACCEPT,scope="full")
+
+    def test_retry_rejects_success_or_existing_receipt(self):
+        spec={"workflow":ACCEPT,"revision":self.c.source_sha,"inputs":{"scope":"full"}}
+        reserve(self.l,self.c,"acceptance",spec,21)
+        self.runs[21]=self.run_data(21,status="completed",conclusion="success")
+        with self.assertRaisesRegex(ValueError,"terminal_failure"):
+            acceptance_attempt(self.l,self.c,self.g,21)
+        self.runs[21]["conclusion"]="failure"
+        orig=self.g.api.side_effect
+        self.g.api.side_effect=lambda path: {"total_count":1,"artifacts":[{"name":"android-rc-full-21"}]} if path.endswith("/artifacts?per_page=100") else orig(path)
+        with self.assertRaisesRegex(ValueError,"receipt_exists"):
+            acceptance_attempt(self.l,self.c,self.g,21)
         self.g.create_run.assert_not_called()
