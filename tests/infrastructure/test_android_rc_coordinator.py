@@ -4,7 +4,7 @@ from pathlib import Path
 from unittest.mock import Mock,patch
 from gway_remote.android_release_candidate import Candidate,CandidateLedger
 from gway_remote.android_rc_coordinator import (
-    setup,reserve,bind,tracked,workflow_step,advance,historical,artifact_step,pick_run,
+    setup as setup_ledger,reserve,bind,tracked,workflow_step,advance,historical,artifact_step,pick_run,
     CI,COMPOSE,INSTALL,ACCEPT,
 )
 
@@ -14,7 +14,7 @@ class CoordinatorTests(unittest.TestCase):
         self.path=Path(self.tmp.name)/"ledger.sqlite"
         self.c=Candidate("a"*40,"b"*40,800,"0.2.800")
         self.l=CandidateLedger(self.path);self.l.allocate(self.c,published_version=799,installed_version=799)
-        setup(self.l);self.g=Mock();self.g.OWNER="arthexis";self.g.REPO="arthexis/gway-remote"
+        setup_ledger(self.l);self.g=Mock();self.g.OWNER="arthexis";self.g.REPO="arthexis/gway-remote"
         self.g.api.side_effect=self.api
         self.rows=[];self.runs={}
     def tearDown(self):
@@ -34,7 +34,7 @@ class CoordinatorTests(unittest.TestCase):
     def test_resume_exact_dispatch_and_terminal(self):
         self.g.create_run.return_value=11;self.runs[11]=self.run_data()
         self.assertEqual(self.step()[1]["status"],"waiting")
-        self.l.close();self.l=CandidateLedger(self.path);setup(self.l)
+        self.l.close();self.l=CandidateLedger(self.path);setup_ledger(self.l)
         self.assertEqual(self.step()[0],11)
         self.runs[11]=self.run_data(status="completed",conclusion="success")
         self.assertEqual(self.step(),(11,None));self.g.create_run.assert_called_once_with(CI)
@@ -76,4 +76,56 @@ class CoordinatorTests(unittest.TestCase):
     def test_historical_run_missing_does_not_dispatch_at_current_main(self):
         with self.assertRaisesRegex(ValueError,"historical_evidence_missing"):
             workflow_step(self.l,self.c,self.g,"old-ci",CI,"f"*40,{})
+        self.g.create_run.assert_not_called()
+
+    def test_successful_active_path_records_exact_receipt_without_publication(self):
+        from gway_remote.android_release_candidate import SignedArtifact
+        a=SignedArtifact(self.c,"c"*64,"d"*64,12,13)
+        self.l.record(self.c.candidate_id,"built",{"run_id":10})
+        self.l.record(self.c.candidate_id,"signed",{"run_id":13})
+        self.l.record(self.c.candidate_id,"installed",{"install_run_id":14})
+        self.l.db.execute("INSERT INTO dispatch_intent VALUES (?,?,?,?)",(self.c.candidate_id,"installed",self.l.encode({"workflow_sha":self.c.source_sha}),14))
+        receipt={"run_id":15,"hosted_evidence":{"ci_run":11,"compose_run":12}}
+        with patch("gway_remote.android_rc_coordinator.local_artifact",return_value=a), \
+             patch("gway_remote.android_rc_coordinator.identity",return_value=a), \
+             patch("gway_remote.android_rc_coordinator.reconcile") as rec, \
+             patch("gway_remote.android_rc_coordinator.successful_run"), \
+             patch("gway_remote.android_rc_coordinator.workflow_step",side_effect=[(11,None),(12,None),(15,None)]) as step, \
+             patch("gway_remote.android_rc_coordinator.read_full_receipt",return_value=receipt):
+            result=advance(self.l,self.c,self.g,Path(self.tmp.name),revision=self.c.source_sha)
+            self.assertEqual(result["status"],"accepted")
+            self.assertFalse(result["publication_admission"])
+            self.assertEqual(self.l.read(self.c.candidate_id)["accepted"],receipt)
+            self.assertEqual([call.args[3] for call in step.call_args_list],["ci","compose","acceptance"])
+            rec.assert_called_once()
+        self.g.create_run.assert_not_called()
+        self.assertNotIn("published",self.l.read(self.c.candidate_id))
+
+    def test_signing_requires_exact_existing_authorization(self):
+        self.l.record(self.c.candidate_id,"built",{"run_id":10,"artifact_id":12,"unsigned_sha256":"f"*64})
+        with patch("gway_remote.android_rc_coordinator.pin",return_value="false"):
+            r=artifact_step(self.l,self.c,self.g,"signed",self.c.source_sha,Path(self.tmp.name))
+        self.assertEqual(r["status"],"operator_signing_authorization_required")
+        self.assertEqual(r["required_pins"]["RC_APPROVED_UNSIGNED_SHA256"],"f"*64)
+        self.g.create_run.assert_not_called();self.g.gh.assert_not_called()
+
+    def test_approval_wait_and_restore_only_matching_signing_switch(self):
+        from gway_remote.android_rc_coordinator import signing_pins
+        built={"run_id":10,"artifact_id":12,"unsigned_sha256":"f"*64}
+        self.l.record(self.c.candidate_id,"built",built)
+        self.l.db.execute("INSERT INTO dispatch_intent VALUES (?,?,?,?)",(self.c.candidate_id,"signed",self.l.encode({"workflow_sha":self.c.source_sha}),13))
+        self.runs[13]=self.run_data(13,status="waiting")
+        self.assertEqual(artifact_step(self.l,self.c,self.g,"signed",self.c.source_sha,Path(self.tmp.name))["status"],"operator_signing_approval_required")
+        self.g.gh.assert_not_called()
+        self.runs[13]=self.run_data(13,status="completed",conclusion="success")
+        pins=signing_pins(self.c,built,self.c.source_sha)
+        pins["ANDROID_RC_SIGNING_ENABLED"]="true"
+        pins["RC_PRODUCTION_CERT_SHA256"]="d"*64
+        self.g.gh.side_effect=lambda *a,**k:pins.update(ANDROID_RC_SIGNING_ENABLED="false")
+        with patch("gway_remote.android_rc_coordinator.pin",side_effect=lambda _,name:pins[name]), \
+             patch("gway_remote.android_rc_coordinator.successful_run"), \
+             patch("gway_remote.android_rc_coordinator.reconcile_artifact") as rec:
+            self.assertIsNone(artifact_step(self.l,self.c,self.g,"signed",self.c.source_sha,Path(self.tmp.name)))
+            rec.assert_called_once()
+        self.assertEqual(pins["ANDROID_RC_SIGNING_ENABLED"],"false")
         self.g.create_run.assert_not_called()

@@ -237,6 +237,14 @@ def historical(ledger,candidate,gate,artifact_dir):
                        "certificate_sha256":a.certificate_sha256,"acceptance_run":receipt["run_id"],
                        "approval_run":state["approved"]["approval_run"],"release_id":release["id"]},
             "published_ledger_mismatch")
+    import tempfile
+    from gway_remote.android_canary_certificate import certificate_sha256
+    with tempfile.TemporaryDirectory() as tmp:
+        gate.gh("release","download",tag,"-R",gate.REPO,"--pattern","gway-remote.apk","--dir",tmp)
+        downloaded=Path(tmp)/"gway-remote.apk"
+        require(downloaded.is_file() and not downloaded.is_symlink()
+                and hashlib.sha256(downloaded.read_bytes()).hexdigest()==a.apk_sha256
+                and certificate_sha256(downloaded)==a.certificate_sha256,"published_artifact_mismatch")
     return outcome("published_verified",acceptance_run=receipt["run_id"],artifact_id=a.artifact_id,
                    release_id=release["id"],tag=tag,compatibility=receipt.get("compatibility"),
                    replayed=False)
