@@ -1,0 +1,27 @@
+{
+  "manifest_version": 2,
+  "name": "GWay Reports Browser",
+  "version": "0.1.0",
+  "description": "Explicitly delegate one Reports tab for bounded read-only acceptance.",
+  "browser_specific_settings": {
+    "gecko": {
+      "id": "gway-browser@arthexis.com",
+      "strict_min_version": "109.0"
+    }
+  },
+  "permissions": [
+    "activeTab",
+    "nativeMessaging"
+  ],
+  "background": {
+    "scripts": [
+      "background.js"
+    ]
+  },
+  "browser_action": {
+    "default_title": "GWay: enable/revoke Reports tab"
+  },
+  "optional_permissions": [
+    "https://reports.example.invalid/*"
+  ]
+}
