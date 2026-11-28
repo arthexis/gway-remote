@@ -13,7 +13,7 @@ class DhhLinksTest {
             DhhPassage("PSA", 84, 2, 84, 5),
             DhhPassage("PSA", 84, 7),
             DhhPassage("LUK", 21, 29, 21, 33)))
-        assertEquals("https://www.biblegateway.com/passage/?search=Apocalipsis 20:1-4; Apocalipsis 20:11-21:2; Salmos 84:2-5; Salmos 84:7; Lucas 21:29-33&version=DHH",
+        assertEquals("https://www.biblegateway.com/passage/?search=Apocalipsis 20:1-4, Apocalipsis 20:11-21:2, Salmos 84:2-5, Salmos 84:7, Lucas 21:29-33&version=DHH",
             URLDecoder.decode(url!!, "UTF-8"))
     }
 
