@@ -1,5 +1,4 @@
 name: Android APK
-# ANDROID_PUBLICATION_HOLD_718: preserve the staged CRM rollout.
 # LEGACY_ANDROID_PUBLISHER_RETIRED: use exact-artifact promotion only.
 on:
   pull_request:
