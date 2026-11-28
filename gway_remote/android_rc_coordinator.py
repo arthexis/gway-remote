@@ -327,7 +327,7 @@ def wait_current(gate,result,deadline,*,clock=time.monotonic,pause=time.sleep):
     """Poll only the active run; full reconciliation happens on its terminal result."""
     while clock()<deadline:
         pause(min(15,max(0,deadline-clock())))
-        r=gate.api(f"actions/runs/{result[\"run_id\"]}")
+        r=gate.api("actions/runs/"+str(result["run_id"]))
         require(r.get("id")==result["run_id"] and r.get("status") in ACTIVE | {"completed"},
                 "workflow_poll_identity_unverified")
         if r["status"]=="completed" or (result["stage"]=="signed" and r["status"] in {"waiting","pending"}):
