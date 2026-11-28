@@ -34,6 +34,8 @@ ANDROID_DELIVERY_PATHS = frozenset({
     "gway_remote/android_rc_health.py",
     "gway_remote/android_rc_acceptance.py",
     "gway_remote/android_rc_promotion.py",
+    "gway_remote/android_rc_coordinator.py",
+    "tests/infrastructure/test_android_rc_coordinator.py",
     "tests/infrastructure/test_android_rc_promotion.py",
     "tests/infrastructure/test_android_rc_acceptance.py",
     "gway_remote/android_release_gate.py",

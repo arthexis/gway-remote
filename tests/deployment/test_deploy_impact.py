@@ -158,3 +158,9 @@ class AeonDeliveryImpactTests(unittest.TestCase):
         self.assertEqual(classify_paths(sorted(AEON_DELIVERY_PATHS)), "skip")
         self.assertEqual(classify_paths(sorted(AEON_DELIVERY_PATHS | POLICY_PATHS)), "skip")
         self.assertEqual(classify_paths([*AEON_DELIVERY_PATHS, "gway_remote/mcp_http.py"]), "deploy")
+
+class CoordinatorImpactTests(unittest.TestCase):
+    def test_coordinator_is_delivery_only(self):
+        paths=["gway_remote/android_rc_coordinator.py","tests/infrastructure/test_android_rc_coordinator.py"]
+        self.assertEqual(classify_paths(paths),"skip")
+        self.assertEqual(classify_paths(paths+["gway_remote/mobile_http.py"]),"deploy")
