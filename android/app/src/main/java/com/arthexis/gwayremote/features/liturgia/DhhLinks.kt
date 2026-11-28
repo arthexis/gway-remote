@@ -56,7 +56,7 @@ private fun formatDhh(p: DhhPassage): String? {
 internal fun dhhUrl(passages: List<DhhPassage>): String? {
     if (passages.isEmpty() || passages.size > 40) return null
     val references = passages.map { formatDhh(it) ?: return null }.distinct()
-    val query = URLEncoder.encode(references.joinToString("; "), "UTF-8")
+    val query = URLEncoder.encode(references.joinToString(", "), "UTF-8")
     return "https://www.biblegateway.com/passage/?search=$query&version=DHH"
 }
 
