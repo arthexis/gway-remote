@@ -17,8 +17,16 @@ def dispatch(method, params):
         req = validate_request({"operation": params["name"], **params["arguments"]})
         try:
             result = call(req)
-        except (OSError, ValueError, EOFError):
-            result = {"ok": False, "state": "unavailable"}
+        except FileNotFoundError:
+            result = {"ok": False, "state": "lease_absent"}
+        except PermissionError:
+            result = {"ok": False, "state": "bridge_access_denied"}
+        except TimeoutError:
+            result = {"ok": False, "state": "bridge_timeout"}
+        except (ValueError, EOFError):
+            result = {"ok": False, "state": "bridge_protocol_error"}
+        except OSError:
+            result = {"ok": False, "state": "bridge_unreachable"}
         return {"content": [{"type": "text", "text": json.dumps(result, separators=(",", ":"))}],
                 "isError": not result["ok"]}
     raise ValueError("unsupported_method")

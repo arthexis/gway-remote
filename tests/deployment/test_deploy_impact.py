@@ -88,6 +88,35 @@ class PushImpactTests(unittest.TestCase):
             renamed = git("rev-parse", "HEAD")
             self.assertEqual(classify_push(runtime, renamed, runner=runner), "deploy")
 
+    def test_exact_hold_removal_only_does_not_deploy(self):
+        with tempfile.TemporaryDirectory() as d:
+            root = pathlib.Path(d)
+            def runner(argv, **kwargs):
+                return subprocess.run(["git","-C",d,*argv[1:]], **kwargs)
+            def git(*args):
+                return runner(["git",*args],capture_output=True,check=True).stdout.decode().strip()
+            git("init","-q")
+            git("config","user.email","test@example.invalid")
+            git("config","user.name","Hermetic test")
+            path=root/".github/workflows/android.yml"
+            path.parent.mkdir(parents=True)
+            marker="# ANDROID_PUBLICATION_HOLD_718: preserve the staged CRM rollout.\n"
+            old="name: Android APK\n"+marker+"# LEGACY_ANDROID_PUBLISHER_RETIRED\n"
+            path.write_text(old)
+            git("add",".");git("commit","-qm","base")
+            before=git("rev-parse","HEAD")
+            path.write_text(old.replace(marker,""))
+            git("commit","-qam","hold removal")
+            after=git("rev-parse","HEAD")
+            self.assertEqual(classify_push(before,after,runner=runner),"skip")
+            (root/"gway_remote").mkdir()
+            (root/"gway_remote/api.py").write_text("runtime")
+            git("add",".");git("commit","-qm","mixed")
+            self.assertEqual(classify_push(before,git("rev-parse","HEAD"),runner=runner),"deploy")
+            path.write_text(old.replace(marker,"")+"# other edit\n")
+            git("commit","-qam","other")
+            self.assertEqual(classify_push(before,git("rev-parse","HEAD"),runner=runner),"deploy")
+
     def test_admission_runs_before_any_self_hosted_job(self):
         workflow = (ROOT / ".github/workflows/deploy-backend.yml").read_text()
         self.assertIn("runs-on: ubuntu-latest", workflow)
@@ -129,3 +158,9 @@ class AeonDeliveryImpactTests(unittest.TestCase):
         self.assertEqual(classify_paths(sorted(AEON_DELIVERY_PATHS)), "skip")
         self.assertEqual(classify_paths(sorted(AEON_DELIVERY_PATHS | POLICY_PATHS)), "skip")
         self.assertEqual(classify_paths([*AEON_DELIVERY_PATHS, "gway_remote/mcp_http.py"]), "deploy")
+
+class CoordinatorImpactTests(unittest.TestCase):
+    def test_coordinator_is_delivery_only(self):
+        paths=["gway_remote/android_rc_coordinator.py","tests/infrastructure/test_android_rc_coordinator.py"]
+        self.assertEqual(classify_paths(paths),"skip")
+        self.assertEqual(classify_paths(paths+["gway_remote/mobile_http.py"]),"deploy")

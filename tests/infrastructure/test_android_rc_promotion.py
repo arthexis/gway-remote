@@ -7,7 +7,7 @@ from unittest.mock import Mock, patch
 from gway_remote.android_release_candidate import Candidate, SignedArtifact
 from gway_remote.android_rc_acceptance import SMOKE_CHECKS, FULL_CHECKS, smoke_receipt, full_receipt
 from gway_remote.android_rc_contracts import GROUPS
-from gway_remote.android_rc_promotion import (CONFIRM, HOLD_LINE, validate_revision,
+from gway_remote.android_rc_promotion import (CONFIRM, HOLD_LINE, HOLD_REPAIR_PATHS, validate_revision,
     validate_full_receipt, verify_release_asset, publish_exact)
 
 
@@ -52,6 +52,17 @@ class PromotionTests(unittest.TestCase):
                 [{"filename":"gway_remote/other.py","status":"modified"}]))
         with self.assertRaisesRegex(ValueError,"publication_policy_transition_unverified"):
             validate_revision(self.c,revision,self.policy_gate(revision,self.new+"# extra\n"))
+
+    def test_protected_hold_repair_transition(self):
+        revision = "e"*40
+        rows = [{"filename":p,"status":"modified"} for p in sorted(HOLD_REPAIR_PATHS)]
+        validate_revision(self.c, revision, self.policy_gate(revision,self.new,rows))
+        for bad in (rows[:-1], rows+[{"filename":"gway_remote/api.py","status":"modified"}],
+                    [dict(r,status="added") if r["filename"]=="gway_remote/deploy_impact.py" else r for r in rows]):
+            with self.assertRaisesRegex(ValueError,"candidate_superseded"):
+                validate_revision(self.c,revision,self.policy_gate(revision,self.new,bad))
+        with self.assertRaisesRegex(ValueError,"publication_policy_transition_unverified"):
+            validate_revision(self.c,revision,self.policy_gate(revision,self.new+"# extra\n",rows))
 
     def test_partial_cannot_pass_full_acceptance(self):
         validate_full_receipt(self.full,self.a,30,self.hosted)
@@ -149,7 +160,11 @@ class PromotionTests(unittest.TestCase):
         root = Path(__file__).resolve().parents[2]/".github/workflows"
         old = (root/"android.yml").read_text()
         new = (root/"android-release-candidate-promote.yml").read_text()
-        self.assertIn(HOLD_LINE,old)
+        # Both authorized states are valid; the mock transition tests enforce
+        # held denial and exact removal. Never accept a malformed hold marker.
+        self.assertIn(old.count("ANDROID_PUBLICATION_HOLD_718"), (0, 1))
+        if "ANDROID_PUBLICATION_HOLD_718" in old:
+            self.assertEqual(old.splitlines().count(HOLD_LINE), 1)
         self.assertIn("LEGACY_ANDROID_PUBLISHER_RETIRED",old)
         self.assertNotIn("\n  publish:",old)
         self.assertNotIn("GWAY_APK_KEYSTORE",old)

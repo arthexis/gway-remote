@@ -34,6 +34,8 @@ ANDROID_DELIVERY_PATHS = frozenset({
     "gway_remote/android_rc_health.py",
     "gway_remote/android_rc_acceptance.py",
     "gway_remote/android_rc_promotion.py",
+    "gway_remote/android_rc_coordinator.py",
+    "tests/infrastructure/test_android_rc_coordinator.py",
     "tests/infrastructure/test_android_rc_promotion.py",
     "tests/infrastructure/test_android_rc_acceptance.py",
     "gway_remote/android_release_gate.py",
@@ -94,6 +96,19 @@ def classify_push(before, after, *, runner=subprocess.run):
         paths = tuple(path.decode("utf-8") for path in data[:-1].split(b"\x00"))
     except UnicodeDecodeError as exc:
         raise ValueError("non-UTF8 diff path") from exc
+    # The only safe change to the legacy APK workflow is removal of the
+    # exact publication hold comment; other edits still require deployment.
+    workflow = ".github/workflows/android.yml"
+    if workflow in paths:
+        old = git("show", before + ":" + workflow).stdout
+        new = git("show", after + ":" + workflow).stdout
+        marker = b"# ANDROID_PUBLICATION_HOLD_718: preserve the staged CRM rollout.\n"
+        old_mode = git("ls-tree", before, "--", workflow).stdout.split(b" ", 1)[0]
+        new_mode = git("ls-tree", after, "--", workflow).stdout.split(b" ", 1)[0]
+        if (old_mode == new_mode == b"100644" and old.splitlines(keepends=True).count(marker) == 1
+                and old.replace(marker, b"", 1) == new):
+            remainder = [p for p in paths if p != workflow]
+            return classify_paths(remainder) if remainder else "skip"
     return classify_paths(paths)
 
 

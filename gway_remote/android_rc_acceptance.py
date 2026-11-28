@@ -173,13 +173,14 @@ def identity(ledger, candidate):
     return artifact
 
 
-def validate_run(candidate, run_id, gate, *, completed):
+def validate_run(candidate, run_id, gate, *, completed, revision=None):
     require(type(run_id) is int and run_id > 0, "invalid_run_id")
-    require(gate.api("branches/main")["commit"]["sha"] == candidate.source_sha, "candidate_superseded")
+    revision = revision or candidate.source_sha
+    require(gate.api("branches/main")["commit"]["sha"] == revision, "candidate_superseded")
     require(gate.api(f"git/commits/{candidate.source_sha}")["tree"]["sha"] == candidate.source_tree,
             "source_tree_mismatch")
     run = gate.api(f"actions/runs/{run_id}")
-    gate.verify_run_identity(run, WORKFLOW, run_id, "workflow_dispatch", candidate.source_sha)
+    gate.verify_run_identity(run, WORKFLOW, run_id, "workflow_dispatch", revision)
     require(run.get("run_attempt") == 1 and (run.get("actor") or {}).get("login") == gate.OWNER
             and (run.get("triggering_actor") or {}).get("login") == gate.OWNER
             and run.get("status") == ("completed" if completed else "in_progress")
@@ -214,7 +215,7 @@ def smoke_receipt(artifact, run_id, checks):
             "screen_restored":True, "publication_admission":False}
 
 
-def execute_smoke(ledger, candidate, run_id, gate):
+def execute_smoke(ledger, candidate, run_id, gate, *, revision=None):
     import socket
     from gway_remote.android_canary_certificate import installed_evidence
     from gway_remote.android_canary_install import CANARY
@@ -222,7 +223,7 @@ def execute_smoke(ledger, candidate, run_id, gate):
     from gway_remote.android_execution_contract import budget
     from gway_remote.android_rc_health import restore_sleep
     require(socket.gethostname().split(".")[0] == "gway-001", "wrong_device")
-    validate_run(candidate, run_id, gate, completed=False)
+    validate_run(candidate, run_id, gate, completed=False, revision=revision)
     artifact = identity(ledger, candidate)
     with _device_session():
         device = Device()
@@ -244,7 +245,7 @@ def execute_smoke(ledger, candidate, run_id, gate):
                 "screen_restore_unverified")
         require(installed_evidence(PACKAGE) == before and installed_evidence(CANARY) == canary,
                 "installed_identity_changed")
-        validate_run(candidate, run_id, gate, completed=False)
+        validate_run(candidate, run_id, gate, completed=False, revision=revision)
         return validate_smoke_receipt(smoke_receipt(artifact, run_id, checks), artifact, run_id)
 
 
@@ -270,15 +271,28 @@ def full_receipt(artifact, run_id, smoke, hosted):
             "physical_checks":smoke["checks"], "hosted_evidence":hosted}
 
 
-def execute_full(ledger, candidate, run_id, gate, *, ci_run, compose_run):
+def execute_full(ledger, candidate, run_id, gate, *, ci_run, compose_run,
+                 revision=None, revision_ci_run=None, backend_run=None):
     from gway_remote.android_rc_contracts import reconcile
-    validate_run(candidate, run_id, gate, completed=False)
+    from gway_remote.android_release_candidate import compatible_revision
+    compatibility = None
+    if revision_ci_run is not None or backend_run is not None:
+        compatibility = compatible_revision(candidate, revision, gate,
+            revision_ci_run=revision_ci_run, backend_run=backend_run)
+    else:
+        require(revision in (None, candidate.source_sha), "compatible_evidence_missing")
+    validate_run(candidate, run_id, gate, completed=False, revision=revision)
     artifact = identity(ledger, candidate)
     build_run = ledger.read(candidate.candidate_id)["built"]["run_id"]
     hosted = reconcile(gate, candidate, ci_run=ci_run, compose_run=compose_run, build_run=build_run)
-    smoke = execute_smoke(ledger, candidate, run_id, gate)
-    validate_run(candidate, run_id, gate, completed=False)
-    return full_receipt(artifact, run_id, smoke, hosted)
+    smoke = execute_smoke(ledger, candidate, run_id, gate, revision=revision)
+    validate_run(candidate, run_id, gate, completed=False, revision=revision)
+    result = full_receipt(artifact, run_id, smoke, hosted)
+    if compatibility is not None:
+        require(compatible_revision(candidate, revision, gate, revision_ci_run=revision_ci_run,
+                    backend_run=backend_run) == compatibility, "backend_revision_moved")
+        result["compatibility"] = compatibility
+    return result
 
 
 def reconcile_smoke(ledger, candidate, run_id, gate):
@@ -323,6 +337,9 @@ def main():
     p.add_argument("--run-id", type=int, required=True)
     p.add_argument("--ci-run", type=int)
     p.add_argument("--compose-run", type=int)
+    p.add_argument("--revision")
+    p.add_argument("--revision-ci-run", type=int)
+    p.add_argument("--backend-run", type=int)
     p.add_argument("mode", choices=("execute", "reconcile", "execute-full"))
     a = p.parse_args()
     require(a.ledger.is_absolute() and a.ledger.is_file() and not a.ledger.is_symlink()
@@ -332,9 +349,11 @@ def main():
     ledger = CandidateLedger(a.ledger, read_only=True)
     try:
         if a.mode == "execute-full":
-            result = execute_full(ledger, candidate, a.run_id, gate, ci_run=a.ci_run, compose_run=a.compose_run)
+            result = execute_full(ledger, candidate, a.run_id, gate, ci_run=a.ci_run, compose_run=a.compose_run,
+                                  revision=a.revision, revision_ci_run=a.revision_ci_run, backend_run=a.backend_run)
         else:
-            require(a.ci_run is None and a.compose_run is None, "unexpected_hosted_evidence")
+            require(all(v is None for v in (a.ci_run, a.compose_run, a.revision, a.revision_ci_run, a.backend_run)),
+                    "unexpected_hosted_evidence")
             fn = execute_smoke if a.mode == "execute" else reconcile_smoke
             result = fn(ledger, candidate, a.run_id, gate)
         print(json.dumps(result, sort_keys=True))

@@ -7,13 +7,13 @@ const path = require("node:path");
 const root = path.join(__dirname, "../firefox");
 function event() { return {addListener(fn) { this.fire = fn; }}; }
 async function main() {
-  const messages = [];
+  const messages = [], badges = [];
   let disconnected = false, injections = 0, granted = false, allow = true;
   const tab = {id: 4, active: true, url: "https://reports.example.test/"};
   const port = {onMessage: event(), onDisconnect: event(), postMessage(v) { messages.push(v); },
     disconnect() { disconnected = true; }};
   const browser = {
-    browserAction: {onClicked: event(), setBadgeText: async () => {}},
+    browserAction: {onClicked: event(), setBadgeText: async ({text}) => { badges.push(text); }},
     permissions: {onRemoved: event(), contains: async () => granted, remove: async () => { granted = false; return true; }, request: async ({origins}) => { assert.equal(origins[0], "https://reports.example.test/*"); granted = allow; return allow; }},
     runtime: {getManifest: () => ({optional_permissions: ["https://reports.example.test/*"]}), connectNative(name) { assert.equal(name, "com.arthexis.gway_browser"); return port; }},
     tabs: {onRemoved: event(), onActivated: event(), onUpdated: event(),
@@ -27,6 +27,10 @@ async function main() {
   await browser.browserAction.onClicked.fire(tab);
   await port.onMessage.fire({origin: "https://reports.example.test", lease_seconds: 600});
   assert.equal(messages[0].consent, true);
+  assert.equal(badges.at(-1), "WAIT");
+  assert.ok(!badges.includes("ON"));
+  await port.onMessage.fire({bridge_ready: true});
+  assert.equal(badges.at(-1), "ON");
   await port.onMessage.fire({operation: "status"});
   assert.equal(messages[1].state, "ready");
   await port.onMessage.fire({operation: "snapshot"});
@@ -51,6 +55,7 @@ async function main() {
   await browser.browserAction.onClicked.fire(tab);
   await port.onMessage.fire({origin: "https://reports.example.test", lease_seconds: 600});
   assert.equal(granted, true);
+  await port.onMessage.fire({bridge_ready: true});
   let resolveInjection, sent = 0;
   browser.tabs.executeScript = async () => new Promise(resolve => { resolveInjection = resolve; });
   browser.tabs.sendMessage = async () => { sent++; return {ok:true,state:"ready"}; };
@@ -59,6 +64,16 @@ async function main() {
   browser.tabs.onActivated.fire({tabId: 99});
   resolveInjection();
   await inFlight;
+  assert.equal(sent, 0);
+  // Consent without readiness must not show ON or execute an action.
+  await new Promise(resolve => setImmediate(resolve));
+  await browser.browserAction.onClicked.fire(tab);
+  await port.onMessage.fire({origin: "https://reports.example.test", lease_seconds: 600});
+  assert.equal(badges.at(-1), "WAIT");
+  await port.onMessage.fire({operation: "snapshot"});
+  assert.equal(badges.at(-1), "ERR");
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(granted, false);
   assert.equal(sent, 0);
   // Adapter refuses login pages and unapproved origin without reading DOM.
   const listener = event();

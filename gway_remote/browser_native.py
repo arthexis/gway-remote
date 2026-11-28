@@ -82,6 +82,8 @@ def serve():
             path.chmod(0o600)
             server.listen(1)
             try:
+                # Consent is not readiness: notify Firefox only after bind/listen.
+                browser_send({"bridge_ready": True})
                 end = time.monotonic() + LEASE_SECONDS
                 with selectors.DefaultSelector() as sel:
                     sel.register(server, selectors.EVENT_READ)

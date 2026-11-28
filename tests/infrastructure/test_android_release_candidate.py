@@ -578,3 +578,47 @@ class CandidateTests(unittest.TestCase):
                 self.assertNotIn("accepted", ledger.read(second.candidate_id))
             finally:
                 ledger.close()
+
+
+class CompatibleRevisionTests(unittest.TestCase):
+    def test_compatible_backend_evidence_and_negative_cases(self):
+        from gway_remote.android_release_candidate import Candidate, compatible_revision
+        from unittest.mock import Mock
+        from copy import deepcopy
+        c = Candidate("a"*40, "b"*40, 799, "0.2.799")
+        rev, backend, android = "c"*40, "d"*40, "e"*40
+        gate = Mock(); gate.REPO = "arthexis/gway-remote"; gate.OWNER = "arthexis"
+        def compare(before, paths):
+            return {"status":"ahead","merge_base_commit":{"sha":before},"total_commits":1,
+                    "files":[{"filename":p,"status":"modified"} for p in paths]}
+        def job(name, steps=()):
+            return {"name":name,"conclusion":"success","steps":[{"name":s,"conclusion":"success"} for s in steps]}
+        def run(sha):
+            return {"head_sha":sha,"head_branch":"main","run_attempt":1,"status":"completed","conclusion":"success",
+                    "actor":{"login":"arthexis"},"triggering_actor":{"login":"arthexis"},
+                    "head_repository":{"full_name":gate.REPO}}
+        rows=[job("deploy",("Transactional install, restart and authenticated health","Converge isolated gway-001 MCP runtime through Ansible")),
+              job("Deploy Watchtower MCP",("Converge reviewed Watchtower MCP release over existing operator SSH","Verify live gway-001 MCP upstream excludes retired AgentOps tools","Verify authenticated mobile Feed delivery"))]
+        fixture={"branches/main":{"commit":{"sha":rev}},f"git/commits/{c.source_sha}":{"tree":{"sha":c.source_tree}},
+                 **{f"git/trees/{s}":{"tree":[{"path":"android","type":"tree","sha":android}]} for s in (c.source_sha,rev,backend)},
+                 f"compare/{c.source_sha}...{rev}":compare(c.source_sha,["gway_remote/mcp_bearer_gateway.py","gway_remote/android_rc_acceptance.py"]),
+                 f"compare/{c.source_sha}...{backend}":compare(c.source_sha,["gway_remote/mcp_bearer_gateway.py"]),
+                 f"compare/{backend}...{rev}":compare(backend,["gway_remote/android_rc_acceptance.py"]),
+                 "actions/runs/31":run(rev),"actions/runs/31/jobs?per_page=100":{"total_count":1,"jobs":[job("CI")]},
+                 "actions/runs/32":run(backend),"actions/runs/32/jobs?per_page=100":{"total_count":2,"jobs":rows}}
+        gate.api.side_effect=fixture.__getitem__
+        evidence=compatible_revision(c,rev,gate,revision_ci_run=31,backend_run=32)
+        self.assertEqual(evidence,{"revision":rev,"android_tree":android,"revision_ci_run":31,"backend_revision":backend,"backend_run":32})
+        for label, mutate in (
+            ("android",lambda x:x[f"git/trees/{rev}"]["tree"][0].update(sha="f"*40)),
+            ("source",lambda x:x[f"git/commits/{c.source_sha}"]["tree"].update(sha="f"*40)),
+            ("build",lambda x:x[f"compare/{c.source_sha}...{rev}"]["files"].append({"filename":".github/workflows/android-release-candidate.yml","status":"modified"})),
+            ("runtime",lambda x:x[f"compare/{backend}...{rev}"]["files"].append({"filename":"gway_remote/api.py","status":"modified"})),
+            ("ci",lambda x:x["actions/runs/31"].update(conclusion="failure")),
+            ("deploy",lambda x:x["actions/runs/32/jobs?per_page=100"]["jobs"][0]["steps"][0].update(conclusion="skipped")),
+            ("moved",lambda x:x["branches/main"]["commit"].update(sha="f"*40)),
+        ):
+            with self.subTest(label=label):
+                bad=deepcopy(fixture);mutate(bad);gate.api.side_effect=bad.__getitem__
+                with self.assertRaises(ValueError):
+                    compatible_revision(c,rev,gate,revision_ci_run=31,backend_run=32)

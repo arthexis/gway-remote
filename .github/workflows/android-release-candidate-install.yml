@@ -8,6 +8,14 @@ on:
         options: [preflight, install, install-lab-only]
         default: preflight
         required: true
+      revision_ci_run:
+        required: false
+        type: string
+        default: ""
+      backend_run:
+        required: false
+        type: string
+        default: ""
       source_sha:
         required: true
         type: string
@@ -50,6 +58,8 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           MODE: ${{ inputs.mode }}
+          REVISION_CI_RUN: ${{ inputs.revision_ci_run }}
+          BACKEND_RUN: ${{ inputs.backend_run }}
           SOURCE_SHA: ${{ inputs.source_sha }}
           SOURCE_TREE: ${{ inputs.source_tree }}
           WORKFLOW_SHA: ${{ inputs.workflow_sha }}
@@ -75,6 +85,10 @@ jobs:
             install-lab-only) args+=(--allow-unverified-auth) ;;
             *) exit 1 ;;
           esac
+          if [[ -n "$REVISION_CI_RUN" || -n "$BACKEND_RUN" ]]; then
+            [[ "$MODE" != install-lab-only && "$REVISION_CI_RUN" =~ ^[1-9][0-9]{0,19}$ && "$BACKEND_RUN" =~ ^[1-9][0-9]{0,19}$ ]]
+            args+=(--revision-ci-run "$REVISION_CI_RUN" --backend-run "$BACKEND_RUN")
+          fi
           python3 -B -m gway_remote.android_release_candidate \
             --ledger "$STATE/ledger.sqlite" --sha "$SOURCE_SHA" --tree "$SOURCE_TREE" \
             --version "$VERSION" lab-install --artifact-dir "$STATE/artifacts" \

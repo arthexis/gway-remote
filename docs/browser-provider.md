@@ -12,8 +12,7 @@ by clicking the extension toolbar button and approving its single exact-origin
 optional Firefox permission. Firefox's activeTab grant alone expires on new
 documents; the exact-origin permission lets the reviewed same-site links work.
 The extension removes this optional permission on revocation and at startup;
-if cleanup fails it refuses a new lease. The badge says ON during a lease of
-at most ten minutes. Click again, switch tabs, close the tab, navigate outside
+if cleanup fails it refuses a new lease. The badge says WAIT while consent and native socket startup are pending, ON only after the host has bound and started listening, and ERR if startup fails. A ready lease lasts at most ten minutes. Click again, switch tabs, close the tab, navigate outside
 the supported Reports routes, disconnect or timeout to revoke. The grant is
 to the existing authorized GWay clients, not to an individual OAuth principal.
 Do not grant it on a sensitive account/tenant unless that delegation is intended.
@@ -63,7 +62,7 @@ button, approve the exact site permission, and verify ON. Refresh MCP discovery.
 
 ## Acceptance (read-only operations, no charge commands)
 
-1. Before granting: status/snapshot unavailable. Wrong origin and login
+1. Before granting: status/snapshot return lease_absent if the runtime socket is missing. Other bounded diagnostics are bridge_access_denied, bridge_timeout, bridge_unreachable and bridge_protocol_error; none include exception details. Missing socket does not prove why startup failed. Wrong origin and login
    pages denied. Verify no browser-side connection survives tab switch.
 2. Dashboard snapshot: RFID summary row count and session row count,
    operator admin panel hidden; choose one returned rfid_history ref.

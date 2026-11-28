@@ -103,7 +103,8 @@ def validate_result(value):
         raise ValueError("invalid_result")
     if type(value.get("ok")) is not bool or value.get("state") not in (
         "ready", "not_enabled", "denied", "stale", "unavailable", "navigation_started",
-        "action_started", "ambiguous", "loading"):
+        "action_started", "ambiguous", "loading", "lease_absent",
+        "bridge_access_denied", "bridge_timeout", "bridge_unreachable", "bridge_protocol_error"):
         raise ValueError("invalid_result")
     if "page" in value and value["page"] not in ("dashboard", "rfid", "charger", "other"):
         raise ValueError("invalid_page")

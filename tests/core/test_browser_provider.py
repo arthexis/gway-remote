@@ -69,10 +69,16 @@ class BrowserContractTests(unittest.TestCase):
         self.assertEqual(required_scope(catalog["execute_required"][0]), "execute")
 
     def test_unavailable_without_consent_and_no_extra_arguments(self):
-        with patch.object(browser_mcp, "call", side_effect=FileNotFoundError):
-            result = browser_mcp.dispatch("tools/call", {"name": "status", "arguments": {}})
-        self.assertTrue(result["isError"])
-        self.assertEqual(json.loads(result["content"][0]["text"])["state"], "unavailable")
+        for error, state in ((FileNotFoundError, "lease_absent"),
+                             (PermissionError, "bridge_access_denied"),
+                             (TimeoutError, "bridge_timeout"),
+                             (ConnectionRefusedError, "bridge_unreachable"),
+                             (ValueError, "bridge_protocol_error"),
+                             (EOFError, "bridge_protocol_error")):
+            with self.subTest(state=state), patch.object(browser_mcp, "call", side_effect=error("private detail")):
+                result = browser_mcp.dispatch("tools/call", {"name": "status", "arguments": {}})
+                self.assertTrue(result["isError"])
+                self.assertEqual(json.loads(result["content"][0]["text"]), {"ok": False, "state": state})
         with self.assertRaises(ValueError):
             browser_mcp.dispatch("tools/call", {"name": "status", "arguments": {"operation": "click"}})
 
@@ -118,6 +124,8 @@ class BrowserContractTests(unittest.TestCase):
                 self.assertFalse(path.exists())
                 proc.stdin.write(contract.encode({"consent": True}))
                 proc.stdin.flush()
+                self.assertEqual(contract.receive(read), {"bridge_ready": True})
+                self.assertTrue(path.is_socket())
                 end = time.monotonic() + 3
                 while not path.exists() and time.monotonic() < end:
                     time.sleep(.02)

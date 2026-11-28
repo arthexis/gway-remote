@@ -49,19 +49,34 @@ browser.browserAction.onClicked.addListener(async tab => {
   finally { pending = false; }
   const id = Array.from(crypto.getRandomValues(new Uint8Array(16)), x =>
     x.toString(16).padStart(2, "0")).join("");
-  const current = {port, tabId: tab.id, url: tab.url, origin: null, busy: false, timer: null, id};
+  const current = {port, tabId: tab.id, url: tab.url, origin: null, bridgeReady: false, busy: false, timer: null, id};
   lease = current;
-  current.timer = setTimeout(revoke, 10000);
-  port.onDisconnect.addListener(() => { if (lease === current) revoke(); });
+  function failBridge() {
+    if (lease !== current) return;
+    revoke();
+    browser.browserAction.setBadgeText({tabId: tab.id, text: "ERR"}).catch(() => {});
+  }
+  browser.browserAction.setBadgeText({tabId: tab.id, text: "WAIT"}).catch(failBridge);
+  current.timer = setTimeout(failBridge, 10000);
+  port.onDisconnect.addListener(() => {
+    if (lease === current) {
+      if (current.bridgeReady) revoke(); else failBridge();
+    }
+  });
   port.onMessage.addListener(async request => {
     if (lease !== current) return;
     if (!current.origin) {
       if (typeof request.origin !== "string" || request.lease_seconds !== 600 ||
           request.origin !== origin || !permitted(current.url, request.origin)) { revoke(); return; }
       current.origin = request.origin;
+      try { port.postMessage({consent: true}); } catch (_) { failBridge(); }
+      return;
+    }
+    if (!current.bridgeReady) {
+      if (request.bridge_ready !== true || Object.keys(request).length !== 1) { failBridge(); return; }
+      current.bridgeReady = true;
       clearTimeout(current.timer);
       current.timer = setTimeout(revoke, 600000);
-      port.postMessage({consent: true});
       browser.browserAction.setBadgeText({tabId: tab.id, text: "ON"}).catch(revoke);
       return;
     }
