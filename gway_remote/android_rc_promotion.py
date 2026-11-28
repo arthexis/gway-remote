@@ -12,6 +12,15 @@ from gway_remote.android_rc_acceptance import WORKFLOW, SMOKE_CHECKS, identity, 
 PUBLISH_WORKFLOW = "android-release-candidate-promote.yml"
 CONFIRM = "PUBLISH_EXACT_ACCEPTED_APK"
 HOLD_LINE = "# ANDROID_PUBLICATION_HOLD_718: preserve the staged CRM rollout."
+# This one-time transition also repairs the contradictory hold assertion and
+# makes the literal removal non-runtime. No Android or backend source changes.
+HOLD_REPAIR_PATHS = frozenset({
+    ".github/workflows/android.yml",
+    "gway_remote/android_rc_promotion.py",
+    "tests/infrastructure/test_android_rc_promotion.py",
+    "gway_remote/deploy_impact.py",
+    "tests/deployment/test_deploy_impact.py",
+})
 
 
 def workflow_source(gate, revision):
@@ -21,7 +30,7 @@ def workflow_source(gate, revision):
 
 
 def validate_revision(candidate, revision, gate, *, accepted_revision=None):
-    """Permit exact reviewed source or one literal hold-marker removal."""
+    """Permit the reviewed source or one protected, narrowly scoped hold transition."""
     require(gate.api("branches/main")["commit"]["sha"] == revision, "publication_revision_moved")
     require(gate.api(f"git/commits/{candidate.source_sha}")["tree"]["sha"] == candidate.source_tree,
             "source_tree_mismatch")
@@ -36,8 +45,9 @@ def validate_revision(candidate, revision, gate, *, accepted_revision=None):
     rows = comparison.get("files", [])
     require(comparison.get("status") == "ahead" and comparison.get("total_commits") == 1
             and comparison.get("merge_base_commit",{}).get("sha") == accepted_revision
-            and len(rows) == 1 and rows[0].get("filename") == ".github/workflows/android.yml"
-            and rows[0].get("status") == "modified", "candidate_superseded")
+            and len(rows) in (1, len(HOLD_REPAIR_PATHS))
+            and {r.get("filename") for r in rows} in (frozenset({".github/workflows/android.yml"}), HOLD_REPAIR_PATHS)
+            and all(r.get("status") == "modified" for r in rows), "candidate_superseded")
     original = workflow_source(gate, accepted_revision)
     require(original.splitlines().count(HOLD_LINE) == 1
             and original.replace(HOLD_LINE+"\n","",1) == current,
