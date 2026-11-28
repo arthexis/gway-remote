@@ -64,7 +64,7 @@ button, approve the exact site permission, and verify ON. Refresh MCP discovery.
 
 1. Before granting: status/snapshot return lease_absent if the runtime socket is missing. Other bounded diagnostics are bridge_access_denied, bridge_timeout, bridge_unreachable and bridge_protocol_error; none include exception details. Missing socket does not prove why startup failed. Wrong origin and login
    pages denied. Verify no browser-side connection survives tab switch.
-2. Dashboard snapshot: RFID summary row count and session row count,
+2. Dashboard snapshot: the packaged adapter is injected with the Firefox extension-root path `/reports.js`, in frame 0 only. Dispatch failures revoke the lease and report only a fixed state: tab_recheck_failed, permission_recheck_failed, script_injection_failed, adapter_message_failed, adapter_response_invalid, adapter_execution_failed or response_post_failed (if the native port can still deliver it). The extension console logs only the fixed failed dispatch stage, never exception text or page data. RFID summary row count and session row count,
    operator admin panel hidden; choose one returned rfid_history ref.
 3. click with the selected ref; inspect a new snapshot after navigation.
    Assert page=rfid, history_chart=true, session_rows>0; choose rfid_next

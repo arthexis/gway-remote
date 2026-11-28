@@ -2,15 +2,14 @@
 "use strict";
 (() => {
   if (globalThis.gwayReportsAdapterInstalled) return;
-  globalThis.gwayReportsAdapterInstalled = true;
   let refs = new Map();
   let snapshotAt = 0;
   let consentLease = null;
   const pageKind = path => path === "/" ? "dashboard" : path === "/rfid" ? "rfid" :
     /^\/chargers\/[^/]+\/[^/]+$/.test(path) ? "charger" : "other";
   const denied = (state = "denied") => ({ok: false, state});
-  const visible = el => el && el.isConnected && el.getClientRects().length > 0 &&
-    !el.closest("[hidden]") && getComputedStyle(el).visibility !== "hidden";
+  const visible = el => Boolean(el && el.isConnected && el.getClientRects().length > 0 &&
+    !el.closest("[hidden]") && getComputedStyle(el).visibility !== "hidden");
   const token = () => Array.from(crypto.getRandomValues(new Uint8Array(16)), x =>
     x.toString(16).padStart(2, "0")).join("");
   const textIs = (el, text) => el && el.textContent.trim() === text;
@@ -108,6 +107,7 @@
     return {ok: true, state: "action_started"};
   }
   browser.runtime.onMessage.addListener(message => {
+    try {
     if (window !== top || message.origin !== location.origin ||
         typeof message.lease !== "string" || !/^[a-f0-9]{32}$/.test(message.lease) ||
         document.querySelector('input[type="password"]')) return Promise.resolve(denied());
@@ -126,5 +126,11 @@
       }
     } else result = denied();
     return Promise.resolve(result);
+    } catch (_) {
+      refs = new Map();
+      return Promise.resolve(denied("adapter_execution_failed"));
+    }
   });
+  // Mark installed only after the listener was registered successfully.
+  globalThis.gwayReportsAdapterInstalled = true;
 })();

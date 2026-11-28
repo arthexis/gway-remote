@@ -60,6 +60,17 @@ class BrowserContractTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 contract.validate_result(bad)
 
+    def test_bounded_dispatch_states(self):
+        for state in ("tab_recheck_failed", "permission_recheck_failed", "script_injection_failed",
+                      "adapter_message_failed", "adapter_response_invalid", "adapter_execution_failed",
+                      "response_post_failed"):
+            result = {"ok": False, "state": state}
+            self.assertEqual(contract.validate_result(result), result)
+            with self.assertRaises(ValueError):
+                contract.validate_result({**result, "error": "private exception"})
+        with self.assertRaises(ValueError):
+            contract.validate_result({"ok": False, "state": "arbitrary error message"})
+
     def test_existing_federation_classification(self):
         r = SourceRegistration("browser", "a"*40, "/opt/browser/mcp",
                                ("/opt/browser/mcp",), "arthe", True)

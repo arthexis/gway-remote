@@ -82,10 +82,13 @@ browser.browserAction.onClicked.addListener(async tab => {
     }
     if (current.busy) { revoke(); return; }
     current.busy = true;
+    let failure = "tab_recheck_failed";
     try {
       const live = await browser.tabs.get(current.tabId);
+      failure = "permission_recheck_failed";
       const allowed = await browser.permissions.contains({origins: [pattern]});
       if (lease !== current) return;
+      failure = "response_post_failed";
       if (!live.active || !permitted(live.url, current.origin) || !allowed) {
         port.postMessage(denied()); revoke(); return;
       }
@@ -93,14 +96,28 @@ browser.browserAction.onClicked.addListener(async tab => {
       if (request.operation === "status") {
         port.postMessage({ok: true, state: "ready"});
       } else {
-        await browser.tabs.executeScript(current.tabId, {file: "reports.js", frameId: 0});
+        // Firefox resolves non-rooted file paths against the page URL.
+        failure = "script_injection_failed";
+        await browser.tabs.executeScript(current.tabId, {file: "/reports.js", frameId: 0});
         if (lease !== current) return;
+        failure = "adapter_message_failed";
         const result = await browser.tabs.sendMessage(current.tabId,
           {origin: current.origin, lease: current.id, request}, {frameId: 0});
-        if (lease === current) port.postMessage(result);
+        if (lease !== current) return;
+        failure = "adapter_response_invalid";
+        if (!result || typeof result.ok !== "boolean" || typeof result.state !== "string")
+          throw new Error("invalid_adapter_response");
+        failure = "response_post_failed";
+        port.postMessage(result);
+        if (result.state === "adapter_execution_failed") revoke();
       }
     } catch (_) {
-      if (lease === current) { try { port.postMessage(denied("unavailable")); } catch (_) {} revoke(); }
+      if (lease === current) {
+        // Log only a fixed stage enum, never the exception or page data.
+        console.warn("GWay Reports dispatch:", failure);
+        try { port.postMessage(denied(failure)); } catch (_) {}
+        revoke();
+      }
     } finally { current.busy = false; }
   });
 });

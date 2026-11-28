@@ -17,10 +17,11 @@ async function main() {
     permissions: {onRemoved: event(), contains: async () => granted, remove: async () => { granted = false; return true; }, request: async ({origins}) => { assert.equal(origins[0], "https://reports.example.test/*"); granted = allow; return allow; }},
     runtime: {getManifest: () => ({optional_permissions: ["https://reports.example.test/*"]}), connectNative(name) { assert.equal(name, "com.arthexis.gway_browser"); return port; }},
     tabs: {onRemoved: event(), onActivated: event(), onUpdated: event(),
-      get: async () => tab, executeScript: async (_, options) => { injections++; assert.equal(options.file, "reports.js"); },
+      get: async () => tab, executeScript: async (_, options) => { injections++; assert.equal(options.file, "/reports.js"); assert.equal(options.frameId, 0); },
       sendMessage: async () => ({ok: true, state: "ready"})}
   };
-  const context = {browser, URL, crypto: require("node:crypto").webcrypto, setTimeout: () => 1, clearTimeout: () => {}};
+  const warnings = [];
+  const context = {browser, URL, console: {warn: (...args) => warnings.push(args)}, crypto: require("node:crypto").webcrypto, setTimeout: () => 1, clearTimeout: () => {}};
   vm.runInNewContext(fs.readFileSync(path.join(root, "background.js"), "utf8"), context);
   assert.equal(messages.length, 0);
   await new Promise(resolve => setImmediate(resolve));
@@ -75,6 +76,43 @@ async function main() {
   await new Promise(resolve => setImmediate(resolve));
   assert.equal(granted, false);
   assert.equal(sent, 0);
+  // Fail each dispatch stage without leaking exception details or retaining consent.
+  const originalGet = browser.tabs.get, originalContains = browser.permissions.contains;
+  const validInjection = async (_, options) => {
+    assert.equal(options.file, "/reports.js"); assert.equal(options.frameId, 0);
+  };
+  const validMessage = async () => ({ok: true, state: "ready"});
+  const fail = async () => { throw new Error("private fixture data"); };
+  for (const stage of ["tab_recheck_failed", "permission_recheck_failed", "script_injection_failed",
+      "adapter_message_failed", "adapter_response_invalid", "adapter_execution_failed", "response_post_failed"]) {
+    browser.tabs.get = originalGet; browser.permissions.contains = originalContains;
+    browser.tabs.executeScript = validInjection; browser.tabs.sendMessage = validMessage;
+    port.postMessage = v => messages.push(v);
+    await new Promise(resolve => setImmediate(resolve));
+    await browser.browserAction.onClicked.fire(tab);
+    await port.onMessage.fire({origin: "https://reports.example.test", lease_seconds: 600});
+    await port.onMessage.fire({bridge_ready: true});
+    assert.equal(badges.at(-1), "ON");
+    if (stage === "tab_recheck_failed") browser.tabs.get = fail;
+    if (stage === "permission_recheck_failed") {
+      let once = true;
+      browser.permissions.contains = async () => { if (once) { once = false; return fail(); } return granted; };
+    }
+    if (stage === "script_injection_failed") browser.tabs.executeScript = fail;
+    if (stage === "adapter_message_failed") browser.tabs.sendMessage = fail;
+    if (stage === "adapter_response_invalid") browser.tabs.sendMessage = async () => undefined;
+    if (stage === "adapter_execution_failed") browser.tabs.sendMessage = async () => ({ok:false,state:stage});
+    if (stage === "response_post_failed") {
+      let once = true;
+      port.postMessage = v => { if (once) { once = false; throw new Error("private fixture data"); } messages.push(v); };
+    }
+    await port.onMessage.fire({operation: "snapshot"});
+    assert.equal(messages.at(-1).state, stage);
+    await new Promise(resolve => setImmediate(resolve));
+    assert.equal(granted, false);
+    assert.equal(badges.at(-1), "");
+  }
+  assert.ok(!JSON.stringify({messages,warnings}).includes("private fixture data"));
   // Adapter refuses login pages and unapproved origin without reading DOM.
   const listener = event();
   const doc = {querySelector(selector) { assert.equal(selector, 'input[type="password"]'); return {}; }};
@@ -136,5 +174,8 @@ async function main() {
   valid.href = "https://other.example.test/rfid?rfid=fixture";
   assert.equal((await invoke({operation: "click", ref: snap.controls[0].ref})).state, "stale");
   assert.equal((await invoke({operation: "evaluate"})).state, "denied");
+  dom.querySelector = () => { throw new Error("private adapter fixture"); };
+  assert.equal((await invoke({operation: "snapshot"})).state, "adapter_execution_failed");
+  assert.ok(!JSON.stringify(await invoke({operation: "snapshot"})).includes("private adapter fixture"));
 }
 main().catch(err => { console.error(err); process.exitCode = 1; });
