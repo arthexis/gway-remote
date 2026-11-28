@@ -47,7 +47,12 @@ class AndroidRcLiturgiaContractTest {
             days.add(day to form)
             return DayReadings(day, "Fixture celebration", form, "partial", "partial",
                 listOf(Reading("first", "Fixture reading", "GEN 1:1", "text_available",
-                    listOf(Passage("GEN", 1, 1, 1)), verses = listOf(Verse("GEN", 1, 1, restricted)))),
+                    listOf(Passage("GEN", 1, 1, 1)), verses = listOf(Verse("GEN", 1, 1, restricted)),
+                    dhhPassages = listOf(DhhPassage("GEN", 1, 1))),
+                    Reading("psalm", "Fixture psalm", "PSA 95:1", "reference_only", emptyList(),
+                        dhhPassages = listOf(DhhPassage("PSA", 95, 1))),
+                    Reading("gospel", "Fixture gospel", "LUK 21:34-36", "reference_only", emptyList(),
+                        dhhPassages = listOf(DhhPassage("LUK", 21, 34, 21, 36)))),
                 listOf("Fixture source"))
         }
         override suspend fun verse(passage: Passage, edition: String, offset: Int): VersePage {
@@ -69,10 +74,15 @@ class AndroidRcLiturgiaContractTest {
 
     @Test fun dayFormAndRightsBoundary() {
         val source = Fixture()
-        rule.setContent { MaterialTheme { LiturgiaPanel(source, library) } }
+        val opened = CopyOnWriteArrayList<String>()
+        rule.setContent { MaterialTheme { LiturgiaPanel(source, library, { url -> opened.add(url) }) } }
         rule.onNodeWithText("Fixture celebration").assertExists()
         rule.onNodeWithText("Cobertura: partial").assertExists()
         rule.onNodeWithText(restricted, substring = true).assertDoesNotExist()
+        click("Leer todas las lecturas en DHH")
+        assertEquals(1, opened.size)
+        assertTrue(opened.single().contains("version=DHH"))
+        assertTrue(java.net.URLDecoder.decode(opened.single(), "UTF-8").contains("Lucas 21:34-36"))
         val first = source.days.first().first
         click("›")
         rule.waitUntil(5000) { source.days.any { it.first == first.plusDays(1) } }
@@ -85,10 +95,13 @@ class AndroidRcLiturgiaContractTest {
 
     @Test fun readerComparisonBookmarkAndHistory() {
         val source = Fixture()
-        rule.setContent { MaterialTheme { LiturgiaPanel(source, library) } }
+        val opened = CopyOnWriteArrayList<String>()
+        rule.setContent { MaterialTheme { LiturgiaPanel(source, library, { url -> opened.add(url) }) } }
         click("Biblia")
         click("Seleccionar")
         rule.onNodeWithText("Fixture Genesis").performClick()
+        click("Leer pasaje en DHH")
+        assertTrue(java.net.URLDecoder.decode(opened.single(), "UTF-8").contains("Génesis 1&version=DHH"))
         click("Consultar")
         rule.onNodeWithText("GEN 1:1").assertExists()
         rule.onNodeWithText(restricted, substring = true).assertDoesNotExist()
@@ -116,13 +129,17 @@ class AndroidRcLiturgiaContractTest {
 
     @Test fun searchPaginationAndSanitizedError() {
         val source = Fixture()
-        rule.setContent { MaterialTheme { LiturgiaPanel(source, library) } }
+        val opened = CopyOnWriteArrayList<String>()
+        rule.setContent { MaterialTheme { LiturgiaPanel(source, library, { url -> opened.add(url) }) } }
         click("Buscar")
         rule.onAllNodesWithText("Buscar")[1].assertIsNotEnabled()
         rule.onNodeWithText("Palabra o frase").performScrollTo().performTextInput("amor")
         rule.onAllNodesWithText("Buscar")[1].performScrollTo().performClick()
         rule.onNodeWithText("GEN 1:1").assertExists()
         rule.onNodeWithText(restricted, substring = true).assertDoesNotExist()
+        click("Leer en DHH")
+        assertTrue(java.net.URLDecoder.decode(opened.single(), "UTF-8").contains("Génesis 1:1&version=DHH"))
+        rule.onNodeWithText("Sin resultados en esta edición instalada.").assertDoesNotExist()
         click("Más")
         rule.waitUntil(5000) { source.searches.contains(25) }
         rule.onNodeWithText("GEN 1:26").assertExists()
