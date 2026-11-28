@@ -5,7 +5,7 @@ from unittest.mock import Mock,patch
 from gway_remote.android_release_candidate import Candidate,CandidateLedger
 from gway_remote.android_rc_coordinator import (
     setup as setup_ledger,reserve,bind,tracked,workflow_step,advance,historical,artifact_step,pick_run,
-    CI,COMPOSE,INSTALL,ACCEPT,
+    CI,COMPOSE,INSTALL,ACCEPT,wait_current,
 )
 
 class CoordinatorTests(unittest.TestCase):
@@ -128,4 +128,19 @@ class CoordinatorTests(unittest.TestCase):
             self.assertIsNone(artifact_step(self.l,self.c,self.g,"signed",self.c.source_sha,Path(self.tmp.name)))
             rec.assert_called_once()
         self.assertEqual(pins["ANDROID_RC_SIGNING_ENABLED"],"false")
+        self.g.create_run.assert_not_called()
+
+    def test_lost_response_can_be_explicitly_reconciled_without_dispatch(self):
+        self.g.create_run.side_effect=RuntimeError("lost response")
+        with self.assertRaises(RuntimeError):self.step()
+        self.runs[11]=self.run_data(status="completed",conclusion="success")
+        self.assertEqual(self.step(adopt=11),(11,None))
+        self.assertEqual(tracked(self.l,self.c,"ci")[1],11)
+        self.g.create_run.assert_called_once()
+
+    def test_wait_polls_only_current_run(self):
+        self.runs[11]=self.run_data(status="completed",conclusion="success")
+        self.assertTrue(wait_current(self.g,{"run_id":11,"stage":"ci"},100,
+                                     clock=lambda:0,pause=lambda _:None))
+        self.g.api.assert_called_once_with("actions/runs/11")
         self.g.create_run.assert_not_called()

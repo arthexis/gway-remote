@@ -129,8 +129,14 @@ def workflow_step(ledger,candidate,gate,stage,workflow,revision,inputs,*,adopt=N
     spec={"workflow":workflow,"revision":revision,"inputs":inputs}
     old=tracked(ledger,candidate,stage)
     if old:
-        require(old[0]==spec and (adopt is None or adopt==old[1]),"coordinator_intent_conflict")
+        require(old[0]==spec and (adopt is None or old[1] in (None,adopt)),"coordinator_intent_conflict")
         run_id=old[1]
+        if run_id is None and adopt is not None:
+            # Explicitly reconcile a lost response by identity; never redispatch.
+            r=verified_run(gate,workflow,adopt,revision)
+            require(title is None or r.get("display_title")==title,"adopted_run_title_mismatch")
+            bind(ledger,candidate,stage,spec,adopt)
+            run_id=adopt
     else:
         run_id=pick_run(gate,workflow,revision,title=title,adopt=adopt)
         require(run_id is not None or gate.api("branches/main")["commit"]["sha"]==revision,
@@ -317,6 +323,18 @@ def advance(ledger,candidate,gate,artifact_dir,*,revision,backend_run=None,ci_ru
     ledger.record(candidate.candidate_id,"accepted",receipt)
     return outcome("accepted",acceptance_run=run,artifact_id=a.artifact_id,compatibility=receipt.get("compatibility"))
 
+def wait_current(gate,result,deadline,*,clock=time.monotonic,pause=time.sleep):
+    """Poll only the active run; full reconciliation happens on its terminal result."""
+    while clock()<deadline:
+        pause(min(15,max(0,deadline-clock())))
+        r=gate.api(f"actions/runs/{result[\"run_id\"]}")
+        require(r.get("id")==result["run_id"] and r.get("status") in ACTIVE | {"completed"},
+                "workflow_poll_identity_unverified")
+        if r["status"]=="completed" or (result["stage"]=="signed" and r["status"] in {"waiting","pending"}):
+            return True
+    return False
+
+
 def main():
     import fcntl
     import socket
@@ -362,7 +380,7 @@ def main():
                     install_run=args.install_run,acceptance_run=args.acceptance_run)
                 print(json.dumps(result,sort_keys=True),flush=True)
                 if result["status"]!="waiting" or time.monotonic()>=deadline: break
-                time.sleep(min(15,max(0,deadline-time.monotonic())))
+                if not wait_current(gate,result,deadline): break
         finally: ledger.close()
     finally: os.close(fd)
 
