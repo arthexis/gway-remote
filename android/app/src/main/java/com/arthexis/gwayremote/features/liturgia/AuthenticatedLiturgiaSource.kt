@@ -49,7 +49,11 @@ internal class AuthenticatedLiturgiaSource(private val endpoint: String, private
                     if (mayDisplayText(edition, it.getString("status") == "text_available"))
                         it.getJSONArray("verses").objects().map { v ->
                             Verse(v.getString("book_id"), v.getInt("chapter"), v.getInt("verse"), v.optionalString("text"))
-                        } else emptyList())
+                        } else emptyList(),
+                    it.optJSONArray("dhh_passages")?.objects()?.map { r ->
+                        DhhPassage(r.getString("book_id"), r.getInt("chapter"), r.getInt("first"),
+                            r.getInt("end_chapter"), r.getInt("last"))
+                    }.orEmpty(), it.optionalString("dhh_note"))
             }, data.getJSONArray("sources").objects().map {
                 listOfNotNull(it.optionalString("name"), it.optionalString("url")).joinToString(" · ")
             }, data.optionalString("selection_source"))
