@@ -16,7 +16,8 @@ internal data class Passage(
 )
 internal data class Reading(
     val role: String, val label: String, val citation: String?, val status: String,
-    val ranges: List<Passage>, val note: String? = null, val verses: List<Verse> = emptyList()
+    val ranges: List<Passage>, val note: String? = null, val verses: List<Verse> = emptyList(),
+    val dhhPassages: List<DhhPassage> = emptyList(), val dhhNote: String? = null
 )
 internal data class DayReadings(
     val date: LocalDate, val celebration: String?, val selectedForm: String?,
