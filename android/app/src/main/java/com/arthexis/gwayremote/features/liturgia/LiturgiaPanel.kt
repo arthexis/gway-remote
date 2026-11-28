@@ -1,6 +1,8 @@
 package com.arthexis.gwayremote.features.liturgia
 
 import android.content.Intent
+import android.content.ActivityNotFoundException
+import android.net.Uri
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.foundation.layout.*
 import androidx.compose.material3.*
@@ -27,8 +29,18 @@ private data class SearchPageRequest(val query: SearchRequest, val offset: Int =
 
 /** A dedicated module view; the shell will register it after transport acceptance. */
 @Composable
-internal fun LiturgiaPanel(source: LiturgiaSource, libraryOverride: LiturgiaLocalLibrary? = null) {
+internal fun LiturgiaPanel(source: LiturgiaSource, libraryOverride: LiturgiaLocalLibrary? = null,
+    externalOpener: ((String) -> Unit)? = null) {
     val context = LocalContext.current
+    var browserError by remember(source) { mutableStateOf(false) }
+    val openDhh: (String) -> Unit = { url ->
+        browserError = false
+        try {
+            if (externalOpener != null) externalOpener(url)
+            else context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
+        } catch (_: ActivityNotFoundException) { browserError = true }
+          catch (_: SecurityException) { browserError = true }
+    }
     val library = remember(context, libraryOverride) { libraryOverride ?: LiturgiaLocalLibrary(context) }
     var bookmarks by remember(library) { mutableStateOf(library.bookmarks()) }
     var history by remember(library) { mutableStateOf(library.history()) }
@@ -113,6 +125,7 @@ internal fun LiturgiaPanel(source: LiturgiaSource, libraryOverride: LiturgiaLoca
 
     ModulePage {
         ModuleHeader("Liturgia", "Lecturas, Biblia y búsqueda")
+        ModuleNotice(if (browserError) "No se pudo abrir el navegador." else null, browserError)
         ModuleLoading(editions.loading)
         ModuleNotice(if (editions.error) "No se pudieron consultar las traducciones." else null, editions.error)
         val available = editions.value.orEmpty()
@@ -120,6 +133,7 @@ internal fun LiturgiaPanel(source: LiturgiaSource, libraryOverride: LiturgiaLoca
         Choice("Traducción", selected?.name ?: edition, available.map { it.id to it.name }) { edition = it }
         if (selected != null && !mayDisplayText(edition, selected.textAvailable)) {
             ModuleNotice("Esta edición solo tiene referencias disponibles para consulta remota.")
+            if (edition == DEFAULT_EDITION) ModuleNotice("Los enlaces abren DHH, edición en línea, en tu navegador.")
         }
         if (available.isNotEmpty() && selected == null) {
             ModuleNotice("La edición seleccionada no está instalada. Elige otra explícitamente.")
@@ -144,12 +158,31 @@ internal fun LiturgiaPanel(source: LiturgiaSource, libraryOverride: LiturgiaLoca
                     ModuleNotice(result.selectionSource)
                     if (result.status != "available") ModuleNotice("Estado: " + result.status)
                     ModuleNotice("Cobertura: " + result.coverage)
+                    if (edition == DEFAULT_EDITION) {
+                        val all = allDailyDhhUrl(result)
+                        if (all != null) {
+                            Button(onClick = { openDhh(all) }, modifier = Modifier.fillMaxWidth()) {
+                                Text("Leer todas las lecturas en DHH")
+                            }
+                            ModuleNotice("Pasajes bíblicos del formulario seleccionado; no incluye oraciones del misal.")
+                            if (result.readings.any { it.dhhNote != null })
+                                ModuleNotice("Consulta las notas de numeración y fragmentos de cada lectura.")
+                        } else if (result.readings.isNotEmpty()) {
+                            ModuleNotice("No se pudieron verificar todos los enlaces del día. Consulta los disponibles por separado.")
+                        }
+                    }
                     result.readings.forEach { reading ->
                         ElevatedCard(Modifier.fillMaxWidth()) {
                             Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                                 Text(reading.label, style = MaterialTheme.typography.titleMedium)
                                 Text(reading.citation ?: "Referencia no disponible")
                                 ModuleNotice(reading.note)
+                                if (edition == DEFAULT_EDITION) {
+                                    ModuleNotice(reading.dhhNote)
+                                    dhhUrl(reading.dhhPassages)?.let { url ->
+                                        TextButton(onClick = { openDhh(url) }) { Text("Leer en DHH") }
+                                    }
+                                }
                                 if (mayDisplayText(edition, selected?.textAvailable == true &&
                                         reading.status == "text_available")) reading.verses.forEach { verse ->
                                     verse.text?.let { Text(verse.reference + " · " + it, style = MaterialTheme.typography.bodyLarge) }
@@ -166,11 +199,18 @@ internal fun LiturgiaPanel(source: LiturgiaSource, libraryOverride: LiturgiaLoca
                 }
             }
             1 -> {
-                val catalog = books.value.orEmpty()
+                val localCatalog = books.value.orEmpty()
+                val onlineOnly = if (edition == DEFAULT_EDITION)
+                    dhhOnlineBooks.filter { online -> localCatalog.none { it.id == online.id } }
+                    else emptyList()
+                val catalog = localCatalog + onlineOnly
                 val book = catalog.firstOrNull { it.id == bookId }
+                val externalOnly = onlineOnly.any { it.id == bookId }
                 ModuleLoading(books.loading)
                 ModuleNotice(if (books.error) "Catálogo no disponible." else null, books.error)
-                Choice("Libro", book?.name ?: "Seleccionar", catalog.map { it.id to it.name }) {
+                Choice("Libro", book?.name ?: "Seleccionar", catalog.map {
+                    it.id to (it.name + if (onlineOnly.any { online -> online.id == it.id }) " (solo en línea)" else "")
+                }) {
                     bookId = it
                     chapter = catalog.first { b -> b.id == it }.chapters.firstOrNull() ?: 1
                     request = null
@@ -182,16 +222,29 @@ internal fun LiturgiaPanel(source: LiturgiaSource, libraryOverride: LiturgiaLoca
                 OutlinedTextField(verses, { verses = it; request = null }, label = { Text("Versículos (opcional, 1-10)") },
                     modifier = Modifier.fillMaxWidth(), singleLine = true)
                 val range = parseRange(verses)
-                Button(enabled = book != null && chapter in book.chapters && (verses.isBlank() || range != null),
+                val validPassage = book != null && chapter in book.chapters && (verses.isBlank() || range != null)
+                Button(enabled = validPassage && !externalOnly,
                     onClick = { request = VerseRequest(Passage(bookId, chapter, range?.first, range?.last)) }) { Text("Consultar") }
+                if (edition == DEFAULT_EDITION && validPassage) {
+                    dhhUrl(listOf(Passage(bookId, chapter, range?.first, range?.last).asDhhPassage()))?.let { url ->
+                        TextButton(onClick = { openDhh(url) }) { Text("Leer pasaje en DHH") }
+                    }
+                }
+                if (externalOnly) ModuleNotice("Libro no instalado en DHH local. Disponible en la edición en línea.")
                 ModuleActions {
                     val chapters = book?.chapters.orEmpty()
                     val index = chapters.indexOf(chapter)
-                    OutlinedButton(enabled = index > 0, onClick = { openPassage(Passage(bookId, chapters[index - 1])) }) { Text("Anterior") }
+                    OutlinedButton(enabled = index > 0, onClick = {
+                        if (externalOnly) { chapter = chapters[index - 1]; verses = ""; request = null }
+                        else openPassage(Passage(bookId, chapters[index - 1]))
+                    }) { Text("Anterior") }
                     OutlinedButton(enabled = index >= 0 && index < chapters.lastIndex,
-                        onClick = { openPassage(Passage(bookId, chapters[index + 1])) }) { Text("Siguiente") }
+                        onClick = {
+                            if (externalOnly) { chapter = chapters[index + 1]; verses = ""; request = null }
+                            else openPassage(Passage(bookId, chapters[index + 1]))
+                        }) { Text("Siguiente") }
                 }
-                statistics.value?.let { Text("${it.books} libros · ${it.chapters} capítulos") }
+                statistics.value?.let { Text("${it.books} libros · ${it.chapters} capítulos instalados") }
                 request?.let { current ->
                     val saved = SavedPassage(edition, current.passage)
                     ModuleActions {
@@ -209,11 +262,11 @@ internal fun LiturgiaPanel(source: LiturgiaSource, libraryOverride: LiturgiaLoca
                         listOf("" to "Sin comparación") + available.filter { it.id != edition }.map { it.id to it.name }) { compareEdition = it }
                 }
                 ResultPage(passageData, request?.offset ?: 0, pageSize = 100,
-                    onPage = { offset -> request = request?.copy(offset = offset) }, enlarged = readingMode)
+                    onPage = { offset -> request = request?.copy(offset = offset) }, enlarged = readingMode, onDhh = openDhh)
                 if (compareEdition.isNotBlank() && request != null) {
                     Text("Comparación", style = MaterialTheme.typography.titleMedium)
                     ResultPage(comparison, request?.offset ?: 0, pageSize = 100,
-                        onPage = { offset -> request = request?.copy(offset = offset) }, enlarged = readingMode)
+                        onPage = { offset -> request = request?.copy(offset = offset) }, enlarged = readingMode, onDhh = openDhh)
                 }
                 Text("Marcadores", style = MaterialTheme.typography.titleMedium)
                 bookmarks.filter { it.edition == edition }.forEach { saved ->
@@ -232,6 +285,8 @@ internal fun LiturgiaPanel(source: LiturgiaSource, libraryOverride: LiturgiaLoca
                 if (mode == "words") Choice("Operador", operator, listOf("AND" to "Todas", "OR" to "Alguna", "NOT" to "Excluir")) { operator = it }
                 Choice("Buscar en", scope, listOf("all" to "Toda la Biblia", "OT" to "Antiguo Testamento",
                     "NT" to "Nuevo Testamento", "DEU" to "Deuterocanónicos", "book" to "Libro")) { scope = it }
+                if (edition == DEFAULT_EDITION && (scope == "DEU" || scope == "all"))
+                    ModuleNotice("La búsqueda usa los libros instalados; los deuterocanónicos no instalados se consultan en línea desde Biblia.")
                 if (scope == "book") Choice("Libro", searchBook.ifBlank { "Seleccionar" },
                     books.value.orEmpty().map { it.id to it.name }) { searchBook = it }
                 val search = SearchRequest(query.trim(), mode, operator,
@@ -241,7 +296,7 @@ internal fun LiturgiaPanel(source: LiturgiaSource, libraryOverride: LiturgiaLoca
                 searchRequest?.let { Text("Resultados: " + it.query.query) }
                 ResultPage(searchData, searchRequest?.offset ?: 0, pageSize = 25,
                     onPage = { searchRequest = searchRequest?.copy(offset = it) },
-                    onVerse = { openPassage(Passage(it.bookId, it.chapter, it.number, it.number)) })
+                    onVerse = { openPassage(Passage(it.bookId, it.chapter, it.number, it.number)) }, onDhh = openDhh)
             }
         }
         OutlinedButton(onClick = { retry++ }) { Text("Actualizar") }
@@ -272,20 +327,28 @@ private fun Choice(label: String, selected: String, items: List<Pair<String, Str
 }
 
 @Composable
-private fun ResultPage(state: Load<VersePage>, offset: Int, pageSize: Int, onPage: (Int) -> Unit, onVerse: ((Verse) -> Unit)? = null, enlarged: Boolean = false) {
+private fun ResultPage(state: Load<VersePage>, offset: Int, pageSize: Int, onPage: (Int) -> Unit, onVerse: ((Verse) -> Unit)? = null, enlarged: Boolean = false, onDhh: ((String) -> Unit)? = null) {
     ModuleLoading(state.loading)
     ModuleNotice(if (state.error) "Consulta no disponible." else null, state.error)
     state.value?.let { result ->
         Text("${result.total} versículos · ${result.translationId}")
-        if (result.items.isEmpty()) ModuleNotice("Sin resultados en esta edición.")
+        if (result.total == 0) ModuleNotice("Sin resultados en esta edición instalada.")
+        else if (result.items.isEmpty()) ModuleNotice("No hay referencias en esta página.")
         val showText = mayDisplayText(result.translationId, result.textAvailable)
-        if (!showText) ModuleNotice("Texto no disponible para consulta remota.")
+        if (!showText && result.total > 0) ModuleNotice(
+            if (result.translationId == DEFAULT_EDITION) "Coincidencias con referencia; lee el texto en DHH en línea."
+            else "Texto no disponible para consulta remota.")
         result.items.forEach { verse ->
             ElevatedCard(Modifier.fillMaxWidth()) {
                 Column(Modifier.padding(12.dp)) {
                     Text(verse.reference, style = MaterialTheme.typography.labelMedium)
                     if (showText) verse.text?.let { Text(it, style = if (enlarged) MaterialTheme.typography.headlineSmall else MaterialTheme.typography.bodyLarge) }
                     if (onVerse != null) TextButton(onClick = { onVerse(verse) }) { Text("Abrir") }
+                    if (result.translationId == DEFAULT_EDITION && onDhh != null) {
+                        dhhUrl(listOf(DhhPassage(verse.bookId, verse.chapter, verse.number)))?.let { url ->
+                            TextButton(onClick = { onDhh(url) }) { Text("Leer en DHH") }
+                        }
+                    }
                 }
             }
         }
